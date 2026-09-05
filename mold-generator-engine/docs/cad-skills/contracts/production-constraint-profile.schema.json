@@ -1,0 +1,107 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ProductionConstraintProfile",
+  "description": "Domain-neutral production constraints supplied to the General Segmentation Engine. Technology-specific data is allowed only through versioned, namespaced extensions.",
+  "type": "object",
+  "required": [
+    "profileId",
+    "profileVersion",
+    "revision",
+    "domainId",
+    "providerId",
+    "units",
+    "coordinateConvention",
+    "applicableRepresentations",
+    "constraints",
+    "extensions",
+    "evidence",
+    "invalidationTokens"
+  ],
+  "properties": {
+    "profileId": { "type": "string", "minLength": 1 },
+    "profileVersion": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "domainId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Open, preferably namespaced production-domain identifier. The core engine does not enumerate technologies."
+    },
+    "providerId": { "type": "string", "minLength": 1 },
+    "units": { "type": "string", "minLength": 1 },
+    "coordinateConvention": { "type": "string", "minLength": 1 },
+    "applicableRepresentations": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "constraints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "constraintId",
+          "category",
+          "requirementLevel",
+          "description",
+          "valueSource",
+          "evidenceIds"
+        ],
+        "properties": {
+          "constraintId": { "type": "string", "minLength": 1 },
+          "category": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Open category such as envelope, accessibility, clearance, feature, structural, handling, assembly, sequencing, or downstream."
+          },
+          "requirementLevel": {
+            "type": "string",
+            "enum": ["HARD_CONSTRAINT", "SOFT_OBJECTIVE", "ADVISORY"]
+          },
+          "description": { "type": "string", "minLength": 1 },
+          "value": {},
+          "valueSource": { "type": "string", "minLength": 1 },
+          "evidenceIds": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "maximumSegmentCount": { "type": ["integer", "null"], "minimum": 1 },
+    "allowedConfigurationIds": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "extensions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["namespace", "schemaId", "schemaVersion", "owner", "data"],
+        "properties": {
+          "namespace": { "type": "string", "minLength": 1 },
+          "schemaId": { "type": "string", "minLength": 1 },
+          "schemaVersion": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+          "owner": { "type": "string", "minLength": 1 },
+          "data": {}
+        }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["evidenceId", "source", "revision", "confidence"],
+        "properties": {
+          "evidenceId": { "type": "string", "minLength": 1 },
+          "source": { "type": "string", "minLength": 1 },
+          "revision": { "type": "string", "minLength": 1 },
+          "confidence": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] }
+        }
+      }
+    },
+    "invalidationTokens": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

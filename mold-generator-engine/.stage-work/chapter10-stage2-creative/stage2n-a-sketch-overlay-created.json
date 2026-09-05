@@ -1,0 +1,13 @@
+﻿{
+    "stage":  "Chapter 10 Stage 2N-A",
+    "status":  "creative-sketch-overlay-created",
+    "createdFiles":  [
+                         "frontend/src/features/mold-generation/MoldGenerationSketchOverlay.tsx",
+                         "frontend/src/features/mold-generation/MoldGenerationSketchOverlay.css"
+                     ],
+    "visualDirection":  "Handwritten Ready and Warning overlay with arrow over the 3D viewer",
+    "textHeavyCardRemoved":  true,
+    "geometryGenerated":  false,
+    "viewerIntegratedYet":  false,
+    "nextStep":  "Mount overlay over the existing 3D viewer"
+}

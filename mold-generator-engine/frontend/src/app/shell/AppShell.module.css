@@ -1,0 +1,119 @@
+.shell {
+  /*
+   * The header spans both grid columns, while the engineering workspace
+   * starts after navigation. Expose that boundary so header-hosted viewport
+   * controls can align to the workspace rather than the browser midpoint.
+   */
+  --shell-toolbar-workspace-start: var(--shell-navigation-width);
+
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  grid-template-areas:
+    "header header"
+    "navigation workspace"
+    "status status";
+  grid-template-columns:
+    var(--shell-navigation-width)
+    minmax(0, 1fr);
+  grid-template-rows:
+    var(--shell-header-height)
+    minmax(0, 1fr)
+    var(--shell-status-height);
+  background: var(--app-bg);
+  color: var(--text-primary);
+  overflow: hidden;
+}
+
+.navigationCollapsed {
+  --shell-toolbar-workspace-start: var(--shell-navigation-collapsed-width);
+
+  grid-template-columns:
+    var(--shell-navigation-collapsed-width)
+    minmax(0, 1fr);
+}
+
+.headerRegion {
+  /*
+   * Promotes the header above the workspace grid item in paint order. Both
+   * are plain grid items with no z-index, so without this they stack in
+   * DOM order -- the workspace (later in the DOM) would otherwise paint
+   * over any header dropdown (e.g. MoldToolbar's .secondaryControls) that
+   * visually extends below the header row into the workspace row.
+   */
+  position: relative;
+  z-index: var(--z-shell);
+  grid-area: header;
+  min-width: 0;
+  min-height: 0;
+}
+
+.navigationRegion {
+  grid-area: navigation;
+  min-width: 0;
+  min-height: 0;
+}
+
+.statusRegion {
+  grid-area: status;
+  min-width: 0;
+  min-height: 0;
+}
+
+.backdrop {
+  position: fixed;
+  z-index: var(--z-backdrop);
+  inset: 0;
+  border: 0;
+  background: var(--app-bg-subtle);
+  cursor: pointer;
+  opacity: 0.72;
+}
+
+@media (max-width: 1180px) {
+  .shell,
+  .navigationCollapsed {
+    --shell-toolbar-workspace-start: var(--shell-navigation-collapsed-width);
+
+    grid-template-columns:
+      var(--shell-navigation-collapsed-width)
+      minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 900px) {
+  .shell,
+  .navigationCollapsed {
+    --shell-toolbar-workspace-start: 0px;
+
+    grid-template-areas:
+      "header"
+      "workspace"
+      "status";
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .navigationRegion {
+    position: fixed;
+    z-index: var(--z-drawer);
+    top: var(--shell-header-height);
+    bottom: var(--shell-status-height);
+    left: 0;
+    width: min(var(--shell-navigation-width), 82vw);
+    min-width: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateX(-100%);
+    transition:
+      transform var(--duration-base) var(--easing-standard),
+      visibility var(--duration-base) var(--easing-standard);
+  }
+
+  .mobileRegionOpen {
+    visibility: visible;
+    pointer-events: auto;
+    transform: translateX(0);
+  }
+}

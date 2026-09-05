@@ -1,0 +1,19 @@
+.link {
+  position: fixed;
+  z-index: var(--z-skip-link);
+  top: var(--space-3);
+  left: var(--space-3);
+  transform: translateY(-150%);
+  border-radius: var(--radius-2);
+  background: var(--accent);
+  color: var(--app-bg);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-1);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+  transition: transform var(--duration-fast) var(--easing-standard);
+}
+
+.link:focus-visible {
+  transform: translateY(0);
+}

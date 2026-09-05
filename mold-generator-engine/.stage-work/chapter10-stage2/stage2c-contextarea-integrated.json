@@ -1,0 +1,10 @@
+﻿{
+    "stage":  "Chapter 10 Stage 2C",
+    "status":  "integrated",
+    "integrationTarget":  "frontend/src/systems/context-area/ContextArea.tsx",
+    "workspaceComponent":  "frontend/src/features/mold-generation/MoldGenerationWorkspace.tsx",
+    "usesFallbackWhenReadinessMissing":  true,
+    "generatesRealMoldGeometry":  false,
+    "viewerModified":  false,
+    "nextStage":  "Stage 2D - Add targeted tests and run typecheck"
+}

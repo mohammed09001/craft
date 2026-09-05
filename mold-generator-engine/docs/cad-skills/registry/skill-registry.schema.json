@@ -1,0 +1,87 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CADSkillRegistry",
+  "type": "object",
+  "required": ["registryVersion", "skills"],
+  "properties": {
+    "registryVersion": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "skills": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "skillId",
+          "name",
+          "version",
+          "description",
+          "capabilities",
+          "inputContract",
+          "outputContract",
+          "dependencies",
+          "executionPriority",
+          "estimatedContextCost",
+          "estimatedOutputCost",
+          "estimatedReasoningComplexity",
+          "typicalUseCases",
+          "supportedUpdateModes",
+          "status"
+        ],
+        "properties": {
+          "skillId": { "type": "string" },
+          "name": { "type": "string" },
+          "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+          "description": { "type": "string" },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "Workflow",
+                "Design",
+                "Geometry",
+                "SegmentationPlanning",
+                "Implementation",
+                "Validation",
+                "Testing",
+                "Performance",
+                "Optimization",
+                "Maintenance",
+                "Evolution",
+                "Compilation",
+                "Gateway"
+              ]
+            }
+          },
+          "inputContract": { "type": "string" },
+          "outputContract": { "type": "string" },
+          "dependencies": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "executionPriority": { "type": "integer", "minimum": 0 },
+          "estimatedContextCost": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH"] },
+          "estimatedOutputCost": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH"] },
+          "estimatedReasoningComplexity": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH"] },
+          "typicalUseCases": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "supportedUpdateModes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["FULL", "PARTIAL_UPDATE", "VALIDATE_ONLY", "REUSE_EXISTING"]
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": ["Stable", "Experimental", "Deprecated"]
+          }
+        }
+      }
+    }
+  }
+}

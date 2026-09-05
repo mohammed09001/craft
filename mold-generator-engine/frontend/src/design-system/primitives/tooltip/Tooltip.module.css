@@ -1,0 +1,31 @@
+.root {
+  position: relative;
+  display: inline-flex;
+}
+
+.tooltip {
+  position: absolute;
+  z-index: var(--z-shell);
+  top: 50%;
+  left: calc(100% + var(--space-2));
+  min-width: max-content;
+  transform: translateY(-50%);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-1);
+  background: var(--surface-panel-raised);
+  box-shadow: var(--shadow-panel);
+  color: var(--text-primary);
+  font-size: var(--font-size-0);
+  line-height: var(--line-height-tight);
+  opacity: 0;
+  padding: var(--space-1) var(--space-2);
+  pointer-events: none;
+  transition: opacity var(--duration-fast) var(--easing-standard);
+  visibility: hidden;
+}
+
+.root:hover .tooltip,
+.root:focus-within .tooltip {
+  opacity: 1;
+  visibility: visible;
+}

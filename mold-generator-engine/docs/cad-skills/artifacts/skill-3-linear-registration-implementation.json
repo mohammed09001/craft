@@ -1,0 +1,64 @@
+{
+  "metadata": {
+    "artifactId": "impl-linear-alignment-system-v1",
+    "artifactType": "ImplementationRecord",
+    "artifactVersion": "1.0.0",
+    "revision": 1,
+    "authorSkill": "cad-algorithm-implementer",
+    "status": "COMPLETED",
+    "detailLevel": "DEEP",
+    "updateMode": "FULL",
+    "sourceAlgorithmArtifactId": "spec-linear-alignment-system-v1",
+    "sourceGeometryArtifactId": "geom-linear-alignment-system-v1",
+    "dependencyIds": [
+      "spec-linear-alignment-system-v1",
+      "geom-linear-alignment-system-v1"
+    ],
+    "invalidationTriggers": [
+      "part_geometry_change",
+      "manufacturing_profile_change"
+    ]
+  },
+  "featureName": "Edge-Mounted Linear Alignment System",
+  "implementationRecord": {
+    "targetSubsystem": "frontend/src/features/mold-generation/registration",
+    "modifiedFiles": [
+      "frontend/src/features/mold-generation/registration/registration.contracts.ts",
+      "frontend/src/features/mold-generation/registration/registrationPlanner.ts",
+      "frontend/src/features/mold-generation/registration/RegistrationGenerationService.ts",
+      "frontend/src/features/mold-generation/registration/registrationGeometryValidation.ts",
+      "frontend/src/features/mold-generation/registration/registration.test.ts",
+      "frontend/src/features/mold-generation/registration/registrationPlanner.test.ts",
+      "frontend/src/features/mold-generation/registration/registrationGeometryValidation.test.ts",
+      "frontend/src/features/mold-generation/registration/registrationLifecycle.test.ts"
+    ],
+    "createdFiles": [
+      "docs/cad-skills/artifacts/linear-registration-design.md",
+      "docs/cad-skills/artifacts/skill-1-linear-registration-designer.json",
+      "docs/cad-skills/artifacts/skill-2-linear-registration-geometry.json",
+      "docs/cad-skills/artifacts/skill-3-linear-registration-implementation.json"
+    ],
+    "exports": [
+      "planRegistrationLayout",
+      "selectSpreadLayout",
+      "DefaultRegistrationToleranceResolver",
+      "RegistrationGenerationService"
+    ],
+    "implementationTraceability": {
+      "algorithmArtifactId": "spec-linear-alignment-system-v1",
+      "geometryArtifactId": "geom-linear-alignment-system-v1",
+      "specSectionsSatisfied": [
+        "InterfaceGraphConstruction",
+        "SideCorridorExtraction",
+        "LinearKeyLayoutPlanning",
+        "AsymmetryAndOwnershipAssignment",
+        "TaperedLinearCSGExecution"
+      ]
+    },
+    "implementationAssumptions": [
+      "Linear key geometry parameters replace legacy spherical locator fields cleanly",
+      "Manifold CSG handles tapered linear prism primitive creation with 2-manifold assertions"
+    ],
+    "qualityChecksPassed": true
+  }
+}

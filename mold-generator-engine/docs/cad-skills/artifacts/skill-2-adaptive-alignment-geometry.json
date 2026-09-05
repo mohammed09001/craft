@@ -1,0 +1,8 @@
+{
+  "runId": "run-1784820849177-4dcbf0",
+  "skillName": "geometry-computational-specialist",
+  "stage": 2,
+  "status": "PASS",
+  "summary": "Formulated computational geometry strategy for BVH signed-distance field queries (eliminating broad AABB rejection) and minimum sufficient key profile search.",
+  "designArtifactPath": "docs/cad-skills/artifacts/post-cavity-adaptive-linear-alignment-design.md"
+}

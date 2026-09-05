@@ -1,0 +1,25 @@
+{
+  "metadata": {
+    "artifactId": "geom-cavity-registration-decoupling-v1",
+    "artifactType": "GeometryStrategySpecification",
+    "artifactVersion": "1.0.0",
+    "revision": 1,
+    "authorSkill": "geometry-computational-specialist",
+    "status": "ACCEPTED",
+    "detailLevel": "DEEP",
+    "updateMode": "FULL",
+    "sourceAlgorithmArtifactId": "spec-cavity-registration-decoupling-v1",
+    "dependencyIds": [
+      "spec-cavity-registration-decoupling-v1"
+    ],
+    "invalidationTriggers": [
+      "workflow_contract_change"
+    ]
+  },
+  "featureName": "Decouple Cavity Success from Linear Registration Failure Strategy",
+  "geometryStrategy": {
+    "spatialIndexing": "WallThicknessField BVH signed-distance queries",
+    "numericalTolerancePolicy": "DefaultRegistrationToleranceResolver with booleanToleranceMm=1e-5",
+    "booleanRobustness": "Transactional CSG generation: clone upstream bodies, attempt male/female primitive Booleans, commit only on full stage success, fallback to upstream bodies on failure"
+  }
+}

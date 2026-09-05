@@ -1,0 +1,36 @@
+﻿Chapter 10 Stage 3 - Mold Coordinate System
+
+Status: PASS
+
+Scope:
+- Backend / Engine pure logic only
+- No Frontend
+- No React Components
+- No CSS
+- No 3D Viewer changes
+- No ContextArea or StatusArea changes
+- No Mold Envelope
+- No Parting Plane
+- No Cavity
+- No M1/M2 geometry
+
+Created Stage 3 files:
+- src\mold-generation\coordinate-system\moldCoordinateFrame.types.ts
+- src\mold-generation\coordinate-system\moldCoordinateFrame.builder.ts
+- src\mold-generation\coordinate-system\moldCoordinateFrame.builder.test.ts
+- src\mold-generation\coordinate-system\index.ts
+
+Capabilities:
+- Builds MoldCoordinateFrame from optional pullAxis / partCenter / partBounds / readiness signals
+- Supports conservative fallback behavior
+- Detects missing pull axis
+- Detects missing part center
+- Detects missing part bounds
+- Detects invalid or zero pull axis
+- Produces warnings, blockers, reasonCodes, confidence, and requiresManualReview
+- Keeps m1Direction and m2Direction opposite
+- Does not generate mold geometry
+
+Note:
+- Pre-existing Stage 2 frontend changes were preserved and not restored.
+- Chapter 9 remains temporarily frozen and is only referenced through flexible readiness-style input.

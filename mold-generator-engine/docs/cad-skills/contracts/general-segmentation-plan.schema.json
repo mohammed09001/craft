@@ -1,0 +1,347 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SegmentationPlanSpecification",
+  "description": "Planning-only output of the General Segmentation Engine. Boundary intents describe future work; this artifact never represents modified geometry.",
+  "type": "object",
+  "required": [
+    "metadata",
+    "planningContext",
+    "necessityAnalysis",
+    "candidates",
+    "selectionRecord",
+    "assemblyReintegrationPlan",
+    "preExecutionValidation",
+    "postExecutionValidationRequirements",
+    "warnings",
+    "blockers",
+    "recommendedNextCapability"
+  ],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": [
+        "artifactId",
+        "artifactType",
+        "artifactVersion",
+        "revision",
+        "authorSkill",
+        "status",
+        "detailLevel",
+        "updateMode",
+        "dependencyIds",
+        "invalidationTriggers"
+      ],
+      "properties": {
+        "artifactId": { "type": "string", "minLength": 1 },
+        "artifactType": { "type": "string", "enum": ["SegmentationPlanSpecification"] },
+        "artifactVersion": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "authorSkill": { "type": "string", "enum": ["general-segmentation-engine"] },
+        "status": { "type": "string", "enum": ["DRAFT", "REVIEWED", "ACCEPTED", "SUPERSEDED", "BLOCKED"] },
+        "detailLevel": { "type": "string", "enum": ["COMPACT", "STANDARD", "DEEP"] },
+        "updateMode": { "type": "string", "enum": ["FULL", "PARTIAL_UPDATE", "VALIDATE_ONLY", "REUSE_EXISTING"] },
+        "dependencyIds": {
+          "type": "array",
+          "minItems": 5,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "supersedesArtifactId": { "type": ["string", "null"] },
+        "invalidationTriggers": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "planningContext": {
+      "type": "object",
+      "required": [
+        "subjectId",
+        "subjectRevision",
+        "subjectContentHash",
+        "units",
+        "coordinateFrame",
+        "sourceAlgorithmArtifactId",
+        "sourceGeometryArtifactId",
+        "sourceRequestArtifactId",
+        "productionConstraintProfileRef",
+        "segmentationPolicyRef"
+      ],
+      "properties": {
+        "subjectId": { "type": "string", "minLength": 1 },
+        "subjectRevision": { "type": "string", "minLength": 1 },
+        "subjectContentHash": { "type": "string", "minLength": 1 },
+        "units": { "type": "string", "minLength": 1 },
+        "coordinateFrame": { "type": "string", "minLength": 1 },
+        "sourceAlgorithmArtifactId": { "type": "string", "minLength": 1 },
+        "sourceGeometryArtifactId": { "type": "string", "minLength": 1 },
+        "sourceRequestArtifactId": { "type": "string", "minLength": 1 },
+        "productionConstraintProfileRef": { "type": "string", "minLength": 1 },
+        "segmentationPolicyRef": { "type": "string", "minLength": 1 }
+      }
+    },
+    "necessityAnalysis": {
+      "type": "object",
+      "required": ["decision", "reasonCodes", "evaluatedUnsegmentedAlternatives", "confidence"],
+      "properties": {
+        "decision": { "type": "string", "enum": ["NOT_REQUIRED", "REQUIRED", "BLOCKED"] },
+        "reasonCodes": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "evaluatedUnsegmentedAlternatives": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["alternativeId", "description", "hardConstraintsPassed", "reason"],
+            "properties": {
+              "alternativeId": { "type": "string", "minLength": 1 },
+              "description": { "type": "string", "minLength": 1 },
+              "hardConstraintsPassed": { "type": "boolean" },
+              "reason": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "confidence": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] }
+      }
+    },
+    "candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "candidateId",
+          "strategySourceId",
+          "strategyFamily",
+          "description",
+          "boundaryIntents",
+          "predictedSegmentCount",
+          "assemblyGraph",
+          "hardConstraintResults",
+          "policyMetricResults",
+          "feasible",
+          "confidence",
+          "risk",
+          "uncertainty",
+          "sensitivityResult",
+          "warnings",
+          "rejectionReasons"
+        ],
+        "properties": {
+          "candidateId": { "type": "string", "minLength": 1 },
+          "strategySourceId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "References an externally owned candidateStrategySources entry in the accepted SegmentationPlanningRequest."
+          },
+          "strategyFamily": { "type": "string", "minLength": 1 },
+          "description": { "type": "string", "minLength": 1 },
+          "boundaryIntents": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["boundaryId", "descriptorType", "descriptorReference", "coordinateFrame"],
+              "properties": {
+                "boundaryId": { "type": "string", "minLength": 1 },
+                "descriptorType": { "type": "string", "minLength": 1 },
+                "descriptorReference": { "type": "string", "minLength": 1 },
+                "coordinateFrame": { "type": "string", "minLength": 1 }
+              }
+            }
+          },
+          "predictedSegmentCount": { "type": "integer", "minimum": 1 },
+          "assemblyGraph": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "hardConstraintResults": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["constraintId", "passed", "margin", "evidenceIds"],
+              "properties": {
+                "constraintId": { "type": "string", "minLength": 1 },
+                "passed": { "type": "boolean" },
+                "margin": {},
+                "evidenceIds": {
+                  "type": "array",
+                  "items": { "type": "string", "minLength": 1 }
+                }
+              }
+            }
+          },
+          "policyMetricResults": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["metricId", "normalizedValue", "policyComponentId"],
+              "properties": {
+                "metricId": { "type": "string", "minLength": 1 },
+                "normalizedValue": { "type": "number" },
+                "policyComponentId": { "type": "string", "minLength": 1 }
+              }
+            }
+          },
+          "feasible": { "type": "boolean" },
+          "confidence": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] },
+          "risk": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+          "uncertainty": { "type": "number", "minimum": 0 },
+          "sensitivityResult": { "type": "string", "minLength": 1 },
+          "warnings": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "rejectionReasons": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "selectionRecord": {
+      "type": "object",
+      "required": [
+        "feasibleCandidateIds",
+        "paretoCandidateIds",
+        "selectedCandidateId",
+        "policyEvaluation",
+        "tieBreakRecord",
+        "confidence"
+      ],
+      "properties": {
+        "feasibleCandidateIds": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "paretoCandidateIds": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "selectedCandidateId": { "type": ["string", "null"] },
+        "policyEvaluation": { "type": "string", "minLength": 1 },
+        "tieBreakRecord": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "confidence": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] }
+      }
+    },
+    "assemblyReintegrationPlan": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "interfaceIntentId",
+          "interfaceRole",
+          "owningSegmentIds",
+          "candidateRegionReferences",
+          "alignmentRequirements",
+          "accessibilityRequirements",
+          "keepOutRegionIds",
+          "clearancePolicyReference",
+          "downstreamGeometryWork",
+          "requiredValidation"
+        ],
+        "properties": {
+          "interfaceIntentId": { "type": "string", "minLength": 1 },
+          "interfaceRole": { "type": "string", "minLength": 1 },
+          "owningSegmentIds": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "candidateRegionReferences": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "alignmentRequirements": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "accessibilityRequirements": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "keepOutRegionIds": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "clearancePolicyReference": { "type": "string", "minLength": 1 },
+          "downstreamGeometryWork": { "type": "string", "minLength": 1 },
+          "requiredValidation": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "preExecutionValidation": {
+      "type": "object",
+      "required": ["passed", "checks", "executionPerformed"],
+      "properties": {
+        "passed": { "type": "boolean" },
+        "checks": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "executionPerformed": {
+          "type": "boolean",
+          "enum": [false],
+          "description": "Must always be false: this Skill plans and validates plans, never modifies geometry."
+        }
+      }
+    },
+    "postExecutionValidationRequirements": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "blockers": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "recommendedNextCapability": {
+      "type": "string",
+      "enum": ["NONE", "Implementation", "Validation"]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "necessityAnalysis": {
+            "properties": { "decision": { "const": "REQUIRED" } }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "selectionRecord": {
+            "properties": {
+              "selectedCandidateId": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "necessityAnalysis": {
+            "properties": { "decision": { "enum": ["NOT_REQUIRED", "BLOCKED"] } }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "selectionRecord": {
+            "properties": {
+              "selectedCandidateId": { "type": "null" }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

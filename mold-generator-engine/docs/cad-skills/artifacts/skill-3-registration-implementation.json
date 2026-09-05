@@ -1,0 +1,60 @@
+{
+  "metadata": {
+    "artifactId": "impl-registration-adaptive-planner-v1",
+    "artifactType": "ImplementationRecord",
+    "artifactVersion": "1.0.0",
+    "revision": 1,
+    "authorSkill": "cad-algorithm-implementer",
+    "status": "COMPLETED",
+    "detailLevel": "DEEP",
+    "updateMode": "FULL",
+    "sourceAlgorithmArtifactId": "spec-registration-adaptive-planner-v1",
+    "sourceGeometryArtifactId": "geom-registration-adaptive-planner-v1",
+    "dependencyIds": [
+      "spec-registration-adaptive-planner-v1",
+      "geom-registration-adaptive-planner-v1"
+    ],
+    "invalidationTriggers": [
+      "part_geometry_change",
+      "manufacturing_profile_change"
+    ]
+  },
+  "featureName": "Adaptive Registration Planner",
+  "implementationRecord": {
+    "targetSubsystem": "frontend/src/features/mold-generation/registration",
+    "modifiedFiles": [
+      "frontend/src/features/mold-generation/registration/registrationTolerance.policy.ts",
+      "frontend/src/features/mold-generation/registration/registrationPlanner.ts",
+      "frontend/src/features/mold-generation/registration/RegistrationGenerationService.ts",
+      "frontend/src/features/mold-generation/split-face/SplitFaceControls.tsx",
+      "frontend/src/features/mold-generation/split-face/SplitFaceControls.module.css"
+    ],
+    "createdFiles": [
+      "docs/cad-skills/artifacts/skill-1-registration-designer.json",
+      "docs/cad-skills/artifacts/skill-2-registration-geometry.json",
+      "docs/cad-skills/artifacts/skill-3-registration-implementation.json"
+    ],
+    "exports": [
+      "planRegistrationLayout",
+      "selectSpreadLayout",
+      "DefaultRegistrationToleranceResolver",
+      "RegistrationGenerationService"
+    ],
+    "implementationTraceability": {
+      "algorithmArtifactId": "spec-registration-adaptive-planner-v1",
+      "geometryArtifactId": "geom-registration-adaptive-planner-v1",
+      "specSectionsSatisfied": [
+        "LocalScaleDerivation",
+        "AdaptiveCandidateGeneration",
+        "ExactGeometryValidation",
+        "DegradingCountSelection",
+        "ToolbarStatusOverlay"
+      ]
+    },
+    "implementationAssumptions": [
+      "WallThicknessField provides exact signed distance queries via three-mesh-bvh",
+      "Toolbar error banner renders cleanly below toolbar without breaking control buttons"
+    ],
+    "qualityChecksPassed": true
+  }
+}

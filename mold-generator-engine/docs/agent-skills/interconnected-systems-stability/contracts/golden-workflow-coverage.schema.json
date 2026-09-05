@@ -1,0 +1,66 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "GoldenWorkflowCoverage",
+  "description": "Records which Golden Workflow stages an Interconnected Systems Stability Engineer investigation covered for a given task, and why any stage was skipped. Consumed by mold-commit-ready, which must refuse a Ready verdict if any stage is SKIPPED-UNJUSTIFIED. See docs/agent-skills/interconnected-systems-stability/SKILL.md for the full procedure this record supports. This is the only machine-readable schema this skill introduces in Phase 1 — dependency-map, state-ownership-map, protected-contract, and system-impact-report artifacts were deliberately deferred (see the approved Engineering Proposal, section 17).",
+  "type": "object",
+  "required": ["taskDescription", "coverageScope", "stages", "blockers", "createdAt"],
+  "properties": {
+    "taskDescription": {
+      "type": "string",
+      "description": "The change this coverage record was produced for, verbatim or closely paraphrased."
+    },
+    "coverageScope": {
+      "type": "string",
+      "enum": ["FULL_WORKFLOW_REQUIRED", "SUBSET_JUSTIFIED"],
+      "description": "FULL_WORKFLOW_REQUIRED when the change affects shared lifecycle, model replacement, runtime ownership, transform synchronization, or pipeline coordination, or otherwise carries broad regression risk. SUBSET_JUSTIFIED for a narrow change confined to one stage plus its immediate downstream consumer."
+    },
+    "coverageScopeReason": {
+      "type": "string",
+      "description": "One-line justification for the coverageScope decision."
+    },
+    "stages": {
+      "type": "array",
+      "description": "One entry per Golden Workflow stage. Remove Mold and Rebuild are explicitly unverified as distinct actions in this codebase as of Phase 1 (see SKILL.md) - a coverage record may mark them SKIPPED-JUSTIFIED with reason 'stage existence unverified, out of Phase 1 scope' but must not claim RUN for either without independent verification performed outside this skill.",
+      "items": {
+        "type": "object",
+        "required": ["stage", "status"],
+        "properties": {
+          "stage": {
+            "type": "string",
+            "enum": [
+              "import-stl",
+              "flip-orient",
+              "create-mold",
+              "cavity",
+              "sprue",
+              "registration",
+              "remove-mold",
+              "rebuild"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["RUN", "SKIPPED-JUSTIFIED", "SKIPPED-UNJUSTIFIED"]
+          },
+          "reason": {
+            "type": ["string", "null"],
+            "description": "Required (non-null) when status is not RUN."
+          },
+          "evidence": {
+            "type": ["string", "null"],
+            "description": "File:line, test name, or manual verification note supporting a RUN status."
+          }
+        }
+      }
+    },
+    "blockers": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Non-empty whenever any stage is SKIPPED-UNJUSTIFIED - each such stage must produce one entry here, consumed the same way as the Regression Risk Synthesizer's Blockers category in SKILL.md."
+    },
+    "createdAt": {
+      "type": "string",
+      "description": "ISO 8601 timestamp."
+    }
+  }
+}

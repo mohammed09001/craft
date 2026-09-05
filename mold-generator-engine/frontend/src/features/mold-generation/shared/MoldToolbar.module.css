@@ -1,0 +1,192 @@
+/*
+ * Neutral toolbar stylesheet shared by SplitFaceControls (split-face/) and
+ * SegmentationModeBar (segmentation/). Owned by neither feature -- both
+ * import it, neither should treat it as theirs to change unilaterally.
+ * Split-face-only rules (measurement, badge, error, command-icon sizing)
+ * stay in SplitFaceControls.module.css.
+ *
+ * Hosted inline in the global header's toolbar row (see
+ * systems/global-header/GlobalHeader.module.css's .toolbarSlot, its
+ * positioning context) -- no longer a floating overlay over the viewport.
+ */
+
+.controls {
+  display: inline-flex;
+  width: max-content;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: nowrap;
+  gap: 6px;
+
+  padding: 5px 6px;
+  border: 1px solid
+    color-mix(in srgb, var(--color-neutral-0) 14%, var(--color-neutral-950));
+  border-radius: var(--radius-2);
+  background: var(--color-neutral-950);
+  color: var(--color-neutral-200);
+  box-shadow: var(--shadow-panel);
+
+  white-space: nowrap;
+  backdrop-filter: blur(8px);
+}
+
+/*
+ * MoreMoldsToolbar: an extension of the main toolbar, shown only while a
+ * more-molds session is active. Drops down beneath the header's toolbar
+ * row as an anchored overlay (rather than joining the static row inline)
+ * so entering/exiting a session never resizes the header.
+ */
+.secondaryControls {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 35;
+}
+
+.group {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.measurement {
+  min-width: 54px;
+  padding: 0 3px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  line-height: 30px;
+  text-align: center;
+}
+
+.iconButton {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  align-items: center;
+  justify-content: center;
+
+  padding: 0;
+  border: 1px solid
+    color-mix(in srgb, var(--color-neutral-0) 14%, var(--color-neutral-950));
+  border-radius: var(--radius-1);
+  background: color-mix(in srgb, var(--color-neutral-0) 7%, var(--color-neutral-950));
+  color: var(--color-neutral-200);
+
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--easing-standard),
+    border-color var(--duration-fast) var(--easing-standard),
+    color var(--duration-fast) var(--easing-standard),
+    transform var(--duration-fast) var(--easing-standard);
+}
+
+.iconButton:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--color-neutral-0) 26%, var(--color-neutral-950));
+  background: var(--color-neutral-800);
+  color: var(--color-neutral-50);
+}
+
+.iconButton:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.iconButton:disabled {
+  opacity: 0.34;
+  cursor: not-allowed;
+}
+
+.iconButton:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.primaryButton {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 24%, var(--color-neutral-950));
+  color: var(--accent-strong);
+}
+
+.primaryButton:hover:not(:disabled) {
+  border-color: var(--accent-strong);
+  background: color-mix(in srgb, var(--accent) 34%, var(--color-neutral-950));
+}
+
+.icon {
+  display: block;
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+/* Keep the standard command glyphs optically centered inside the existing
+   30px controls. Wider workflow glyphs remain readable without visually
+   dominating the adjacent 18px tools. The Construct command retains its
+   intentionally larger treatment below. */
+.iconButton > .icon {
+  max-width: 18px;
+  max-height: 18px;
+}
+
+.separator {
+  display: block;
+  width: 1px;
+  height: 24px;
+  flex: 0 0 1px;
+  margin: 0 2px;
+  background: color-mix(in srgb, var(--color-neutral-0) 14%, var(--color-neutral-950));
+}
+
+/* Positioning context for ConstructedCuttingPlanFlyout + its reopen-blocked banner (a plain <ToolFlyout> already has one internally, but the banner is a sibling of it, not a child). */
+.flyoutWithBanner {
+  position: relative;
+  display: inline-flex;
+}
+
+/* Reopen-blocked reason banner, anchored beneath the Constructed Cutting Plan trigger -- shared since the flyout is hosted by more than one toolbar. */
+.reopenBlockedBanner {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  z-index: 40;
+
+  max-width: min(320px, calc(100vw - 32px));
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--error) 42%, var(--border-subtle));
+  border-radius: var(--radius-3);
+  background: color-mix(in srgb, var(--surface-panel) 95%, transparent);
+  color: var(--error);
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: center;
+  white-space: normal;
+  box-shadow: var(--shadow-panel);
+
+  transform: translateX(-50%);
+  backdrop-filter: blur(8px);
+}
+
+/*
+ * Widens the button for command-style icons (Constructed Cutting Plan,
+ * Split mold), which are visually larger than the standard 18x18
+ * ToolbarIcon set. Shared because SplitFaceControls and SegmentationModeBar
+ * both host the Constructed Cutting Plan trigger.
+ */
+.commandIcon {
+  width: 24px;
+  height: 21px;
+}
+
+.commandButton {
+  width: 36px;
+  height: 32px;
+  flex-basis: 36px;
+}
+
+.commandButton .commandIcon {
+  max-width: none;
+  max-height: none;
+  filter: drop-shadow(0 1px 1px color-mix(in srgb, var(--app-shadow) 28%, transparent));
+}

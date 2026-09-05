@@ -1,0 +1,72 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ExecutionEngineRegistry",
+  "description": "Registry of Execution Engines that may consume an APPROVED EngineeringProposal (docs/cad-skills/contracts/proposal.schema.json). An Execution Engine owns only execution - it does not own the Prompt Compiler, Loop Engine, Skills, Proposal compilation, or Approval. This mirrors docs/cad-skills/registry/skill-registry.schema.json's registry-wrapper pattern deliberately, so the same JSONSchemaValidator already used by docs/cad-skills/tests/test_cad_skills.py can validate both without new validator code. As of the Engineering Hardening pass, execution-engines.json (validated against this schema) is read at runtime by the 'execute' CLI command (validateExecutionEngine in .claude/loop/loop-trace.mjs), which refuses an engineId not present in this registry.",
+  "type": "object",
+  "required": ["registryVersion", "engines"],
+  "properties": {
+    "registryVersion": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "engines": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "engineId",
+          "name",
+          "vendor",
+          "capabilities",
+          "limitations",
+          "verificationLevel",
+          "status",
+          "notes"
+        ],
+        "properties": {
+          "engineId": { "type": "string" },
+          "name": { "type": "string" },
+          "vendor": {
+            "type": "string",
+            "description": "Repository-evidenced vendor attribution only. Use 'Not specified by repository documentation' rather than inferring an unverified vendor - see prompt-compiler's own 'must not silently invent facts' rule (.claude/skills/prompt-compiler/SKILL.md)."
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "RepositorySearch",
+                "ReadFiles",
+                "EditFiles",
+                "RunTests",
+                "BrowserValidation",
+                "GitOperations",
+                "SkillInvocation",
+                "HookEnforcement"
+              ]
+            },
+            "description": "Capabilities this engine is confirmed, by repository evidence, to have available. Do not list a capability the engine has not been observed to exercise in this repository - an untested capability belongs in 'limitations', not here."
+          },
+          "limitations": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Known gaps, untested claims, or structural constraints for this engine, stated plainly rather than omitted."
+          },
+          "verificationLevel": {
+            "type": "string",
+            "enum": ["HookConfirmed", "ExplicitLogOnly", "Unverified"],
+            "description": "Same evidence-strength tiering already used by .claude/loop/loop-trace.mjs's computeVerifyVerdict (confirmedByHook vs confirmedByExplicitLog), generalized to describe the engine's invocation-evidence ceiling rather than a single invocation's evidence."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["Verified", "PartiallyVerified", "Unverified"]
+          },
+          "notes": {
+            "type": "string",
+            "description": "Free-text evidence citation for why this engine's capabilities/status were classified this way. Required, not optional, so no engine entry can assert a status without a stated basis."
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,422 @@
+﻿[
+    {
+        "path":  "frontend\\src\\features\\viewport\\runtime\\createCamera.ts",
+        "score":  37,
+        "reasons":  [
+                        "Vector3",
+                        "Vector3",
+                        "camera",
+                        "camera",
+                        "camera",
+                        "camera",
+                        "camera",
+                        "camera",
+                        "camera",
+                        "camera",
+                        "three"
+                    ]
+    },
+    {
+        "path":  "frontend\\src\\features\\engineering-reports\\pull-direction\\pullDirectionCandidateFilter.contracts.test.ts",
+        "score":  8,
+        "reasons":  [
+                        "mesh",
+                        "mesh",
+                        "mesh",
+                        "geometry"
+                    ]
+    },
+    {
+        "path":  "frontend\\src\\features\\viewport\\runtime\\resizeViewport.ts",
+        "score":  13,
+        "reasons":  [
+                        "camera",
+                        "camera",
+                        "camera",
+                        "camera",
+                        "three"
+                    ]
+    },
+    {
+        "path":  "frontend\\src\\features\\viewport\\runtime\\modelMeasurementRuntime.ts",
+        "score":  169,
+        "reasons":  [
+                        "Canvas",
+                        "Canvas",
+                        "Canvas",
+                        "Canvas",
+                        "Canvas",
+                        "Canvas",
+                        "Canvas",
+                        "Canvas",
+                        "Canvas",
+                        "Canvas",
+                        "Canvas",
+                        "Canvas",
+                        "Canvas",
+                        "Vector3",
+                        "Vector3",
+                        "Vector3",
+                        "Vector3",
+                        "Vector3",
+                        "Vector3",
+                        "Vector3",
+                        "Vector3",
+                        "camera",
+                        "camera",
+                        "camera",
+                        "camera",
+                        "mesh",
+                        "mesh",
+                        "mesh",
+                        "mesh",
+                        "mesh",
+                        "mesh",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "group",
+                        "group",
+                        "three"
+                    ]
+    },
+    {
+        "path":  "frontend\\src\\features\\engine-integration\\draft-analysis\\draftAnalysis.contracts.stage8a.test.ts",
+        "score":  2,
+        "reasons":  [
+                        "geometry"
+                    ]
+    },
+    {
+        "path":  "frontend\\src\\features\\viewport\\__tests__\\localStlImport.test.ts",
+        "score":  142,
+        "reasons":  [
+                        "Box3",
+                        "Box3",
+                        "Box3",
+                        "Box3",
+                        "Box3",
+                        "Box3",
+                        "Box3",
+                        "Vector3",
+                        "Vector3",
+                        "Vector3",
+                        "Vector3",
+                        "Vector3",
+                        "Vector3",
+                        "camera",
+                        "camera",
+                        "camera",
+                        "scene",
+                        "scene",
+                        "scene",
+                        "scene",
+                        "mesh",
+                        "mesh",
+                        "mesh",
+                        "mesh",
+                        "mesh",
+                        "mesh",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "group",
+                        "group",
+                        "three"
+                    ]
+    },
+    {
+        "path":  "frontend\\src\\features\\viewport\\__tests__\\automaticModelOrientation.test.ts",
+        "score":  97,
+        "reasons":  [
+                        "Vector3",
+                        "Vector3",
+                        "Vector3",
+                        "Vector3",
+                        "Vector3",
+                        "Vector3",
+                        "Vector3",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "three"
+                    ]
+    },
+    {
+        "path":  "frontend\\src\\features\\viewport\\runtime\\automaticModelOrientation.ts",
+        "score":  33,
+        "reasons":  [
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "three"
+                    ]
+    },
+    {
+        "path":  "frontend\\src\\features\\engineering-reports\\pull-direction\\index.ts",
+        "score":  6,
+        "reasons":  [
+                        "Vector3"
+                    ]
+    },
+    {
+        "path":  "frontend\\src\\features\\engineering-reports\\pull-direction\\pullDirectionRegressionGuards.test.ts",
+        "score":  16,
+        "reasons":  [
+                        "mesh",
+                        "mesh",
+                        "mesh",
+                        "mesh",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry"
+                    ]
+    },
+    {
+        "path":  "frontend\\src\\features\\engine-integration\\engineIntegration.contracts.ts",
+        "score":  2,
+        "reasons":  [
+                        "mesh"
+                    ]
+    },
+    {
+        "path":  "frontend\\src\\features\\engineering-reports\\pull-direction\\pullDirectionCandidateRanker.contracts.test.ts",
+        "score":  8,
+        "reasons":  [
+                        "mesh",
+                        "mesh",
+                        "mesh",
+                        "geometry"
+                    ]
+    },
+    {
+        "path":  "frontend\\src\\features\\engine-integration\\draft-analysis\\draftAnalysis.contracts.ts",
+        "score":  46,
+        "reasons":  [
+                        "Vector3",
+                        "Vector3",
+                        "Vector3",
+                        "Vector3",
+                        "Vector3",
+                        "Vector3",
+                        "mesh",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry"
+                    ]
+    },
+    {
+        "path":  "frontend\\src\\features\\viewport\\__tests__\\Viewport.test.tsx",
+        "score":  96,
+        "reasons":  [
+                        "Canvas",
+                        "Canvas",
+                        "Canvas",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "fitView",
+                        "fitView",
+                        "fitView",
+                        "fitView",
+                        "No model loaded",
+                        "No model loaded",
+                        "No model loaded",
+                        "three",
+                        "three",
+                        "three",
+                        "three",
+                        "three",
+                        "three",
+                        "three",
+                        "three",
+                        "three",
+                        "three",
+                        "three",
+                        "three",
+                        "three",
+                        "three",
+                        "three",
+                        "three",
+                        "three",
+                        "three",
+                        "three",
+                        "three",
+                        "three",
+                        "three",
+                        "three",
+                        "three",
+                        "three",
+                        "three",
+                        "three",
+                        "three"
+                    ]
+    },
+    {
+        "path":  "frontend\\src\\features\\viewport\\useViewportRuntime.ts",
+        "score":  45,
+        "reasons":  [
+                        "Canvas",
+                        "Canvas",
+                        "Canvas",
+                        "Canvas",
+                        "Canvas",
+                        "Canvas",
+                        "fitView",
+                        "fitView",
+                        "fitView",
+                        "three",
+                        "three",
+                        "three"
+                    ]
+    },
+    {
+        "path":  "frontend\\src\\features\\engineering-reports\\pull-direction\\pullDirectionStage5ClosureGuards.test.ts",
+        "score":  10,
+        "reasons":  [
+                        "mesh",
+                        "mesh",
+                        "mesh",
+                        "geometry",
+                        "geometry"
+                    ]
+    },
+    {
+        "path":  "frontend\\src\\features\\mold-generation\\generationReadiness.adapter.ts",
+        "score":  20,
+        "reasons":  [
+                        "mesh",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry",
+                        "geometry"
+                    ]
+    },
+    {
+        "path":  "frontend\\src\\test\\setup.ts",
+        "score":  6,
+        "reasons":  [
+                        "Canvas"
+                    ]
+    },
+    {
+        "path":  "frontend\\src\\features\\viewport\\runtime\\viewPose.ts",
+        "score":  149,
+        "reasons":  [
+                        "OrbitControls",
+                        "OrbitControls",
+                        "OrbitControls",
+                        "OrbitControls",
+                        "Box3",
+                        "Box3",
+                        "Box3",
+                        "Vector3",
+                        "Vector3",
+                        "Vector3",
+                        "camera",
+                        "camera",
+                        "camera",
+                        "camera",
+                        "camera",
+                        "camera",
+                        "camera",
+                        "camera",
+                        "camera",
+                        "camera",
+                        "camera",
+                        "camera",
+                        "camera",
+                        "camera",
+                        "camera",
+                        "camera",
+                        "camera",
+                        "camera",
+                        "camera",
+                        "camera",
+                        "camera",
+                        "camera",
+                        "camera",
+                        "camera",
+                        "camera",
+                        "camera",
+                        "camera",
+                        "group",
+                        "group",
+                        "group",
+                        "group",
+                        "three",
+                        "three"
+                    ]
+    },
+    {
+        "path":  "frontend\\src\\features\\engineering-reports\\pull-direction\\pullDirectionAnalysisPipeline.filtering.test.ts",
+        "score":  4,
+        "reasons":  [
+                        "mesh",
+                        "mesh"
+                    ]
+    }
+]

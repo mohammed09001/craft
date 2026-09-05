@@ -1,0 +1,90 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LoopArtifactEnvelope",
+  "description": "Immutable, filesystem-backed artifact record used for live Loop Engine handoff. Trace files retain identity metadata only; payload ownership remains in the artifact store.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "runId",
+    "artifactId",
+    "artifactType",
+    "artifactVersion",
+    "revision",
+    "producerSkillId",
+    "status",
+    "dependencies",
+    "payload",
+    "createdAt",
+    "contentHash"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "enum": ["1.0.0"]
+    },
+    "runId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "artifactId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "artifactType": {
+      "type": "string",
+      "minLength": 1
+    },
+    "artifactVersion": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "producerSkillId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": ["ACCEPTED", "BLOCKED", "REJECTED", "SUPERSEDED"]
+    },
+    "dependencies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["artifactId", "artifactType", "revision", "contentHash"],
+        "properties": {
+          "artifactId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "artifactType": {
+            "type": "string",
+            "minLength": 1
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "contentHash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        }
+      }
+    },
+    "payload": {
+      "type": "object"
+    },
+    "createdAt": {
+      "type": "string",
+      "minLength": 1
+    },
+    "contentHash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  }
+}

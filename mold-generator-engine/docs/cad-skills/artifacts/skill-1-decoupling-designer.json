@@ -1,0 +1,45 @@
+{
+  "metadata": {
+    "artifactId": "spec-cavity-registration-decoupling-v1",
+    "artifactType": "AlgorithmSpecification",
+    "artifactVersion": "1.0.0",
+    "revision": 1,
+    "authorSkill": "cad-algorithm-designer",
+    "status": "ACCEPTED",
+    "detailLevel": "DEEP",
+    "updateMode": "FULL",
+    "dependencyIds": [],
+    "invalidationTriggers": [
+      "workflow_contract_change"
+    ]
+  },
+  "featureName": "Decouple Cavity Success from Linear Registration Failure",
+  "algorithmSpecification": {
+    "problemStatement": "Registration failure previously rolled back cavity commits because isRegistrationAcceptedForCommit rejected unkeyed results when prior registration keys existed.",
+    "targetSubsystem": "frontend/src/features/mold-generation/workflow",
+    "inputs": [
+      {
+        "name": "cavityResult",
+        "type": "CavityGenerationResult",
+        "description": "Committed upstream cavity tool and bodies"
+      },
+      {
+        "name": "registrationState",
+        "type": "DerivedRegistrationState",
+        "description": "Derived registration state (generated, blocked, or failed)"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "finalResult",
+        "type": "FinalMoldResult",
+        "description": "Decoupled final mold result with active bodies and non-blocking registration warnings"
+      }
+    ],
+    "guarantees": [
+      "Cavity success commits independently of registration outcome",
+      "Registration failure produces non-blocking warnings while preserving visible cavity bodies",
+      "Export returns valid cavity/sprue bodies when registration is unavailable"
+    ]
+  }
+}

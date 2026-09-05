@@ -1,0 +1,15 @@
+﻿{
+    "cubePath":  "frontend\\src\\features\\mold-generation\\MoldOrientationCube.tsx",
+    "cssPath":  "frontend\\src\\features\\mold-generation\\MoldOrientationCube.css",
+    "cubeHasTop":  true,
+    "cubeHasFront":  true,
+    "cubeHasRight":  true,
+    "cubeHasX":  true,
+    "cubeHasY":  true,
+    "cubeHasZ":  true,
+    "cssHasViewcubeClass":  true,
+    "cssHasFaceTop":  true,
+    "cssHasFaceFront":  true,
+    "cssHasFaceRight":  true,
+    "timestamp":  "2026-07-08T14:05:20"
+}

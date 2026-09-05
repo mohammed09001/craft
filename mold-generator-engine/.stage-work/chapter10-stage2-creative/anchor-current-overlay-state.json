@@ -1,0 +1,6 @@
+﻿{
+    "overlayMountedThroughContextArea":  true,
+    "overlayUsesDomViewportPlacement":  true,
+    "overlayAlreadyHidesWhenNoModelLoaded":  true,
+    "nextRequirement":  "Move from approximate DOM placement to true 3D anchored boundary placement"
+}

@@ -1,0 +1,27 @@
+{
+  "metadata": {
+    "artifactId": "maint-cavity-registration-decoupling-v1",
+    "artifactType": "MaintenanceRecord",
+    "artifactVersion": "1.0.0",
+    "revision": 1,
+    "authorSkill": "cad-maintenance-evolution-engineer",
+    "status": "COMPLETED",
+    "detailLevel": "DEEP",
+    "updateMode": "FULL",
+    "dependencyIds": [
+      "impl-cavity-registration-decoupling-v1"
+    ],
+    "invalidationTriggers": []
+  },
+  "featureName": "Decouple Cavity Success from Linear Registration Failure Maintenance",
+  "maintenanceRecord": {
+    "technicalDebtRemoved": [
+      "Removed mandatory registration success constraint from cavity commit path",
+      "Removed obsolete locator terminology from error messages"
+    ],
+    "architectureDriftPrevented": [
+      "Guaranteed cavity commits are independent of optional registration outcomes",
+      "Enforced single active-body selector pattern"
+    ]
+  }
+}

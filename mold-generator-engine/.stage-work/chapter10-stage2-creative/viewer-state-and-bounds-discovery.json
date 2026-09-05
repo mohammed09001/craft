@@ -1,0 +1,889 @@
+﻿{
+    "stage":  "Chapter 10 Stage 2N-C",
+    "purpose":  "Find model-loaded signal and possible 3D bounds/camera hooks",
+    "sourceFilesModified":  false,
+    "matches":  [
+                    {
+                        "pattern":  "No model loaded",
+                        "path":  "frontend\\src\\app\\App.test.tsx",
+                        "line":  63,
+                        "text":  "expect(screen.getByText(\"No Model Loaded\")).toBeInTheDocument();"
+                    },
+                    {
+                        "pattern":  "No model loaded",
+                        "path":  "frontend\\src\\features\\viewport\\__tests__\\Viewport.test.tsx",
+                        "line":  90,
+                        "text":  "visibleText: \"No model loaded.\","
+                    },
+                    {
+                        "pattern":  "No model loaded",
+                        "path":  "frontend\\src\\features\\viewport\\__tests__\\Viewport.test.tsx",
+                        "line":  125,
+                        "text":  "expect(screen.getByLabelText(\"Model No Model Loaded\")).toBeInTheDocument();"
+                    },
+                    {
+                        "pattern":  "No model loaded",
+                        "path":  "frontend\\src\\features\\viewport\\__tests__\\Viewport.test.tsx",
+                        "line":  564,
+                        "text":  "expect(screen.getByText(\"No model loaded.\")).toBeInTheDocument();"
+                    },
+                    {
+                        "pattern":  "No model loaded",
+                        "path":  "frontend\\src\\features\\viewport\\Viewport.tsx",
+                        "line":  443,
+                        "text":  "\u003cp className={styles.emptyTitle}\u003eNo model loaded.\u003c/p\u003e"
+                    },
+                    {
+                        "pattern":  "No model loaded",
+                        "path":  "frontend\\src\\systems\\context-area\\ContextArea.test.tsx",
+                        "line":  96,
+                        "text":  "screen.getByRole(\"heading\", { name: \"No model loaded\" }),"
+                    },
+                    {
+                        "pattern":  "No model loaded",
+                        "path":  "frontend\\src\\systems\\context-area\\ContextArea.tsx",
+                        "line":  377,
+                        "text":  "No model loaded"
+                    },
+                    {
+                        "pattern":  "No model loaded",
+                        "path":  "frontend\\src\\systems\\status-area\\status-items.ts",
+                        "line":  68,
+                        "text":  "\"no-model\": \"No Model Loaded\","
+                    },
+                    {
+                        "pattern":  "model loaded",
+                        "path":  "frontend\\src\\app\\App.test.tsx",
+                        "line":  63,
+                        "text":  "expect(screen.getByText(\"No Model Loaded\")).toBeInTheDocument();"
+                    },
+                    {
+                        "pattern":  "model loaded",
+                        "path":  "frontend\\src\\features\\viewport\\__tests__\\Viewport.test.tsx",
+                        "line":  90,
+                        "text":  "visibleText: \"No model loaded.\","
+                    },
+                    {
+                        "pattern":  "model loaded",
+                        "path":  "frontend\\src\\features\\viewport\\__tests__\\Viewport.test.tsx",
+                        "line":  125,
+                        "text":  "expect(screen.getByLabelText(\"Model No Model Loaded\")).toBeInTheDocument();"
+                    },
+                    {
+                        "pattern":  "model loaded",
+                        "path":  "frontend\\src\\features\\viewport\\__tests__\\Viewport.test.tsx",
+                        "line":  564,
+                        "text":  "expect(screen.getByText(\"No model loaded.\")).toBeInTheDocument();"
+                    },
+                    {
+                        "pattern":  "model loaded",
+                        "path":  "frontend\\src\\features\\viewport\\Viewport.tsx",
+                        "line":  443,
+                        "text":  "\u003cp className={styles.emptyTitle}\u003eNo model loaded.\u003c/p\u003e"
+                    },
+                    {
+                        "pattern":  "model loaded",
+                        "path":  "frontend\\src\\systems\\context-area\\ContextArea.test.tsx",
+                        "line":  96,
+                        "text":  "screen.getByRole(\"heading\", { name: \"No model loaded\" }),"
+                    },
+                    {
+                        "pattern":  "model loaded",
+                        "path":  "frontend\\src\\systems\\context-area\\ContextArea.tsx",
+                        "line":  377,
+                        "text":  "No model loaded"
+                    },
+                    {
+                        "pattern":  "model loaded",
+                        "path":  "frontend\\src\\systems\\status-area\\status-items.ts",
+                        "line":  68,
+                        "text":  "\"no-model\": \"No Model Loaded\","
+                    },
+                    {
+                        "pattern":  "viewport ready",
+                        "path":  "frontend\\src\\features\\viewport\\__tests__\\Viewport.test.tsx",
+                        "line":  124,
+                        "text":  "expect(await screen.findByLabelText(\"Viewport Ready\")).toBeInTheDocument();"
+                    },
+                    {
+                        "pattern":  "boundingBox",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\localStlImport.ts",
+                        "line":  101,
+                        "text":  "geometry.computeBoundingBox();"
+                    },
+                    {
+                        "pattern":  "boundingBox",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\localStlImport.ts",
+                        "line":  104,
+                        "text":  "const boundingBox = geometry.boundingBox;"
+                    },
+                    {
+                        "pattern":  "boundingBox",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\localStlImport.ts",
+                        "line":  107,
+                        "text":  "if (boundingBox === null || boundingBox.isEmpty()) {"
+                    },
+                    {
+                        "pattern":  "boundingBox",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\localStlImport.ts",
+                        "line":  111,
+                        "text":  "const size = boundingBox.getSize(new Vector3());"
+                    },
+                    {
+                        "pattern":  "boundingBox",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\localStlImport.ts",
+                        "line":  131,
+                        "text":  "return boundingBox;"
+                    },
+                    {
+                        "pattern":  "boundingBox",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\localStlImport.ts",
+                        "line":  245,
+                        "text":  "boundingBox: Box3,"
+                    },
+                    {
+                        "pattern":  "boundingBox",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\localStlImport.ts",
+                        "line":  252,
+                        "text":  "toNumericBounds(boundingBox),"
+                    },
+                    {
+                        "pattern":  "boundingBox",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\localStlImport.ts",
+                        "line":  343,
+                        "text":  "const boundingBox = validateGeometry(geometry);"
+                    },
+                    {
+                        "pattern":  "boundingBox",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\localStlImport.ts",
+                        "line":  352,
+                        "text":  "replaceModel(mesh, boundingBox, file, requestId);"
+                    },
+                    {
+                        "pattern":  "Box3",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\localStlImport.ts",
+                        "line":  2,
+                        "text":  "Box3,"
+                    },
+                    {
+                        "pattern":  "Box3",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\localStlImport.ts",
+                        "line":  146,
+                        "text":  "function toNumericBounds(bounds: Box3): NumericBounds3 {"
+                    },
+                    {
+                        "pattern":  "Box3",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\localStlImport.ts",
+                        "line":  245,
+                        "text":  "boundingBox: Box3,"
+                    },
+                    {
+                        "pattern":  "Box3",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\viewPose.ts",
+                        "line":  1,
+                        "text":  "import { Box3, Group, PerspectiveCamera, Sphere, Vector3 } from \"three\";"
+                    },
+                    {
+                        "pattern":  "Box3",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\viewPose.ts",
+                        "line":  16,
+                        "text":  "box: Box3;"
+                    },
+                    {
+                        "pattern":  "Box3",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\viewPose.ts",
+                        "line":  82,
+                        "text":  "const box = new Box3().setFromObject(modelRoot);"
+                    },
+                    {
+                        "pattern":  "Box3",
+                        "path":  "frontend\\src\\features\\viewport\\__tests__\\localStlImport.test.ts",
+                        "line":  1,
+                        "text":  "import { Box3, Group, Mesh, PerspectiveCamera, Scene, Vector3 } from \"three\";"
+                    },
+                    {
+                        "pattern":  "Box3",
+                        "path":  "frontend\\src\\features\\viewport\\__tests__\\localStlImport.test.ts",
+                        "line":  107,
+                        "text":  "expect(new Box3().setFromObject(modelRoot).min.z).toBeCloseTo(0);"
+                    },
+                    {
+                        "pattern":  "Box3",
+                        "path":  "frontend\\src\\features\\viewport\\__tests__\\localStlImport.test.ts",
+                        "line":  125,
+                        "text":  "const bounds = new Box3().setFromObject(modelRoot);"
+                    },
+                    {
+                        "pattern":  "Box3",
+                        "path":  "frontend\\src\\features\\viewport\\__tests__\\localStlImport.test.ts",
+                        "line":  221,
+                        "text":  "expect(new Box3().setFromObject(modelRoot).min.z).toBeCloseTo(0);"
+                    },
+                    {
+                        "pattern":  "Box3",
+                        "path":  "frontend\\src\\features\\viewport\\__tests__\\localStlImport.test.ts",
+                        "line":  296,
+                        "text":  "const size = new Box3().setFromObject(modelRoot).getSize(new Vector3());"
+                    },
+                    {
+                        "pattern":  "Box3",
+                        "path":  "frontend\\src\\features\\viewport\\__tests__\\localStlImport.test.ts",
+                        "line":  327,
+                        "text":  "const bounds = new Box3().setFromObject(modelRoot);"
+                    },
+                    {
+                        "pattern":  "Box3",
+                        "path":  "frontend\\src\\features\\viewport\\__tests__\\localStlImport.test.ts",
+                        "line":  376,
+                        "text":  "expect(new Box3().setFromObject(modelRoot).min.z).toBeCloseTo(0);"
+                    },
+                    {
+                        "pattern":  "camera",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createCamera.ts",
+                        "line":  1,
+                        "text":  "import { PerspectiveCamera, Vector3 } from \"three\";"
+                    },
+                    {
+                        "pattern":  "camera",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createCamera.ts",
+                        "line":  3,
+                        "text":  "export function createCamera() {"
+                    },
+                    {
+                        "pattern":  "camera",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createCamera.ts",
+                        "line":  4,
+                        "text":  "const camera = new PerspectiveCamera(45, 1, 0.1, 2000);"
+                    },
+                    {
+                        "pattern":  "camera",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createCamera.ts",
+                        "line":  6,
+                        "text":  "camera.up.set(0, 0, 1);"
+                    },
+                    {
+                        "pattern":  "camera",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createCamera.ts",
+                        "line":  7,
+                        "text":  "camera.position.set(95, -120, 85);"
+                    },
+                    {
+                        "pattern":  "camera",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createCamera.ts",
+                        "line":  8,
+                        "text":  "camera.lookAt(new Vector3(0, 0, 10));"
+                    },
+                    {
+                        "pattern":  "camera",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createCamera.ts",
+                        "line":  9,
+                        "text":  "camera.updateProjectionMatrix();"
+                    },
+                    {
+                        "pattern":  "camera",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createCamera.ts",
+                        "line":  11,
+                        "text":  "return camera;"
+                    },
+                    {
+                        "pattern":  "camera",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createCameraControls.ts",
+                        "line":  1,
+                        "text":  "import { MOUSE, TOUCH, type PerspectiveCamera } from \"three\";"
+                    },
+                    {
+                        "pattern":  "camera",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createCameraControls.ts",
+                        "line":  4,
+                        "text":  "type CameraControlsOptions = {"
+                    },
+                    {
+                        "pattern":  "camera",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createCameraControls.ts",
+                        "line":  9,
+                        "text":  "export function createCameraControls("
+                    },
+                    {
+                        "pattern":  "camera",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createCameraControls.ts",
+                        "line":  10,
+                        "text":  "camera: PerspectiveCamera,"
+                    },
+                    {
+                        "pattern":  "camera",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createCameraControls.ts",
+                        "line":  13,
+                        "text":  "{ onChange, onInteractionStart }: CameraControlsOptions,"
+                    },
+                    {
+                        "pattern":  "camera",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createCameraControls.ts",
+                        "line":  15,
+                        "text":  "const controls = new OrbitControls(camera, canvas);"
+                    },
+                    {
+                        "pattern":  "camera",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createThreeViewportRuntime.ts",
+                        "line":  1,
+                        "text":  "import { Group, type PerspectiveCamera, type WebGLRenderer } from \"three\";"
+                    },
+                    {
+                        "pattern":  "camera",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createThreeViewportRuntime.ts",
+                        "line":  8,
+                        "text":  "import { createCamera } from \"@/features/viewport/runtime/createCamera\";"
+                    },
+                    {
+                        "pattern":  "camera",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createThreeViewportRuntime.ts",
+                        "line":  9,
+                        "text":  "import { createCameraControls } from \"@/features/viewport/runtime/createCameraControls\";"
+                    },
+                    {
+                        "pattern":  "camera",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createThreeViewportRuntime.ts",
+                        "line":  88,
+                        "text":  "let camera: PerspectiveCamera;"
+                    },
+                    {
+                        "pattern":  "camera",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createThreeViewportRuntime.ts",
+                        "line":  94,
+                        "text":  "camera = createCamera();"
+                    },
+                    {
+                        "pattern":  "camera",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createThreeViewportRuntime.ts",
+                        "line":  99,
+                        "text":  "const controls = createCameraControls(camera, canvas, host, {"
+                    },
+                    {
+                        "pattern":  "scene",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createScene.ts",
+                        "line":  1,
+                        "text":  "import { Scene } from \"three\";"
+                    },
+                    {
+                        "pattern":  "scene",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createScene.ts",
+                        "line":  3,
+                        "text":  "export function createScene() {"
+                    },
+                    {
+                        "pattern":  "scene",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createScene.ts",
+                        "line":  4,
+                        "text":  "return new Scene();"
+                    },
+                    {
+                        "pattern":  "scene",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createThreeViewportRuntime.ts",
+                        "line":  18,
+                        "text":  "import { createScene } from \"@/features/viewport/runtime/createScene\";"
+                    },
+                    {
+                        "pattern":  "scene",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createThreeViewportRuntime.ts",
+                        "line":  19,
+                        "text":  "import { disposeScene } from \"@/features/viewport/runtime/disposeScene\";"
+                    },
+                    {
+                        "pattern":  "scene",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createThreeViewportRuntime.ts",
+                        "line":  93,
+                        "text":  "const scene = createScene();"
+                    },
+                    {
+                        "pattern":  "scene",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createThreeViewportRuntime.ts",
+                        "line":  108,
+                        "text":  "scene.add(createLighting(), grid);"
+                    },
+                    {
+                        "pattern":  "scene",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createThreeViewportRuntime.ts",
+                        "line":  111,
+                        "text":  "scene.remove(grid);"
+                    },
+                    {
+                        "pattern":  "scene",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createThreeViewportRuntime.ts",
+                        "line":  114,
+                        "text":  "scene.add(grid);"
+                    },
+                    {
+                        "pattern":  "scene",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createThreeViewportRuntime.ts",
+                        "line":  138,
+                        "text":  "renderer.render(scene, camera);"
+                    },
+                    {
+                        "pattern":  "scene",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createThreeViewportRuntime.ts",
+                        "line":  194,
+                        "text":  "scene,"
+                    },
+                    {
+                        "pattern":  "scene",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createThreeViewportRuntime.ts",
+                        "line":  241,
+                        "text":  "disposeScene(scene);"
+                    },
+                    {
+                        "pattern":  "scene",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\disposeScene.ts",
+                        "line":  24,
+                        "text":  "export function disposeScene(root: Object3D) {"
+                    },
+                    {
+                        "pattern":  "scene",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\localStlImport.ts",
+                        "line":  12,
+                        "text":  "type Scene,"
+                    },
+                    {
+                        "pattern":  "scene",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\localStlImport.ts",
+                        "line":  41,
+                        "text":  "scene: Scene;"
+                    },
+                    {
+                        "pattern":  "scene",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\localStlImport.ts",
+                        "line":  195,
+                        "text":  "scene,"
+                    },
+                    {
+                        "pattern":  "scene",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\localStlImport.ts",
+                        "line":  209,
+                        "text":  "scene.add(modelRoot);"
+                    },
+                    {
+                        "pattern":  "scene",
+                        "path":  "frontend\\src\\features\\viewport\\__tests__\\createThreeViewportRuntime.test.ts",
+                        "line":  63,
+                        "text":  "vi.doUnmock(\"@/features/viewport/runtime/createScene\");"
+                    },
+                    {
+                        "pattern":  "scene",
+                        "path":  "frontend\\src\\features\\viewport\\__tests__\\createThreeViewportRuntime.test.ts",
+                        "line":  65,
+                        "text":  "vi.doUnmock(\"@/features/viewport/runtime/disposeScene\");"
+                    },
+                    {
+                        "pattern":  "scene",
+                        "path":  "frontend\\src\\features\\viewport\\__tests__\\createThreeViewportRuntime.test.ts",
+                        "line":  149,
+                        "text":  "vi.doMock(\"@/features/viewport/runtime/createScene\", () =\u003e ({"
+                    },
+                    {
+                        "pattern":  "mesh",
+                        "path":  "frontend\\src\\features\\engine-integration\\draft-analysis\\draftAnalysis.contracts.ts",
+                        "line":  23,
+                        "text":  "| \"stl_mesh\""
+                    },
+                    {
+                        "pattern":  "mesh",
+                        "path":  "frontend\\src\\features\\engine-integration\\engineIntegration.contracts.ts",
+                        "line":  40,
+                        "text":  "| \"mesh\""
+                    },
+                    {
+                        "pattern":  "mesh",
+                        "path":  "frontend\\src\\features\\engineering-reports\\pull-direction\\pullDirectionAnalysisEngine.contracts.ts",
+                        "line":  103,
+                        "text":  "readonly inspectedMesh: false;"
+                    },
+                    {
+                        "pattern":  "mesh",
+                        "path":  "frontend\\src\\features\\engineering-reports\\pull-direction\\pullDirectionAnalysisEngine.contracts.ts",
+                        "line":  138,
+                        "text":  "readonly inspectedMesh: false;"
+                    },
+                    {
+                        "pattern":  "mesh",
+                        "path":  "frontend\\src\\features\\engineering-reports\\pull-direction\\pullDirectionAnalysisEngine.contracts.ts",
+                        "line":  166,
+                        "text":  "readonly inspectedMesh: false;"
+                    },
+                    {
+                        "pattern":  "mesh",
+                        "path":  "frontend\\src\\features\\engineering-reports\\pull-direction\\pullDirectionAnalysisEngine.contracts.ts",
+                        "line":  275,
+                        "text":  "readonly inspectedMesh: false;"
+                    },
+                    {
+                        "pattern":  "mesh",
+                        "path":  "frontend\\src\\features\\engineering-reports\\pull-direction\\pullDirectionAnalysisEngine.test.ts",
+                        "line":  28,
+                        "text":  "expect(result.inspectedMesh).toBe(false);"
+                    },
+                    {
+                        "pattern":  "mesh",
+                        "path":  "frontend\\src\\features\\engineering-reports\\pull-direction\\pullDirectionAnalysisEngine.test.ts",
+                        "line":  110,
+                        "text":  "inspectedMesh: false,"
+                    },
+                    {
+                        "pattern":  "mesh",
+                        "path":  "frontend\\src\\features\\engineering-reports\\pull-direction\\pullDirectionAnalysisEngine.test.ts",
+                        "line":  129,
+                        "text":  "expect(output.candidateGeneration.inspectedMesh).toBe(false);"
+                    },
+                    {
+                        "pattern":  "mesh",
+                        "path":  "frontend\\src\\features\\engineering-reports\\pull-direction\\pullDirectionAnalysisEngine.test.ts",
+                        "line":  133,
+                        "text":  "expect(output.candidateValidation.inspectedMesh).toBe(false);"
+                    },
+                    {
+                        "pattern":  "mesh",
+                        "path":  "frontend\\src\\features\\engineering-reports\\pull-direction\\pullDirectionAnalysisEngine.test.ts",
+                        "line":  137,
+                        "text":  "expect(output.candidateFiltering.inspectedMesh).toBe(false);"
+                    },
+                    {
+                        "pattern":  "mesh",
+                        "path":  "frontend\\src\\features\\engineering-reports\\pull-direction\\pullDirectionAnalysisEngine.ts",
+                        "line":  82,
+                        "text":  "inspectedMesh: candidateFiltering.inspectedMesh,"
+                    },
+                    {
+                        "pattern":  "mesh",
+                        "path":  "frontend\\src\\features\\engineering-reports\\pull-direction\\pullDirectionAnalysisPipeline.filtering.test.ts",
+                        "line":  27,
+                        "text":  "expect(output.candidateFiltering.inspectedMesh).toBe(false);"
+                    },
+                    {
+                        "pattern":  "mesh",
+                        "path":  "frontend\\src\\features\\engineering-reports\\pull-direction\\pullDirectionAnalysisPipeline.filtering.test.ts",
+                        "line":  43,
+                        "text":  "inspectedMesh: false,"
+                    },
+                    {
+                        "pattern":  "mesh",
+                        "path":  "frontend\\src\\features\\engineering-reports\\pull-direction\\pullDirectionAnalysisPipeline.ts",
+                        "line":  74,
+                        "text":  "createCompletedStep(\"read-model-input\", \"Model input reference accepted without mesh inspection.\"),"
+                    },
+                    {
+                        "pattern":  "mesh",
+                        "path":  "frontend\\src\\features\\engineering-reports\\pull-direction\\pullDirectionAnalysisPipeline.ts",
+                        "line":  77,
+                        "text":  "\"Canonical axis seed candidates generated without mesh or face-normal analysis.\","
+                    },
+                    {
+                        "pattern":  "mesh",
+                        "path":  "frontend\\src\\features\\engineering-reports\\pull-direction\\pullDirectionAnalysisPipeline.ts",
+                        "line":  85,
+                        "text":  "\"Candidate vectors validated without mesh or face-normal analysis.\","
+                    },
+                    {
+                        "pattern":  "mesh",
+                        "path":  "frontend\\src\\features\\engineering-reports\\pull-direction\\pullDirectionAnalysisPipeline.validation.test.ts",
+                        "line":  21,
+                        "text":  "expect(output.candidateValidation.inspectedMesh).toBe(false);"
+                    },
+                    {
+                        "pattern":  "mesh",
+                        "path":  "frontend\\src\\features\\engineering-reports\\pull-direction\\pullDirectionAnalysisReportOutput.validation.test.ts",
+                        "line":  48,
+                        "text":  "expect(result.report.metadata.inspectedMesh).toBe(false);"
+                    },
+                    {
+                        "pattern":  "mesh",
+                        "path":  "frontend\\src\\features\\engineering-reports\\pull-direction\\pullDirectionCandidateFilter.contracts.test.ts",
+                        "line":  38,
+                        "text":  "inspectedMesh: false,"
+                    },
+                    {
+                        "pattern":  "geometry",
+                        "path":  "frontend\\src\\features\\engine-integration\\draft-analysis\\draftAnalysis.contracts.stage8a.test.ts",
+                        "line":  12,
+                        "text":  "geometry: {"
+                    },
+                    {
+                        "pattern":  "geometry",
+                        "path":  "frontend\\src\\features\\engine-integration\\draft-analysis\\draftAnalysis.contracts.ts",
+                        "line":  22,
+                        "text":  "export type DraftAnalysisGeometrySource ="
+                    },
+                    {
+                        "pattern":  "geometry",
+                        "path":  "frontend\\src\\features\\engine-integration\\draft-analysis\\draftAnalysis.contracts.ts",
+                        "line":  45,
+                        "text":  "export interface DraftAnalysisGeometryReference {"
+                    },
+                    {
+                        "pattern":  "geometry",
+                        "path":  "frontend\\src\\features\\engine-integration\\draft-analysis\\draftAnalysis.contracts.ts",
+                        "line":  46,
+                        "text":  "readonly source: DraftAnalysisGeometrySource;"
+                    },
+                    {
+                        "pattern":  "geometry",
+                        "path":  "frontend\\src\\features\\engine-integration\\draft-analysis\\draftAnalysis.contracts.ts",
+                        "line":  74,
+                        "text":  "readonly geometry: DraftAnalysisGeometryReference;"
+                    },
+                    {
+                        "pattern":  "geometry",
+                        "path":  "frontend\\src\\features\\engine-integration\\draft-analysis\\draftAnalysis.foundation.test.ts",
+                        "line":  12,
+                        "text":  "geometry: {"
+                    },
+                    {
+                        "pattern":  "geometry",
+                        "path":  "frontend\\src\\features\\engine-integration\\draft-analysis\\draftAnalysis.sessionAdapter.test.ts",
+                        "line":  7,
+                        "text":  "it(\"maps Analysis Session geometry and pull direction into Draft Analysis input\", () =\u003e {"
+                    },
+                    {
+                        "pattern":  "geometry",
+                        "path":  "frontend\\src\\features\\engine-integration\\draft-analysis\\draftAnalysis.sessionAdapter.test.ts",
+                        "line":  12,
+                        "text":  "geometry: {"
+                    },
+                    {
+                        "pattern":  "geometry",
+                        "path":  "frontend\\src\\features\\engine-integration\\draft-analysis\\draftAnalysis.sessionAdapter.test.ts",
+                        "line":  13,
+                        "text":  "modelId: \"model-geometry\","
+                    },
+                    {
+                        "pattern":  "geometry",
+                        "path":  "frontend\\src\\features\\engine-integration\\draft-analysis\\draftAnalysis.sessionAdapter.test.ts",
+                        "line":  14,
+                        "text":  "fileName: \"geometry.stl\","
+                    },
+                    {
+                        "pattern":  "geometry",
+                        "path":  "frontend\\src\\features\\engine-integration\\draft-analysis\\draftAnalysis.sessionAdapter.test.ts",
+                        "line":  27,
+                        "text":  "geometry: {"
+                    },
+                    {
+                        "pattern":  "geometry",
+                        "path":  "frontend\\src\\features\\engine-integration\\draft-analysis\\draftAnalysis.sessionAdapter.test.ts",
+                        "line":  29,
+                        "text":  "modelId: \"model-geometry\","
+                    },
+                    {
+                        "pattern":  "geometry",
+                        "path":  "frontend\\src\\features\\engine-integration\\draft-analysis\\draftAnalysis.sessionAdapter.test.ts",
+                        "line":  30,
+                        "text":  "fileName: \"geometry.stl\","
+                    },
+                    {
+                        "pattern":  "geometry",
+                        "path":  "frontend\\src\\features\\engine-integration\\draft-analysis\\draftAnalysis.sessionAdapter.test.ts",
+                        "line":  52,
+                        "text":  "geometry: {"
+                    },
+                    {
+                        "pattern":  "geometry",
+                        "path":  "frontend\\src\\features\\engine-integration\\draft-analysis\\draftAnalysis.sessionAdapter.test.ts",
+                        "line":  63,
+                        "text":  "expect(\"modelId\" in input.geometry).toBe(false);"
+                    },
+                    {
+                        "pattern":  "geometry",
+                        "path":  "frontend\\src\\features\\engine-integration\\draft-analysis\\draftAnalysis.sessionAdapter.test.ts",
+                        "line":  64,
+                        "text":  "expect(\"triangleCount\" in input.geometry).toBe(false);"
+                    },
+                    {
+                        "pattern":  "geometry",
+                        "path":  "frontend\\src\\features\\engine-integration\\draft-analysis\\draftAnalysis.sessionAdapter.test.ts",
+                        "line":  65,
+                        "text":  "expect(\"vertexCount\" in input.geometry).toBe(false);"
+                    },
+                    {
+                        "pattern":  "geometry",
+                        "path":  "frontend\\src\\features\\engine-integration\\draft-analysis\\draftAnalysis.sessionAdapter.test.ts",
+                        "line":  66,
+                        "text":  "expect(\"units\" in input.geometry).toBe(false);"
+                    },
+                    {
+                        "pattern":  "geometry",
+                        "path":  "frontend\\src\\features\\engine-integration\\draft-analysis\\draftAnalysis.sessionAdapter.ts",
+                        "line":  3,
+                        "text":  "type DraftAnalysisGeometryReference,"
+                    },
+                    {
+                        "pattern":  "geometry",
+                        "path":  "frontend\\src\\features\\engine-integration\\draft-analysis\\draftAnalysis.sessionAdapter.ts",
+                        "line":  9,
+                        "text":  "export interface DraftAnalysisSessionGeometryLike {"
+                    },
+                    {
+                        "pattern":  "fitView",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createThreeViewportRuntime.ts",
+                        "line":  36,
+                        "text":  "fitView: () =\u003e undefined,"
+                    },
+                    {
+                        "pattern":  "fitView",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createThreeViewportRuntime.ts",
+                        "line":  211,
+                        "text":  "fitView: localStlRuntime.fitView,"
+                    },
+                    {
+                        "pattern":  "fitView",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\localStlImport.ts",
+                        "line":  50,
+                        "text":  "fitView: () =\u003e void;"
+                    },
+                    {
+                        "pattern":  "fitView",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\localStlImport.ts",
+                        "line":  279,
+                        "text":  "fitView: () =\u003e {"
+                    },
+                    {
+                        "pattern":  "fitView",
+                        "path":  "frontend\\src\\features\\viewport\\__tests__\\Viewport.test.tsx",
+                        "line":  33,
+                        "text":  "fitView: vi.fn(),"
+                    },
+                    {
+                        "pattern":  "fitView",
+                        "path":  "frontend\\src\\features\\viewport\\__tests__\\Viewport.test.tsx",
+                        "line":  501,
+                        "text":  "const fitView = vi.fn();"
+                    },
+                    {
+                        "pattern":  "fitView",
+                        "path":  "frontend\\src\\features\\viewport\\__tests__\\Viewport.test.tsx",
+                        "line":  519,
+                        "text":  "return createRuntime({ fitView, orientModel, resetView });"
+                    },
+                    {
+                        "pattern":  "fitView",
+                        "path":  "frontend\\src\\features\\viewport\\__tests__\\Viewport.test.tsx",
+                        "line":  538,
+                        "text":  "expect(fitView).toHaveBeenCalled();"
+                    },
+                    {
+                        "pattern":  "fitView",
+                        "path":  "frontend\\src\\features\\viewport\\__tests__\\viewportCommands.test.tsx",
+                        "line":  38,
+                        "text":  "const fitView = vi.fn();"
+                    },
+                    {
+                        "pattern":  "fitView",
+                        "path":  "frontend\\src\\features\\viewport\\__tests__\\viewportCommands.test.tsx",
+                        "line":  42,
+                        "text":  "\u003cRegisterCommands commands={{ \"fit-view\": fitView }} /\u003e"
+                    },
+                    {
+                        "pattern":  "fitView",
+                        "path":  "frontend\\src\\features\\viewport\\__tests__\\viewportCommands.test.tsx",
+                        "line":  47,
+                        "text":  "expect(fitView).toHaveBeenCalledTimes(1);"
+                    },
+                    {
+                        "pattern":  "fitView",
+                        "path":  "frontend\\src\\features\\viewport\\__tests__\\viewportCommands.test.tsx",
+                        "line":  64,
+                        "text":  "const fitView = vi.fn();"
+                    },
+                    {
+                        "pattern":  "fitView",
+                        "path":  "frontend\\src\\features\\viewport\\__tests__\\viewportCommands.test.tsx",
+                        "line":  68,
+                        "text":  "\u003cRegisterCommands commands={{ \"fit-view\": fitView }} /\u003e"
+                    },
+                    {
+                        "pattern":  "fitView",
+                        "path":  "frontend\\src\\features\\viewport\\__tests__\\viewportCommands.test.tsx",
+                        "line":  78,
+                        "text":  "expect(fitView).not.toHaveBeenCalled();"
+                    },
+                    {
+                        "pattern":  "fitView",
+                        "path":  "frontend\\src\\features\\viewport\\useViewportRuntime.ts",
+                        "line":  149,
+                        "text":  "const fitView = useCallback(() =\u003e {"
+                    },
+                    {
+                        "pattern":  "fitView",
+                        "path":  "frontend\\src\\features\\viewport\\useViewportRuntime.ts",
+                        "line":  150,
+                        "text":  "runtimeRef.current?.fitView();"
+                    },
+                    {
+                        "pattern":  "fitView",
+                        "path":  "frontend\\src\\features\\viewport\\useViewportRuntime.ts",
+                        "line":  167,
+                        "text":  "fitView,"
+                    },
+                    {
+                        "pattern":  "fitView",
+                        "path":  "frontend\\src\\features\\viewport\\viewport.contracts.ts",
+                        "line":  39,
+                        "text":  "fitView: () =\u003e void;"
+                    },
+                    {
+                        "pattern":  "fitView",
+                        "path":  "frontend\\src\\features\\viewport\\Viewport.tsx",
+                        "line":  230,
+                        "text":  "fitView,"
+                    },
+                    {
+                        "pattern":  "fitView",
+                        "path":  "frontend\\src\\features\\viewport\\Viewport.tsx",
+                        "line":  269,
+                        "text":  "const handleFitView = useCallback(() =\u003e {"
+                    },
+                    {
+                        "pattern":  "OrbitControls",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createCameraControls.ts",
+                        "line":  2,
+                        "text":  "import { OrbitControls } from \"three/addons/controls/OrbitControls.js\";"
+                    },
+                    {
+                        "pattern":  "OrbitControls",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\createCameraControls.ts",
+                        "line":  15,
+                        "text":  "const controls = new OrbitControls(camera, canvas);"
+                    },
+                    {
+                        "pattern":  "OrbitControls",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\localStlImport.ts",
+                        "line":  14,
+                        "text":  "import { OrbitControls } from \"three/addons/controls/OrbitControls.js\";"
+                    },
+                    {
+                        "pattern":  "OrbitControls",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\localStlImport.ts",
+                        "line":  39,
+                        "text":  "controls: OrbitControls;"
+                    },
+                    {
+                        "pattern":  "OrbitControls",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\viewPose.ts",
+                        "line":  2,
+                        "text":  "import { OrbitControls } from \"three/addons/controls/OrbitControls.js\";"
+                    },
+                    {
+                        "pattern":  "OrbitControls",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\viewPose.ts",
+                        "line":  30,
+                        "text":  "controls: OrbitControls,"
+                    },
+                    {
+                        "pattern":  "OrbitControls",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\viewPose.ts",
+                        "line":  106,
+                        "text":  "controls: OrbitControls,"
+                    },
+                    {
+                        "pattern":  "OrbitControls",
+                        "path":  "frontend\\src\\features\\viewport\\runtime\\viewPose.ts",
+                        "line":  139,
+                        "text":  "controls: OrbitControls,"
+                    }
+                ]
+}

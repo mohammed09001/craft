@@ -1,0 +1,190 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CADAlgorithmSpecification",
+  "type": "object",
+  "required": [
+    "metadata",
+    "featureName",
+    "specification",
+    "decisionClassifications"
+  ],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": [
+        "artifactId",
+        "artifactType",
+        "artifactVersion",
+        "revision",
+        "authorSkill",
+        "status",
+        "detailLevel",
+        "updateMode",
+        "sourcePromptSummary",
+        "dependencyIds",
+        "invalidationTriggers"
+      ],
+      "properties": {
+        "artifactId": { "type": "string" },
+        "artifactType": { "type": "string", "enum": ["AlgorithmSpecification"] },
+        "artifactVersion": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "authorSkill": { "type": "string", "enum": ["cad-algorithm-designer"] },
+        "status": { "type": "string", "enum": ["DRAFT", "REVIEWED", "ACCEPTED", "SUPERSEDED"] },
+        "detailLevel": { "type": "string", "enum": ["COMPACT", "STANDARD", "DEEP"] },
+        "updateMode": { "type": "string", "enum": ["FULL", "PARTIAL_UPDATE"] },
+        "sourcePromptSummary": { "type": "string" },
+        "dependencyIds": { "type": "array", "items": { "type": "string" } },
+        "supersedesArtifactId": { "type": ["string", "null"] },
+        "invalidationTriggers": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "featureName": {
+      "type": "string"
+    },
+    "changedSections": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Populated when updateMode is PARTIAL_UPDATE"
+    },
+    "specification": {
+      "type": "object",
+      "required": [
+        "1_problemDefinition",
+        "2_inputs",
+        "3_outputs",
+        "4_constraints",
+        "5_userInteraction",
+        "6_algorithmPipeline",
+        "7_failureConditions",
+        "8_edgeCases",
+        "9_dependencies",
+        "10_rebuildTriggers",
+        "11_stateTransitions"
+      ],
+      "properties": {
+        "1_problemDefinition": {
+          "type": "object",
+          "required": ["goal", "cadContext", "expectedOutcome"],
+          "properties": {
+            "goal": { "type": "string" },
+            "cadContext": { "type": "string" },
+            "expectedOutcome": { "type": "string" }
+          }
+        },
+        "2_inputs": {
+          "type": "object",
+          "required": ["userParameters", "canonicalStateDependencies", "referenceUnits", "coordinateSystem"],
+          "properties": {
+            "userParameters": { "type": "array", "items": { "type": "string" } },
+            "canonicalStateDependencies": { "type": "array", "items": { "type": "string" } },
+            "referenceUnits": { "type": "string", "enum": ["mm (Millimeters)"] },
+            "coordinateSystem": { "type": "string", "enum": ["Z-up"] }
+          }
+        },
+        "3_outputs": {
+          "type": "object",
+          "required": ["derivedGeometry", "canonicalStateUpdates", "downstreamArtifacts"],
+          "properties": {
+            "derivedGeometry": { "type": "array", "items": { "type": "string" } },
+            "canonicalStateUpdates": { "type": "array", "items": { "type": "string" } },
+            "downstreamArtifacts": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "4_constraints": {
+          "type": "object",
+          "required": ["geometricConstraints", "topologicalConstraints", "performanceConstraints"],
+          "properties": {
+            "geometricConstraints": { "type": "array", "items": { "type": "string" } },
+            "topologicalConstraints": { "type": "array", "items": { "type": "string" } },
+            "performanceConstraints": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "5_userInteraction": {
+          "type": "object",
+          "required": ["viewportTools", "interactionEvents", "feedbackMechanisms"],
+          "properties": {
+            "viewportTools": { "type": "array", "items": { "type": "string" } },
+            "interactionEvents": { "type": "array", "items": { "type": "string" } },
+            "feedbackMechanisms": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "6_algorithmPipeline": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["phase", "description"],
+            "properties": {
+              "phase": { "type": "string" },
+              "description": { "type": "string" }
+            }
+          }
+        },
+        "7_failureConditions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["condition", "errorCode", "recoveryAction"],
+            "properties": {
+              "condition": { "type": "string" },
+              "errorCode": { "type": "string" },
+              "recoveryAction": { "type": "string" }
+            }
+          }
+        },
+        "8_edgeCases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["scenario", "mitigation"],
+            "properties": {
+              "scenario": { "type": "string" },
+              "mitigation": { "type": "string" }
+            }
+          }
+        },
+        "9_dependencies": {
+          "type": "object",
+          "required": ["upstreamStages", "runtimeServices", "externalLibraries"],
+          "properties": {
+            "upstreamStages": { "type": "array", "items": { "type": "string" } },
+            "runtimeServices": { "type": "array", "items": { "type": "string" } },
+            "externalLibraries": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "10_rebuildTriggers": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "11_stateTransitions": {
+          "type": "object",
+          "required": ["states", "transitions"],
+          "properties": {
+            "states": { "type": "array", "items": { "type": "string" } },
+            "transitions": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "decisionClassifications": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["item", "classification"],
+        "properties": {
+          "item": { "type": "string" },
+          "classification": {
+            "type": "string",
+            "enum": [
+              "USER_REQUIREMENT",
+              "EXISTING_PROJECT_CONSTRAINT",
+              "ENGINEERING_DECISION",
+              "ASSUMPTION",
+              "OPEN_QUESTION"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

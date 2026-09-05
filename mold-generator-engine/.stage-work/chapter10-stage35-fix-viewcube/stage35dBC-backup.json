@@ -1,0 +1,10 @@
+﻿{
+    "backupDir":  ".stage-work\\chapter10-stage35-fix-viewcube\\backups-20260708-134357",
+    "files":  [
+                  "frontend\\src\\features\\viewport\\runtime\\adaptiveGrid.ts",
+                  "frontend\\src\\features\\mold-generation\\MoldOrientationCube.tsx",
+                  "frontend\\src\\features\\mold-generation\\MoldOrientationCube.css",
+                  "frontend\\src\\features\\mold-generation\\MoldGenerationSketchOverlay.tsx"
+              ],
+    "createdAt":  "2026-07-08T13:43:57"
+}

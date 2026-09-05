@@ -1,0 +1,10 @@
+.workspace {
+  min-width: 0;
+  min-height: 0;
+  background:
+    linear-gradient(var(--workspace-grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--workspace-grid-line) 1px, transparent 1px),
+    var(--app-bg);
+  background-size: 32px 32px;
+  overflow: hidden;
+}

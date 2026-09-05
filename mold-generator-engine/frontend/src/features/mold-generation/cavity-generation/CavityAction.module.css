@@ -1,0 +1,119 @@
+﻿.actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 4px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.actions > * {
+  flex: 0 0 auto;
+}
+
+.actions button {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  min-width: 30px;
+  margin: 0;
+  padding: 0 9px;
+  border: 1px solid
+    color-mix(in srgb, var(--color-neutral-0) 14%, var(--color-neutral-950));
+  border-radius: var(--radius-1);
+  background: color-mix(in srgb, var(--color-neutral-0) 7%, var(--color-neutral-950));
+  color: var(--color-neutral-50);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: none;
+  transition:
+    background var(--duration-fast) var(--easing-standard),
+    border-color var(--duration-fast) var(--easing-standard),
+    color var(--duration-fast) var(--easing-standard);
+}
+
+/* Cavity creation is the existing workflow-advancing action in this group.
+   Keep its emphasis restrained, while preserving the separate pressed state
+   of the adjacent appearance control. */
+.actions > button:first-child:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 56%, var(--color-neutral-950));
+  background: color-mix(in srgb, var(--accent) 16%, var(--color-neutral-950));
+  color: var(--accent-strong);
+}
+
+.actions > button:first-child:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 24%, var(--color-neutral-950));
+  color: var(--accent-strong);
+}
+
+.actions button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--color-neutral-0) 26%, var(--color-neutral-950));
+  background: var(--color-neutral-800);
+  color: var(--color-neutral-50);
+}
+
+.actions button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.actions button:disabled {
+  border-color: color-mix(in srgb, var(--color-neutral-0) 14%, var(--color-neutral-950));
+  background: color-mix(in srgb, var(--color-neutral-0) 7%, var(--color-neutral-950));
+  color: var(--color-neutral-400);
+  cursor: default;
+  opacity: 0.72;
+}
+
+.actions button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 24%, var(--color-neutral-950));
+  color: var(--accent-strong);
+}
+
+.actions button svg {
+  display: block;
+  width: 17px;
+  height: 17px;
+  pointer-events: none;
+}
+
+.clearance {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.clearance button {
+  width: 30px;
+  min-width: 30px;
+  padding: 0;
+  font-size: 15px;
+}
+
+.clearance output {
+  min-width: 92px;
+  padding: 0 3px;
+  color: var(--color-neutral-200);
+  text-align: center;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.error {
+  max-width: 240px;
+  color: var(--error);
+  font-size: 12px;
+}

@@ -1,0 +1,101 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MaintenanceHealthReport",
+  "type": "object",
+  "required": [
+    "metadata",
+    "featureName",
+    "maintenanceReport"
+  ],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": [
+        "artifactId",
+        "artifactType",
+        "artifactVersion",
+        "revision",
+        "authorSkill",
+        "status",
+        "sourceOptimizationArtifactId",
+        "dependencyIds",
+        "invalidationTriggers"
+      ],
+      "properties": {
+        "artifactId": { "type": "string" },
+        "artifactType": { "type": "string", "enum": ["MaintenanceHealthReport"] },
+        "artifactVersion": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "authorSkill": { "type": "string", "enum": ["cad-maintenance-evolution-engineer"] },
+        "status": { "type": "string", "enum": ["HEALTHY", "DEBT_DETECTED", "MIGRATION_REQUIRED"] },
+        "sourceOptimizationArtifactId": { "type": "string" },
+        "dependencyIds": { "type": "array", "items": { "type": "string" } },
+        "supersedesArtifactId": { "type": ["string", "null"] },
+        "invalidationTriggers": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "featureName": { "type": "string" },
+    "changedSections": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "maintenanceReport": {
+      "type": "object",
+      "required": [
+        "healthScore",
+        "detectedTechnicalDebt",
+        "migrationRecommendations",
+        "evolutionRoadmap"
+      ],
+      "properties": {
+        "healthScore": { "type": "number", "minimum": 0, "maximum": 100 },
+        "detectedTechnicalDebt": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["debtId", "category", "description", "impactScore"],
+            "properties": {
+              "debtId": { "type": "string" },
+              "category": {
+                "type": "string",
+                "enum": [
+                  "DEPRECATED_CONTRACT",
+                  "DUPLICATE_LOGIC",
+                  "DEAD_CODE",
+                  "OUTDATED_ASSUMPTION",
+                  "ARCHITECTURE_DRIFT"
+                ]
+              },
+              "description": { "type": "string" },
+              "impactScore": { "type": "number", "minimum": 1, "maximum": 10 }
+            }
+          }
+        },
+        "migrationRecommendations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["recommendationId", "targetComponent", "proposedAction", "urgency"],
+            "properties": {
+              "recommendationId": { "type": "string" },
+              "targetComponent": { "type": "string" },
+              "proposedAction": { "type": "string" },
+              "urgency": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] }
+            }
+          }
+        },
+        "evolutionRoadmap": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["phase", "actionItem"],
+            "properties": {
+              "phase": { "type": "string" },
+              "actionItem": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

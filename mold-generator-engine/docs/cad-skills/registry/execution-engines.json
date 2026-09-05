@@ -1,0 +1,64 @@
+{
+  "registryVersion": "1.0.0",
+  "note": "Repository-evidenced Execution Engine descriptors for the Proposal-Driven Engineering Workflow (see docs/cad-skills/PROPOSAL_WORKFLOW.md). Every capabilities/limitations/status claim below is grounded in docs/cad-skills/LOOP_ENGINE.md's existing 'Compatibility' section and this repository's own AGENTS.md Codex adapter description - nothing here is a new claim invented for this registry. As of the Hardening pass, this registry is actively read at runtime by 'execute' (validateExecutionEngine in .claude/loop/loop-trace.mjs) - it is data, but it is consumed data, not an inert placeholder.",
+  "engines": [
+    {
+      "engineId": "claude-code",
+      "name": "Claude Code",
+      "vendor": "Anthropic",
+      "capabilities": [
+        "RepositorySearch",
+        "ReadFiles",
+        "EditFiles",
+        "RunTests",
+        "GitOperations",
+        "SkillInvocation",
+        "HookEnforcement"
+      ],
+      "limitations": [
+        "HookEnforcement includes a blocking PreToolUse hook (.claude/settings.json, matchers Edit/Write/NotebookEdit -> check-execution-gate) in addition to the pre-existing PostToolUse observer - but its blocking decision logic (computeExecutionGateDecision in .claude/loop/loop-trace.mjs) has been verified only by invoking the script directly with simulated hook payloads, not by observing a live Claude Code PreToolUse invocation actually deny a real tool call. Treat live-harness blocking as unverified until exercised for real, per the same 'Evidence this was tested for real' standard used elsewhere in this registry. By contrast, the Hardening pass's git pre-commit hook (.git/hooks/pre-commit, backed by check-commit-gate) HAS been verified end-to-end by directly invoking the installed hook script exactly as git would (`sh .git/hooks/pre-commit`), so its block/allow behavior is confirmed, not merely simulated.",
+        "The PreToolUse gate's blocking condition is coarse by design: it blocks Edit/Write/NotebookEdit whenever the MOST RECENTLY CREATED trace file's proposal is AWAITING_APPROVAL, not whichever proposal belongs to the current session specifically - true session correlation is not achievable because Claude Code does not expose the running session ID to arbitrary Bash commands (see docs/cad-skills/LOOP_ENGINE.md's Remaining Limitations for the same constraint affecting verify's evidence correlation). The git pre-commit hook shares this same coarseness, and additionally can be bypassed with `git commit --no-verify` - both are disclosed, not hidden.",
+        "HookEnforcement (both the PreToolUse and pre-commit layers) covers Edit/Write/NotebookEdit tool calls and git commits specifically. It does NOT cover a Bash-performed file write (heredoc redirection, sed -i, cp, etc.) before that change is committed - only committing it is gated. This was the specific bypass path identified in this project's own audit; it is narrowed (via the commit gate) but not eliminated for uncommitted working-tree mutations.",
+        "BrowserValidation is not confirmed as a verified capability of this repository's current Skill/Subagent set as of this investigation; omitted from capabilities rather than assumed.",
+        "AWAITING_APPROVAL cold-resume across a multi-day gap (a different session or process picking up a paused proposal) has not been exercised - every existing .claude/loop/traces/*.json trace was created and completed within a single continuous session."
+      ],
+      "verificationLevel": "HookConfirmed",
+      "status": "Verified",
+      "notes": "docs/cad-skills/LOOP_ENGINE.md's 'Evidence this was tested for real' section documents real Skill invocations exercised through the actual Skill tool and PostToolUse hook, including single-skill, multi-skill sequential, forced-failure-then-retry, unrouted-task, and deliberate bypass-attempt runs, with concrete run IDs in .claude/loop/traces/. The PreToolUse gate (check-execution-gate) was verified at the script level only; the git pre-commit gate (check-commit-gate) was verified by direct invocation of the installed hook script itself - see limitations above for the precise distinction."
+    },
+    {
+      "engineId": "codex",
+      "name": "Codex",
+      "vendor": "Not specified by repository documentation",
+      "capabilities": [
+        "RepositorySearch",
+        "ReadFiles",
+        "EditFiles",
+        "RunTests",
+        "GitOperations"
+      ],
+      "limitations": [
+        "No Skill tool - cannot invoke a registered Skill directly; per docs/cad-skills/LOOP_ENGINE.md's Compatibility section, Codex must perform the routed work itself after calling route/log/verify via its own shell access.",
+        "No PostToolUse/PreToolUse hook system - cannot auto-log or auto-enforce anything; all invocation evidence is necessarily self-reported (confirmedByExplicitLog), never confirmedByHook.",
+        "AGENTS.md describes the Codex adapter as deliberately thinner than the Claude Code adapter, fulfilling loop stages through direct repository inspection, direct command execution, and direct diff review rather than a Skill/Subagent system."
+      ],
+      "verificationLevel": "ExplicitLogOnly",
+      "status": "PartiallyVerified",
+      "notes": "docs/cad-skills/LOOP_ENGINE.md's Compatibility section states this explicitly: 'Codex can still use this Loop Engine's deterministic half directly... but it must call log manually after doing the routed work itself, since there is no Skill tool or PostToolUse hook to auto-capture invocation... Codex's evidence is necessarily self-reported, not hook-confirmed.' No end-to-end Codex run has been recorded in .claude/loop/traces/ as of this investigation."
+    },
+    {
+      "engineId": "gemini-cli",
+      "name": "Gemini CLI",
+      "vendor": "Not specified by repository documentation",
+      "capabilities": [],
+      "limitations": [
+        "Nothing in this repository has been run against Gemini CLI. No capability can be listed as confirmed without inventing an unverified fact, which .claude/skills/prompt-compiler/SKILL.md's own compilation rules explicitly forbid ('the compiler must not silently invent facts about the repository').",
+        "docs/cad-skills/LOOP_ENGINE.md documents the same unverified status for Antigravity ('untested and unverified... Do not assume compatibility'); Gemini CLI is presumed to sit in the same category until it is actually exercised against .claude/loop/loop-trace.mjs or an equivalent vendor-neutral entry point.",
+        "The JSON contracts and schemas under docs/cad-skills/contracts/ and docs/cad-skills/registry/ are plain data and are expected to be readable by any tool with file access, but this has not been verified specifically for Gemini CLI."
+      ],
+      "verificationLevel": "Unverified",
+      "status": "Unverified",
+      "notes": "Included as a placeholder entry per explicit user request that the architecture name Gemini CLI as a target execution engine. Capabilities intentionally left empty rather than assumed; update this entry only after a real, evidenced run, following the same 'Evidence this was tested for real' standard docs/cad-skills/LOOP_ENGINE.md already applies to Claude Code."
+    }
+  ]
+}

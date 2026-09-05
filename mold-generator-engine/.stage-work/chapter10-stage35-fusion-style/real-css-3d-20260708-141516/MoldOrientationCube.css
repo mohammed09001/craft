@@ -1,0 +1,132 @@
+﻿.mold-fusion-viewcube {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 45;
+  width: 146px;
+  height: 136px;
+  pointer-events: none;
+  user-select: none;
+}
+
+.mold-fusion-viewcube__svg {
+  display: block;
+  width: 146px;
+  height: 136px;
+  overflow: visible;
+}
+
+.mold-fusion-viewcube__face {
+  stroke: rgba(96, 110, 128, 0.9);
+  stroke-width: 1.15;
+  stroke-linejoin: round;
+}
+
+.mold-fusion-viewcube__face--top {
+  fill: url("#fusion-face-top");
+}
+
+.mold-fusion-viewcube__face--front {
+  fill: url("#fusion-face-front");
+}
+
+.mold-fusion-viewcube__face--right {
+  fill: url("#fusion-face-right");
+}
+
+.mold-fusion-viewcube__outer-edge {
+  fill: none;
+  stroke: rgba(55, 65, 81, 0.78);
+  stroke-width: 1.25;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.mold-fusion-viewcube__inner-edge {
+  stroke: rgba(100, 116, 139, 0.62);
+  stroke-width: 1.05;
+  stroke-linecap: round;
+}
+
+.mold-fusion-viewcube__face-text {
+  fill: rgba(65, 75, 90, 0.96);
+  font-size: 8.3px;
+  font-weight: 800;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  paint-order: stroke;
+  stroke: rgba(255, 255, 255, 0.88);
+  stroke-width: 2.1px;
+  letter-spacing: 0.01em;
+}
+
+.mold-fusion-viewcube__face-text--top {
+  font-size: 8px;
+}
+
+.mold-fusion-viewcube__face-text--front {
+  font-size: 7.8px;
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: rotate(25deg);
+}
+
+.mold-fusion-viewcube__face-text--right {
+  font-size: 7.8px;
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: rotate(-25deg);
+}
+
+.mold-fusion-viewcube__axis {
+  stroke-width: 2.2;
+  stroke-linecap: round;
+}
+
+.mold-fusion-viewcube__axis--x {
+  stroke: rgba(239, 68, 68, 0.92);
+}
+
+.mold-fusion-viewcube__axis--y {
+  stroke: rgba(34, 197, 94, 0.94);
+}
+
+.mold-fusion-viewcube__axis--z {
+  stroke: rgba(99, 102, 241, 0.92);
+}
+
+.mold-fusion-viewcube__axis-label {
+  font-size: 18px;
+  font-weight: 900;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  paint-order: stroke;
+  stroke: rgba(255, 255, 255, 0.94);
+  stroke-width: 3.2px;
+}
+
+.mold-fusion-viewcube__axis-label--x {
+  fill: rgba(239, 68, 68, 0.98);
+}
+
+.mold-fusion-viewcube__axis-label--y {
+  fill: rgba(34, 197, 94, 0.98);
+}
+
+.mold-fusion-viewcube__axis-label--z {
+  fill: rgba(99, 102, 241, 0.96);
+}
+
+@media (max-width: 760px) {
+  .mold-fusion-viewcube {
+    top: 10px;
+    right: 10px;
+    width: 124px;
+    height: 116px;
+  }
+
+  .mold-fusion-viewcube__svg {
+    width: 124px;
+    height: 116px;
+  }
+}

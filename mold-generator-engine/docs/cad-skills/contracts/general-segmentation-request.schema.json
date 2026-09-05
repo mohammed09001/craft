@@ -1,0 +1,203 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SegmentationPlanningRequest",
+  "description": "Domain-neutral request for segmentation necessity analysis and engineering plan selection. It references canonical artifacts and never transfers ownership of product state or geometry.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "requestId",
+    "updateMode",
+    "sourceAlgorithmArtifactId",
+    "sourceGeometryArtifactId",
+    "candidateStrategySources",
+    "subject",
+    "productionConstraintProfileRef",
+    "segmentationPolicyRef",
+    "allowedConfigurations",
+    "protectedRegions",
+    "downstreamRequirements",
+    "invalidationTokens",
+    "extensions"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "requestId": { "type": "string", "minLength": 1 },
+    "updateMode": {
+      "type": "string",
+      "enum": ["FULL", "PARTIAL_UPDATE", "VALIDATE_ONLY", "REUSE_EXISTING"]
+    },
+    "priorPlanArtifactId": { "type": ["string", "null"] },
+    "sourceAlgorithmArtifactId": { "type": "string", "minLength": 1 },
+    "sourceGeometryArtifactId": { "type": "string", "minLength": 1 },
+    "candidateStrategySources": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Opaque, project-owned candidate-generation strategies defined by accepted upstream specifications. The General Segmentation Engine evaluates their candidate representations but does not define these methods.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "strategySourceId",
+          "strategyFamily",
+          "owner",
+          "sourceSchemaId",
+          "sourceSchemaVersion",
+          "algorithmArtifactId",
+          "algorithmSectionReference",
+          "geometryArtifactId",
+          "geometrySectionReference"
+        ],
+        "properties": {
+          "strategySourceId": { "type": "string", "minLength": 1 },
+          "strategyFamily": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Open, externally supplied strategy-family identifier; this contract does not enumerate or implement strategy families."
+          },
+          "owner": { "type": "string", "minLength": 1 },
+          "sourceSchemaId": { "type": "string", "minLength": 1 },
+          "sourceSchemaVersion": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+          "algorithmArtifactId": { "type": "string", "minLength": 1 },
+          "algorithmSectionReference": { "type": "string", "minLength": 1 },
+          "geometryArtifactId": { "type": "string", "minLength": 1 },
+          "geometrySectionReference": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "subject": {
+      "type": "object",
+      "required": [
+        "subjectId",
+        "subjectRevision",
+        "sourceSystem",
+        "representation",
+        "artifactReference",
+        "contentHash",
+        "units",
+        "coordinateFrame",
+        "dimensionality",
+        "bounds",
+        "topologySummary",
+        "evidence"
+      ],
+      "properties": {
+        "subjectId": { "type": "string", "minLength": 1 },
+        "subjectRevision": { "type": "string", "minLength": 1 },
+        "sourceSystem": { "type": "string", "minLength": 1 },
+        "representation": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Open representation identifier such as mesh, B-Rep, solid, surface, planar profile, assembly, or a namespaced future representation."
+        },
+        "artifactReference": { "type": "string", "minLength": 1 },
+        "contentHash": { "type": "string", "minLength": 1 },
+        "units": { "type": "string", "minLength": 1 },
+        "coordinateFrame": { "type": "string", "minLength": 1 },
+        "dimensionality": { "type": "string", "enum": ["2D", "2.5D", "3D", "ASSEMBLY"] },
+        "bounds": {},
+        "topologySummary": { "type": "string", "minLength": 1 },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["evidenceId", "kind", "sourceArtifactId", "confidence"],
+            "properties": {
+              "evidenceId": { "type": "string", "minLength": 1 },
+              "kind": { "type": "string", "minLength": 1 },
+              "sourceArtifactId": { "type": "string", "minLength": 1 },
+              "confidence": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] },
+              "dataReference": { "type": ["string", "null"] }
+            }
+          }
+        }
+      }
+    },
+    "productionConstraintProfileRef": {
+      "type": "object",
+      "required": ["profileId", "profileVersion", "revision"],
+      "properties": {
+        "profileId": { "type": "string", "minLength": 1 },
+        "profileVersion": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+        "revision": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "segmentationPolicyRef": {
+      "type": "object",
+      "required": ["policyId", "policyVersion", "revision"],
+      "properties": {
+        "policyId": { "type": "string", "minLength": 1 },
+        "policyVersion": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+        "revision": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "allowedConfigurations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["configurationId", "description", "transformReference"],
+        "properties": {
+          "configurationId": { "type": "string", "minLength": 1 },
+          "description": { "type": "string", "minLength": 1 },
+          "transformReference": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "protectedRegions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["regionId", "description", "geometryReference"],
+        "properties": {
+          "regionId": { "type": "string", "minLength": 1 },
+          "description": { "type": "string", "minLength": 1 },
+          "geometryReference": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "downstreamRequirements": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "invalidationTokens": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "extensions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["namespace", "schemaId", "schemaVersion", "owner", "data"],
+        "properties": {
+          "namespace": { "type": "string", "minLength": 1 },
+          "schemaId": { "type": "string", "minLength": 1 },
+          "schemaVersion": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+          "owner": { "type": "string", "minLength": 1 },
+          "data": { "type": "object" }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "updateMode": { "enum": ["PARTIAL_UPDATE", "VALIDATE_ONLY", "REUSE_EXISTING"] } },
+        "required": ["updateMode"]
+      },
+      "then": {
+        "required": ["priorPlanArtifactId"],
+        "properties": { "priorPlanArtifactId": { "type": "string", "minLength": 1 } }
+      }
+    },
+    {
+      "if": {
+        "properties": { "updateMode": { "const": "FULL" } },
+        "required": ["updateMode"]
+      },
+      "then": {
+        "properties": { "priorPlanArtifactId": { "type": "null" } }
+      }
+    }
+  ],
+  "additionalProperties": false
+}

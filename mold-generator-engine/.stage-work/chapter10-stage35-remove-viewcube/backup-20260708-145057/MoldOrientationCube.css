@@ -1,0 +1,163 @@
+﻿.mg-viewcube {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 60;
+  width: 142px;
+  height: 132px;
+  pointer-events: none;
+  user-select: none;
+}
+
+.mg-viewcube__svg {
+  display: block;
+  width: 142px;
+  height: 132px;
+  overflow: visible;
+}
+
+.mg-viewcube__face {
+  stroke: rgba(86, 99, 117, 0.82);
+  stroke-width: 1.08;
+  stroke-linejoin: round;
+}
+
+.mg-viewcube__face--top {
+  fill: url("#mg-viewcube-top");
+}
+
+.mg-viewcube__face--front {
+  fill: url("#mg-viewcube-front");
+}
+
+.mg-viewcube__face--right {
+  fill: url("#mg-viewcube-right");
+}
+
+.mg-viewcube__edge {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.mg-viewcube__edge--outer {
+  stroke: rgba(55, 65, 81, 0.76);
+  stroke-width: 1.14;
+}
+
+.mg-viewcube__edge--inner {
+  stroke: rgba(111, 126, 147, 0.58);
+  stroke-width: 0.96;
+}
+
+.mg-viewcube__face-label {
+  fill: rgba(58, 68, 84, 0.96);
+  font-size: 8.4px;
+  font-weight: 760;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  paint-order: stroke;
+  stroke: rgba(255, 255, 255, 0.88);
+  stroke-width: 2px;
+  letter-spacing: 0.01em;
+}
+
+.mg-viewcube__face-label--top {
+  font-size: 8.2px;
+}
+
+.mg-viewcube__face-label--front {
+  font-size: 8px;
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: rotate(24deg);
+}
+
+.mg-viewcube__face-label--right {
+  font-size: 8px;
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: rotate(-24deg);
+}
+
+.mg-viewcube__axis-line {
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  opacity: 0.84;
+}
+
+.mg-viewcube__axis-line--x {
+  stroke: rgba(239, 68, 68, 0.86);
+}
+
+.mg-viewcube__axis-line--y {
+  stroke: rgba(34, 197, 94, 0.88);
+}
+
+.mg-viewcube__axis-line--z {
+  stroke: rgba(99, 102, 241, 0.84);
+}
+
+.mg-viewcube__axis-label {
+  font-size: 16px;
+  font-weight: 900;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  paint-order: stroke;
+  stroke: rgba(255, 255, 255, 0.93);
+  stroke-width: 3px;
+}
+
+.mg-viewcube__axis-label--x {
+  fill: rgba(239, 68, 68, 0.95);
+}
+
+.mg-viewcube__axis-label--y {
+  fill: rgba(34, 197, 94, 0.96);
+}
+
+.mg-viewcube__axis-label--z {
+  fill: rgba(99, 102, 241, 0.94);
+}
+
+.mg-viewcube__home {
+  fill: none;
+  stroke: rgba(226, 232, 240, 0.72);
+  stroke-width: 1.65;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 1px 2px rgba(71, 85, 105, 0.16));
+}
+
+.mg-viewcube__orbit {
+  fill: none;
+  stroke: rgba(226, 232, 240, 0.66);
+  stroke-width: 1.55;
+  stroke-linecap: round;
+  filter: drop-shadow(0 1px 2px rgba(71, 85, 105, 0.14));
+}
+
+.mg-viewcube__arrow-head {
+  fill: rgba(226, 232, 240, 0.72);
+}
+
+.mg-viewcube__nav-triangle {
+  fill: rgba(226, 232, 240, 0.7);
+  stroke: rgba(148, 163, 184, 0.26);
+  stroke-width: 0.55;
+  filter: drop-shadow(0 1px 2px rgba(71, 85, 105, 0.12));
+}
+
+@media (max-width: 760px) {
+  .mg-viewcube {
+    top: 10px;
+    right: 10px;
+    width: 122px;
+    height: 114px;
+  }
+
+  .mg-viewcube__svg {
+    width: 122px;
+    height: 114px;
+  }
+}

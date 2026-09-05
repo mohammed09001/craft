@@ -1,0 +1,146 @@
+{
+  "metadata": {
+    "artifactId": "spec-registration-adaptive-planner-v1",
+    "artifactType": "AlgorithmSpecification",
+    "artifactVersion": "1.0.0",
+    "revision": 1,
+    "authorSkill": "cad-algorithm-designer",
+    "status": "ACCEPTED",
+    "detailLevel": "DEEP",
+    "updateMode": "FULL",
+    "sourcePromptSummary": "Adaptive Registration Planner: Real Runtime Diagnosis and Complete Repair for Arbitrary Geometries",
+    "dependencyIds": [],
+    "invalidationTriggers": [
+      "part_geometry_change",
+      "split_plane_change",
+      "manufacturing_profile_change",
+      "mold_clearance_change"
+    ]
+  },
+  "featureName": "Adaptive Registration Planner",
+  "specification": {
+    "1_problemDefinition": {
+      "goal": "Generate scale-adaptive, robust alignment locators across every mating interface for arbitrary mold/part geometries without hardcoded model dimensions.",
+      "cadContext": "Engineering vertical SaaS mold generator engine in Z-up millimeters operating on Manifold CSG solids and BVH distance fields.",
+      "expectedOutcome": "Complementary key/socket alignment locators placed deterministically on all valid split interfaces or clean failure reporting if geometrically impossible."
+    },
+    "2_inputs": {
+      "userParameters": ["moldClearanceMm", "manufacturingProfile"],
+      "canonicalStateDependencies": ["bodies", "cuttingPlanes", "cavityTool", "sprues"],
+      "referenceUnits": "mm (Millimeters)",
+      "coordinateSystem": "Z-up"
+    },
+    "3_outputs": {
+      "derivedGeometry": ["registrationKeys", "registrationSockets", "updatedBodies"],
+      "canonicalStateUpdates": ["registrationState", "registrationReport"],
+      "downstreamArtifacts": ["RegistrationReport", "RegistrationDiagnosticSnapshot"]
+    },
+    "4_constraints": {
+      "geometricConstraints": [
+        "No locator shall intersect cavity or sprue functional geometry",
+        "Locator anchors must lie on exact mating interface plane",
+        "Locator radius and depth must respect local wall thickness and minimum manufacturing limits"
+      ],
+      "topologicalConstraints": [
+        "Resulting mold bodies must remain 2-manifold closed solids with exactly one connected component",
+        "No detached fragments or zero-volume slivers"
+      ],
+      "performanceConstraints": [
+        "Interface detection and candidate layout evaluation under 200ms per pass",
+        "Coarse-to-fine adaptive candidate search with early termination"
+      ]
+    },
+    "5_userInteraction": {
+      "viewportTools": ["pointer", "eraser", "sprue", "split-face"],
+      "interactionEvents": ["onSplitPlaneChange", "onMoldClearanceChange", "onSprueUpdate"],
+      "feedbackMechanisms": ["toolbarStatusMessage", "registrationOverlayPreview", "diagnosticLog"]
+    },
+    "6_algorithmPipeline": [
+      {
+        "phase": "1_InterfaceDetection",
+        "description": "Detect all planar flush mating interfaces between participating mold body pairs, sorted deterministically by area."
+      },
+      {
+        "phase": "2_LocalScaleDerivation",
+        "description": "Compute local interface span, usable corridor width, and local wall thickness limits to select adaptive locator radius and depth."
+      },
+      {
+        "phase": "3_AdaptiveCandidateGeneration",
+        "description": "Sample candidates using a coarse-to-fine multi-resolution grid and boundary corridor offsets instead of conservative whole-body AABBs."
+      },
+      {
+        "phase": "4_ExactGeometryValidation",
+        "description": "Validate each candidate using BVH signed distance fields against true cavity/sprue meshes and external mold body bounds."
+      },
+      {
+        "phase": "5_DegradingCountSelection",
+        "description": "Select maximal stable well-spread layout degrading 4 -> 3 -> 2 -> 1 locator count per interface."
+      },
+      {
+        "phase": "6_CSGBooleanExecution",
+        "description": "Perform Manifold CSG union/subtraction for keys and sockets with 2-manifold topology assertion."
+      }
+    ],
+    "7_failureConditions": [
+      {
+        "condition": "Zero candidates survive exact wall thickness and edge clearance validation",
+        "errorCode": "registration_insufficient_safe_area",
+        "recoveryAction": "Report specific missing ring margin and preserve untouched canonical mold bodies."
+      },
+      {
+        "condition": "CSG Boolean creates non-manifold or multi-component geometry",
+        "errorCode": "registration_boolean_failed",
+        "recoveryAction": "Roll back to input bodies and return detailed diagnostic failure report."
+      }
+    ],
+    "8_edgeCases": [
+      {
+        "scenario": "Irregular diagonal or L-shaped cavity mesh occupying central AABB",
+        "mitigation": "Evaluate exact BVH mesh distance rather than projecting full 2D rectangular AABB."
+      },
+      {
+        "scenario": "Narrow mold border around large cavity",
+        "mitigation": "Adaptively scale locator radius down to manufacturing minimum policy floor and sample boundary corridors."
+      }
+    ],
+    "9_dependencies": {
+      "upstreamStages": ["cavity-generation", "split-face", "sprue-generation"],
+      "runtimeServices": ["RegistrationGenerationService", "evaluateDerivedMold"],
+      "externalLibraries": ["manifold-3d", "three-mesh-bvh"]
+    },
+    "10_rebuildTriggers": [
+      "bodies_geometry_version_change",
+      "cutting_planes_change",
+      "cavity_mesh_change",
+      "sprues_change",
+      "manufacturing_profile_change"
+    ],
+    "11_stateTransitions": {
+      "states": ["unavailable", "generating", "generated", "blocked", "failed"],
+      "transitions": [
+        "unavailable -> generating: snapshot built",
+        "generating -> generated: CSG successful",
+        "generating -> blocked: geometric impossibility or insufficient wall",
+        "generating -> failed: CSG kernel exception"
+      ]
+    }
+  },
+  "decisionClassifications": [
+    {
+      "item": "No hardcoded model dimensions in planner",
+      "classification": "USER_REQUIREMENT"
+    },
+    {
+      "item": "All-or-nothing atomic interface safety commit",
+      "classification": "EXISTING_PROJECT_CONSTRAINT"
+    },
+    {
+      "item": "Coarse-to-fine multi-resolution corridor sampling",
+      "classification": "ENGINEERING_DECISION"
+    },
+    {
+      "item": "Default conservative FDM printer profile when none specified",
+      "classification": "ASSUMPTION"
+    }
+  ]
+}

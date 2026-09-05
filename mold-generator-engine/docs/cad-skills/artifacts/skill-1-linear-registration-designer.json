@@ -1,0 +1,144 @@
+{
+  "metadata": {
+    "artifactId": "spec-linear-alignment-system-v1",
+    "artifactType": "AlgorithmSpecification",
+    "artifactVersion": "1.0.0",
+    "revision": 1,
+    "authorSkill": "cad-algorithm-designer",
+    "status": "ACCEPTED",
+    "detailLevel": "DEEP",
+    "updateMode": "FULL",
+    "sourcePromptSummary": "Edge-Mounted Linear Alignment System for Mold Generation",
+    "dependencyIds": [],
+    "invalidationTriggers": [
+      "part_geometry_change",
+      "split_plane_change",
+      "manufacturing_profile_change",
+      "mold_clearance_change"
+    ]
+  },
+  "featureName": "Edge-Mounted Linear Alignment System",
+  "specification": {
+    "1_problemDefinition": {
+      "goal": "Replace scattered spherical registration locators with a professional, deterministic, edge-mounted linear tongue-and-groove alignment system across all mold mating interfaces.",
+      "cadContext": "Engineering vertical SaaS mold generator engine in Z-up millimeters operating on Manifold CSG solids and BVH distance fields.",
+      "expectedOutcome": "Complementary Linear Alignment Tongue and Linear Alignment Groove features placed deterministically on outer side corridors of mating interfaces, respecting asymmetry, assembly direction, and split intersection protection zones."
+    },
+    "2_inputs": {
+      "userParameters": ["moldClearanceMm", "manufacturingProfile"],
+      "canonicalStateDependencies": ["bodies", "cuttingPlanes", "cavityTool", "sprues"],
+      "referenceUnits": "mm (Millimeters)",
+      "coordinateSystem": "Z-up"
+    },
+    "3_outputs": {
+      "derivedGeometry": ["linearTongues", "linearGrooves", "updatedBodies"],
+      "canonicalStateUpdates": ["registrationState", "registrationReport"],
+      "downstreamArtifacts": ["RegistrationReport", "RegistrationDiagnosticSnapshot"]
+    },
+    "4_constraints": {
+      "geometricConstraints": [
+        "No key shall appear in the central region of a mating interface",
+        "Two-part mold must generate exactly 2 logical registration keys (left and right side corridors)",
+        "Four-part mold keys must form a globally coordinated perimeter framework",
+        "Intersection protection zone around split intersections must remain clear",
+        "Keys must maintain minimum wall thickness from cavity, sprue, and outer mold block boundaries"
+      ],
+      "topologicalConstraints": [
+        "Resulting mold bodies must remain 2-manifold closed solids with exactly one connected component",
+        "No detached fragments, zero-volume slivers, or non-manifold edges"
+      ],
+      "performanceConstraints": [
+        "Interface detection and corridor extraction under 200ms per pass",
+        "Manifold CSG Boolean execution faster than legacy spherical locators"
+      ]
+    },
+    "5_userInteraction": {
+      "viewportTools": ["pointer", "eraser", "sprue", "split-face"],
+      "interactionEvents": ["onSplitPlaneChange", "onMoldClearanceChange", "onSprueUpdate"],
+      "feedbackMechanisms": ["toolbarStatusMessage", "registrationOverlayPreview", "diagnosticLog"]
+    },
+    "6_algorithmPipeline": [
+      {
+        "phase": "1_InterfaceGraphConstruction",
+        "description": "Construct mating interface graph between contacting mold bodies and classify local coordinate frames."
+      },
+      {
+        "phase": "2_SideCorridorExtraction",
+        "description": "Extract left, right, top, and bottom edge corridors for each mating interface, subtracting cavity, sprue, thin wall, and intersection protection zones."
+      },
+      {
+        "phase": "3_LinearKeyLayoutPlanning",
+        "description": "Plan deterministic linear keys along edge corridors (left+right for vertical interfaces, top+bottom for horizontal interfaces) enforcing continuous or minimal collinear segmented layout."
+      },
+      {
+        "phase": "4_AsymmetryAndOwnershipAssignment",
+        "description": "Apply deterministic asymmetry (for 2-part orientation control) and assign male/female roles based on supported wall thickness and assembly directions."
+      },
+      {
+        "phase": "5_TaperedLinearCSGExecution",
+        "description": "Perform Manifold CSG union of tapered tongue tools into male bodies and subtraction of clearanced groove tools from female bodies with 2-manifold validation."
+      }
+    ],
+    "7_failureConditions": [
+      {
+        "condition": "Usable edge corridors are obstructed by cavity/sprue or fail wall thickness validation",
+        "errorCode": "registration_insufficient_safe_area",
+        "recoveryAction": "Preserve untouched canonical mold bodies and report specific corridor obstruction."
+      },
+      {
+        "condition": "CSG Boolean creates non-manifold or multi-component geometry",
+        "errorCode": "registration_boolean_failed",
+        "recoveryAction": "Roll back to input bodies and return detailed failure report."
+      }
+    ],
+    "8_edgeCases": [
+      {
+        "scenario": "Cavity or sprue intersects continuous side corridor",
+        "mitigation": "Split key into minimal collinear aligned segments meeting minimum segment viability length."
+      },
+      {
+        "scenario": "Four-part split plane crossing at center",
+        "mitigation": "Enforce adaptive protected spherical/cylindrical exclusion zone around intersection line."
+      }
+    ],
+    "9_dependencies": {
+      "upstreamStages": ["cavity-generation", "split-face", "sprue-generation"],
+      "runtimeServices": ["RegistrationGenerationService", "evaluateDerivedMold"],
+      "externalLibraries": ["manifold-3d", "three-mesh-bvh"]
+    },
+    "10_rebuildTriggers": [
+      "bodies_geometry_version_change",
+      "cutting_planes_change",
+      "cavity_mesh_change",
+      "sprues_change",
+      "manufacturing_profile_change"
+    ],
+    "11_stateTransitions": {
+      "states": ["unavailable", "generating", "generated", "blocked", "failed"],
+      "transitions": [
+        "unavailable -> generating: snapshot built",
+        "generating -> generated: CSG successful",
+        "generating -> blocked: geometric impossibility or insufficient wall",
+        "generating -> failed: CSG kernel exception"
+      ]
+    }
+  },
+  "decisionClassifications": [
+    {
+      "item": "Edge-mounted linear tongue and groove alignment system",
+      "classification": "USER_REQUIREMENT"
+    },
+    {
+      "item": "Exactly two keys (left/right) for two-part molds with orientation asymmetry",
+      "classification": "USER_REQUIREMENT"
+    },
+    {
+      "item": "Protected intersection zone around split plane crossings",
+      "classification": "USER_REQUIREMENT"
+    },
+    {
+      "item": "Adaptive parameter sizing derived from corridor width and wall thickness",
+      "classification": "ENGINEERING_DECISION"
+    }
+  ]
+}

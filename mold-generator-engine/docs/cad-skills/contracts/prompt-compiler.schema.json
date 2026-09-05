@@ -1,0 +1,130 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PromptCompilerContract",
+  "description": "Contract schema for the Prompt Compiler project entry gateway skill.",
+  "type": "object",
+  "required": [
+    "registryVersion",
+    "rawPrompt",
+    "engineeringIntent",
+    "taskClassification",
+    "complexityLevel",
+    "estimatedRisk",
+    "affectedSystems",
+    "protectedSystems",
+    "engineeringConstraints",
+    "validationRequirements",
+    "compiledEngineeringPrompt",
+    "compilerReport"
+  ],
+  "properties": {
+    "registryVersion": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "rawPrompt": {
+      "type": "string",
+      "description": "Original raw human prompt received by the entry gateway"
+    },
+    "engineeringIntent": {
+      "type": "string",
+      "description": "Interpreted core engineering intent behind the request"
+    },
+    "taskClassification": {
+      "type": "string",
+      "enum": [
+        "SIMPLE_TEXT_UI",
+        "FEATURE_REPAIR",
+        "CAD_GEOMETRY",
+        "VIEWPORT_UX",
+        "MANIFOLD_BOOLEAN",
+        "STATE_REFACTOR",
+        "CAD_ARCHITECTURE",
+        "NON_CAD_TOOLING"
+      ]
+    },
+    "complexityLevel": {
+      "type": "string",
+      "enum": ["LEVEL_1", "LEVEL_2", "LEVEL_3", "Simple", "Medium", "Complex CAD"]
+    },
+    "estimatedRisk": {
+      "type": "string",
+      "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
+    },
+    "affectedSystems": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Subsystems, directories, or store slices affected by the request"
+    },
+    "protectedSystems": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Systems that must remain untouched to prevent regressions"
+    },
+    "engineeringConstraints": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Mandatory engineering rules, units, tolerances, and design constraints"
+    },
+    "validationRequirements": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Required test suites, typechecks, and verification commands"
+    },
+    "compiledEngineeringPrompt": {
+      "type": "string",
+      "description": "Final compiled engineering prompt block starting with COMPILED ENGINEERING PROMPT"
+    },
+    "compilerReport": {
+      "type": "object",
+      "description": "Concise Prompt Compiler Report emitted after compilation",
+      "required": [
+        "status",
+        "intent",
+        "compilationLevel",
+        "detectedDomains",
+        "engineeringAssumptions",
+        "compilationDecisions",
+        "outputStatus"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["Compilation completed", "Compilation warning"]
+        },
+        "intent": {
+          "type": "string"
+        },
+        "compilationLevel": {
+          "type": "string",
+          "enum": ["Simple", "Medium", "Complex CAD"]
+        },
+        "detectedDomains": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "protectedSystems": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "engineeringAssumptions": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Material engineering assumptions affecting compilation, or empty list"
+        },
+        "compilationDecisions": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "warnings": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "outputStatus": {
+          "type": "string",
+          "enum": ["Compiled Engineering Prompt generated successfully."]
+        }
+      }
+    }
+  }
+}

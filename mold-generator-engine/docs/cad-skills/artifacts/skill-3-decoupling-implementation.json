@@ -1,0 +1,56 @@
+{
+  "metadata": {
+    "artifactId": "impl-cavity-registration-decoupling-v1",
+    "artifactType": "ImplementationRecord",
+    "artifactVersion": "1.0.0",
+    "revision": 1,
+    "authorSkill": "cad-algorithm-implementer",
+    "status": "COMPLETED",
+    "detailLevel": "DEEP",
+    "updateMode": "FULL",
+    "sourceAlgorithmArtifactId": "spec-cavity-registration-decoupling-v1",
+    "sourceGeometryArtifactId": "geom-cavity-registration-decoupling-v1",
+    "dependencyIds": [
+      "spec-cavity-registration-decoupling-v1",
+      "geom-cavity-registration-decoupling-v1"
+    ],
+    "invalidationTriggers": [
+      "workflow_contract_change"
+    ]
+  },
+  "featureName": "Decouple Cavity Success from Linear Registration Failure Implementation",
+  "implementationRecord": {
+    "targetSubsystem": "frontend/src/features/mold-generation/workflow",
+    "modifiedFiles": [
+      "frontend/src/features/mold-generation/workflow/moldEvaluationCoordinator.ts",
+      "frontend/src/features/mold-generation/split-face/splitFace.store.ts",
+      "frontend/src/features/mold-generation/registration/RegistrationGenerationService.ts",
+      "frontend/src/features/mold-generation/registration/registrationLifecycle.test.ts"
+    ],
+    "createdFiles": [
+      "docs/cad-skills/artifacts/cavity-registration-failure-decoupling-design.md",
+      "docs/cad-skills/artifacts/skill-1-decoupling-designer.json",
+      "docs/cad-skills/artifacts/skill-2-decoupling-geometry.json",
+      "docs/cad-skills/artifacts/skill-3-decoupling-implementation.json",
+      "frontend/src/features/mold-generation/workflow/moldWorkflow.decoupling.test.ts"
+    ],
+    "exports": [
+      "isRegistrationAcceptedForCommit",
+      "useSplitFaceStore"
+    ],
+    "implementationTraceability": {
+      "algorithmArtifactId": "spec-cavity-registration-decoupling-v1",
+      "geometryArtifactId": "geom-cavity-registration-decoupling-v1",
+      "specSectionsSatisfied": [
+        "CavityIndependentCommit",
+        "OptionalRegistrationHandling",
+        "NonBlockingWarningMessaging"
+      ]
+    },
+    "implementationAssumptions": [
+      "isRegistrationAcceptedForCommit returns true so cavity commits are never rejected by registration unavailability",
+      "Registration warnings are non-blocking and preserved for diagnostic display"
+    ],
+    "qualityChecksPassed": true
+  }
+}

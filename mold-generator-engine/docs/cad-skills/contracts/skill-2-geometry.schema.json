@@ -1,0 +1,170 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "GeometryStrategySpecification",
+  "type": "object",
+  "required": [
+    "metadata",
+    "featureName",
+    "geometryDecisionRecord",
+    "geometryStrategy"
+  ],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": [
+        "artifactId",
+        "artifactType",
+        "artifactVersion",
+        "revision",
+        "authorSkill",
+        "status",
+        "detailLevel",
+        "updateMode",
+        "sourceAlgorithmArtifactId",
+        "dependencyIds",
+        "invalidationTriggers"
+      ],
+      "properties": {
+        "artifactId": { "type": "string" },
+        "artifactType": { "type": "string", "enum": ["GeometryStrategySpecification"] },
+        "artifactVersion": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "authorSkill": { "type": "string", "enum": ["geometry-computational-specialist"] },
+        "status": { "type": "string", "enum": ["DRAFT", "REVIEWED", "ACCEPTED", "SUPERSEDED"] },
+        "detailLevel": { "type": "string", "enum": ["COMPACT", "STANDARD", "DEEP"] },
+        "updateMode": { "type": "string", "enum": ["FULL", "PARTIAL_UPDATE"] },
+        "sourceAlgorithmArtifactId": { "type": "string" },
+        "dependencyIds": { "type": "array", "items": { "type": "string" } },
+        "supersedesArtifactId": { "type": ["string", "null"] },
+        "invalidationTriggers": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "featureName": {
+      "type": "string"
+    },
+    "changedSections": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Populated when updateMode is PARTIAL_UPDATE"
+    },
+    "geometryDecisionRecord": {
+      "type": "object",
+      "required": [
+        "selectedStrategy",
+        "selectedStrategyReasons",
+        "decisionConfidence",
+        "criticalAssumptions",
+        "numericalTolerancePolicy",
+        "robustnessRequirements",
+        "rejectedStrategies",
+        "reviewRequired",
+        "validationRequirements"
+      ],
+      "properties": {
+        "selectedStrategy": { "type": "string" },
+        "selectedStrategyReasons": { "type": "array", "items": { "type": "string" } },
+        "decisionConfidence": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] },
+        "criticalAssumptions": { "type": "array", "items": { "type": "string" } },
+        "numericalTolerancePolicy": {
+          "type": "object",
+          "required": ["absoluteDistanceToleranceMm", "angularToleranceRad", "coplanarThresholdMm", "boundingBoxEpsilonMm"],
+          "properties": {
+            "absoluteDistanceToleranceMm": { "type": "number" },
+            "angularToleranceRad": { "type": "number" },
+            "coplanarThresholdMm": { "type": "number" },
+            "boundingBoxEpsilonMm": { "type": "number" }
+          }
+        },
+        "robustnessRequirements": { "type": "array", "items": { "type": "string" } },
+        "rejectedStrategies": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["strategy", "rejectionReason", "plausibility"],
+            "properties": {
+              "strategy": { "type": "string" },
+              "rejectionReason": { "type": "string" },
+              "plausibility": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] }
+            }
+          }
+        },
+        "reviewRequired": { "type": "boolean" },
+        "validationRequirements": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "geometryStrategy": {
+      "type": "object",
+      "required": [
+        "representationParadigm",
+        "spatialIndexing",
+        "geometricOperations",
+        "coordinateTransforms",
+        "numericalTolerances",
+        "robustnessStrategy"
+      ],
+      "properties": {
+        "representationParadigm": {
+          "type": "object",
+          "required": ["primaryFormat", "topologyStructure", "justification"],
+          "properties": {
+            "primaryFormat": { "type": "string" },
+            "topologyStructure": { "type": "string" },
+            "justification": { "type": "string" }
+          }
+        },
+        "spatialIndexing": {
+          "type": "object",
+          "required": ["chosenStructure", "purpose", "buildComplexity", "queryComplexity"],
+          "properties": {
+            "chosenStructure": { "type": "string" },
+            "purpose": { "type": "string" },
+            "buildComplexity": { "type": "string" },
+            "queryComplexity": { "type": "string" }
+          }
+        },
+        "geometricOperations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["operation", "technique", "mathFormulation", "inputPrimitives", "outputPrimitives"],
+            "properties": {
+              "operation": { "type": "string" },
+              "technique": { "type": "string" },
+              "mathFormulation": { "type": "string" },
+              "inputPrimitives": { "type": "string" },
+              "outputPrimitives": { "type": "string" }
+            }
+          }
+        },
+        "coordinateTransforms": {
+          "type": "object",
+          "required": ["workingFrame", "transformationMatrix", "normalAlignment"],
+          "properties": {
+            "workingFrame": { "type": "string" },
+            "transformationMatrix": { "type": "string" },
+            "normalAlignment": { "type": "string" }
+          }
+        },
+        "numericalTolerances": {
+          "type": "object",
+          "required": ["absoluteDistanceToleranceMm", "angularToleranceRad", "coplanarThresholdMm", "boundingBoxEpsilonMm"],
+          "properties": {
+            "absoluteDistanceToleranceMm": { "type": "number" },
+            "angularToleranceRad": { "type": "number" },
+            "coplanarThresholdMm": { "type": "number" },
+            "boundingBoxEpsilonMm": { "type": "number" }
+          }
+        },
+        "robustnessStrategy": {
+          "type": "object",
+          "required": ["coplanarFaceHandling", "degenerateTopologyRepair", "manifoldGuarantee"],
+          "properties": {
+            "coplanarFaceHandling": { "type": "string" },
+            "degenerateTopologyRepair": { "type": "string" },
+            "manifoldGuarantee": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,6 @@
+﻿{
+    "integrationPath":  "frontend\\src\\features\\mold-generation\\MoldGenerationSketchOverlay.tsx",
+    "componentPath":  "frontend\\src\\features\\mold-generation\\MoldOrientationCube.tsx",
+    "cssPath":  "frontend\\src\\features\\mold-generation\\MoldOrientationCube.css",
+    "loadedAt":  "2026-07-08T13:24:29"
+}

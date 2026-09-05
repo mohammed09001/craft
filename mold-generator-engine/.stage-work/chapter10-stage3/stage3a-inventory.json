@@ -1,0 +1,79 @@
+﻿{
+    "stage":  "Chapter 10 Stage 3A",
+    "purpose":  "Safe structure discovery for Mold Coordinate System",
+    "timestamp":  "2026-07-08T11:23:55",
+    "recommendedRoot":  "src\\mold-generation\\coordinate-system",
+    "recommendedKind":  "root_src",
+    "recommendedReason":  "root src exists; safe internal engine/domain location.",
+    "noFrontendUiRule":  "Do not modify React components, CSS, 3D Viewer, ContextArea, StatusArea, or UI layout.",
+    "forbiddenGenerationInStage3":  [
+                                        "mold_envelope",
+                                        "mold_block",
+                                        "parting_plane",
+                                        "parting_strategy",
+                                        "core_cavity_region_map",
+                                        "cavity",
+                                        "m1_geometry",
+                                        "m2_geometry",
+                                        "split_mold",
+                                        "opening_preview"
+                                    ],
+    "knownPaths":  [
+                       {
+                           "path":  "src",
+                           "exists":  true
+                       },
+                       {
+                           "path":  "engine",
+                           "exists":  false
+                       },
+                       {
+                           "path":  "backend",
+                           "exists":  false
+                       },
+                       {
+                           "path":  "frontend",
+                           "exists":  true
+                       },
+                       {
+                           "path":  "frontend\\package.json",
+                           "exists":  true
+                       },
+                       {
+                           "path":  "frontend\\src",
+                           "exists":  true
+                       },
+                       {
+                           "path":  "frontend\\src\\features",
+                           "exists":  true
+                       },
+                       {
+                           "path":  "frontend\\src\\features\\mold-generation",
+                           "exists":  true
+                       },
+                       {
+                           "path":  "frontend\\src\\features\\engine-integration",
+                           "exists":  true
+                       },
+                       {
+                           "path":  "frontend\\src\\features\\engineering-reports",
+                           "exists":  true
+                       },
+                       {
+                           "path":  "frontend\\src\\features\\mold-generation\\generationReadiness.adapter.ts",
+                           "exists":  true
+                       }
+                   ],
+    "chapterSignals":  {
+                           "generationReadinessAdapter":  true,
+                           "moldGenerationFeatureFolder":  true,
+                           "engineIntegrationFolder":  true,
+                           "engineeringReportsFolder":  true
+                       },
+    "packageSignals":  {
+                           "frontendPackageJson":  true,
+                           "rootPackageJson":  false,
+                           "pyprojectToml":  true,
+                           "packageLockFrontend":  true
+                       }
+}

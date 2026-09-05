@@ -1,0 +1,101 @@
+{
+  "metadata": {
+    "artifactId": "geom-linear-alignment-system-v1",
+    "artifactType": "GeometryStrategySpecification",
+    "artifactVersion": "1.0.0",
+    "revision": 1,
+    "authorSkill": "geometry-computational-specialist",
+    "status": "ACCEPTED",
+    "detailLevel": "DEEP",
+    "updateMode": "FULL",
+    "sourceAlgorithmArtifactId": "spec-linear-alignment-system-v1",
+    "dependencyIds": ["spec-linear-alignment-system-v1"],
+    "invalidationTriggers": [
+      "part_geometry_change",
+      "manufacturing_profile_change"
+    ]
+  },
+  "featureName": "Edge-Mounted Linear Alignment System",
+  "geometryDecisionRecord": {
+    "selectedStrategy": "Edge Corridor 1D Interval Decomposition & Tapered Prism CSG Construction",
+    "selectedStrategyReasons": [
+      "Decomposes mating interfaces into outer 1D edge corridors (left/right for vertical, top/bottom for horizontal)",
+      "Uses BVH distance field queries to subtract cavity, sprue, and split-intersection protection zones",
+      "Constructs low-polygon tapered linear tongue prisms and matching clearanced groove tools in Manifold CSG kernel"
+    ],
+    "decisionConfidence": "HIGH",
+    "criticalAssumptions": [
+      "Mating interfaces are planar surface patches",
+      "Mold bodies are 2-manifold closed solids"
+    ],
+    "numericalTolerancePolicy": {
+      "absoluteDistanceToleranceMm": 0.001,
+      "angularToleranceRad": 0.001,
+      "coplanarThresholdMm": 0.01,
+      "boundingBoxEpsilonMm": 0.01
+    },
+    "robustnessRequirements": [
+      "Protected intersection zone exclusion around split plane crossings",
+      "Minimum segment viability length threshold to prevent tiny micro-key fragments",
+      "Manifold CSG Boolean status assertion and component decomposition validation"
+    ],
+    "rejectedStrategies": [
+      {
+        "strategy": "Scattered Spherical Locators on Mating Plane Grid",
+        "rejectionReason": "Produces central visual clutter, lacks parallel section guidance, and violates edge-mounted linear alignment rules",
+        "plausibility": "LOW"
+      }
+    ],
+    "reviewRequired": false,
+    "validationRequirements": [
+      "Two-part mold produces exactly two side keys (left and right)",
+      "Four-part mold produces coordinated perimeter alignment framework with protected split intersections",
+      "Zero keys in central interface regions"
+    ]
+  },
+  "geometryStrategy": {
+    "representationParadigm": {
+      "primaryFormat": "Tapered Extruded Linear Prism Payload + Manifold CSG Solid",
+      "topologyStructure": "Manifold-3D CSG Tree & three-mesh-bvh BVH Tree",
+      "justification": "Tapered linear prism geometry matches physical tongue-and-groove tooling with 2-manifold solid closure"
+    },
+    "spatialIndexing": {
+      "chosenStructure": "BVH (Bounding Volume Hierarchy via three-mesh-bvh)",
+      "purpose": "Accelerates exact signed distance field evaluation along 1D edge corridors against protected cavity and sprue meshes",
+      "buildComplexity": "O(N log N)",
+      "queryComplexity": "O(log N)"
+    },
+    "geometricOperations": [
+      {
+        "operation": "Edge Corridor 1D Interval Subtraction",
+        "technique": "Subtract obstacle projections from 1D corridor domain [V_min, V_max]",
+        "mathFormulation": "SafeIntervals = [V_min, V_max] \\ Union(ObstacleIntervals)",
+        "inputPrimitives": "CorridorBounds, ObstacleMeshBVH",
+        "outputPrimitives": "Safe1DIntervals"
+      },
+      {
+        "operation": "Tapered Prism CSG Primitive Construction",
+        "technique": "Extruded cross-section with draft angle and lead-in chamfer",
+        "mathFormulation": "Solid = Manifold.extruded(taperedPolygon, length).transform(FrameMat)",
+        "inputPrimitives": "Width, Depth, Length, TaperAngle, Frame",
+        "outputPrimitives": "ManifoldSolid"
+      }
+    ],
+    "coordinateTransforms": {
+      "workingFrame": "Interface Side Corridor Frame (U along corridor width, V along corridor length, N normal to mating plane)",
+      "transformationMatrix": "4x4 Homogeneous Rigid Transformation",
+      "normalAlignment": "Aligned with interface assembly direction"
+    },
+    "numericalTolerances": {
+      "absoluteDistanceToleranceMm": 0.001,
+      "angularToleranceRad": 0.001,
+      "coplanarThresholdMm": 0.01,
+      "boundingBoxEpsilonMm": 0.01
+    },
+    "robustnessStrategy": {
+      "coplanarFaceHandling": "Manifold-3D exact coplanar face snapping during Boolean union/subtraction",
+      "degenerateTopologyRepair": "Decompose CSG result to assert single connected component and non-empty volume",
+      "manifoldGuarantee": "assertManifoldStatus check on every male key union and female socket subtraction"
+    }
+  }
+}

@@ -1,0 +1,26 @@
+.neutral,
+.info,
+.warning,
+.success {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  flex: 0 0 auto;
+  border-radius: 999px;
+}
+
+.neutral {
+  background: var(--text-muted);
+}
+
+.info {
+  background: var(--info);
+}
+
+.warning {
+  background: var(--warning);
+}
+
+.success {
+  background: var(--success);
+}

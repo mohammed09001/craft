@@ -1,0 +1,101 @@
+{
+  "metadata": {
+    "artifactId": "geom-registration-adaptive-planner-v1",
+    "artifactType": "GeometryStrategySpecification",
+    "artifactVersion": "1.0.0",
+    "revision": 1,
+    "authorSkill": "geometry-computational-specialist",
+    "status": "ACCEPTED",
+    "detailLevel": "DEEP",
+    "updateMode": "FULL",
+    "sourceAlgorithmArtifactId": "spec-registration-adaptive-planner-v1",
+    "dependencyIds": ["spec-registration-adaptive-planner-v1"],
+    "invalidationTriggers": [
+      "part_geometry_change",
+      "manufacturing_profile_change"
+    ]
+  },
+  "featureName": "Adaptive Registration Planner",
+  "geometryDecisionRecord": {
+    "selectedStrategy": "Multi-Resolution Boundary-Corridor Sampling with Exact BVH Signed Distance Field Validation",
+    "selectedStrategyReasons": [
+      "Replaces conservative 2D AABB cavity exclusion with exact distance field queries to cavity and sprue meshes",
+      "Adapts locator sampling resolution and boundary offsets dynamically based on local interface span and corridor dimensions",
+      "Guarantees scale invariance across micro and macro mold blocks without scene-specific magic numbers"
+    ],
+    "decisionConfidence": "HIGH",
+    "criticalAssumptions": [
+      "Protected cavity and sprue meshes provide valid triangles for BVH construction",
+      "Mold bodies are 2-manifold closed solids"
+    ],
+    "numericalTolerancePolicy": {
+      "absoluteDistanceToleranceMm": 0.001,
+      "angularToleranceRad": 0.001,
+      "coplanarThresholdMm": 0.01,
+      "boundingBoxEpsilonMm": 0.01
+    },
+    "robustnessRequirements": [
+      "Exact BVH distance field evaluations for candidate socket ring samples",
+      "Farthest-point sampling with non-collinear condition number check for 3+ locators",
+      "Degradation path down to single safe locator before reporting failure"
+    ],
+    "rejectedStrategies": [
+      {
+        "strategy": "Fixed 5x5 Grid with 2D Cavity AABB Projection",
+        "rejectionReason": "Rejects valid corners/corridors on non-rectangular or large cavity footprints and misses safe locations",
+        "plausibility": "LOW"
+      }
+    ],
+    "reviewRequired": false,
+    "validationRequirements": [
+      "Scale-invariance test across small and large mold bodies",
+      "Irregular cavity mesh test demonstrating non-AABB placement",
+      "Wall-thickness and outer edge clearance boundary tests"
+    ]
+  },
+  "geometryStrategy": {
+    "representationParadigm": {
+      "primaryFormat": "Triangle Mesh Payload + Manifold CSG Solid",
+      "topologyStructure": "Manifold-3D CSG Tree & three-mesh-bvh BVH Tree",
+      "justification": "Fast signed distance field queries for broad/fine validation and guaranteed watertight Boolean operations"
+    },
+    "spatialIndexing": {
+      "chosenStructure": "BVH (Bounding Volume Hierarchy via three-mesh-bvh)",
+      "purpose": "Accelerates exact signed distance field evaluation for candidate socket ring samples against protected cavity/sprue meshes",
+      "buildComplexity": "O(N log N)",
+      "queryComplexity": "O(log N)"
+    },
+    "geometricOperations": [
+      {
+        "operation": "Interface Frame Construction",
+        "technique": "Orthonormal basis generation along primary parting normal",
+        "mathFormulation": "u = normalize(reference x axis), v = axis x u",
+        "inputPrimitives": "MatingBounds (Bounds3), Normal (Vector3)",
+        "outputPrimitives": "LocalCoordinateFrame (Origin, U, V, Normal)"
+      },
+      {
+        "operation": "Exact Signed Distance Field Evaluation",
+        "technique": "BVH closest point query",
+        "mathFormulation": "dist(p, Mesh) = min_i ||p - closest_point(p, Triangle_i)||",
+        "inputPrimitives": "Point (Vector3), Mesh (MoldMeshPayload)",
+        "outputPrimitives": "Distance (scalar)"
+      }
+    ],
+    "coordinateTransforms": {
+      "workingFrame": "Interface Local Coordinate Frame (2D UV on mating plane, Z along assembly axis)",
+      "transformationMatrix": "4x4 Homogeneous Rigid Transformation",
+      "normalAlignment": "Aligned with interface assembly direction"
+    },
+    "numericalTolerances": {
+      "absoluteDistanceToleranceMm": 0.001,
+      "angularToleranceRad": 0.001,
+      "coplanarThresholdMm": 0.01,
+      "boundingBoxEpsilonMm": 0.01
+    },
+    "robustnessStrategy": {
+      "coplanarFaceHandling": "Manifold-3D exact coplanar face snapping during Boolean union/subtraction",
+      "degenerateTopologyRepair": "Decompose CSG result to assert single connected component and non-empty volume",
+      "manifoldGuarantee": "assertManifoldStatus check on every male key union and female socket subtraction"
+    }
+  }
+}

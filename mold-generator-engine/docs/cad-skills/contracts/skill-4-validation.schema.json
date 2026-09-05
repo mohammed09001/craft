@@ -1,0 +1,123 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ValidationSuiteReport",
+  "type": "object",
+  "required": [
+    "metadata",
+    "featureName",
+    "validationReport"
+  ],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": [
+        "artifactId",
+        "artifactType",
+        "artifactVersion",
+        "revision",
+        "authorSkill",
+        "status",
+        "sourceImplementationArtifactId",
+        "sourceAlgorithmArtifactId",
+        "sourceGeometryArtifactId",
+        "dependencyIds",
+        "invalidationTriggers"
+      ],
+      "properties": {
+        "artifactId": { "type": "string" },
+        "artifactType": { "type": "string", "enum": ["ValidationSuiteReport"] },
+        "artifactVersion": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "authorSkill": { "type": "string", "enum": ["cad-validation-testing-engineer"] },
+        "status": { "type": "string", "enum": ["PASSED", "FAILED", "BLOCKED"] },
+        "sourceImplementationArtifactId": { "type": "string" },
+        "sourceAlgorithmArtifactId": { "type": "string" },
+        "sourceGeometryArtifactId": { "type": "string" },
+        "sourceSegmentationPlanArtifactId": { "type": "string" },
+        "dependencyIds": { "type": "array", "items": { "type": "string" } },
+        "supersedesArtifactId": { "type": ["string", "null"] },
+        "invalidationTriggers": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "featureName": { "type": "string" },
+    "changedSections": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "validationReport": {
+      "type": "object",
+      "required": [
+        "overallResult",
+        "summary",
+        "testResults",
+        "geometryValidation",
+        "numericalToleranceValidation",
+        "detectedIssues"
+      ],
+      "properties": {
+        "overallResult": { "type": "string", "enum": ["PASS", "FAIL"] },
+        "summary": { "type": "string" },
+        "testResults": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["testId", "category", "status", "durationMs"],
+            "properties": {
+              "testId": { "type": "string" },
+              "category": {
+                "type": "string",
+                "enum": [
+                  "UNIT",
+                  "INTEGRATION",
+                  "GEOMETRY",
+                  "TOPOLOGY",
+                  "CONTRACT",
+                  "SERIALIZATION",
+                  "STATE",
+                  "EDGE_CASE",
+                  "BOOLEAN_ROBUSTNESS",
+                  "TOLERANCE",
+                  "MANUFACTURING"
+                ]
+              },
+              "status": { "type": "string", "enum": ["PASS", "FAIL"] },
+              "durationMs": { "type": "number" },
+              "errorDetails": { "type": "string" }
+            }
+          }
+        },
+        "geometryValidation": {
+          "type": "object",
+          "required": ["watertightManifoldCheck", "eulerCharacteristic", "coplanarFaceCheck"],
+          "properties": {
+            "watertightManifoldCheck": { "type": "boolean" },
+            "eulerCharacteristic": { "type": "string" },
+            "coplanarFaceCheck": { "type": "boolean" }
+          }
+        },
+        "numericalToleranceValidation": {
+          "type": "object",
+          "required": ["distanceTolerancePassed", "angularTolerancePassed"],
+          "properties": {
+            "distanceTolerancePassed": { "type": "boolean" },
+            "angularTolerancePassed": { "type": "boolean" }
+          }
+        },
+        "detectedIssues": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["issueId", "severity", "category", "description", "remediationRecommendation"],
+            "properties": {
+              "issueId": { "type": "string" },
+              "severity": { "type": "string", "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW"] },
+              "category": { "type": "string" },
+              "description": { "type": "string" },
+              "remediationRecommendation": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

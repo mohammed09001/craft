@@ -1,0 +1,128 @@
+﻿.mold-viewcube {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  z-index: 30;
+  width: 104px;
+  height: 104px;
+  pointer-events: none;
+  user-select: none;
+}
+
+.mold-viewcube__scene {
+  position: relative;
+  width: 104px;
+  height: 104px;
+  perspective: 520px;
+}
+
+.mold-viewcube__cube {
+  position: absolute;
+  top: 30px;
+  left: 29px;
+  width: 46px;
+  height: 46px;
+  transform: rotateX(-24deg) rotateY(36deg);
+  transform-style: preserve-3d;
+  filter: drop-shadow(0 10px 12px rgba(15, 23, 42, 0.18));
+}
+
+.mold-viewcube__face {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border: 1px solid rgba(119, 130, 145, 0.44);
+  background: rgba(244, 246, 248, 0.88);
+  color: rgba(86, 94, 108, 0.92);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  text-transform: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.mold-viewcube__face--front {
+  transform: translateZ(23px);
+}
+
+.mold-viewcube__face--right {
+  transform: rotateY(90deg) translateZ(23px);
+  background: rgba(235, 238, 242, 0.9);
+}
+
+.mold-viewcube__face--top {
+  transform: rotateX(90deg) translateZ(23px);
+  background: rgba(250, 251, 252, 0.92);
+}
+
+.mold-viewcube__axis {
+  position: absolute;
+  font-size: 17px;
+  font-weight: 900;
+  line-height: 1;
+  text-shadow: 0 1px 4px rgba(255, 255, 255, 0.8);
+}
+
+.mold-viewcube__axis--y {
+  top: 3px;
+  left: 51px;
+  color: rgba(34, 197, 94, 0.95);
+}
+
+.mold-viewcube__axis--x {
+  right: 6px;
+  top: 55px;
+  color: rgba(248, 113, 113, 0.95);
+}
+
+.mold-viewcube__axis--z {
+  left: 8px;
+  bottom: 13px;
+  color: rgba(99, 102, 241, 0.9);
+}
+
+@media (max-width: 760px) {
+  .mold-viewcube {
+    top: 12px;
+    right: 12px;
+    width: 90px;
+    height: 90px;
+  }
+
+  .mold-viewcube__scene {
+    width: 90px;
+    height: 90px;
+  }
+
+  .mold-viewcube__cube {
+    top: 27px;
+    left: 26px;
+    width: 38px;
+    height: 38px;
+  }
+
+  .mold-viewcube__face {
+    width: 38px;
+    height: 38px;
+    font-size: 9px;
+  }
+
+  .mold-viewcube__face--front {
+    transform: translateZ(19px);
+  }
+
+  .mold-viewcube__face--right {
+    transform: rotateY(90deg) translateZ(19px);
+  }
+
+  .mold-viewcube__face--top {
+    transform: rotateX(90deg) translateZ(19px);
+  }
+
+  .mold-viewcube__axis {
+    font-size: 15px;
+  }
+}

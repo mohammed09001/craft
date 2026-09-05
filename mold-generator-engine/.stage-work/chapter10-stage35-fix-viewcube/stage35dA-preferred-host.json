@@ -1,0 +1,8 @@
+﻿{
+    "preferredHostPath":  "frontend\\src\\features\\viewport\\runtime\\adaptiveGrid.ts",
+    "matchedPatterns":  [
+                            "viewport"
+                        ],
+    "note":  "Use a stable viewer-level host, not MoldGenerationSketchOverlay, so the ViewCube remains visible with or without model and with or without context panel.",
+    "createdAt":  "2026-07-08T13:42:41"
+}

@@ -1,0 +1,80 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ImplementationRecord",
+  "type": "object",
+  "required": [
+    "metadata",
+    "featureName",
+    "implementationRecord"
+  ],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": [
+        "artifactId",
+        "artifactType",
+        "artifactVersion",
+        "revision",
+        "authorSkill",
+        "status",
+        "detailLevel",
+        "updateMode",
+        "sourceAlgorithmArtifactId",
+        "sourceGeometryArtifactId",
+        "dependencyIds",
+        "invalidationTriggers"
+      ],
+      "properties": {
+        "artifactId": { "type": "string" },
+        "artifactType": { "type": "string", "enum": ["ImplementationRecord"] },
+        "artifactVersion": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "authorSkill": { "type": "string", "enum": ["cad-algorithm-implementer"] },
+        "status": { "type": "string", "enum": ["COMPLETED", "REJECTED", "PARTIAL"] },
+        "detailLevel": { "type": "string", "enum": ["COMPACT", "STANDARD", "DEEP"] },
+        "updateMode": { "type": "string", "enum": ["FULL", "PARTIAL_UPDATE"] },
+        "sourceAlgorithmArtifactId": { "type": "string" },
+        "sourceGeometryArtifactId": { "type": "string" },
+        "sourceSegmentationPlanArtifactId": { "type": "string" },
+        "dependencyIds": { "type": "array", "items": { "type": "string" } },
+        "supersedesArtifactId": { "type": ["string", "null"] },
+        "invalidationTriggers": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "featureName": { "type": "string" },
+    "changedSections": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "implementationRecord": {
+      "type": "object",
+      "required": [
+        "targetSubsystem",
+        "modifiedFiles",
+        "createdFiles",
+        "exports",
+        "implementationTraceability",
+        "implementationAssumptions",
+        "qualityChecksPassed"
+      ],
+      "properties": {
+        "targetSubsystem": { "type": "string" },
+        "modifiedFiles": { "type": "array", "items": { "type": "string" } },
+        "createdFiles": { "type": "array", "items": { "type": "string" } },
+        "exports": { "type": "array", "items": { "type": "string" } },
+        "implementationTraceability": {
+          "type": "object",
+          "required": ["algorithmArtifactId", "geometryArtifactId", "specSectionsSatisfied"],
+          "properties": {
+            "algorithmArtifactId": { "type": "string" },
+            "geometryArtifactId": { "type": "string" },
+            "segmentationPlanArtifactId": { "type": "string" },
+            "specSectionsSatisfied": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "implementationAssumptions": { "type": "array", "items": { "type": "string" } },
+        "qualityChecksPassed": { "type": "boolean" }
+      }
+    }
+  }
+}

@@ -1,0 +1,106 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "OptimizationReport",
+  "type": "object",
+  "required": [
+    "metadata",
+    "featureName",
+    "optimizationReport"
+  ],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": [
+        "artifactId",
+        "artifactType",
+        "artifactVersion",
+        "revision",
+        "authorSkill",
+        "status",
+        "sourceValidationArtifactId",
+        "sourceImplementationArtifactId",
+        "dependencyIds",
+        "invalidationTriggers"
+      ],
+      "properties": {
+        "artifactId": { "type": "string" },
+        "artifactType": { "type": "string", "enum": ["OptimizationReport"] },
+        "artifactVersion": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "authorSkill": { "type": "string", "enum": ["cad-performance-optimization-engineer"] },
+        "status": { "type": "string", "enum": ["APPLIED", "NO_CHANGE_NEEDED", "REJECTED"] },
+        "sourceValidationArtifactId": { "type": "string" },
+        "sourceImplementationArtifactId": { "type": "string" },
+        "dependencyIds": { "type": "array", "items": { "type": "string" } },
+        "supersedesArtifactId": { "type": ["string", "null"] },
+        "invalidationTriggers": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "featureName": { "type": "string" },
+    "changedSections": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "optimizationReport": {
+      "type": "object",
+      "required": [
+        "targetComponent",
+        "baselineMetrics",
+        "optimizedMetrics",
+        "appliedOptimizations",
+        "behaviorVerification"
+      ],
+      "properties": {
+        "targetComponent": { "type": "string" },
+        "baselineMetrics": {
+          "type": "object",
+          "required": ["executionTimeMs", "memoryBytes", "bvTreeDepth"],
+          "properties": {
+            "executionTimeMs": { "type": "number" },
+            "memoryBytes": { "type": "number" },
+            "bvTreeDepth": { "type": "number" }
+          }
+        },
+        "optimizedMetrics": {
+          "type": "object",
+          "required": ["executionTimeMs", "memoryBytes", "bvTreeDepth"],
+          "properties": {
+            "executionTimeMs": { "type": "number" },
+            "memoryBytes": { "type": "number" },
+            "bvTreeDepth": { "type": "number" }
+          }
+        },
+        "appliedOptimizations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["technique", "description", "speedupFactor"],
+            "properties": {
+              "technique": {
+                "type": "string",
+                "enum": [
+                  "SPATIAL_QUERY",
+                  "GEOMETRY_TRAVERSAL",
+                  "BOOLEAN_ACCELERATION",
+                  "MEMORY_POOLING",
+                  "INCREMENTAL_CACHE"
+                ]
+              },
+              "description": { "type": "string" },
+              "speedupFactor": { "type": "number" }
+            }
+          }
+        },
+        "behaviorVerification": {
+          "type": "object",
+          "required": ["observableBehaviorUnchanged", "contractsUnchanged", "validationSuiteRePassed"],
+          "properties": {
+            "observableBehaviorUnchanged": { "type": "boolean" },
+            "contractsUnchanged": { "type": "boolean" },
+            "validationSuiteRePassed": { "type": "boolean" }
+          }
+        }
+      }
+    }
+  }
+}

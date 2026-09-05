@@ -1,0 +1,197 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CADSkillOrchestratorRoutingDecision",
+  "type": "object",
+  "required": [
+    "registryVersion",
+    "intent",
+    "targetFeature",
+    "taskType",
+    "executionMode",
+    "updateMode",
+    "requiredCapabilities",
+    "selectedSkills",
+    "contextBudget",
+    "workflowControls",
+    "executionOrder",
+    "selectionReasoning"
+  ],
+  "properties": {
+    "registryVersion": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "intent": {
+      "type": "string",
+      "description": "Detected CAD engineering intent or NON_CAD"
+    },
+    "targetFeature": {
+      "type": "string",
+      "enum": [
+        "Sprue",
+        "Part Alignment",
+        "Part Orientation",
+        "Parting Plane",
+        "Partitioning",
+        "Segmentation",
+        "Registration Keys",
+        "Cavity",
+        "Mold Generation",
+        "Custom CAD Feature",
+        "None"
+      ]
+    },
+    "taskType": {
+      "type": "string",
+      "enum": [
+        "NEW_DESIGN",
+        "DESIGN_REVISION",
+        "GEOMETRY_SELECTION",
+        "GEOMETRY_REVISION",
+        "DEBUG_INVESTIGATION",
+        "OPTIMIZATION",
+        "MAINTENANCE",
+        "NON_CAD"
+      ]
+    },
+    "executionMode": {
+      "type": "string",
+      "enum": ["NONE", "SINGLE", "SEQUENTIAL", "PARALLEL"]
+    },
+    "updateMode": {
+      "type": "string",
+      "enum": ["FULL", "PARTIAL_UPDATE", "VALIDATE_ONLY", "REUSE_EXISTING"]
+    },
+    "requiredCapabilities": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "Workflow",
+          "Design",
+          "Geometry",
+          "SegmentationPlanning",
+          "Implementation",
+          "Validation",
+          "Testing",
+          "Performance",
+          "Optimization",
+          "Maintenance",
+          "Evolution"
+        ]
+      }
+    },
+    "selectedSkills": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": "Dynamically resolved skill IDs from the Skill Registry"
+      }
+    },
+    "contextBudget": {
+      "type": "object",
+      "required": [
+        "requiredFiles",
+        "requiredDocSections",
+        "requiredPriorOutputs",
+        "excludedContext",
+        "maxRecommendedContextScope",
+        "repositoryInspectionRequired",
+        "promptInformationSufficient"
+      ],
+      "properties": {
+        "requiredFiles": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "requiredDocSections": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "requiredPriorOutputs": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "excludedContext": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "maxRecommendedContextScope": {
+          "type": "string"
+        },
+        "repositoryInspectionRequired": {
+          "type": "boolean"
+        },
+        "promptInformationSufficient": {
+          "type": "boolean"
+        }
+      }
+    },
+    "workflowControls": {
+      "type": "object",
+      "required": [
+        "maxWorkflowSteps",
+        "completionCondition",
+        "failureCondition",
+        "requiredOutputContract",
+        "validationGate",
+        "invalidationTriggers"
+      ],
+      "properties": {
+        "maxWorkflowSteps": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "completionCondition": {
+          "type": "string"
+        },
+        "failureCondition": {
+          "type": "string"
+        },
+        "requiredOutputContract": {
+          "type": "string"
+        },
+        "validationGate": {
+          "type": "string"
+        },
+        "resumeFromArtifact": {
+          "type": ["string", "null"]
+        },
+        "invalidationTriggers": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "executionOrder": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["step", "skill", "purpose", "inputSource", "artifactAction"],
+        "properties": {
+          "step": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "skill": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "inputSource": {
+            "type": "string"
+          },
+          "artifactAction": {
+            "type": "string",
+            "enum": ["FULL", "PARTIAL_UPDATE", "VALIDATE_ONLY", "REUSE_EXISTING"]
+          }
+        }
+      }
+    },
+    "selectionReasoning": {
+      "type": "string",
+      "description": "Minimal sufficient justification for routing decision"
+    }
+  }
+}

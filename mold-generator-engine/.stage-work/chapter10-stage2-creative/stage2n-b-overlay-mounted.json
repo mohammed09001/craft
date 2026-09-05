@@ -1,0 +1,13 @@
+﻿{
+    "stage":  "Chapter 10 Stage 2N-B-Fix1",
+    "status":  "creative-overlay-mounted",
+    "visibleLabel":  "Ready",
+    "visibleMeaning":  "Ready to move",
+    "warningModeAvailable":  true,
+    "warningMeaning":  "Can continue",
+    "oldTextHeavyWorkspaceRemoved":  true,
+    "geometryGenerated":  false,
+    "blocksUser":  false,
+    "typecheck":  "passed",
+    "nextStep":  "Visual check in SaaS UI"
+}

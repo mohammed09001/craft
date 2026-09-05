@@ -1,0 +1,8 @@
+﻿{
+    "stage":  "Chapter 10 Stage 2N-C",
+    "sourceFilesModified":  false,
+    "currentMountFile":  "frontend/src/systems/context-area/ContextArea.tsx",
+    "hasOverlayImport":  true,
+    "hasReadyMount":  true,
+    "note":  "Current Stage 2 overlay is mounted through ContextArea and should likely move to viewer integration in next step"
+}

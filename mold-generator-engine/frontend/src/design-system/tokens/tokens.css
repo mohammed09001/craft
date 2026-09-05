@@ -1,0 +1,137 @@
+:root {
+  --color-neutral-0: #ffffff;
+  --color-neutral-50: #f7f9fb;
+  --color-neutral-100: #edf1f5;
+  --color-neutral-200: #d8e0e8;
+  --color-neutral-300: #b7c3cf;
+  --color-neutral-400: #8795a3;
+  --color-neutral-500: #647281;
+  --color-neutral-600: #46525f;
+  --color-neutral-700: #303943;
+  --color-neutral-800: #202832;
+  --color-neutral-850: #19212a;
+  --color-neutral-900: #111821;
+  --color-neutral-950: #0b1118;
+
+  --color-cyan-300: #67e8f9;
+  --color-cyan-400: #22d3ee;
+  --color-cyan-500: #06b6d4;
+  --color-blue-500: #2f80ed;
+  --color-green-400: #4ade80;
+  --color-yellow-400: #facc15;
+  --color-red-400: #f87171;
+
+  --font-family-sans:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  --font-family-mono:
+    "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+
+  --font-size-0: 0.75rem;
+  --font-size-1: 0.8125rem;
+  --font-size-2: 0.875rem;
+  --font-size-3: 1rem;
+  --font-size-4: 1.125rem;
+  --font-size-5: 1.375rem;
+
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  --line-height-tight: 1.2;
+  --line-height-base: 1.5;
+
+  --space-0: 0;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+
+  --radius-1: 0.25rem;
+  --radius-2: 0.375rem;
+  --radius-3: 0.5rem;
+
+  --shadow-panel: 0 12px 32px color-mix(in srgb, var(--app-shadow) 32%, transparent);
+  --shadow-drawer: 0 18px 48px color-mix(in srgb, var(--app-shadow) 42%, transparent);
+
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --easing-standard: cubic-bezier(0.2, 0, 0, 1);
+
+  --z-shell: 10;
+  --z-drawer: 30;
+  --z-backdrop: 25;
+  --z-skip-link: 50;
+
+  --shell-header-height: 3.25rem;
+  --shell-navigation-width: 14rem;
+  --shell-navigation-collapsed-width: 3.5rem;
+  --shell-context-width: 19rem;
+  --shell-status-height: 2rem;
+
+  --breakpoint-mobile: 640px;
+  --breakpoint-tablet: 900px;
+  --breakpoint-laptop: 1180px;
+}
+
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --app-bg: var(--color-neutral-950);
+  --app-bg-subtle: var(--color-neutral-900);
+  --surface-panel: var(--color-neutral-900);
+  --surface-panel-raised: var(--color-neutral-850);
+  --surface-control: var(--color-neutral-800);
+  --surface-control-hover: var(--color-neutral-700);
+  --border-subtle: var(--color-neutral-800);
+  --border-strong: var(--color-neutral-700);
+  --text-primary: var(--color-neutral-50);
+  --text-secondary: var(--color-neutral-300);
+  --text-muted: var(--color-neutral-400);
+  --accent: var(--color-cyan-400);
+  --accent-strong: var(--color-cyan-300);
+  --success: var(--color-green-400);
+  --warning: var(--color-yellow-400);
+  --error: var(--color-red-400);
+  --info: var(--color-blue-500);
+  --focus-ring: var(--color-cyan-300);
+  --app-shadow: var(--color-neutral-950);
+  --workspace-grid-line: color-mix(
+    in srgb,
+    var(--color-neutral-500) 16%,
+    transparent
+  );
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --app-bg: var(--color-neutral-50);
+  --app-bg-subtle: var(--color-neutral-100);
+  --surface-panel: var(--color-neutral-0);
+  --surface-panel-raised: var(--color-neutral-50);
+  --surface-control: var(--color-neutral-100);
+  --surface-control-hover: var(--color-neutral-200);
+  --border-subtle: var(--color-neutral-200);
+  --border-strong: var(--color-neutral-300);
+  --text-primary: var(--color-neutral-950);
+  --text-secondary: var(--color-neutral-700);
+  --text-muted: var(--color-neutral-500);
+  --accent: var(--color-cyan-500);
+  --accent-strong: var(--color-blue-500);
+  --success: #16803a;
+  --warning: #8a6500;
+  --error: #bd2f2f;
+  --info: #1d5fbf;
+  --focus-ring: var(--color-blue-500);
+  --app-shadow: var(--color-neutral-400);
+  --workspace-grid-line: color-mix(
+    in srgb,
+    var(--color-neutral-400) 20%,
+    transparent
+  );
+}
