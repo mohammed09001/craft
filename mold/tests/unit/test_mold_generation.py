@@ -1181,7 +1181,9 @@ def test_preliminary_core_strategy_creates_core_assisted_candidate_only() -> Non
     assert plan.warnings[0].code is (
         MoldGenerationFindingCode.PRELIMINARY_CORE_STRATEGY_IS_NOT_FEASIBILITY_PROOF
     )
-    assert [candidate.strategy_type for candidate in report.parting_strategy_candidates] == [
+    assert [
+        candidate.strategy_type for candidate in report.parting_strategy_candidates
+    ] == [
         PartingStrategyType.SIMPLE_TWO_PART_PLANAR,
         PartingStrategyType.CORE_ASSISTED_PLANAR,
     ]
@@ -1310,10 +1312,7 @@ def test_component_planning_happy_path_creates_core_cavity_plan_only() -> None:
     assert component_planning.core_cavity_plan.status is (
         MoldComponentPlanningStatus.READY
     )
-    sides = {
-        side.side: side
-        for side in component_planning.core_cavity_plan.sides
-    }
+    sides = {side.side: side for side in component_planning.core_cavity_plan.sides}
     assert set(sides) == {MoldComponentSide.CORE, MoldComponentSide.CAVITY}
     assert sides[MoldComponentSide.CAVITY].opening_direction == Vector3D(
         0.0,
@@ -1330,7 +1329,9 @@ def test_component_planning_happy_path_creates_core_cavity_plan_only() -> None:
     assert component_planning.relief_plans == ()
 
 
-def test_component_planning_creates_insert_support_and_relief_from_chapter_4_evidence() -> None:
+def test_component_planning_creates_insert_support_and_relief_from_chapter_4_evidence() -> (
+    None
+):
     processing_decision = _build_processing_decision()
     detailed_report = _build_detailed_report(
         processing_decision=processing_decision,
@@ -1376,9 +1377,7 @@ def test_component_planning_creates_insert_support_and_relief_from_chapter_4_evi
 
 
 def test_component_planning_propagates_blocked_and_manual_review() -> None:
-    blocked_decision = _build_processing_decision(
-        ModelProcessingStatus.REQUIRES_REPAIR
-    )
+    blocked_decision = _build_processing_decision(ModelProcessingStatus.REQUIRES_REPAIR)
     blocked_context = _build_context(processing_decision=blocked_decision)
 
     blocked_report = MoldGenerationService().generate(blocked_context)
@@ -1405,7 +1404,9 @@ def test_component_planning_propagates_blocked_and_manual_review() -> None:
     )
 
 
-def test_core_cavity_planning_reports_unsupported_for_valid_special_strategy_input() -> None:
+def test_core_cavity_planning_reports_unsupported_for_valid_special_strategy_input() -> (
+    None
+):
     ready_report = _ready_surface_report()
     assert ready_report.preliminary_parting_strategy_selection is not None
     assert ready_report.initial_parting_surface_plan is not None
@@ -1443,7 +1444,9 @@ def test_core_cavity_planning_reports_unsupported_for_valid_special_strategy_inp
     )
 
 
-def test_component_plan_validator_blocks_duplicate_missing_and_non_finite_values() -> None:
+def test_component_plan_validator_blocks_duplicate_missing_and_non_finite_values() -> (
+    None
+):
     report = _ready_surface_report()
     assert report.component_planning is not None
     assert report.component_planning.core_cavity_plan is not None
@@ -1690,9 +1693,7 @@ def test_envelope_block_global_validation_and_final_decision_happy_path() -> Non
     assert first.global_validation.status is MoldComponentPlanningStatus.READY
     assert first.final_decision.status is FinalMoldGenerationDecisionStatus.READY
     assert first.mold_envelope_plan.opening_direction == Vector3D(0.0, 0.0, 1.0)
-    assert (
-        first.mold_block_plan.envelope_id == first.mold_envelope_plan.envelope_id
-    )
+    assert first.mold_block_plan.envelope_id == first.mold_envelope_plan.envelope_id
     assert first.to_dict() == second.to_dict()
     assert first.to_dict()["final_decision"]["status"] == "ready"
 

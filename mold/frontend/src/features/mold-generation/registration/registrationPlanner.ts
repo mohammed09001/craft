@@ -98,7 +98,6 @@ function isPointSafeFromRegions(
   protectedRegions: readonly RegistrationProtectedRegion[],
   policy: RegistrationTolerancePolicy,
   axis: RegistrationAxis,
-  _field?: import("./registrationGeometryValidation").WallThicknessField
 ): boolean {
   const margin = radius + policy.cavitySafetyMarginMm - 1e-4;
   const [u, v] = otherAxes(axis);
@@ -129,7 +128,6 @@ export function planRegistrationLayout(
   protectedRegions: readonly RegistrationProtectedRegion[],
   policy: RegistrationTolerancePolicy,
   exclusionZones: readonly RegistrationExclusionZone[] = [],
-  field?: import("./registrationGeometryValidation").WallThicknessField,
   allInterfaces?: readonly MoldInterface[],
   sizingPolicy: RegistrationSizingPolicy =
     NORMAL_MOLD_REGISTRATION_SIZING_POLICY,
@@ -290,7 +288,6 @@ export function planRegistrationLayout(
     const plannedFeatures: RegistrationFeature[] = [];
 
     for (const side of sidesToUse) {
-      let fixedCoord: number;
       let startSpan: number;
       let endSpan: number;
       const isVCorridor = (side === "left" || side === "right");
@@ -305,7 +302,7 @@ export function planRegistrationLayout(
         if (side === "bottom") return moldInterface.matingBounds.min[v] + outerMargin + keyWidthMm / 2;
         return moldInterface.matingBounds.max[v] - outerMargin - keyWidthMm / 2;
       };
-      fixedCoord = sizingPolicy.placementStrategy === "cavity-wall-centered"
+      const fixedCoord = sizingPolicy.placementStrategy === "cavity-wall-centered"
         ? wallCenteredCoord(side) ?? edgeCorridorCoord()
         : edgeCorridorCoord();
 
@@ -361,7 +358,7 @@ export function planRegistrationLayout(
         }
 
         const isSafe = !inIntersectionZone &&
-          isPointSafeFromRegions(pt, keyWidthMm / 2, protectedRegions, policy, moldInterface.axis, field) &&
+          isPointSafeFromRegions(pt, keyWidthMm / 2, protectedRegions, policy, moldInterface.axis) &&
           isPointSafeFromExclusions(pt, keyWidthMm / 2, exclusionZones, policy.cavitySafetyMarginMm);
 
         if (isSafe) {
@@ -455,11 +452,14 @@ export function planRegistrationLayout(
 
 
 
+/**
+ * Currently a pass-through: `planRegistrationLayout` already produces `candidates` from a
+ * safe-interval scan, so there is no axis/count/minSeparation-aware re-selection implemented here
+ * yet. Kept as its own named step (rather than inlined at the call site) so a real spread-selection
+ * algorithm has a single, obvious place to land later without changing the caller's contract.
+ */
 export function selectSpreadLayout(
   candidates: readonly RegistrationFeature[],
-  _axis: RegistrationAxis,
-  _count: number,
-  _minSeparationMm: number
 ): readonly RegistrationFeature[] | null {
   if (candidates.length === 0) return null;
   return Object.freeze(candidates);

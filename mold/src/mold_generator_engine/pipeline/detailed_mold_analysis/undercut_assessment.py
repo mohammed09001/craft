@@ -128,9 +128,7 @@ class DefaultUndercutRiskAssessor:
         ):
             warnings.append(
                 UndercutRiskAssessmentWarning(
-                    code=(
-                        UndercutRiskAssessmentWarningCode.DRAFT_ANALYSIS_UNAVAILABLE
-                    ),
+                    code=(UndercutRiskAssessmentWarningCode.DRAFT_ANALYSIS_UNAVAILABLE),
                     message=(
                         "Draft-angle enrichment was unavailable, so treatment "
                         "recommendations rely on geometry and accessibility evidence "

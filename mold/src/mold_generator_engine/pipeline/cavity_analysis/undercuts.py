@@ -124,7 +124,9 @@ class DirectionalInternalUndercutAnalyzer:
                 assessed_sample_count += stats.assessed_sample_count
                 if stats.obstructed_sample_count >= 2:
                     obstructed_face_stats[face_index] = stats
-                elif stats.clear_sample_count > 0 and stats.obstructed_sample_count == 0:
+                elif (
+                    stats.clear_sample_count > 0 and stats.obstructed_sample_count == 0
+                ):
                     clear_faces.append(face_index)
                 else:
                     ambiguous_faces.append(face_index)
@@ -372,7 +374,9 @@ def _connected_face_components(
 
 def _finalize_regions(
     pending_regions: list[_PendingRegion],
-) -> tuple[tuple[InternalObstructionRegion, ...], dict[tuple[str, str, tuple[int, ...]], str]]:
+) -> tuple[
+    tuple[InternalObstructionRegion, ...], dict[tuple[str, str, tuple[int, ...]], str]
+]:
     ordered = sorted(
         pending_regions,
         key=lambda region: (region.target_id, region.direction_id, region.face_indices),
@@ -557,7 +561,10 @@ def _normalized_direction(
 def _has_enclosed_candidate(
     candidate_detection: CavityCandidateDetectionResult,
 ) -> bool:
-    return any(candidate.is_potential_void_boundary for candidate in candidate_detection.candidates)
+    return any(
+        candidate.is_potential_void_boundary
+        for candidate in candidate_detection.candidates
+    )
 
 
 def _not_assessable_result(summary: str) -> InternalUndercutAnalysisResult:

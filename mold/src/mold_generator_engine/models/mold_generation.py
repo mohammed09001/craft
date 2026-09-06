@@ -105,9 +105,7 @@ class MoldGenerationFindingCode(Enum):
         "parting_core_assisted_candidate_generated"
     )
     PARTING_STRATEGY_ACCEPTABLE = "parting_strategy_acceptable"
-    PARTING_STRATEGY_REQUIRES_MANUAL_REVIEW = (
-        "parting_strategy_requires_manual_review"
-    )
+    PARTING_STRATEGY_REQUIRES_MANUAL_REVIEW = "parting_strategy_requires_manual_review"
     PARTING_STRATEGY_BLOCKED = "parting_strategy_blocked"
     PARTING_STRATEGY_AMBIGUOUS = "parting_strategy_ambiguous"
     PARTING_SURFACE_PLAN_CREATED = "parting_surface_plan_created"
@@ -120,21 +118,15 @@ class MoldGenerationFindingCode(Enum):
     PARTING_SURFACE_UNSUPPORTED = "parting_surface_unsupported"
     PARTING_SURFACE_INVALID_GEOMETRY = "parting_surface_invalid_geometry"
     PARTING_SURFACE_VALIDATED = "parting_surface_validated"
-    PARTING_SURFACE_REFINEMENT_RECOMMENDED = (
-        "parting_surface_refinement_recommended"
-    )
-    PARTING_SURFACE_REFINEMENT_NOT_NEEDED = (
-        "parting_surface_refinement_not_needed"
-    )
+    PARTING_SURFACE_REFINEMENT_RECOMMENDED = "parting_surface_refinement_recommended"
+    PARTING_SURFACE_REFINEMENT_NOT_NEEDED = "parting_surface_refinement_not_needed"
     PARTING_SURFACE_REFINED = "parting_surface_refined"
     PARTING_SURFACE_REFINEMENT_NOT_SAFE = "parting_surface_refinement_not_safe"
     PARTING_SURFACE_ACCEPTED = "parting_surface_accepted"
     PARTING_SURFACE_ACCEPTANCE_BLOCKED = "parting_surface_acceptance_blocked"
     CORE_CAVITY_PLAN_CREATED = "core_cavity_plan_created"
     CORE_CAVITY_PLAN_BLOCKED = "core_cavity_plan_blocked"
-    CORE_CAVITY_PLAN_REQUIRES_MANUAL_REVIEW = (
-        "core_cavity_plan_requires_manual_review"
-    )
+    CORE_CAVITY_PLAN_REQUIRES_MANUAL_REVIEW = "core_cavity_plan_requires_manual_review"
     CORE_CAVITY_SIDE_ASSIGNED = "core_cavity_side_assigned"
     CORE_CAVITY_SPECIAL_REGION_FROM_CHAPTER_4 = (
         "core_cavity_special_region_from_chapter_4"
@@ -170,9 +162,7 @@ class MoldGenerationFindingCode(Enum):
     MOLD_ENVELOPE_NON_FINITE_VALUE = "mold_envelope_non_finite_value"
     MOLD_BLOCK_PLAN_CREATED = "mold_block_plan_created"
     MOLD_BLOCK_PLAN_BLOCKED = "mold_block_plan_blocked"
-    MOLD_BLOCK_PLAN_REQUIRES_MANUAL_REVIEW = (
-        "mold_block_plan_requires_manual_review"
-    )
+    MOLD_BLOCK_PLAN_REQUIRES_MANUAL_REVIEW = "mold_block_plan_requires_manual_review"
     MOLD_BLOCK_PLAN_UNSUPPORTED = "mold_block_plan_unsupported"
     MOLD_BLOCK_INVALID_BOUNDS = "mold_block_invalid_bounds"
     GLOBAL_VALIDATION_PASSED = "global_validation_passed"

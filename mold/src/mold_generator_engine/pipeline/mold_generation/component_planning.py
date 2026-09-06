@@ -138,9 +138,7 @@ class EvidenceCoreCavityPlanner:
                 selected_strategy_id=selected_strategy_id,
                 accepted_parting_surface_patch_ids=patch_ids,
                 role="positive_opening_side",
-                reason_codes=(
-                    MoldGenerationFindingCode.CORE_CAVITY_SIDE_ASSIGNED,
-                ),
+                reason_codes=(MoldGenerationFindingCode.CORE_CAVITY_SIDE_ASSIGNED,),
                 provenance=(
                     "preliminary_parting_strategy_selection",
                     "accepted_parting_surface",
@@ -152,9 +150,7 @@ class EvidenceCoreCavityPlanner:
                 selected_strategy_id=selected_strategy_id,
                 accepted_parting_surface_patch_ids=patch_ids,
                 role="negative_opening_side",
-                reason_codes=(
-                    MoldGenerationFindingCode.CORE_CAVITY_SIDE_ASSIGNED,
-                ),
+                reason_codes=(MoldGenerationFindingCode.CORE_CAVITY_SIDE_ASSIGNED,),
                 provenance=(
                     "preliminary_parting_strategy_selection",
                     "accepted_parting_surface",
@@ -324,9 +320,7 @@ class EvidenceReliefPlanner:
             )
 
         existing_regions = {
-            region_id
-            for plan in plans
-            for region_id in plan.related_region_ids
+            region_id for plan in plans for region_id in plan.related_region_ids
         }
         offset = len(plans)
         for region in core_cavity_plan.special_regions:
@@ -542,7 +536,10 @@ def _unsupported_component_capability(context: MoldGenerationContext) -> str | N
         is CavityAnalysisDecisionOutcome.SPECIAL_CORE_STRATEGY_INVESTIGATION_REQUIRED
     ):
         return "Special core strategy component planning is not supported yet."
-    if decision.outcome is CavityAnalysisDecisionOutcome.MULTI_DIRECTION_ACCESS_REQUIRED:
+    if (
+        decision.outcome
+        is CavityAnalysisDecisionOutcome.MULTI_DIRECTION_ACCESS_REQUIRED
+    ):
         return "Multi-direction component planning is not supported yet."
     return None
 

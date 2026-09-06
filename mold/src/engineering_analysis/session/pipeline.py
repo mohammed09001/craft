@@ -12,17 +12,15 @@ class AnalysisPipeline:
     def tasks(self) -> tuple[AnalysisTask, ...]:
         return tuple(self._tasks)
 
-    def register(self, task: AnalysisTask) -> "AnalysisPipeline":
+    def register(self, task: AnalysisTask) -> AnalysisPipeline:
         if any(existing.analysis_id == task.analysis_id for existing in self._tasks):
             raise ValueError(f"Analysis task already registered: {task.analysis_id}")
 
         self._tasks.append(task)
         return self
 
-    def unregister(self, analysis_id: str) -> "AnalysisPipeline":
-        self._tasks = [
-            task for task in self._tasks if task.analysis_id != analysis_id
-        ]
+    def unregister(self, analysis_id: str) -> AnalysisPipeline:
+        self._tasks = [task for task in self._tasks if task.analysis_id != analysis_id]
         return self
 
     def run(self, session: AnalysisSession | None = None) -> AnalysisSession:
@@ -58,11 +56,7 @@ class AnalysisPipeline:
 
             if report.has_fatal_error:
                 fatal_issue = next(
-                    (
-                        issue
-                        for issue in report.issues
-                        if issue.severity == "fatal"
-                    ),
+                    (issue for issue in report.issues if issue.severity == "fatal"),
                     AnalysisIssue(
                         severity="fatal",
                         code="ANALYSIS_TASK_FAILED",

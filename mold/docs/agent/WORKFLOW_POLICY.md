@@ -193,8 +193,8 @@ confidence.
 - Invoking Geometry Auditor for non-geometric work (state bugs, layout
   changes, report-registry edits) just because the repository has a
   geometry pipeline.
-- Updating `CURRENT_HANDOFF.md` after a trivial conversational question
-  that changed nothing in the working tree.
+- Writing a durable handoff/state document after a trivial conversational
+  question that changed nothing in the working tree.
 - Re-running the same specialist a second time on the same evidence,
   hoping for a different answer.
 
@@ -210,8 +210,9 @@ confidence.
   Git rules) that apply regardless of which specialist is or isn't used.
 - **PROJECT_MAP.md** — architecture and navigation; Explorer and Geometry
   Auditor both start from it rather than scanning the repository.
-- **CURRENT_HANDOFF.md** — the current working-state snapshot; this policy
-  decides *when* to update it, `mold-handoff` decides *how*.
+- Dynamic repository state (current branch, HEAD, working-tree status) is
+  never committed as a durable document — discover it live from Git at the
+  start of every task instead.
 - **Skills** (`mold-test`, `mold-commit-ready`, `mold-handoff`,
   `mold-cad-engineering`, `mold-interactive-cad-ux`) — own their own
   procedures in full; this policy only decides when each runs. All five

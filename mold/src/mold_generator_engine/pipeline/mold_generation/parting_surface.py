@@ -51,7 +51,10 @@ class EvidenceInitialPartingSurfacePlanner:
         if selection.status is PreliminaryPartingStrategySelectionStatus.BLOCKED:
             return _blocked_plan("Parting surface planning is blocked.", selection)
 
-        if selection.status is PreliminaryPartingStrategySelectionStatus.MANUAL_REVIEW_REQUIRED:
+        if (
+            selection.status
+            is PreliminaryPartingStrategySelectionStatus.MANUAL_REVIEW_REQUIRED
+        ):
             return InitialPartingSurfacePlan(
                 status=InitialPartingSurfacePlanStatus.MANUAL_REVIEW_REQUIRED,
                 surface_type=InitialPartingSurfaceType.UNAVAILABLE,
@@ -128,7 +131,10 @@ class PlanarPatchPartingSurfaceGenerator:
         surface_plan: InitialPartingSurfacePlan,
     ) -> PreliminaryPartingSurface:
         """Generate a deterministic bounded planar patch from the surface plan."""
-        if surface_plan.status is InitialPartingSurfacePlanStatus.MANUAL_REVIEW_REQUIRED:
+        if (
+            surface_plan.status
+            is InitialPartingSurfacePlanStatus.MANUAL_REVIEW_REQUIRED
+        ):
             return _surface_without_patches(
                 PreliminaryPartingSurfaceStatus.MANUAL_REVIEW_REQUIRED,
                 surface_plan,
@@ -209,7 +215,10 @@ class PlanarPatchPartingSurfaceGenerator:
         min_u, max_u, min_v, max_v = projection
         extent_u = max_u - min_u
         extent_v = max_v - min_v
-        if extent_u <= DEFAULT_LINEAR_TOLERANCE_MM or extent_v <= DEFAULT_LINEAR_TOLERANCE_MM:
+        if (
+            extent_u <= DEFAULT_LINEAR_TOLERANCE_MM
+            or extent_v <= DEFAULT_LINEAR_TOLERANCE_MM
+        ):
             return _surface_without_patches(
                 PreliminaryPartingSurfaceStatus.BLOCKED,
                 surface_plan,
@@ -373,7 +382,10 @@ class SafeInitialPartingSurfaceRefiner:
         validation: PartingSurfaceValidationResult,
     ) -> PartingSurfaceRefinementResult:
         """Refine only issues that can be fixed deterministically."""
-        if surface is None or surface.status is not PreliminaryPartingSurfaceStatus.GENERATED:
+        if (
+            surface is None
+            or surface.status is not PreliminaryPartingSurfaceStatus.GENERATED
+        ):
             return PartingSurfaceRefinementResult(
                 status=PartingSurfaceRefinementStatus.BLOCKED,
                 refinement_applied=False,
@@ -650,9 +662,7 @@ def _bounding_box_is_usable(bounding_box: BoundingBox) -> bool:
 
 def _stable_basis_for_normal(normal: Vector3D) -> tuple[Vector3D, Vector3D]:
     reference = (
-        Vector3D(0.0, 0.0, 1.0)
-        if abs(normal.z) < 0.9
-        else Vector3D(1.0, 0.0, 0.0)
+        Vector3D(0.0, 0.0, 1.0) if abs(normal.z) < 0.9 else Vector3D(1.0, 0.0, 0.0)
     )
     basis_u = reference.cross(normal).normalized()
     basis_v = normal.cross(basis_u).normalized()
@@ -797,19 +807,28 @@ def _validate_patch_vectors(
     _validate_direction(patch.patch_id, "basis_u", patch.basis_u, findings)
     _validate_direction(patch.patch_id, "basis_v", patch.basis_v, findings)
 
-    if abs(patch.normal.dot(patch.basis_u)) > DEFAULT_PULL_DIRECTION_ALIGNMENT_TOLERANCE:
+    if (
+        abs(patch.normal.dot(patch.basis_u))
+        > DEFAULT_PULL_DIRECTION_ALIGNMENT_TOLERANCE
+    ):
         _recommend_refinement(
             findings,
             patch.patch_id,
             "Patch basis_u is not orthogonal to normal.",
         )
-    if abs(patch.normal.dot(patch.basis_v)) > DEFAULT_PULL_DIRECTION_ALIGNMENT_TOLERANCE:
+    if (
+        abs(patch.normal.dot(patch.basis_v))
+        > DEFAULT_PULL_DIRECTION_ALIGNMENT_TOLERANCE
+    ):
         _recommend_refinement(
             findings,
             patch.patch_id,
             "Patch basis_v is not orthogonal to normal.",
         )
-    if abs(patch.basis_u.dot(patch.basis_v)) > DEFAULT_PULL_DIRECTION_ALIGNMENT_TOLERANCE:
+    if (
+        abs(patch.basis_u.dot(patch.basis_v))
+        > DEFAULT_PULL_DIRECTION_ALIGNMENT_TOLERANCE
+    ):
         _recommend_refinement(
             findings,
             patch.patch_id,
@@ -831,7 +850,8 @@ def _validate_patch_vectors(
             plan_direction = None
         if (
             plan_direction is not None
-            and patch.normal.dot(plan_direction) < 1.0 - DEFAULT_DIRECTION_DEDUPLICATION_TOLERANCE
+            and patch.normal.dot(plan_direction)
+            < 1.0 - DEFAULT_DIRECTION_DEDUPLICATION_TOLERANCE
         ):
             findings.append(
                 _finding(
@@ -935,7 +955,10 @@ def _patch_area_sq_mm(patch: PreliminaryPartingSurfacePatch) -> float:
         return 0.0
 
     coordinates = [
-        ((point - patch.origin).dot(patch.basis_u), (point - patch.origin).dot(patch.basis_v))
+        (
+            (point - patch.origin).dot(patch.basis_u),
+            (point - patch.origin).dot(patch.basis_v),
+        )
         for point in patch.boundary_points
     ]
     twice_area = 0.0
@@ -964,8 +987,12 @@ def _patch_covers_model_projection(
     bounding_box: BoundingBox,
     patch: PreliminaryPartingSurfacePatch,
 ) -> bool:
-    patch_u = tuple((point - patch.origin).dot(patch.basis_u) for point in patch.boundary_points)
-    patch_v = tuple((point - patch.origin).dot(patch.basis_v) for point in patch.boundary_points)
+    patch_u = tuple(
+        (point - patch.origin).dot(patch.basis_u) for point in patch.boundary_points
+    )
+    patch_v = tuple(
+        (point - patch.origin).dot(patch.basis_v) for point in patch.boundary_points
+    )
     bbox_projection = _project_bounding_box_to_basis(
         bounding_box,
         patch.origin,
@@ -1058,9 +1085,8 @@ def _remove_duplicate_boundary_points(
             continue
         deduplicated.append(point)
 
-    if (
-        len(deduplicated) > 1
-        and deduplicated[0].is_approximately_equal(deduplicated[-1])
+    if len(deduplicated) > 1 and deduplicated[0].is_approximately_equal(
+        deduplicated[-1]
     ):
         deduplicated.pop()
 
@@ -1072,7 +1098,10 @@ def _signed_patch_area(patch: PreliminaryPartingSurfacePatch) -> float:
         return 0.0
 
     coordinates = [
-        ((point - patch.origin).dot(patch.basis_u), (point - patch.origin).dot(patch.basis_v))
+        (
+            (point - patch.origin).dot(patch.basis_u),
+            (point - patch.origin).dot(patch.basis_v),
+        )
         for point in patch.boundary_points
     ]
     twice_area = 0.0

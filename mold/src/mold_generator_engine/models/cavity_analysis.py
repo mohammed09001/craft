@@ -139,9 +139,7 @@ class CavityFindingCode(Enum):
     CHAPTER_3_PULL_DIRECTION_USED_AS_LOW_PRIORITY_HINT = (
         "chapter_3_pull_direction_used_as_low_priority_hint"
     )
-    NO_SUPPORTED_INTERNAL_ACCESS_DIRECTION = (
-        "no_supported_internal_access_direction"
-    )
+    NO_SUPPORTED_INTERNAL_ACCESS_DIRECTION = "no_supported_internal_access_direction"
     INTERNAL_DIRECTIONAL_OBSTRUCTION_ASSESSED = (
         "internal_directional_obstruction_assessed"
     )

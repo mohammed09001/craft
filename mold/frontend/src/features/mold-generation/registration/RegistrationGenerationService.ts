@@ -1,4 +1,4 @@
-import { assertManifoldStatus,boundsFromManifold,getManifoldModule,manifoldFromPayload,payloadFromManifold,type ManifoldModuleInstance,type ManifoldSolid } from "../geometry/manifold";
+import { assertManifoldStatus,boundsFromManifold,getManifoldModule,manifoldFromPayload,payloadFromManifold,type ManifoldModuleInstance,type ManifoldSolid,type OriginalTaggedManifold } from "../geometry/manifold";
 import type { MoldInterface,RegistrationFeature,RegistrationReasonCode,RegistrationReport,RegistrationRequest,RegistrationResult,RegistrationSourceBody,RegistrationTolerancePolicy,RegistrationToleranceResolver,RegistrationVector3 } from "./registration.contracts";
 import { buildWallThicknessField,filterByWallThickness,type WallThicknessField } from "./registrationGeometryValidation";
 import { detectMatingInterfaces,planRegistrationLayout,selectSpreadLayout,type RegistrationExclusionZone } from "./registrationPlanner";
@@ -105,7 +105,7 @@ export class RegistrationGenerationService {
     catch(error){return blocked(request,makeReport(request.sourceRevision,"registration_boolean_failed",error instanceof Error?error.message:"The registration geometry kernel could not validate wall thickness; the valid mold was preserved.",policy,interfaces));}
     try{
       for(const moldInterface of interfaces){
-        const attempts=planRegistrationLayout(moldInterface,request.bodies,request.protectedRegions,policy,exclusionZones,field,interfaces,sizingPolicy);
+        const attempts=planRegistrationLayout(moldInterface,request.bodies,request.protectedRegions,policy,exclusionZones,interfaces,sizingPolicy);
         let selectedForInterface:readonly RegistrationFeature[]|undefined;
         if(attempts.length>0){
           const femaleBodyId=attempts[0]!.candidates[0]!.femaleBodyId;
@@ -113,9 +113,8 @@ export class RegistrationGenerationService {
           for(const attempt of attempts){
             const exactSafe=filterByWallThickness(attempt.candidates,moldInterface,field,femaleBody,policy);
             if(exactSafe.length<attempt.candidates.length)wallThicknessLimited=true;
-            const minSeparation=attempt.radiusMm*2+policy.cavitySafetyMarginMm;
             for(const requestedCount of attempt.requestedCounts){
-              const chosen=selectSpreadLayout(exactSafe,moldInterface.axis,requestedCount,minSeparation);
+              const chosen=selectSpreadLayout(exactSafe);
               attemptReports.push({radiusMm:attempt.radiusMm,requestedCount,selectedCount:chosen?.length??0});
               if(chosen!==null&&selectedForInterface===undefined)selectedForInterface=chosen;
             }
@@ -148,8 +147,8 @@ export class RegistrationGenerationService {
         const moldInterface=interfacesById.get(feature.interfaceId)!;
         const maleToolRaw=buildFeatureTool(module,feature,moldInterface,false,overlapMm),femaleToolRaw=buildFeatureTool(module,feature,moldInterface,true,overlapMm);
         const maleTool=maleToolRaw.asOriginal(),femaleTool=femaleToolRaw.asOriginal();
-        roleMap[(maleTool as any).originalID()] = "registration-key";
-        roleMap[(femaleTool as any).originalID()] = "registration-key";
+        roleMap[(maleTool as OriginalTaggedManifold).originalID()] = "registration-key";
+        roleMap[(femaleTool as OriginalTaggedManifold).originalID()] = "registration-key";
         tools.push(maleTool,femaleTool);pushTool(maleToolsByBody,feature.maleBodyId,maleTool);pushTool(femaleToolsByBody,feature.femaleBodyId,femaleTool);
         for(const protectedSolid of protectedSolids){const maleCollision=maleTool.intersect(protectedSolid),femaleCollision=femaleTool.intersect(protectedSolid);try{if(maleCollision.volume()>policy.booleanToleranceMm**3||femaleCollision.volume()>policy.booleanToleranceMm**3)throw Object.assign(new Error("Registration geometry intersects protected functional geometry."),{code:"registration_validation_failed"});}finally{femaleCollision.delete();maleCollision.delete();}}
       }

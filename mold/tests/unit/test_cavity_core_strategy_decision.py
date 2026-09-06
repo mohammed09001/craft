@@ -67,7 +67,9 @@ def test_single_clear_pocket_is_preliminary_linear_candidate_with_limits() -> No
         ),
         directions=_directions(_direction("target_a", "direction_a")),
         undercuts=_undercuts(
-            _evaluation("target_a", "direction_a", InternalDirectionEvaluationOutcome.CLEAR)
+            _evaluation(
+                "target_a", "direction_a", InternalDirectionEvaluationOutcome.CLEAR
+            )
         ),
         trapping=_trapping(
             _risk("target_a", "direction_a", CoreTrappingRiskOutcome.LOW_OBSERVED_RISK)
@@ -87,7 +89,9 @@ def test_single_clear_pocket_is_preliminary_linear_candidate_with_limits() -> No
     assert strategy.assessments[0].strategy_outcome is (
         CavityCoreStrategyOutcome.PRELIMINARY_LINEAR_CORE_CANDIDATE
     )
-    assert CavityFindingCode.CLEARANCE_NOT_EVALUATED in strategy.assessments[0].limitations
+    assert (
+        CavityFindingCode.CLEARANCE_NOT_EVALUATED in strategy.assessments[0].limitations
+    )
     assert CavityFindingCode.MOTION_NOT_EVALUATED in strategy.assessments[0].limitations
     assert decision.outcome is (
         CavityAnalysisDecisionOutcome.PRELIMINARY_LINEAR_CORE_CANDIDATE
@@ -165,7 +169,9 @@ def test_through_channel_and_multi_opening_require_multiple_directions() -> None
                 ),
             ),
             trapping=_trapping(
-                _risk("target_a", "direction_a", CoreTrappingRiskOutcome.LOW_OBSERVED_RISK)
+                _risk(
+                    "target_a", "direction_a", CoreTrappingRiskOutcome.LOW_OBSERVED_RISK
+                )
             ),
         )
         decision = _decide(strategy)
@@ -204,10 +210,14 @@ def test_nested_void_and_high_trapping_risk_require_special_investigation() -> N
         ),
         directions=_directions(_direction("target_b", "direction_b")),
         undercuts=_undercuts(
-            _evaluation("target_b", "direction_b", InternalDirectionEvaluationOutcome.CLEAR)
+            _evaluation(
+                "target_b", "direction_b", InternalDirectionEvaluationOutcome.CLEAR
+            )
         ),
         trapping=_trapping(
-            _risk("target_b", "direction_b", CoreTrappingRiskOutcome.HIGH_STRUCTURAL_RISK)
+            _risk(
+                "target_b", "direction_b", CoreTrappingRiskOutcome.HIGH_STRUCTURAL_RISK
+            )
         ),
     )
 
@@ -234,9 +244,7 @@ def test_ambiguous_and_not_assessable_targets_propagate_to_decision() -> None:
         accessibility=_accessibility(
             _access("target_a", InternalAccessibilityOutcome.AMBIGUOUS)
         ),
-        trapping=_trapping(
-            _risk("target_a", None, CoreTrappingRiskOutcome.AMBIGUOUS)
-        ),
+        trapping=_trapping(_risk("target_a", None, CoreTrappingRiskOutcome.AMBIGUOUS)),
     )
     not_assessable_strategy = _synthesize(
         classification=_classification(
@@ -280,7 +288,9 @@ def test_mesh_boundary_defect_is_not_applicable_when_it_is_the_only_target() -> 
     assert CavityFindingCode.MESH_BOUNDARY_DEFECT_EXCLUDED in (
         strategy.assessments[0].blocking_finding_codes
     )
-    assert decision.outcome is CavityAnalysisDecisionOutcome.NO_APPLICABLE_INTERNAL_CAVITY
+    assert (
+        decision.outcome is CavityAnalysisDecisionOutcome.NO_APPLICABLE_INTERNAL_CAVITY
+    )
 
 
 def test_harder_target_controls_multi_cavity_decision() -> None:
@@ -334,7 +344,9 @@ def test_harder_target_controls_multi_cavity_decision() -> None:
     assert decision.linear_candidate_target_ids == ()
 
 
-def test_strategy_and_decision_serialization_use_enum_values_deterministically() -> None:
+def test_strategy_and_decision_serialization_use_enum_values_deterministically() -> (
+    None
+):
     strategy = _synthesize(
         classification=_classification(
             _target(
@@ -357,8 +369,12 @@ def test_strategy_and_decision_serialization_use_enum_values_deterministically()
             _direction("target_a", "direction_a"),
         ),
         undercuts=_undercuts(
-            _evaluation("target_b", "direction_b", InternalDirectionEvaluationOutcome.CLEAR),
-            _evaluation("target_a", "direction_a", InternalDirectionEvaluationOutcome.CLEAR),
+            _evaluation(
+                "target_b", "direction_b", InternalDirectionEvaluationOutcome.CLEAR
+            ),
+            _evaluation(
+                "target_a", "direction_a", InternalDirectionEvaluationOutcome.CLEAR
+            ),
         ),
         trapping=_trapping(
             _risk("target_b", "direction_b", CoreTrappingRiskOutcome.LOW_OBSERVED_RISK),
@@ -533,7 +549,9 @@ def _evaluation(
     return InternalDirectionEvaluation(
         target_id=target_id,
         direction_id=direction_id,
-        clear_face_indices=(1,) if outcome is InternalDirectionEvaluationOutcome.CLEAR else (),
+        clear_face_indices=(1,)
+        if outcome is InternalDirectionEvaluationOutcome.CLEAR
+        else (),
         obstructed_region_ids=obstructed_region_ids,
         outcome=outcome,
     )

@@ -2,8 +2,12 @@
 
 Architectural navigation guide for coding agents working in this repository.
 This is not a file index — it exists to answer "where do I start?" and "what
-else does this touch?" before making a change. For per-task state, see
-`CURRENT_HANDOFF.md`. For operating rules, see `AGENTS.md`.
+else does this touch?" before making a change. For per-task state, discover it
+live from Git (`git branch --show-current`, `git rev-parse HEAD`,
+`git status --short`) rather than trusting a committed snapshot — no committed
+document should claim to be "the current" branch/HEAD/working-tree state, since
+that claim goes stale the moment a new session or clone reads it. For operating
+rules, see `AGENTS.md`.
 
 ## Repository Overview
 
@@ -180,12 +184,15 @@ feature.
   found. Treat as conceptually related, not confirmed-integrated, until
   verified for a specific task.
 
-### `src/mold-generation` (hyphenated, TypeScript, under Python `src/`)
-Contains a coordinate-system builder and reference-mold-sketch validator in
-TypeScript, located inside the otherwise-Python `src/` tree rather than under
-`frontend/src`. Its build/import relationship to the frontend app was not
-established during this survey — confirm actual usage before relying on or
-extending it.
+### `src/mold-generation` (removed — classified dead)
+A hyphenated TypeScript directory (a coordinate-system builder and
+reference-mold-sketch validator) previously lived here, inside the
+otherwise-Python `src/` tree. A repository-hardening audit traced every
+`tsconfig`, `package.json`, CI job, and Python packaging path and found it was
+not compiled, imported, tested, or referenced by anything outside itself. It
+was deleted (recoverable from Git history); do not recreate a TypeScript
+source tree under Python `src/` without a build/test gate that actually
+exercises it.
 
 ## Geometry Pipeline
 
@@ -199,6 +206,36 @@ Two separate geometry pipelines exist; do not assume they share logic:
 - **Python core engine (batch/offline pipeline, not yet wired to the UI):**
   `import_analysis` → `initial_moldability` → `cavity_analysis` →
   `detailed_mold_analysis` → `generation_readiness` → `mold_generation`.
+
+## Source-of-Truth Matrix
+
+Which domain is authoritative for each current user-visible behavior — and
+what logic must not be duplicated across domains. Both domains are real,
+independently useful codebases; "not wired" below means no runtime call path
+exists between them today, not that one is a stub.
+
+| Capability | Current owner | Status |
+|---|---|---|
+| STL import/rendering | Frontend (`features/viewport`) | Active runtime |
+| Interactive viewport (camera, selection, measurement) | Frontend (`features/viewport`) | Active runtime |
+| Reference mold geometry | Frontend (`mold-generation/reference-mold-definition`) | Active runtime |
+| Cut by Face | Frontend (`mold-generation/split-face`) | Active runtime |
+| Cavity | Frontend (`mold-generation/cavity-generation`) | Active runtime |
+| Sprue | Frontend (`mold-generation/sprue-generation`) | Active runtime |
+| Registration | Frontend (`mold-generation/registration`) | Active runtime |
+| Segmentation | Frontend (`mold-generation/segmentation`) | Active runtime |
+| Moldability analysis | Python (`pipeline/initial_moldability`, `pipeline/cavity_analysis`) | Active offline/core engine, not wired to the UI |
+| Pull-direction analysis | Both, independently: frontend `engineering-reports/pull-direction` (client-side, active in the running app) and Python `pipeline/detailed_mold_analysis` (offline). Not the same implementation — a fix in one does not apply to the other. | Two active, unconnected implementations |
+| Generation-readiness | Python (`pipeline/generation_readiness`) | Active offline/core engine, not wired to the UI |
+| Python mold-generation planning | Python (`pipeline/mold_generation`) | Active offline/core engine, not wired to the UI |
+| Frontend engine-integration contracts | Frontend (`features/engine-integration`) | Contract-only boundary — typed command/job/artifact contracts and a status bridge; no subprocess/HTTP/WebSocket call exists |
+
+**Where a future bridge would enter:** `features/engine-integration` is the
+one place a frontend↔Python call would be added — its `README.md` already
+states the rule (typed commands only, no direct Python calls from React
+components). No HTTP server, WebSocket, subprocess bridge, or RPC protocol
+exists today, and none should be added without that being its own scoped
+architecture decision — not a side effect of an unrelated change.
 
 ## State Ownership
 

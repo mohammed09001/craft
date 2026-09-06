@@ -1,4 +1,4 @@
-﻿"""Base contracts for engineering analysis reports.
+"""Base contracts for engineering analysis reports.
 
 Chapter 9 Stage 1 is a contract-only stage. This module must not contain
 geometry processing, CAD logic, mold logic, or analysis algorithms.
@@ -6,21 +6,20 @@ geometry processing, CAD logic, mold logic, or analysis algorithms.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 from types import MappingProxyType
-from typing import Any, Generic, Mapping, TypeVar
-
+from typing import Any
 
 ENGINEERING_REPORT_SCHEMA = "engineering_report"
 ENGINEERING_REPORT_SCHEMA_VERSION = "1.0.0"
 
 JsonValue = Any
-ReportDataT = TypeVar("ReportDataT", bound=Mapping[str, JsonValue])
 
 
-class EngineeringReportStatus(str, Enum):
+class EngineeringReportStatus(StrEnum):
     """Lifecycle status for an engineering report."""
 
     SUCCESS = "success"
@@ -31,7 +30,7 @@ class EngineeringReportStatus(str, Enum):
     SKIPPED = "skipped"
 
 
-class EngineeringReportSource(str, Enum):
+class EngineeringReportSource(StrEnum):
     """System boundary that produced or transformed the report."""
 
     PYTHON_ENGINE = "python-engine"
@@ -60,12 +59,12 @@ class EngineeringReportMetadata:
         source: EngineeringReportSource = EngineeringReportSource.PYTHON_ENGINE,
         engine_version: str | None = None,
         contract_version: str = ENGINEERING_REPORT_SCHEMA_VERSION,
-    ) -> "EngineeringReportMetadata":
+    ) -> EngineeringReportMetadata:
         return EngineeringReportMetadata(
             report_id=report_id,
             analysis_name=analysis_name,
             report_name=report_name,
-            created_at=datetime.now(timezone.utc).isoformat(),
+            created_at=datetime.now(UTC).isoformat(),
             source=source,
             engine_version=engine_version,
             contract_version=contract_version,
@@ -100,7 +99,7 @@ class EngineeringReportError:
 
 
 @dataclass(frozen=True)
-class EngineeringReport(Generic[ReportDataT]):
+class EngineeringReport[ReportDataT: Mapping[str, JsonValue]]:
     """Base immutable contract for all engineering analysis reports."""
 
     metadata: EngineeringReportMetadata

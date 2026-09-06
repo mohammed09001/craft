@@ -288,7 +288,9 @@ def _evaluate_candidate(
             )
         )
 
-    selection = context.detailed_mold_analysis_report.preliminary_pull_direction_selection
+    selection = (
+        context.detailed_mold_analysis_report.preliminary_pull_direction_selection
+    )
     if selection is None or selection.selected_direction is None:
         return _blocked_evaluation(
             candidate,
@@ -309,7 +311,9 @@ def _evaluate_candidate(
             )
         )
 
-    assessment = context.detailed_mold_analysis_report.preliminary_moldability_assessment
+    assessment = (
+        context.detailed_mold_analysis_report.preliminary_moldability_assessment
+    )
     if assessment is None:
         manual_review = True
         score -= 12.0
@@ -474,7 +478,8 @@ def _apply_undercut_evidence(
             score -= 14.0
             confidence = min(confidence, 0.5)
         elif (
-            undercut_analysis.outcome is UndercutAnalysisOutcome.CONFIRMED_UNDERCUTS_FOUND
+            undercut_analysis.outcome
+            is UndercutAnalysisOutcome.CONFIRMED_UNDERCUTS_FOUND
             and candidate.strategy_type is PartingStrategyType.SIMPLE_TWO_PART_PLANAR
         ):
             manual_review = True
@@ -549,7 +554,9 @@ def _apply_cavity_evidence(
 
 
 def _selected_pull_direction(context: MoldGenerationContext) -> Vector3D | None:
-    selection = context.detailed_mold_analysis_report.preliminary_pull_direction_selection
+    selection = (
+        context.detailed_mold_analysis_report.preliminary_pull_direction_selection
+    )
     if selection is None:
         return None
 

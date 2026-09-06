@@ -81,8 +81,7 @@ class ConservativeCoreStrategySynthesizer:
             )
 
         accessibility_by_target = {
-            assessment.target_id: assessment
-            for assessment in accessibility.assessments
+            assessment.target_id: assessment for assessment in accessibility.assessments
         }
         directions_by_target = _directions_by_target(access_directions)
         evaluations_by_target = _evaluations_by_target(undercut_analysis)
@@ -131,7 +130,9 @@ def _assess_target(
 ) -> CavityCoreStrategyAssessment:
     opening_ids = tuple(sorted(target.opening_ids))
     direction_ids = tuple(sorted(direction.direction_id for direction in directions))
-    best_direction_id = None if trapping is None else trapping.best_supported_direction_id
+    best_direction_id = (
+        None if trapping is None else trapping.best_supported_direction_id
+    )
     if best_direction_id is None and len(direction_ids) == 1:
         best_direction_id = direction_ids[0]
 
@@ -272,10 +273,14 @@ def _assess_target(
             ),
         )
 
-    if target.cavity_type in (
-        CavityType.THROUGH_CHANNEL_CANDIDATE,
-        CavityType.MULTI_OPENING_REGION_CANDIDATE,
-    ) or len(direction_ids) > 1:
+    if (
+        target.cavity_type
+        in (
+            CavityType.THROUGH_CHANNEL_CANDIDATE,
+            CavityType.MULTI_OPENING_REGION_CANDIDATE,
+        )
+        or len(direction_ids) > 1
+    ):
         return CavityCoreStrategyAssessment(
             **common_kwargs,
             required_direction_count=max(2, len(direction_ids), len(opening_ids)),

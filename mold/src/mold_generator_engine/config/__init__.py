@@ -7,8 +7,8 @@ from mold_generator_engine.config.pull_direction import (
 )
 from mold_generator_engine.config.undercut import (
     UndercutAnalysisSettings,
-    UndercutRiskAssessmentSettings,
     UndercutRegionAnalysisSettings,
+    UndercutRiskAssessmentSettings,
 )
 
 __all__ = [

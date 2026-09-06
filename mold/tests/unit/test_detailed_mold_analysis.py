@@ -11,15 +11,15 @@ from mold_generator_engine.models.detailed_mold_analysis import (
     DetailedMoldAnalysisReport,
     DetailedMoldAnalysisStatus,
     DraftAnalysisResult,
-    MoldAnalysisModuleResult,
     MoldabilityEvidenceSummary,
+    MoldAnalysisModuleResult,
     PreliminaryMoldabilityAssessment,
     PreliminaryPullDirectionSelection,
     PullDirectionCandidates,
     PullDirectionRankingResult,
     UndercutAnalysisResult,
-    UndercutRiskAssessmentResult,
     UndercutRegionAnalysis,
+    UndercutRiskAssessmentResult,
 )
 from mold_generator_engine.models.import_analysis_report import (
     ImportAnalysisReport,
@@ -488,12 +488,8 @@ def test_service_runs_detailed_pipeline_stages_in_order() -> None:
         draft_angle_analyzer=RecordingDraftAnalyzer(events),
         undercut_region_analyzer=RecordingUndercutRegionAnalyzer(events),
         undercut_risk_assessor=RecordingUndercutRiskAssessor(events),
-        moldability_evidence_summarizer=RecordingMoldabilityEvidenceSummarizer(
-            events
-        ),
-        preliminary_moldability_decider=RecordingPreliminaryMoldabilityDecider(
-            events
-        ),
+        moldability_evidence_summarizer=RecordingMoldabilityEvidenceSummarizer(events),
+        preliminary_moldability_decider=RecordingPreliminaryMoldabilityDecider(events),
     )
 
     analysis_report = service.analyze(report, model)

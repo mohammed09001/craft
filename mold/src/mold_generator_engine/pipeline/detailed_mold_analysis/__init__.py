@@ -16,7 +16,6 @@ from mold_generator_engine.models.detailed_mold_analysis import (
     FaceGeometry,
     FaceGeometryAnalysis,
     FacePullDirectionEvaluation,
-    MoldAnalysisModuleResult,
     ManufacturabilityRisk,
     MoldabilityActionIndication,
     MoldabilityEvidenceQuality,
@@ -25,6 +24,7 @@ from mold_generator_engine.models.detailed_mold_analysis import (
     MoldabilityFindingCode,
     MoldabilityFindingSource,
     MoldabilityStatus,
+    MoldAnalysisModuleResult,
     PreliminaryMoldabilityAssessment,
     PreliminaryPullDirectionSelection,
     PreliminaryPullDirectionSelectionDecisiveness,
@@ -49,12 +49,12 @@ from mold_generator_engine.models.detailed_mold_analysis import (
     UndercutFaceAssessment,
     UndercutFaceClassification,
     UndercutFaceReasonCode,
-    UndercutRegionComplexity,
     UndercutRegion,
     UndercutRegionAnalysis,
     UndercutRegionAnalysisWarning,
     UndercutRegionAnalysisWarningCode,
     UndercutRegionClassification,
+    UndercutRegionComplexity,
     UndercutRegionDraftSummary,
     UndercutRegionRiskAssessment,
     UndercutRegionSeverity,
@@ -75,8 +75,8 @@ from mold_generator_engine.pipeline.detailed_mold_analysis.contracts import (
     PreliminaryUndercutAnalyzer,
     PullDirectionRankingPolicy,
     PullDirectionScoringPolicy,
-    UndercutRiskAssessor,
     UndercutRegionAnalyzer,
+    UndercutRiskAssessor,
 )
 from mold_generator_engine.pipeline.detailed_mold_analysis.draft_analysis import (
     DEFAULT_DRAFT_ANGLE_ANALYZER,
@@ -90,6 +90,14 @@ from mold_generator_engine.pipeline.detailed_mold_analysis.face_analysis import 
     analyze_face_geometry,
     analyze_model_face_geometry,
 )
+from mold_generator_engine.pipeline.detailed_mold_analysis.moldability_decision import (
+    DEFAULT_PRELIMINARY_MOLDABILITY_DECIDER,
+    DefaultPreliminaryMoldabilityDecider,
+)
+from mold_generator_engine.pipeline.detailed_mold_analysis.moldability_summary import (
+    DEFAULT_MOLDABILITY_EVIDENCE_SUMMARIZER,
+    DefaultMoldabilityEvidenceSummarizer,
+)
 from mold_generator_engine.pipeline.detailed_mold_analysis.pull_direction_ranking import (
     DEFAULT_PRELIMINARY_PULL_DIRECTION_SELECTOR,
     DEFAULT_PULL_DIRECTION_RANKING_POLICY,
@@ -100,14 +108,6 @@ from mold_generator_engine.pipeline.detailed_mold_analysis.pull_directions impor
     DEFAULT_CANDIDATE_PULL_DIRECTION_PROVIDER,
     DefaultCandidatePullDirectionProvider,
     generate_candidate_pull_directions,
-)
-from mold_generator_engine.pipeline.detailed_mold_analysis.moldability_decision import (
-    DEFAULT_PRELIMINARY_MOLDABILITY_DECIDER,
-    DefaultPreliminaryMoldabilityDecider,
-)
-from mold_generator_engine.pipeline.detailed_mold_analysis.moldability_summary import (
-    DEFAULT_MOLDABILITY_EVIDENCE_SUMMARIZER,
-    DefaultMoldabilityEvidenceSummarizer,
 )
 from mold_generator_engine.pipeline.detailed_mold_analysis.scoring import (
     DEFAULT_PULL_DIRECTION_SCORING_POLICY,
@@ -120,13 +120,13 @@ from mold_generator_engine.pipeline.detailed_mold_analysis.undercut import (
     DEFAULT_PRELIMINARY_UNDERCUT_DETECTOR,
     PreliminaryUndercutDetector,
 )
-from mold_generator_engine.pipeline.detailed_mold_analysis.undercut_regions import (
-    DEFAULT_UNDERCUT_REGION_ANALYZER,
-    DefaultUndercutRegionAnalyzer,
-)
 from mold_generator_engine.pipeline.detailed_mold_analysis.undercut_assessment import (
     DEFAULT_UNDERCUT_RISK_ASSESSOR,
     DefaultUndercutRiskAssessor,
+)
+from mold_generator_engine.pipeline.detailed_mold_analysis.undercut_regions import (
+    DEFAULT_UNDERCUT_REGION_ANALYZER,
+    DefaultUndercutRegionAnalyzer,
 )
 
 __all__ = [

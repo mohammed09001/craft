@@ -298,9 +298,7 @@ class MoldabilityFindingCode(Enum):
 
     SELECTED_PULL_DIRECTION_UNAVAILABLE = "selected_pull_direction_unavailable"
     SELECTED_PULL_DIRECTION_AMBIGUOUS = "selected_pull_direction_ambiguous"
-    SELECTED_PULL_DIRECTION_LOW_CONFIDENCE = (
-        "selected_pull_direction_low_confidence"
-    )
+    SELECTED_PULL_DIRECTION_LOW_CONFIDENCE = "selected_pull_direction_low_confidence"
     UNDERCUT_ANALYSIS_UNAVAILABLE = "undercut_analysis_unavailable"
     UNDERCUT_REGION_ANALYSIS_UNAVAILABLE = "undercut_region_analysis_unavailable"
     UNDERCUT_RISK_ASSESSMENT_UNAVAILABLE = "undercut_risk_assessment_unavailable"

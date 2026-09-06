@@ -102,8 +102,10 @@ class PreliminaryCoreTrappingRiskAnalyzer:
 
             if (
                 item.outcome is CavityClassificationOutcome.NOT_ASSESSABLE
-                or item.cavity_type in (CavityType.MESH_BOUNDARY_DEFECT, CavityType.NOT_ASSESSABLE)
-                or opening_detection.outcome is CavityOpeningDetectionOutcome.NOT_ASSESSABLE
+                or item.cavity_type
+                in (CavityType.MESH_BOUNDARY_DEFECT, CavityType.NOT_ASSESSABLE)
+                or opening_detection.outcome
+                is CavityOpeningDetectionOutcome.NOT_ASSESSABLE
             ):
                 assessments.append(
                     CoreTrappingRiskAssessment(
@@ -111,7 +113,9 @@ class PreliminaryCoreTrappingRiskAnalyzer:
                         assessed_direction_ids=target_direction_ids,
                         best_supported_direction_id=best_direction_id,
                         risk_outcome=CoreTrappingRiskOutcome.NOT_ASSESSABLE,
-                        finding_codes=(CavityFindingCode.INVALID_CAVITY_DETECTION_INPUT,),
+                        finding_codes=(
+                            CavityFindingCode.INVALID_CAVITY_DETECTION_INPUT,
+                        ),
                     )
                 )
                 continue
@@ -159,7 +163,9 @@ class PreliminaryCoreTrappingRiskAnalyzer:
                 for evaluation in target_evaluations
             ):
                 outcome = CoreTrappingRiskOutcome.HIGH_STRUCTURAL_RISK
-            elif any(evaluation.obstructed_region_ids for evaluation in target_evaluations):
+            elif any(
+                evaluation.obstructed_region_ids for evaluation in target_evaluations
+            ):
                 outcome = CoreTrappingRiskOutcome.POTENTIAL_RISK
             else:
                 outcome = CoreTrappingRiskOutcome.AMBIGUOUS
@@ -273,7 +279,10 @@ def _low_risk_direction_id(
             continue
         if target_faces and set(evaluation.clear_face_indices) >= target_faces:
             return evaluation.direction_id
-        if not target_faces and evaluation.outcome is InternalDirectionEvaluationOutcome.CLEAR:
+        if (
+            not target_faces
+            and evaluation.outcome is InternalDirectionEvaluationOutcome.CLEAR
+        ):
             return evaluation.direction_id
     return None
 
@@ -307,7 +316,9 @@ def _risk_finding_codes(
     outcome: CoreTrappingRiskOutcome,
 ) -> tuple[CavityFindingCode, ...]:
     if outcome is CoreTrappingRiskOutcome.HIGH_STRUCTURAL_RISK:
-        return (CavityFindingCode.CORE_TRAPPING_RISK_ASSESSED_FROM_PRELIMINARY_EVIDENCE,)
+        return (
+            CavityFindingCode.CORE_TRAPPING_RISK_ASSESSED_FROM_PRELIMINARY_EVIDENCE,
+        )
     if outcome is CoreTrappingRiskOutcome.POTENTIAL_RISK:
         return (
             CavityFindingCode.INTERNAL_DIRECTIONAL_OBSTRUCTION_DETECTED,

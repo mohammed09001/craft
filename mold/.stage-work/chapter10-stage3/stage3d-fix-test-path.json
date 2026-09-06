@@ -1,7 +1,0 @@
-﻿{
-    "targetRoot":  "src\\mold-generation\\coordinate-system",
-    "testPath":  "src\\mold-generation\\coordinate-system\\moldCoordinateFrame.builder.test.ts",
-    "builderPath":  "src\\mold-generation\\coordinate-system\\moldCoordinateFrame.builder.ts",
-    "typesPath":  "src\\mold-generation\\coordinate-system\\moldCoordinateFrame.types.ts",
-    "resolvedAt":  "2026-07-08T11:29:38"
-}

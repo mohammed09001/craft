@@ -17,7 +17,7 @@
     "manifold-3d": "^3.5.1",
     "react": "19.2.7",
     "react-dom": "19.2.7",
-    "react-router-dom": "7.18.1",
+    "react-router-dom": "7.18.3",
     "three": "^0.185.1",
     "three-mesh-bvh": "^0.9.10",
     "zustand": "5.0.14"

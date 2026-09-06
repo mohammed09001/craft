@@ -115,9 +115,10 @@ level; select candidate stages; detect blocking ambiguity (see Task
 Contract above for the stop threshold).
 
 **ORIENT** — read only the durable, task-relevant context needed to work
-safely (typically `AGENTS.md`, `PROJECT_MAP.md`, `CURRENT_HANDOFF.md`, the
-active adapter). Do not load all documentation blindly; do not reread
-unchanged context without a reason.
+safely (typically `AGENTS.md`, `PROJECT_MAP.md`, the active adapter) plus live
+Git state (`git branch --show-current`, `git rev-parse HEAD`,
+`git status --short`) for whatever is actually true right now. Do not load all
+documentation blindly; do not reread unchanged context without a reason.
 
 **INVESTIGATE** — determine the narrowest relevant implementation path:
 ownership, relevant files, state/runtime flow, integration boundaries,

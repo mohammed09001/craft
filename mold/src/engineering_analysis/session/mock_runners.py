@@ -5,7 +5,6 @@ from typing import Literal
 
 from .models import AnalysisIssue, AnalysisReport, AnalysisSession
 
-
 MockOutcome = Literal["ok", "warning", "fatal", "exception"]
 
 

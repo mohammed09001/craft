@@ -307,17 +307,14 @@ def _collect_codes(assessments) -> tuple[CavityFindingCode, ...]:
         code
         for assessment in assessments
         for code in (
-            assessment.blocking_finding_codes
-            + assessment.manual_review_finding_codes
+            assessment.blocking_finding_codes + assessment.manual_review_finding_codes
         )
     )
 
 
 def _collect_limitations(assessments) -> tuple[CavityFindingCode, ...]:
     return _ordered_codes(
-        code
-        for assessment in assessments
-        for code in assessment.limitations
+        code for assessment in assessments for code in assessment.limitations
     )
 
 

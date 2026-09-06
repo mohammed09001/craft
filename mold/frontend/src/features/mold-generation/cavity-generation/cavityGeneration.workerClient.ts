@@ -1,3 +1,4 @@
+import { evaluateCavityGeneration } from "./cavityGeneration.evaluate";
 import type { CavityGenerationInput, CavityGenerationResult, CavityIssue } from "./cavityGeneration.contracts";
 import type { CavityProgressStage, CavityWorkerFailure, CavityWorkerRequest, CavityWorkerResponse } from "./cavityGeneration.worker.contracts";
 type CavityWorkerLike={onmessage:((event:MessageEvent<CavityWorkerResponse>)=>void)|null;onerror:((event:ErrorEvent)=>void)|null;onmessageerror:((event:MessageEvent<unknown>)=>void)|null;postMessage:(message:CavityWorkerRequest)=>void;terminate:()=>void};
@@ -10,7 +11,9 @@ export const DEFAULT_CAVITY_WORKER_TIMEOUT_MS=180_000;
 export function createCavityWorkerRunner(createWorker:CavityWorkerFactory=createBrowserWorker,timeoutMs=DEFAULT_CAVITY_WORKER_TIMEOUT_MS){
   let cancelActive:(reason?:string)=>void=()=>undefined;
   const run=(input:CavityGenerationInput,options:CavityWorkerRunOptions={}):Promise<CavityWorkerExecutionResult>=>{
-    cancelActive("A newer cavity generation request replaced this request.");const worker=createWorker();const requestId=`${input.operationId}:${input.generationVersion}`;
+    cancelActive("A newer cavity generation request replaced this request.");
+    if(createWorker===createBrowserWorker&&typeof Worker==="undefined")return evaluateCavityGeneration(input,options);
+    const worker=createWorker();const requestId=`${input.operationId}:${input.generationVersion}`;
     return new Promise((resolve,reject)=>{let settled=false;let timeoutHandle:ReturnType<typeof setTimeout>|null=null;
       const finish=(action:()=>void)=>{if(settled)return;settled=true;if(timeoutHandle!==null)clearTimeout(timeoutHandle);options.signal?.removeEventListener("abort",abort);worker.onmessage=null;worker.onerror=null;worker.onmessageerror=null;worker.terminate();if(cancelActive===cancel)cancelActive=()=>undefined;action();};
       const cancel=(reason="Cavity generation was cancelled.")=>{if(settled)return;worker.postMessage({type:"cancel",requestId});finish(()=>reject(new CavityWorkerError({code:"cavity_cancelled",stage:"cancelled",message:reason})));};

@@ -267,7 +267,9 @@ def _detect_sampled_regions(
         ):
             face_probes[face_index] = _FaceProbe(
                 face_index=face_index,
-                visible_directions=tuple(sorted(visible_directions, key=_direction_key)),
+                visible_directions=tuple(
+                    sorted(visible_directions, key=_direction_key)
+                ),
                 blocked_direction_count=blocked_direction_count,
             )
 
@@ -341,7 +343,9 @@ def _build_openings(
         defaultdict(list)
     )
     for witness in witnesses:
-        grouped[(witness.region_id, _direction_tuple(witness.direction))].append(witness)
+        grouped[(witness.region_id, _direction_tuple(witness.direction))].append(
+            witness
+        )
 
     openings: list[CavityOpeningCandidate] = []
     for opening_index, ((region_id, direction), group) in enumerate(
@@ -541,7 +545,9 @@ def _order_regions(
             key=lambda region: (
                 region.face_indices[0] if region.face_indices else -1,
                 region.face_indices,
-                "" if region.source_candidate_id is None else region.source_candidate_id,
+                ""
+                if region.source_candidate_id is None
+                else region.source_candidate_id,
                 region.region_id,
             ),
         )

@@ -8,6 +8,7 @@ import {
   payloadFromManifold,
   type ManifoldModuleInstance,
   type ManifoldSolid,
+  type OriginalTaggedManifold,
 } from "../geometry/manifold";
 import type { MoldMeshPayload } from "../reference-mold-definition/orthogonalMold";
 import { buildSprueTolerancePolicy } from "./sprueTolerance.policy";
@@ -420,7 +421,7 @@ export class SprueGenerationService {
       }
 
       const taggedTool = tool.asOriginal();
-      const roleMap: Record<number, "sprue-funnel"> = { [(taggedTool as any).originalID()]: "sprue-funnel" };
+      const roleMap: Record<number, "sprue-funnel"> = { [(taggedTool as OriginalTaggedManifold).originalID()]: "sprue-funnel" };
       const beforeBodies: SprueSourceBody[] = [];
       const updatedBodies: SprueUpdatedBody[] = [];
       for (const index of affectedIndexes) {

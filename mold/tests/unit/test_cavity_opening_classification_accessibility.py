@@ -202,9 +202,7 @@ def test_reversed_global_face_orientation_keeps_pocket_detection_stable() -> Non
         _empty_candidate_detection(),
     )
 
-    assert result.outcome is (
-        CavityOpeningDetectionOutcome.OPENING_CANDIDATES_DETECTED
-    )
+    assert result.outcome is (CavityOpeningDetectionOutcome.OPENING_CANDIDATES_DETECTED)
     assert len(result.openings) == 1
 
 
@@ -249,7 +247,9 @@ def test_accessibility_direction_ordering_is_deterministic() -> None:
     )
 
 
-def test_access_direction_generation_merges_close_witnesses_without_antipodal_merge() -> None:
+def test_access_direction_generation_merges_close_witnesses_without_antipodal_merge() -> (
+    None
+):
     opening_detection = CavityOpeningDetectionResult(
         status=DetailedMoldAnalysisStatus.COMPLETED,
         outcome=CavityOpeningDetectionOutcome.OPENING_CANDIDATES_DETECTED,
@@ -295,7 +295,9 @@ def test_access_direction_generation_merges_close_witnesses_without_antipodal_me
     )
 
     assert first == second
-    assert first.outcome is InternalAccessDirectionGenerationOutcome.DIRECTIONS_GENERATED
+    assert (
+        first.outcome is InternalAccessDirectionGenerationOutcome.DIRECTIONS_GENERATED
+    )
     assert len(first.directions) == 2
     assert {direction.direction for direction in first.directions} == {
         (-1.0, 0.0, 0.0),
@@ -307,7 +309,9 @@ def test_access_direction_generation_merges_close_witnesses_without_antipodal_me
     )
 
 
-def test_simple_pocket_directional_analysis_reports_low_observed_trapping_risk() -> None:
+def test_simple_pocket_directional_analysis_reports_low_observed_trapping_risk() -> (
+    None
+):
     occupied = _solid_block(5, 5, 5) - {(0, 2, 2), (1, 2, 2), (2, 2, 2)}
     (
         context,
@@ -349,7 +353,9 @@ def test_simple_pocket_directional_analysis_reports_low_observed_trapping_risk()
     )
 
 
-def test_directional_obstruction_groups_edge_connected_faces_deterministically() -> None:
+def test_directional_obstruction_groups_edge_connected_faces_deterministically() -> (
+    None
+):
     model = _voxel_model(_solid_block(2, 2, 2))
     context = _build_context(model)
     candidate_detection = _empty_candidate_detection()
@@ -429,7 +435,9 @@ def test_enclosed_void_has_no_supported_access_direction() -> None:
     )
 
 
-def test_service_dependency_injection_calls_new_modules_in_order_and_serializes() -> None:
+def test_service_dependency_injection_calls_new_modules_in_order_and_serializes() -> (
+    None
+):
     model = _voxel_model(_solid_block(2, 2, 2))
     import_report, detailed_report = _build_reports(model)
     calls: list[str] = []
@@ -480,7 +488,9 @@ def test_service_dependency_injection_calls_new_modules_in_order_and_serializes(
     )
 
 
-def test_service_dependency_injection_calls_direction_undercut_and_trapping_modules() -> None:
+def test_service_dependency_injection_calls_direction_undercut_and_trapping_modules() -> (
+    None
+):
     model = _voxel_model(_solid_block(2, 2, 2))
     import_report, detailed_report = _build_reports(model)
     calls: list[str] = []
@@ -623,26 +633,32 @@ def test_service_dependency_injection_calls_strategy_and_decision_modules() -> N
     assert report.preliminary_core_strategy is strategy_result
     assert report.cavity_analysis_decision is decision_result
     serialized = report.to_dict()
-    assert serialized["preliminary_core_strategy"]["assessments"][0][
-        "strategy_outcome"
-    ] == "not_applicable"
+    assert (
+        serialized["preliminary_core_strategy"]["assessments"][0]["strategy_outcome"]
+        == "not_applicable"
+    )
     assert serialized["cavity_analysis_decision"]["outcome"] == (
         "no_applicable_internal_cavity"
     )
 
 
-def test_service_does_not_run_downstream_modules_when_candidate_detection_blocks() -> None:
+def test_service_does_not_run_downstream_modules_when_candidate_detection_blocks() -> (
+    None
+):
     model = _voxel_model(_solid_block(2, 2, 2))
     import_report, detailed_report = _build_reports(model)
     calls: list[str] = []
 
     report = CavityAnalysisService(
         candidate_detector=_BlockedCandidateDetector(),
-        opening_detector=_FakeOpeningDetector(calls, CavityOpeningDetectionResult(
-            status=DetailedMoldAnalysisStatus.COMPLETED,
-            outcome=CavityOpeningDetectionOutcome.OPENING_CANDIDATES_DETECTED,
-            summary="should not run",
-        )),
+        opening_detector=_FakeOpeningDetector(
+            calls,
+            CavityOpeningDetectionResult(
+                status=DetailedMoldAnalysisStatus.COMPLETED,
+                outcome=CavityOpeningDetectionOutcome.OPENING_CANDIDATES_DETECTED,
+                summary="should not run",
+            ),
+        ),
     ).analyze(import_report, detailed_report, model)
 
     assert calls == []
@@ -653,9 +669,13 @@ def test_service_does_not_run_downstream_modules_when_candidate_detection_blocks
     assert report.internal_accessibility is not None
     assert report.internal_accessibility.status is DetailedMoldAnalysisStatus.BLOCKED
     assert report.internal_access_directions is not None
-    assert report.internal_access_directions.status is DetailedMoldAnalysisStatus.BLOCKED
+    assert (
+        report.internal_access_directions.status is DetailedMoldAnalysisStatus.BLOCKED
+    )
     assert report.internal_undercut_analysis is not None
-    assert report.internal_undercut_analysis.status is DetailedMoldAnalysisStatus.BLOCKED
+    assert (
+        report.internal_undercut_analysis.status is DetailedMoldAnalysisStatus.BLOCKED
+    )
     assert report.core_trapping_risk is not None
     assert report.core_trapping_risk.status is DetailedMoldAnalysisStatus.BLOCKED
 
@@ -964,10 +984,7 @@ def _solid_block(
     z_size: int,
 ) -> set[tuple[int, int, int]]:
     return {
-        (x, y, z)
-        for x in range(x_size)
-        for y in range(y_size)
-        for z in range(z_size)
+        (x, y, z) for x in range(x_size) for y in range(y_size) for z in range(z_size)
     }
 
 
@@ -983,7 +1000,9 @@ def _voxel_model(
     def vertex_index(point: tuple[int, int, int]) -> int:
         if point not in vertex_indices:
             vertex_indices[point] = len(vertices)
-            vertices.append(Vertex(x=float(point[0]), y=float(point[1]), z=float(point[2])))
+            vertices.append(
+                Vertex(x=float(point[0]), y=float(point[1]), z=float(point[2]))
+            )
         return vertex_indices[point]
 
     for cell in sorted(occupied_cells):
@@ -1041,10 +1060,34 @@ def _cell_boundary_quads(
     z: int,
 ) -> tuple[tuple[tuple[int, int, int], tuple[tuple[int, int, int], ...]], ...]:
     return (
-        ((1, 0, 0), ((x + 1, y, z), (x + 1, y + 1, z), (x + 1, y + 1, z + 1), (x + 1, y, z + 1))),
+        (
+            (1, 0, 0),
+            (
+                (x + 1, y, z),
+                (x + 1, y + 1, z),
+                (x + 1, y + 1, z + 1),
+                (x + 1, y, z + 1),
+            ),
+        ),
         ((-1, 0, 0), ((x, y, z), (x, y, z + 1), (x, y + 1, z + 1), (x, y + 1, z))),
-        ((0, 1, 0), ((x, y + 1, z), (x, y + 1, z + 1), (x + 1, y + 1, z + 1), (x + 1, y + 1, z))),
+        (
+            (0, 1, 0),
+            (
+                (x, y + 1, z),
+                (x, y + 1, z + 1),
+                (x + 1, y + 1, z + 1),
+                (x + 1, y + 1, z),
+            ),
+        ),
         ((0, -1, 0), ((x, y, z), (x + 1, y, z), (x + 1, y, z + 1), (x, y, z + 1))),
-        ((0, 0, 1), ((x, y, z + 1), (x + 1, y, z + 1), (x + 1, y + 1, z + 1), (x, y + 1, z + 1))),
+        (
+            (0, 0, 1),
+            (
+                (x, y, z + 1),
+                (x + 1, y, z + 1),
+                (x + 1, y + 1, z + 1),
+                (x, y + 1, z + 1),
+            ),
+        ),
         ((0, 0, -1), ((x, y, z), (x, y + 1, z), (x + 1, y + 1, z), (x + 1, y, z))),
     )

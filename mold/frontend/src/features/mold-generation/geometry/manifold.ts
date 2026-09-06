@@ -6,6 +6,13 @@ import type { Bounds3 } from "../split-face/splitFace.contracts";
 export type ManifoldModuleInstance = Awaited<ReturnType<typeof ManifoldModule>>;
 export type ManifoldSolid = InstanceType<ManifoldModuleInstance["Manifold"]>;
 
+/**
+ * `ManifoldSolid.asOriginal()`'s return value is tagged at runtime with an `originalID()` accessor
+ * that manifold-3d's public types don't declare on `ManifoldSolid`. Cast through this narrow shape
+ * wherever that tagged ID is read, instead of `any`.
+ */
+export type OriginalTaggedManifold = ManifoldSolid & { originalID(): number };
+
 let modulePromise: Promise<ManifoldModuleInstance> | null = null;
 
 export async function getManifoldModule(): Promise<ManifoldModuleInstance> {

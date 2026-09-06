@@ -19,8 +19,8 @@ from mold_generator_engine.models.detailed_mold_analysis import (
     PullDirectionEvaluationSettings,
     PullDirectionRankingResult,
     UndercutAnalysisResult,
-    UndercutRiskAssessmentResult,
     UndercutRegionAnalysis,
+    UndercutRiskAssessmentResult,
 )
 
 

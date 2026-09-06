@@ -25,16 +25,15 @@ from mold_generator_engine.models.detailed_mold_analysis import (
     RankedPullDirectionEvaluation,
     UndercutAnalysisOutcome,
     UndercutAnalysisResult,
-    UndercutRiskAssessmentResult,
-    UndercutRiskAssessmentWarning,
-    UndercutRiskAssessmentWarningCode,
-    UndercutRiskSeverity,
-    UndercutTreatmentRequirement,
     UndercutRegionAnalysis,
     UndercutRegionAnalysisWarning,
     UndercutRegionAnalysisWarningCode,
     UndercutRegionComplexity,
     UndercutRegionRiskAssessment,
+    UndercutRiskAssessmentResult,
+    UndercutRiskAssessmentWarning,
+    UndercutRiskSeverity,
+    UndercutTreatmentRequirement,
 )
 from mold_generator_engine.models.import_analysis_report import (
     ImportAnalysisReport,
@@ -175,7 +174,11 @@ def _selection(
             axis_equivalence_key=(0, 0, 1),
         )
         ranked_evaluations = (ranked,)
-        selected_evaluation = ranked if status is not PreliminaryPullDirectionSelectionStatus.UNAVAILABLE else None
+        selected_evaluation = (
+            ranked
+            if status is not PreliminaryPullDirectionSelectionStatus.UNAVAILABLE
+            else None
+        )
 
     return PreliminaryPullDirectionSelection(
         status=status,
@@ -358,7 +361,9 @@ def test_low_risk_model_without_confirmed_undercuts_is_simple_mold_candidate() -
     assert summary.is_assessable is True
     assert assessment.status is MoldabilityStatus.SIMPLE_MOLD_POSSIBLE
     assert assessment.overall_risk is ManufacturabilityRisk.LOW
-    assert assessment.side_action_indication is MoldabilityActionIndication.NOT_INDICATED
+    assert (
+        assessment.side_action_indication is MoldabilityActionIndication.NOT_INDICATED
+    )
     assert assessment.direct_generation_blocked is False
     assert assessment.blocking_reasons == ()
 
@@ -479,7 +484,9 @@ def test_draft_unavailable_does_not_crash_and_core_remains_not_assessed() -> Non
     }
 
 
-def test_noncritical_info_findings_do_not_become_blocking_and_reasons_are_stable() -> None:
+def test_noncritical_info_findings_do_not_become_blocking_and_reasons_are_stable() -> (
+    None
+):
     first = _evaluate(
         region_analysis=_region_analysis(region_count=0),
         risk_assessment=_risk_assessment(assessed_region_count=0),

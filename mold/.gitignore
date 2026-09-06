@@ -8,5 +8,7 @@ dist/
 *.egg-info/
 
 .tmp/
+.pytest_cache/
 .pytest_cache_local/
+.ruff_cache/
 *.bak

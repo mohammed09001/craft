@@ -1,4 +1,4 @@
-﻿"""Engineering report framework contracts.
+"""Engineering report framework contracts.
 
 This package contains shared report contracts used by Chapter 9 engineering
 analysis features. It intentionally contains no geometry processing or

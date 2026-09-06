@@ -19,7 +19,7 @@ import {
   type SprueProfileDesignResult,
 } from "../sprue-generation";
 import { AUTOMATIC_SEGMENTATION_REGISTRATION_SIZING_POLICY, unavailableRegistration, type DerivedRegistrationState, type RegistrationSizingPolicy } from "../registration";
-import { applyBodyVisibility, canCommitMoldEvaluation, cancelDerivedMoldEvaluation as defaultCancelDerivedMoldEvaluation, idleMoldEvaluation, nextEvaluationRequest, runDerivedMoldEvaluation as defaultRunDerivedMoldEvaluation, type FinalMoldResult, type MoldDocument, type MoldEvaluationState } from "../workflow";
+import { applyBodyVisibility, canCommitMoldEvaluation, cancelDerivedMoldEvaluation as defaultCancelDerivedMoldEvaluation, idleMoldEvaluation, isEvaluationCancelled, nextEvaluationRequest, runDerivedMoldEvaluation as defaultRunDerivedMoldEvaluation, type FinalMoldResult, type MoldDocument, type MoldEvaluationState } from "../workflow";
 import type { MoldBodyData } from "../reference-mold-definition/orthogonalMold";
 
 interface Snapshot { selectedFaceIds:readonly PartBoundingBoxFaceId[]; selectedSplitFaceId:PartBoundingBoxFaceId|null; cuttingPlanes:readonly CuttingPlaneRecord[]; workflow:SplitWorkflowState; definition:ReferenceMoldDefinition|null; clearanceMm:number; activePlaneId:string|null; cavity:CavityWorkflowState; partGeometrySignature:string|null; sprues:readonly SprueDefinition[]; sprueDefinitions:readonly SprueOperationDefinition[]; registration:DerivedRegistrationState; document:MoldDocument; evaluation:MoldEvaluationState; lastCommittedResult:FinalMoldResult|null; bodyVisibility:Readonly<Record<string,boolean>> }
@@ -634,6 +634,8 @@ return (set,get)=>({...initial,
    return true;
   }
 
+  let document:MoldDocument|null=null;
+  let evaluation:MoldEvaluationState|null=null;
   try{
    const definition=buildMoldPartsDefinition(
     modelId,
@@ -642,8 +644,8 @@ return (set,get)=>({...initial,
     cuttingPlanes,
     selectedFaceIds,
    );
-   const document=createDocument(before.document.revision+1,definition,cuttingPlanes,before.clearanceMm,before.cavity.clearanceMm,before.sprueDefinitions);
-   const evaluation=nextEvaluationRequest(document);
+   document=createDocument(before.document.revision+1,definition,cuttingPlanes,before.clearanceMm,before.cavity.clearanceMm,before.sprueDefinitions);
+   evaluation=nextEvaluationRequest(document);
    set({document,evaluation,registration:generatingRegistration(document.fingerprint)});
    const derived=await runDerivedMoldEvaluation({requestId:evaluation.requestId!,sourceRevision:document.revision,sourceFingerprint:document.fingerprint,cavityResult:null,definition,cuttingPlanes,sprueDefinitions:before.sprueDefinitions,...registrationSizingPolicyFor(definition)});
    const latest=get();
@@ -674,29 +676,38 @@ return (set,get)=>({...initial,
 
    return true;
   }catch(error){
-   set(current=>({
-    ...current,
-    // The provisional document/evaluation/registration belong to the NEW
-    // definition the rebuild failed to commit -- restore the rolled-back
-    // state's own document bookkeeping atomically, or the surviving
-    // committed result would silently mismatch (or worse, silently match)
-    // a document it never produced.
-    document:before.document,
-    evaluation:before.evaluation,
-    registration:before.registration,
-    workflow:before.workflow,
-    definition:before.definition,
-    cavity:before.cavity,
-    selectedFaceIds:before.selectedFaceIds,
-    selectedSplitFaceId:
-     before.selectedSplitFaceId,
-    cuttingPlanes:before.cuttingPlanes,
-    activePlaneId:null,
-    error:
-     error instanceof Error
-      ?error.message
-      :"Mold parts could not be rebuilt.",
-   }));
+   const cancelled=isEvaluationCancelled(error);
+   const identity=document!==null&&evaluation!==null?{requestId:evaluation.requestId!,sourceRevision:document.revision,sourceFingerprint:document.fingerprint}:null;
+   set(current=>{
+    // A stale/cancelled rejection means a newer request already became (or
+    // is becoming) authoritative -- it must be discarded silently, never
+    // reverted back to this request's pre-edit snapshot, or a late failure
+    // from a superseded edit would clobber genuinely newer state.
+    if(cancelled||(identity!==null&&!canCommitMoldEvaluation(current,identity)))return current;
+    return {
+     ...current,
+     // The provisional document/evaluation/registration belong to the NEW
+     // definition the rebuild failed to commit -- restore the rolled-back
+     // state's own document bookkeeping atomically, or the surviving
+     // committed result would silently mismatch (or worse, silently match)
+     // a document it never produced.
+     document:before.document,
+     evaluation:before.evaluation,
+     registration:before.registration,
+     workflow:before.workflow,
+     definition:before.definition,
+     cavity:before.cavity,
+     selectedFaceIds:before.selectedFaceIds,
+     selectedSplitFaceId:
+      before.selectedSplitFaceId,
+     cuttingPlanes:before.cuttingPlanes,
+     activePlaneId:null,
+     error:
+      error instanceof Error
+       ?error.message
+       :"Mold parts could not be rebuilt.",
+    };
+   });
 
    return false;
   }
@@ -747,6 +758,8 @@ return (set,get)=>({...initial,
 
   await Promise.resolve();
 
+  let document:MoldDocument|null=null;
+  let evaluation:MoldEvaluationState|null=null;
   try{
    const definition=buildMoldPartsDefinition(
     modelId,
@@ -755,9 +768,9 @@ return (set,get)=>({...initial,
     before.cuttingPlanes,
     before.selectedFaceIds,
    );
-   const document=createDocument(before.document.revision+1,definition,before.cuttingPlanes,before.clearanceMm,before.cavity.clearanceMm,before.sprueDefinitions);
-   const evaluation=nextEvaluationRequest(document);
-   set(s=>({...s,workflow:"generatingParts",definition,document,evaluation,registration:generatingRegistration(document.fingerprint),error:null}));
+   document=createDocument(before.document.revision+1,definition,before.cuttingPlanes,before.clearanceMm,before.cavity.clearanceMm,before.sprueDefinitions);
+   evaluation=nextEvaluationRequest(document);
+   set(s=>({...s,workflow:"generatingParts",definition,document:document!,evaluation:evaluation!,registration:generatingRegistration(document!.fingerprint),error:null}));
    const derived=await runDerivedMoldEvaluation({requestId:evaluation.requestId!,sourceRevision:document.revision,sourceFingerprint:document.fingerprint,cavityResult:null,definition,cuttingPlanes:before.cuttingPlanes,sprueDefinitions:before.sprueDefinitions,...registrationSizingPolicyFor(definition)});
    const latest=get();
    const finalBodies=derived.registration.bodies??derived.sprueBodies;
@@ -782,12 +795,18 @@ return (set,get)=>({...initial,
 
    return true;
   }catch(error){
-   set({
-    workflow:"error",
-    error:
-     error instanceof Error
-      ?error.message
-      :"Mold parts could not be created.",
+   const cancelled=isEvaluationCancelled(error);
+   const identity=document!==null&&evaluation!==null?{requestId:evaluation.requestId!,sourceRevision:document.revision,sourceFingerprint:document.fingerprint}:null;
+   set(s=>{
+    if(cancelled||(identity!==null&&!canCommitMoldEvaluation(s,identity)))return s;
+    return {
+     ...s,
+     workflow:"error",
+     error:
+      error instanceof Error
+       ?error.message
+       :"Mold parts could not be created.",
+    };
    });
 
    return false;
@@ -937,11 +956,15 @@ return (set,get)=>({...initial,
 
   }catch(e){
     const reasonCode=e instanceof Error&&"code" in e?String(e.code):"cavity_generation_failed";
+    // A superseded derived-mold-evaluation call (evaluation_cancelled) is the same kind of
+    // lifecycle event as the cavity worker's own cancellation (cavity_cancelled) -- neither is a
+    // genuine failure of this cavity attempt.
+    const cancelled=reasonCode==="cavity_cancelled"||isEvaluationCancelled(e);
     set(s=>
       s.cavity.generationVersion===generationVersion
         ?{
           ...s,
-          evaluation:{...s.evaluation,phase:reasonCode==="cavity_cancelled"?"cancelled":"failed",failure:{reasonCode,message:e instanceof Error?e.message:"Cavity generation failed."}},
+          evaluation:{...s.evaluation,phase:cancelled?"cancelled":"failed",failure:{reasonCode,message:e instanceof Error?e.message:"Cavity generation failed."}},
           cavity:{
             ...s.cavity,
             status:"blocked",
@@ -987,7 +1010,13 @@ return (set,get)=>({...initial,
    set(s=>({...s,undoStack:[...s.undoStack.slice(-49),snap(before)],redoStack:[],sprues:derived.resolvedSprues,sprueDefinitions:derived.sprueDefinitions,registration:derived.registration,lastCommittedResult:finalResult,sprueStatus:"idle",evaluation:{...s.evaluation,phase:"complete",stage:"validation",progress:1},error:null}));
    return true;
   }catch(error){
-   set(s=>s.evaluation.requestId===evaluation.requestId?{...s,sprueStatus:"idle",evaluation:{...s.evaluation,phase:"failed",failure:{reasonCode:"derived_evaluation_failed",message:error instanceof Error?error.message:"Sprue evaluation failed."}},error:error instanceof Error?error.message:"Sprue evaluation failed."}:s);
+   const cancelled=isEvaluationCancelled(error);
+   set(s=>{
+    // Stale or cancelled: some newer request already owns sprueStatus/evaluation --
+    // touching either field here (even to "idle") would clobber that newer request.
+    if(cancelled||!canCommitMoldEvaluation(s,{requestId:evaluation.requestId!,sourceRevision:document.revision,sourceFingerprint:document.fingerprint}))return s;
+    return {...s,sprueStatus:"idle",evaluation:{...s.evaluation,phase:"failed",failure:{reasonCode:"derived_evaluation_failed",message:error instanceof Error?error.message:"Sprue evaluation failed."}},error:error instanceof Error?error.message:"Sprue evaluation failed."};
+   });
    return false;
   }
  },
@@ -1050,7 +1079,13 @@ return (set,get)=>({...initial,
    set(s=>({...s,undoStack:[...s.undoStack.slice(-49),snap(before)],redoStack:[],registration:derived.registration,sprues:derived.resolvedSprues,sprueDefinitions:derived.sprueDefinitions,lastCommittedResult:finalResult,sprueStatus:"idle",evaluation:{...s.evaluation,phase:"complete",stage:"validation",progress:1},error:null}));
    return true;
   }catch(error){
-   set(s=>({...s,sprueStatus:"idle",evaluation:{...s.evaluation,phase:"failed",failure:{reasonCode:"derived_evaluation_failed",message:error instanceof Error?error.message:"Sprue evaluation failed."}},error:error instanceof Error?error.message:"Sprue evaluation failed."}));
+   const cancelled=isEvaluationCancelled(error);
+   set(s=>{
+    // Stale or cancelled: some newer request already owns sprueStatus/evaluation --
+    // touching either field here (even to "idle") would clobber that newer request.
+    if(cancelled||!canCommitMoldEvaluation(s,{requestId:evaluation.requestId!,sourceRevision:document.revision,sourceFingerprint:document.fingerprint}))return s;
+    return {...s,sprueStatus:"idle",evaluation:{...s.evaluation,phase:"failed",failure:{reasonCode:"derived_evaluation_failed",message:error instanceof Error?error.message:"Sprue evaluation failed."}},error:error instanceof Error?error.message:"Sprue evaluation failed."};
+   });
    return false;
   }
  },

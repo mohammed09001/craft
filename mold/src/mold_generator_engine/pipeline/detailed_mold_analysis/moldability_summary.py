@@ -16,12 +16,12 @@ from mold_generator_engine.models.detailed_mold_analysis import (
     PreliminaryPullDirectionSelectionStatus,
     UndercutAnalysisOutcome,
     UndercutAnalysisResult,
+    UndercutRegionAnalysis,
+    UndercutRegionAnalysisWarningCode,
     UndercutRiskAssessmentResult,
     UndercutRiskAssessmentWarningCode,
     UndercutRiskSeverity,
     UndercutTreatmentRequirement,
-    UndercutRegionAnalysis,
-    UndercutRegionAnalysisWarningCode,
 )
 from mold_generator_engine.models.issues import IssueSeverity
 from mold_generator_engine.pipeline.detailed_mold_analysis.contracts import (
@@ -54,7 +54,9 @@ class DefaultMoldabilityEvidenceSummarizer:
             None if preliminary_selection is None else preliminary_selection.status
         )
         selected_pull_direction_decisiveness = (
-            None if preliminary_selection is None else preliminary_selection.decisiveness
+            None
+            if preliminary_selection is None
+            else preliminary_selection.decisiveness
         )
         selected_direction_evidence_quality = _selected_direction_quality(
             preliminary_selection
@@ -111,8 +113,7 @@ class DefaultMoldabilityEvidenceSummarizer:
                     source=MoldabilityFindingSource.UNDERCUT_ANALYSIS,
                     severity=IssueSeverity.WARNING,
                     message=(
-                        "Preliminary undercut analysis is unavailable or "
-                        "unevaluable."
+                        "Preliminary undercut analysis is unavailable or unevaluable."
                     ),
                 )
             )
@@ -120,7 +121,9 @@ class DefaultMoldabilityEvidenceSummarizer:
         draft_analysis_available = bool(
             draft_analysis is not None and draft_analysis.is_evaluable
         )
-        draft_analysis_status = None if draft_analysis is None else draft_analysis.status
+        draft_analysis_status = (
+            None if draft_analysis is None else draft_analysis.status
+        )
         if not draft_analysis_available:
             findings.append(
                 _finding(
@@ -135,7 +138,8 @@ class DefaultMoldabilityEvidenceSummarizer:
             )
 
         undercut_region_analysis_available = bool(
-            undercut_region_analysis is not None and undercut_region_analysis.is_evaluable
+            undercut_region_analysis is not None
+            and undercut_region_analysis.is_evaluable
         )
         if not undercut_region_analysis_available:
             findings.append(
@@ -152,7 +156,8 @@ class DefaultMoldabilityEvidenceSummarizer:
             )
 
         undercut_risk_assessment_available = bool(
-            undercut_risk_assessment is not None and undercut_risk_assessment.is_evaluable
+            undercut_risk_assessment is not None
+            and undercut_risk_assessment.is_evaluable
         )
         if not undercut_risk_assessment_available:
             findings.append(
@@ -190,15 +195,16 @@ class DefaultMoldabilityEvidenceSummarizer:
                         ),
                     )
                 )
-            if undercut_region_analysis.region_count == 0 and undercut_region_analysis.is_evaluable:
+            if (
+                undercut_region_analysis.region_count == 0
+                and undercut_region_analysis.is_evaluable
+            ):
                 findings.append(
                     _finding(
                         code=MoldabilityFindingCode.NO_CONFIRMED_UNDERCUT_REGIONS,
                         source=MoldabilityFindingSource.UNDERCUT_REGION_ANALYSIS,
                         severity=IssueSeverity.INFO,
-                        message=(
-                            "No connected confirmed undercut regions were found."
-                        ),
+                        message=("No connected confirmed undercut regions were found."),
                     )
                 )
 
@@ -404,7 +410,10 @@ def _selected_direction_quality(
     ):
         return MoldabilityEvidenceQuality.INSUFFICIENT
 
-    if preliminary_selection.status is PreliminaryPullDirectionSelectionStatus.AMBIGUOUS:
+    if (
+        preliminary_selection.status
+        is PreliminaryPullDirectionSelectionStatus.AMBIGUOUS
+    ):
         return MoldabilityEvidenceQuality.LOW
 
     if preliminary_selection.decisiveness is (
@@ -512,7 +521,9 @@ def _summary_line(
         if ambiguity_detected:
             return "No confirmed undercut regions were found, but ambiguity remains in the current evidence."
 
-        return "No confirmed undercut regions were found in the current detailed analysis."
+        return (
+            "No confirmed undercut regions were found in the current detailed analysis."
+        )
 
     return (
         "Detailed analysis found "

@@ -131,7 +131,7 @@ describe("Edge-Mounted Linear Alignment System Planner", () => {
     // 4 bodies in a 2x2 grid produce 4 real mating interfaces: A↔B, A↔C, B↔D, C↔D
     expect(interfaces.length).toBe(4);
     for (const moldInterface of interfaces) {
-      const attempts = planRegistrationLayout(moldInterface, data, [], policy, [], undefined, interfaces);
+      const attempts = planRegistrationLayout(moldInterface, data, [], policy, [], interfaces);
       expect(attempts.length).toBeGreaterThan(0);
       const features = attempts[0]!.candidates;
       expect(features.length).toBeGreaterThan(0);
@@ -143,7 +143,7 @@ describe("Edge-Mounted Linear Alignment System Planner", () => {
     const interfaces = detectMatingInterfaces(data, 1e-5);
     // Split intersection is at (30, 30)
     for (const moldInterface of interfaces) {
-      const attempts = planRegistrationLayout(moldInterface, data, [], policy, [], undefined, interfaces);
+      const attempts = planRegistrationLayout(moldInterface, data, [], policy, [], interfaces);
       const features = attempts[0]!.candidates;
       for (const feature of features) {
         // Neither startPoint nor endPoint should be within 5mm of intersection center (30, 30)
@@ -180,7 +180,6 @@ describe("Edge-Mounted Linear Alignment System Planner", () => {
       [],
       automaticPolicy,
       [],
-      undefined,
       undefined,
       AUTOMATIC_SEGMENTATION_REGISTRATION_SIZING_POLICY,
     )[0]!.candidates;
@@ -219,7 +218,6 @@ describe("Edge-Mounted Linear Alignment System Planner", () => {
       automaticPolicy,
       [],
       undefined,
-      undefined,
       AUTOMATIC_SEGMENTATION_REGISTRATION_SIZING_POLICY,
     );
     expect(smallAttempts.length).toBeGreaterThan(0);
@@ -239,7 +237,6 @@ describe("Edge-Mounted Linear Alignment System Planner", () => {
       automaticPolicy,
       [],
       undefined,
-      undefined,
       AUTOMATIC_SEGMENTATION_REGISTRATION_SIZING_POLICY,
     );
     const mediumWidth = mediumAttempts[0]!.candidates[0]!.geometry.widthMm;
@@ -257,7 +254,6 @@ describe("Edge-Mounted Linear Alignment System Planner", () => {
       [],
       automaticPolicy,
       [],
-      undefined,
       undefined,
       AUTOMATIC_SEGMENTATION_REGISTRATION_SIZING_POLICY,
     );
@@ -286,7 +282,6 @@ describe("Edge-Mounted Linear Alignment System Planner", () => {
         [],
         automaticPolicy,
         [],
-        undefined,
         undefined,
         AUTOMATIC_SEGMENTATION_REGISTRATION_SIZING_POLICY,
       );
@@ -324,7 +319,6 @@ describe("Edge-Mounted Linear Alignment System Planner", () => {
       policy,
       [],
       undefined,
-      undefined,
       AUTOMATIC_SEGMENTATION_REGISTRATION_SIZING_POLICY,
     );
     expect(attempts.length).toBe(0);
@@ -340,7 +334,6 @@ describe("Edge-Mounted Linear Alignment System Planner", () => {
       [],
       restrictive,
       [],
-      undefined,
       undefined,
       AUTOMATIC_SEGMENTATION_REGISTRATION_SIZING_POLICY,
     );
@@ -361,7 +354,7 @@ describe("centered placement in the usable safe mating-interface corridor", () =
   it.each([["x"], ["y"], ["z"]] as const)("centers both left and right keys on the corridor center for a %s-normal interface", (axis) => {
     const data = stackedBodiesAlong(axis, 60, 60);
     const moldInterface = detectPrimaryMatingInterface(data, 1e-5)!;
-    const features = planRegistrationLayout(moldInterface, data, [], automaticPolicy, [], undefined, undefined, AUTOMATIC_SEGMENTATION_REGISTRATION_SIZING_POLICY)[0]!.candidates;
+    const features = planRegistrationLayout(moldInterface, data, [], automaticPolicy, [], undefined, AUTOMATIC_SEGMENTATION_REGISTRATION_SIZING_POLICY)[0]!.candidates;
     const [, v] = otherAxesOf(axis);
     const corridorCenter = (moldInterface.matingBounds.min[v] + moldInterface.matingBounds.max[v]) / 2;
 
@@ -385,8 +378,8 @@ describe("centered placement in the usable safe mating-interface corridor", () =
     const forwardInterface = detectPrimaryMatingInterface(forward, 1e-5)!;
     const reversedInterface = detectPrimaryMatingInterface(reversed, 1e-5)!;
 
-    const forwardFeatures = planRegistrationLayout(forwardInterface, forward, [], automaticPolicy, [], undefined, undefined, AUTOMATIC_SEGMENTATION_REGISTRATION_SIZING_POLICY)[0]!.candidates;
-    const reversedFeatures = planRegistrationLayout(reversedInterface, reversed, [], automaticPolicy, [], undefined, undefined, AUTOMATIC_SEGMENTATION_REGISTRATION_SIZING_POLICY)[0]!.candidates;
+    const forwardFeatures = planRegistrationLayout(forwardInterface, forward, [], automaticPolicy, [], undefined, AUTOMATIC_SEGMENTATION_REGISTRATION_SIZING_POLICY)[0]!.candidates;
+    const reversedFeatures = planRegistrationLayout(reversedInterface, reversed, [], automaticPolicy, [], undefined, AUTOMATIC_SEGMENTATION_REGISTRATION_SIZING_POLICY)[0]!.candidates;
 
     const forwardLeft = forwardFeatures.find((f) => f.side === "left")!;
     const reversedLeft = reversedFeatures.find((f) => f.side === "left")!;
@@ -405,7 +398,7 @@ describe("centered placement in the usable safe mating-interface corridor", () =
 
     for (const data of [negative, translated]) {
       const moldInterface = detectPrimaryMatingInterface(data, 1e-5)!;
-      const features = planRegistrationLayout(moldInterface, data, [], automaticPolicy, [], undefined, undefined, AUTOMATIC_SEGMENTATION_REGISTRATION_SIZING_POLICY)[0]!.candidates;
+      const features = planRegistrationLayout(moldInterface, data, [], automaticPolicy, [], undefined, AUTOMATIC_SEGMENTATION_REGISTRATION_SIZING_POLICY)[0]!.candidates;
       const corridorCenter = (moldInterface.matingBounds.min.y + moldInterface.matingBounds.max.y) / 2;
       for (const feature of features) {
         expect(Math.abs(feature.anchor.y - corridorCenter)).toBeLessThanOrEqual(CENTER_TOLERANCE_MM);
@@ -432,7 +425,7 @@ describe("centered placement in the usable safe mating-interface corridor", () =
       kind: "functional",
       bounds: { min: { x: 0, y: corridorCenterV - 15, z: 0 }, max: { x: 15, y: corridorCenterV + 15, z: 20 } },
     };
-    const attempts = planRegistrationLayout(moldInterface, data, [centerBlock], automaticPolicy, [], undefined, undefined, AUTOMATIC_SEGMENTATION_REGISTRATION_SIZING_POLICY);
+    const attempts = planRegistrationLayout(moldInterface, data, [centerBlock], automaticPolicy, [], undefined, AUTOMATIC_SEGMENTATION_REGISTRATION_SIZING_POLICY);
     expect(attempts.length).toBeGreaterThan(0);
     const leftSegments = attempts[0]!.candidates.filter((f) => f.side === "left");
     expect(leftSegments.length).toBeGreaterThanOrEqual(1);
@@ -451,7 +444,7 @@ describe("centered placement in the usable safe mating-interface corridor", () =
     const interfaces = detectMatingInterfaces(data, 1e-5);
     for (const moldInterface of interfaces) {
       const [, v] = otherAxesOf(moldInterface.axis);
-      const attempts = planRegistrationLayout(moldInterface, data, [], automaticPolicy, [], undefined, interfaces, AUTOMATIC_SEGMENTATION_REGISTRATION_SIZING_POLICY);
+      const attempts = planRegistrationLayout(moldInterface, data, [], automaticPolicy, [], interfaces, AUTOMATIC_SEGMENTATION_REGISTRATION_SIZING_POLICY);
       if (attempts.length === 0) continue;
       const corridorCenter = (moldInterface.matingBounds.min[v] + moldInterface.matingBounds.max[v]) / 2;
       for (const feature of attempts[0]!.candidates) {
@@ -472,12 +465,16 @@ describe("cavity-wall-centered placement (Segmentation Registration policy)", ()
       const [u] = otherAxesOf(axis);
       // Cavity occupies the middle third of the interface in u, leaving an
       // equal 0..30 wall on the left and 70..100 wall on the right.
+      const min = { x: 0, y: 0, z: 0 };
+      min[u] = 30;
+      const max = { x: 100, y: 100, z: 100 };
+      max[u] = 70;
       const cavity: RegistrationProtectedRegion = {
         id: "product-cavity",
         kind: "cavity",
-        bounds: { min: { x: 0, y: 0, z: 0, [u]: 30 } as any, max: { x: 100, y: 100, z: 100, [u]: 70 } as any },
+        bounds: { min, max },
       };
-      const features = planRegistrationLayout(moldInterface, data, [cavity], automaticPolicy, [], undefined, undefined, AUTOMATIC_SEGMENTATION_REGISTRATION_SIZING_POLICY)[0]!.candidates;
+      const features = planRegistrationLayout(moldInterface, data, [cavity], automaticPolicy, [], undefined, AUTOMATIC_SEGMENTATION_REGISTRATION_SIZING_POLICY)[0]!.candidates;
       const leftKey = features.find((f) => f.side === "left")!;
       const rightKey = features.find((f) => f.side === "right")!;
       expect(leftKey).toBeDefined();
@@ -501,7 +498,7 @@ describe("cavity-wall-centered placement (Segmentation Registration policy)", ()
   it("falls back to the legacy edge-corridor coordinate when no cavity protected region is available", () => {
     const data = stackedBodiesAlong("z", 100, 100);
     const moldInterface = detectPrimaryMatingInterface(data, 1e-5)!;
-    const features = planRegistrationLayout(moldInterface, data, [], automaticPolicy, [], undefined, undefined, AUTOMATIC_SEGMENTATION_REGISTRATION_SIZING_POLICY)[0]!.candidates;
+    const features = planRegistrationLayout(moldInterface, data, [], automaticPolicy, [], undefined, AUTOMATIC_SEGMENTATION_REGISTRATION_SIZING_POLICY)[0]!.candidates;
     const leftKey = features.find((f) => f.side === "left")!;
     const rightKey = features.find((f) => f.side === "right")!;
 
@@ -522,7 +519,7 @@ describe("cavity-wall-centered placement (Segmentation Registration policy)", ()
       kind: "cavity",
       bounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 60, y: 100, z: 100 } },
     };
-    const features = planRegistrationLayout(moldInterface, data, [cavity], automaticPolicy, [], undefined, undefined, AUTOMATIC_SEGMENTATION_REGISTRATION_SIZING_POLICY)[0]?.candidates ?? [];
+    const features = planRegistrationLayout(moldInterface, data, [cavity], automaticPolicy, [], undefined, AUTOMATIC_SEGMENTATION_REGISTRATION_SIZING_POLICY)[0]?.candidates ?? [];
     const rightKey = features.find((f) => f.side === "right");
     // The right side still centers correctly: wall [60,100] -> center 80.
     expect(rightKey?.anchor.x).toBeCloseTo(80, 0);

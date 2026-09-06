@@ -239,7 +239,10 @@ class ConservativeGlobalMoldGenerationValidator:
                 manual_review_required=True,
             )
 
-        if preliminary_plan.disposition is MoldGenerationDisposition.MANUAL_REVIEW_REQUIRED:
+        if (
+            preliminary_plan.disposition
+            is MoldGenerationDisposition.MANUAL_REVIEW_REQUIRED
+        ):
             findings.append(
                 _finding(
                     MoldGenerationFindingCode.GLOBAL_VALIDATION_MANUAL_REVIEW_REQUIRED,
@@ -269,14 +272,21 @@ class ConservativeGlobalMoldGenerationValidator:
             block_plan,
             findings,
         )
-        _validate_envelope(envelope_plan, accepted_surface, component_planning, findings)
+        _validate_envelope(
+            envelope_plan, accepted_surface, component_planning, findings
+        )
         _validate_block(block_plan, envelope_plan, accepted_surface, findings)
-        _validate_opening_direction(component_planning, envelope_plan, block_plan, findings)
+        _validate_opening_direction(
+            component_planning, envelope_plan, block_plan, findings
+        )
 
         if any(finding.is_blocking for finding in findings):
             return _global_result(MoldComponentPlanningStatus.BLOCKED, findings)
 
-        if component_planning.status is MoldComponentPlanningStatus.MANUAL_REVIEW_REQUIRED:
+        if (
+            component_planning.status
+            is MoldComponentPlanningStatus.MANUAL_REVIEW_REQUIRED
+        ):
             findings.append(
                 _finding(
                     MoldGenerationFindingCode.GLOBAL_VALIDATION_MANUAL_REVIEW_REQUIRED,
@@ -407,7 +417,9 @@ def _validate_prerequisites(
     findings: list[MoldGenerationFinding],
 ) -> None:
     if selection.status is not PreliminaryPartingStrategySelectionStatus.SELECTED:
-        findings.append(_blocking_incomplete("A selected parting strategy is required."))
+        findings.append(
+            _blocking_incomplete("A selected parting strategy is required.")
+        )
 
     if surface_plan.selected_strategy_id is None:
         findings.append(
@@ -559,8 +571,14 @@ def _validate_opening_direction(
         return
 
     for label, candidate in (
-        ("mold_envelope_plan", None if envelope_plan is None else envelope_plan.opening_direction),
-        ("mold_block_plan", None if block_plan is None else block_plan.opening_direction),
+        (
+            "mold_envelope_plan",
+            None if envelope_plan is None else envelope_plan.opening_direction,
+        ),
+        (
+            "mold_block_plan",
+            None if block_plan is None else block_plan.opening_direction,
+        ),
     ):
         if candidate is None:
             continue
@@ -597,7 +615,11 @@ def _validate_bounds(
     message: str,
     findings: list[MoldGenerationFinding],
 ) -> None:
-    if not bounds_min.is_finite() or not bounds_max.is_finite() or not dimensions.is_finite():
+    if (
+        not bounds_min.is_finite()
+        or not bounds_max.is_finite()
+        or not dimensions.is_finite()
+    ):
         findings.append(_non_finite(code, message))
         return
 
@@ -608,13 +630,13 @@ def _validate_bounds(
     )
     matches_bounds = (
         abs((bounds_max.x - bounds_min.x) - dimensions.x) <= DEFAULT_LINEAR_TOLERANCE_MM
-        and abs((bounds_max.y - bounds_min.y) - dimensions.y) <= DEFAULT_LINEAR_TOLERANCE_MM
-        and abs((bounds_max.z - bounds_min.z) - dimensions.z) <= DEFAULT_LINEAR_TOLERANCE_MM
+        and abs((bounds_max.y - bounds_min.y) - dimensions.y)
+        <= DEFAULT_LINEAR_TOLERANCE_MM
+        and abs((bounds_max.z - bounds_min.z) - dimensions.z)
+        <= DEFAULT_LINEAR_TOLERANCE_MM
     )
     if not positive_dimensions or not matches_bounds:
-        findings.append(
-            _finding(code, IssueSeverity.ERROR, message, is_blocking=True)
-        )
+        findings.append(_finding(code, IssueSeverity.ERROR, message, is_blocking=True))
 
 
 def _global_result(
@@ -638,7 +660,11 @@ def _decision(
     preliminary_plan: PreliminaryMoldGenerationPlan,
     global_validation: GlobalMoldGenerationValidationResult,
 ) -> FinalMoldGenerationDecision:
-    severity = IssueSeverity.INFO if status is FinalMoldGenerationDecisionStatus.READY else IssueSeverity.WARNING
+    severity = (
+        IssueSeverity.INFO
+        if status is FinalMoldGenerationDecisionStatus.READY
+        else IssueSeverity.WARNING
+    )
     return FinalMoldGenerationDecision(
         status=status,
         summary=summary,

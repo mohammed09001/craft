@@ -5,10 +5,18 @@ export interface MoldEvaluationCommitState {
   readonly evaluation: MoldEvaluationState;
 }
 
-/** The only gate through which asynchronous final geometry may become authoritative. */
+/** The identity a caller captured before starting an async derived-mold evaluation. Both the success
+ * path (a full `FinalMoldResult`) and a failure/cancellation path (which never produced one) can supply
+ * this same shape, so one gate covers both. */
+export type MoldEvaluationRequestIdentity = Pick<FinalMoldResult, "requestId" | "sourceRevision" | "sourceFingerprint">;
+
+/** The only gate through which an asynchronous derived-mold evaluation outcome -- success, failure, or
+ * cancellation -- may mutate authoritative state. A stale/superseded outcome must be discarded silently
+ * regardless of whether it resolved or rejected; only the request that still matches current phase,
+ * requestId, document revision, and fingerprint may commit. */
 export function canCommitMoldEvaluation(
   state: MoldEvaluationCommitState,
-  result: FinalMoldResult,
+  result: MoldEvaluationRequestIdentity,
 ): boolean {
   return state.evaluation.phase === "evaluating" &&
     state.evaluation.requestId === result.requestId &&
@@ -16,16 +24,12 @@ export function canCommitMoldEvaluation(
     state.document.fingerprint === result.sourceFingerprint;
 }
 
-/** Prevents a previously keyed (`registration: "generated"`) cavity from silently downgrading to an
- * unkeyed one: if the mold was already keyed, a new cavity attempt only commits as `"complete"` when
- * registration keys it again too. An unkeyed result is otherwise a legitimate, expected commit (same
- * as "keys exist before Create Cavity") — this only guards against keys *disappearing*, not against
- * registration being best-effort in general. */
-export function isRegistrationAcceptedForCommit(
-  _before: { readonly registration: { readonly status: string } },
-  _result: FinalMoldResult,
-): boolean {
-  return true;
+/** True when a derived-mold evaluation rejected because it was superseded (see
+ * `derivedMoldEvaluation.workerClient.ts`'s `cancel`), not because it genuinely failed. A cancelled
+ * request is lifecycle information, not a product failure, and must never be turned into
+ * `evaluation.phase === "failed"`. */
+export function isEvaluationCancelled(error: unknown): boolean {
+  return error instanceof Error && "code" in error && (error as { code?: unknown }).code === "evaluation_cancelled";
 }
 
 export function nextEvaluationRequest(document: MoldDocument): MoldEvaluationState {

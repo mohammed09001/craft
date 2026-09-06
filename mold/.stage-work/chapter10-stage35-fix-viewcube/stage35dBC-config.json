@@ -1,7 +1,0 @@
-﻿{
-    "hostPath":  "frontend\\src\\features\\viewport\\runtime\\adaptiveGrid.ts",
-    "cubePath":  "frontend\\src\\features\\mold-generation\\MoldOrientationCube.tsx",
-    "cubeCssPath":  "frontend\\src\\features\\mold-generation\\MoldOrientationCube.css",
-    "overlayPath":  "frontend\\src\\features\\mold-generation\\MoldGenerationSketchOverlay.tsx",
-    "loadedAt":  "2026-07-08T13:43:57"
-}

@@ -121,8 +121,8 @@ Chapter 8 closes the first safe frontend-to-engine integration layer. It does no
 ### Completed UI Integration
 
 - The Context Panel this was originally built against has since been removed
-  from the application (see `docs/agent/CURRENT_HANDOFF.md`/git history for
-  the header restructuring). Import Analysis currently has **no UI trigger**
+  from the application (see git history for the header restructuring). Import
+  Analysis currently has **no UI trigger**
   -- the command, store, and adapter layers below remain intact and are
   exercised directly by the tests in `Regression Coverage`, but a user
   cannot currently reach this bridge from the app itself.

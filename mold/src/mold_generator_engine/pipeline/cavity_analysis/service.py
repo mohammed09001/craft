@@ -235,11 +235,13 @@ class CavityAnalysisService:
                         opening_detection,
                         cavity_classification,
                     )
-                    internal_access_directions = self.access_direction_generator.generate(
-                        context,
-                        opening_detection,
-                        cavity_classification,
-                        internal_accessibility,
+                    internal_access_directions = (
+                        self.access_direction_generator.generate(
+                            context,
+                            opening_detection,
+                            cavity_classification,
+                            internal_accessibility,
+                        )
                     )
                     if (
                         internal_access_directions.status

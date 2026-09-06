@@ -1,4 +1,4 @@
-import { createSplitFaceStoreCreator, selectActiveMoldBodies, type SplitFaceStoreDeps, type SplitFaceState } from "./splitFace.store";
+import { createSplitFaceStoreCreator, selectActiveMoldBodies, selectSpruePresentationDefinitions, type SplitFaceStoreDeps, type SplitFaceState } from "./splitFace.store";
 import { canonicalCube } from "../cavity-generation/cavityGeneration.testFixtures";
 import type { CavityGenerationInput } from "../cavity-generation/cavityGeneration.contracts";
 import { generateCavityBodies } from "../cavity-generation/cavityBody.generator";
@@ -824,5 +824,173 @@ describe("Sprue dependency integrity across topology replacement",()=>{
   expect(useSplitFaceStore.getState().sprues).toEqual([]);
   expect(useSplitFaceStore.getState().cavity.status).toBe("unavailable");
   expect(useSplitFaceStore.getState().sprueDefinitions[0]!.validation.status).toBe("pending");
+ });
+});
+describe("Async evaluation commit identity (stale/cancelled results must not mutate newer state)",()=>{
+ it("a genuine current failure still surfaces as evaluation.phase 'failed'",async()=>{
+  await prepareSprueState();
+  expect(await useSplitFaceStore.getState().createSprue(placement())).toBe(true);
+  const target=useSplitFaceStore.getState().sprueDefinitions[0]!;
+
+  vi.mocked(runDerivedMoldEvaluation).mockImplementationOnce(async()=>{throw new Error("boom");});
+
+  expect(await useSplitFaceStore.getState().resizeSprue(target.operationId,target.profileDesign.profile.mainDiameterMm+2)).toBe(false);
+
+  const after=useSplitFaceStore.getState();
+  expect(after.evaluation.phase).toBe("failed");
+  expect(after.evaluation.failure?.message).toBe("boom");
+  expect(after.sprueStatus).toBe("idle");
+  expect(after.error).toBe("boom");
+ });
+ it("a stale rejection (superseded by Undo mid-flight) cannot mark the now-current state failed",async()=>{
+  await prepareSprueState();
+  expect(await useSplitFaceStore.getState().createSprue(placement())).toBe(true);
+  const target=useSplitFaceStore.getState().sprueDefinitions[0]!;
+
+  let rejectStale:(error:unknown)=>void=()=>undefined;
+  vi.mocked(runDerivedMoldEvaluation).mockImplementationOnce(()=>new Promise((_,reject)=>{rejectStale=reject;}));
+
+  const pending=useSplitFaceStore.getState().resizeSprue(target.operationId,target.profileDesign.profile.mainDiameterMm+2);
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(useSplitFaceStore.getState().sprueStatus).toBe("generating");
+
+  // A different action supersedes the in-flight request while it is still pending.
+  useSplitFaceStore.getState().undo();
+  const superseded={document:useSplitFaceStore.getState().document,evaluation:useSplitFaceStore.getState().evaluation,sprueDefinitions:useSplitFaceStore.getState().sprueDefinitions,sprueStatus:useSplitFaceStore.getState().sprueStatus,error:useSplitFaceStore.getState().error};
+
+  rejectStale(new Error("late failure from a superseded request"));
+  expect(await pending).toBe(false);
+
+  const after=useSplitFaceStore.getState();
+  expect(after.document).toEqual(superseded.document);
+  expect(after.evaluation).toEqual(superseded.evaluation);
+  expect(after.sprueDefinitions).toEqual(superseded.sprueDefinitions);
+  expect(after.sprueStatus).toBe(superseded.sprueStatus);
+  expect(after.error).toBe(superseded.error);
+ });
+ it("a stale/late cancellation is discarded silently, never converted into evaluation.phase 'failed'",async()=>{
+  await prepareSprueState();
+  expect(await useSplitFaceStore.getState().createSprue(placement())).toBe(true);
+  const target=useSplitFaceStore.getState().sprueDefinitions[0]!;
+
+  let rejectStale:(error:unknown)=>void=()=>undefined;
+  vi.mocked(runDerivedMoldEvaluation).mockImplementationOnce(()=>new Promise((_,reject)=>{rejectStale=reject;}));
+
+  const pending=useSplitFaceStore.getState().resizeSprue(target.operationId,target.profileDesign.profile.mainDiameterMm+2);
+  await Promise.resolve();
+  await Promise.resolve();
+
+  useSplitFaceStore.getState().undo();
+  const superseded={document:useSplitFaceStore.getState().document,evaluation:useSplitFaceStore.getState().evaluation,sprueStatus:useSplitFaceStore.getState().sprueStatus};
+
+  rejectStale(Object.assign(new Error("superseded"),{code:"evaluation_cancelled"}));
+  expect(await pending).toBe(false);
+
+  const after=useSplitFaceStore.getState();
+  expect(after.evaluation.phase).not.toBe("failed");
+  expect(after.document).toEqual(superseded.document);
+  expect(after.evaluation).toEqual(superseded.evaluation);
+  expect(after.sprueStatus).toBe(superseded.sprueStatus);
+ });
+ it("a stale success (topology replaced mid-flight) cannot resurrect resolved Sprue geometry over the newer pending state",async()=>{
+  await prepareSprueState();
+  expect(await useSplitFaceStore.getState().createSprue(placement())).toBe(true);
+  const target=useSplitFaceStore.getState().sprueDefinitions[0]!;
+
+  let releaseStale:()=>void=()=>undefined;
+  const gate=new Promise<void>(resolve=>{releaseStale=resolve;});
+  const actual=await vi.importActual<typeof import("../workflow")>("../workflow");
+  vi.mocked(runDerivedMoldEvaluation).mockImplementationOnce(async(input,onProgress)=>{
+   const real=await actual.runDerivedMoldEvaluation(input,onProgress);
+   await gate;
+   return real;
+  });
+
+  const pending=useSplitFaceStore.getState().resizeSprue(target.operationId,target.profileDesign.profile.mainDiameterMm+2);
+  await Promise.resolve();
+  await Promise.resolve();
+
+  // Topology is replaced (Mold Scale) while the resize's evaluation is still pending.
+  useSplitFaceStore.getState().setClearanceMm(15);
+  expect(useSplitFaceStore.getState().sprueDefinitions[0]!.validation.status).toBe("pending");
+  expect(useSplitFaceStore.getState().sprues).toEqual([]);
+
+  releaseStale();
+  expect(await pending).toBe(false);
+
+  const after=useSplitFaceStore.getState();
+  // The late success from the superseded resize must not resurrect resolved geometry
+  // that no longer belongs to the post-Scale topology.
+  expect(after.sprues).toEqual([]);
+  expect(after.sprueDefinitions[0]!.validation.status).toBe("pending");
+ });
+ it("createMoldParts: a stale rejection cannot revert a model-replacement that superseded it mid-flight",async()=>{
+  const s=useSplitFaceStore.getState();
+  s.enterSelection();
+  s.toggleFace("front");
+
+  let rejectStale:(error:unknown)=>void=()=>undefined;
+  vi.mocked(runDerivedMoldEvaluation).mockImplementationOnce(()=>new Promise((_,reject)=>{rejectStale=reject;}));
+
+  const pending=useSplitFaceStore.getState().createMoldParts("m",k1);
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(useSplitFaceStore.getState().workflow).toBe("generatingParts");
+
+  // A different action (new model loaded) supersedes the in-flight createMoldParts.
+  useSplitFaceStore.getState().clearForModelReplacement();
+  const superseded={document:useSplitFaceStore.getState().document,evaluation:useSplitFaceStore.getState().evaluation,workflow:useSplitFaceStore.getState().workflow,error:useSplitFaceStore.getState().error};
+
+  rejectStale(new Error("late failure from a superseded request"));
+  expect(await pending).toBe(false);
+
+  const after=useSplitFaceStore.getState();
+  expect(after.document).toEqual(superseded.document);
+  expect(after.evaluation).toEqual(superseded.evaluation);
+  expect(after.workflow).toBe(superseded.workflow);
+  expect(after.error).toBe(superseded.error);
+ });
+});
+describe("Sprue presentation: pending intent never masquerades as resolved geometry",()=>{
+ it("a pending Sprue (no cavity yet) has no resolved depth or target body IDs, and its position/profile reflect the intent, not stale resolved geometry",async()=>{
+  const s=useSplitFaceStore.getState();
+  s.enterSelection();
+  s.toggleFace("front");
+  expect(await useSplitFaceStore.getState().createMoldParts("m",k1)).toBe(true);
+  expect(useSplitFaceStore.getState().cavity.result).toBeNull();
+
+  expect(await useSplitFaceStore.getState().createSprue(placement())).toBe(true);
+  const after=useSplitFaceStore.getState();
+  expect(after.sprueDefinitions[0]!.validation.status).toBe("pending");
+  expect(after.sprues).toEqual([]);
+
+  const presentation=selectSpruePresentationDefinitions(after)[0]!;
+  expect(presentation.status).toBe("pending");
+  expect(presentation).not.toHaveProperty("depthMm");
+  expect(presentation).not.toHaveProperty("targetBodyIds");
+  expect(presentation.position).toEqual(after.sprueDefinitions[0]!.anchor.position);
+  expect(presentation.profile).toEqual(after.sprueDefinitions[0]!.profileDesign.profile);
+ });
+ it("resolved presentation requires current resolved geometry: topology invalidation strips depth/targetBodyIds and the selector reports pending again",async()=>{
+  await prepareSprueState();
+  expect(await useSplitFaceStore.getState().createSprue(placement())).toBe(true);
+  const resolved=useSplitFaceStore.getState();
+  const resolvedPresentation=selectSpruePresentationDefinitions(resolved)[0]!;
+  expect(resolvedPresentation.status).toBe("resolved");
+  expect(resolvedPresentation.depthMm).toBeDefined();
+  expect(resolvedPresentation.targetBodyIds).toBeDefined();
+
+  useSplitFaceStore.getState().setClearanceMm(15);
+
+  const after=useSplitFaceStore.getState();
+  const afterPresentation=selectSpruePresentationDefinitions(after)[0]!;
+  expect(afterPresentation.status).toBe("pending");
+  expect(afterPresentation).not.toHaveProperty("depthMm");
+  expect(afterPresentation).not.toHaveProperty("targetBodyIds");
+  // The old resolved position/profile must not survive as if still current --
+  // they fall back to the (still-pending) intent's own anchor/profile.
+  expect(afterPresentation.position).toEqual(after.sprueDefinitions[0]!.anchor.position);
+  expect(afterPresentation.profile).toEqual(after.sprueDefinitions[0]!.profileDesign.profile);
  });
 });

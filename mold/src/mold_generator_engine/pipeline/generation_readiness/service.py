@@ -285,7 +285,8 @@ def _draft_orientation_readiness(
         ),
         near_zero_draft_area_ratio=round(summary.near_zero_draft_area_ratio, 6),
         face_count_by_surface_type={
-            key.value: value for key, value in summary.face_count_by_surface_type.items()
+            key.value: value
+            for key, value in summary.face_count_by_surface_type.items()
         },
         face_count_by_adequacy={
             key.value: value for key, value in summary.face_count_by_adequacy.items()
@@ -392,9 +393,13 @@ def _core_cavity_readiness(
                 CavityCoreStrategyOutcome.MANUAL_REVIEW_REQUIRED,
             }:
                 target_ids.append(assessment.target_id)
-            blocker_codes.extend(code.value for code in assessment.blocking_finding_codes)
+            blocker_codes.extend(
+                code.value for code in assessment.blocking_finding_codes
+            )
             warning_codes.extend(code.value for code in assessment.limitations)
-            warning_codes.extend(code.value for code in assessment.manual_review_finding_codes)
+            warning_codes.extend(
+                code.value for code in assessment.manual_review_finding_codes
+            )
 
     handling_required = bool(target_ids)
     if decision is not None and decision.outcome in {
@@ -482,7 +487,9 @@ def _overall_confidence(
     values: list[float] = []
     selection = detailed_report.preliminary_pull_direction_selection
     if selection is not None and selection.selected_evaluation is not None:
-        values.append(_confidence_from_score(selection.selected_evaluation.preliminary_score))
+        values.append(
+            _confidence_from_score(selection.selected_evaluation.preliminary_score)
+        )
 
     assessment = detailed_report.preliminary_moldability_assessment
     if assessment is not None:
@@ -543,7 +550,10 @@ def _resolve_status(
     if warnings or disposition is MoldGenerationDisposition.MANUAL_REVIEW_REQUIRED:
         return GenerationReadinessStatus.READY_WITH_WARNINGS
 
-    if selection_status is PreliminaryPartingStrategySelectionStatus.MANUAL_REVIEW_REQUIRED:
+    if (
+        selection_status
+        is PreliminaryPartingStrategySelectionStatus.MANUAL_REVIEW_REQUIRED
+    ):
         return GenerationReadinessStatus.READY_WITH_WARNINGS
 
     return GenerationReadinessStatus.READY

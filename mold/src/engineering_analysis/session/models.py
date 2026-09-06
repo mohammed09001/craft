@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from enum import Enum
-from typing import Any, Literal, Mapping
+from datetime import UTC, datetime
+from enum import StrEnum
+from typing import Any, Literal
 from uuid import uuid4
 
 
-class AnalysisSessionState(str, Enum):
+class AnalysisSessionState(StrEnum):
     CREATED = "Created"
     QUEUED = "Queued"
     RUNNING = "Running"
@@ -54,7 +55,7 @@ class AnalysisReport:
 class AnalysisSession:
     session_id: str = field(default_factory=lambda: str(uuid4()))
     state: AnalysisSessionState = AnalysisSessionState.CREATED
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     started_at: datetime | None = None
     ended_at: datetime | None = None
     current_analysis_id: str | None = None
@@ -75,11 +76,13 @@ class AnalysisSession:
             AnalysisSessionState.FAILED,
             AnalysisSessionState.CANCELLED,
         }:
-            raise RuntimeError(f"Cannot run session in terminal state: {self.state.value}")
+            raise RuntimeError(
+                f"Cannot run session in terminal state: {self.state.value}"
+            )
 
         self.state = AnalysisSessionState.RUNNING
         if self.started_at is None:
-            self.started_at = datetime.now(timezone.utc)
+            self.started_at = datetime.now(UTC)
 
     def mark_analysis_started(self, analysis_id: str) -> None:
         self.current_analysis_id = analysis_id
@@ -91,7 +94,7 @@ class AnalysisSession:
 
     def complete(self) -> None:
         self.current_analysis_id = None
-        self.ended_at = datetime.now(timezone.utc)
+        self.ended_at = datetime.now(UTC)
 
         if any(issue.severity == "warning" for issue in self.issues):
             self.state = AnalysisSessionState.COMPLETED_WITH_WARNINGS
@@ -101,12 +104,12 @@ class AnalysisSession:
     def fail(self, issue: AnalysisIssue) -> None:
         self.current_analysis_id = None
         self.issues.append(issue)
-        self.ended_at = datetime.now(timezone.utc)
+        self.ended_at = datetime.now(UTC)
         self.state = AnalysisSessionState.FAILED
 
     def cancel(self) -> None:
         self.current_analysis_id = None
-        self.ended_at = datetime.now(timezone.utc)
+        self.ended_at = datetime.now(UTC)
         self.state = AnalysisSessionState.CANCELLED
 
     @property

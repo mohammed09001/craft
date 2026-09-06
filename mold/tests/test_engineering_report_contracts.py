@@ -1,4 +1,4 @@
-﻿from engineering_reports import (
+from engineering_reports import (
     ENGINEERING_REPORT_SCHEMA,
     ENGINEERING_REPORT_SCHEMA_VERSION,
     EngineeringReportError,

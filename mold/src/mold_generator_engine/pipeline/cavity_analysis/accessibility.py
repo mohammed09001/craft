@@ -103,11 +103,9 @@ class LineOfSightInternalAccessibilityAnalyzer:
 
             direction_evidence = tuple(
                 sorted(
-                    
-                        openings_by_id[opening_id].representative_direction
-                        for opening_id in item.opening_ids
-                        if opening_id in openings_by_id
-                    
+                    openings_by_id[opening_id].representative_direction
+                    for opening_id in item.opening_ids
+                    if opening_id in openings_by_id
                 )
             )
             assessments.append(

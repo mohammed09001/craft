@@ -4,6 +4,7 @@ from pathlib import Path
 
 from mold_generator_engine.geometry.vector import Vector3D
 from mold_generator_engine.models.detailed_mold_analysis import (
+    CandidatePullDirectionEvaluation,
     DetailedMoldAnalysisContext,
     DetailedMoldAnalysisReport,
     DetailedMoldAnalysisStatus,
@@ -16,7 +17,6 @@ from mold_generator_engine.models.detailed_mold_analysis import (
     PullDirectionSource,
     PullDirectionSourceReference,
     RankedPullDirectionEvaluation,
-    CandidatePullDirectionEvaluation,
     UndercutConnectedRegion,
     UndercutRegionAnalysis,
     UndercutRegionAnalysisWarning,
@@ -345,9 +345,7 @@ def test_ambiguous_or_incomplete_inputs_degrade_to_manual_review_not_crash() -> 
         UndercutTreatmentRequirement.MANUAL_REVIEW_REQUIRED
     )
     assert assessment.region_assessments[0].warnings
-    assert {
-        warning.code for warning in assessment.warnings
-    } >= {
+    assert {warning.code for warning in assessment.warnings} >= {
         UndercutRiskAssessmentWarningCode.DRAFT_ANALYSIS_UNAVAILABLE,
         UndercutRiskAssessmentWarningCode.AMBIGUOUS_BOUNDARY_EVIDENCE_PRESENT,
         UndercutRiskAssessmentWarningCode.TOPOLOGY_RISK_EVIDENCE_PRESENT,
@@ -379,6 +377,9 @@ def test_report_to_dict_serializes_undercut_risk_assessment() -> None:
 
     serialized = report.to_dict()
 
-    assert serialized["undercut_risk_assessment"]["region_assessments"][0][
-        "treatment_requirement"
-    ] == "minor_draft_adjustment_candidate"
+    assert (
+        serialized["undercut_risk_assessment"]["region_assessments"][0][
+            "treatment_requirement"
+        ]
+        == "minor_draft_adjustment_candidate"
+    )

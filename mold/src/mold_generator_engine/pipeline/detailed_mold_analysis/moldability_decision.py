@@ -166,7 +166,10 @@ def _direct_generation_blocked(
     if not evidence_summary.is_assessable:
         return True
 
-    if evidence_summary.blocking_region_count >= settings.blocking_region_count_threshold:
+    if (
+        evidence_summary.blocking_region_count
+        >= settings.blocking_region_count_threshold
+    ):
         return True
 
     if (
@@ -196,10 +199,7 @@ def _manual_review_required(
     if not evidence_summary.is_assessable:
         return False
 
-    if (
-        settings.manual_review_on_ambiguity
-        and evidence_summary.ambiguity_detected
-    ):
+    if settings.manual_review_on_ambiguity and evidence_summary.ambiguity_detected:
         return True
 
     if evidence_summary.manual_review_region_count > 0:
@@ -256,14 +256,11 @@ def _simple_mold_possible(
     ):
         return False
 
-    if (
-        settings.require_clear_pull_direction_for_simple_mold
-        and (
-            evidence_summary.selected_pull_direction_status
-            is not PreliminaryPullDirectionSelectionStatus.SELECTED
-            or evidence_summary.selected_pull_direction_decisiveness
-            is not PreliminaryPullDirectionSelectionDecisiveness.CLEAR
-        )
+    if settings.require_clear_pull_direction_for_simple_mold and (
+        evidence_summary.selected_pull_direction_status
+        is not PreliminaryPullDirectionSelectionStatus.SELECTED
+        or evidence_summary.selected_pull_direction_decisiveness
+        is not PreliminaryPullDirectionSelectionDecisiveness.CLEAR
     ):
         return False
 

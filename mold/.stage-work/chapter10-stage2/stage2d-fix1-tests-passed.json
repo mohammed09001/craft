@@ -1,9 +1,0 @@
-﻿{
-    "stage":  "Chapter 10 Stage 2D-Fix1",
-    "status":  "tests-passed",
-    "fixedIssue":  "Pull Direction appears both as available input and preview layer placeholder",
-    "changedFile":  "frontend/src/features/mold-generation/MoldGenerationWorkspace.test.tsx",
-    "sourceBehaviorChanged":  false,
-    "uiBehaviorChanged":  false,
-    "typecheck":  "passed"
-}

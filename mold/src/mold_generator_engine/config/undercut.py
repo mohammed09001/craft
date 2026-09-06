@@ -311,14 +311,10 @@ class UndercutRiskAssessmentSettings:
     )
     medium_region_area_sq_mm: float = DEFAULT_UNDERCUT_RISK_MEDIUM_REGION_AREA_SQ_MM
     high_region_area_sq_mm: float = DEFAULT_UNDERCUT_RISK_HIGH_REGION_AREA_SQ_MM
-    critical_region_area_sq_mm: float = (
-        DEFAULT_UNDERCUT_RISK_CRITICAL_REGION_AREA_SQ_MM
-    )
+    critical_region_area_sq_mm: float = DEFAULT_UNDERCUT_RISK_CRITICAL_REGION_AREA_SQ_MM
     medium_region_area_ratio: float = DEFAULT_UNDERCUT_RISK_MEDIUM_REGION_AREA_RATIO
     high_region_area_ratio: float = DEFAULT_UNDERCUT_RISK_HIGH_REGION_AREA_RATIO
-    critical_region_area_ratio: float = (
-        DEFAULT_UNDERCUT_RISK_CRITICAL_REGION_AREA_RATIO
-    )
+    critical_region_area_ratio: float = DEFAULT_UNDERCUT_RISK_CRITICAL_REGION_AREA_RATIO
     medium_face_count: int = DEFAULT_UNDERCUT_RISK_MEDIUM_FACE_COUNT
     high_face_count: int = DEFAULT_UNDERCUT_RISK_HIGH_FACE_COUNT
     critical_face_count: int = DEFAULT_UNDERCUT_RISK_CRITICAL_FACE_COUNT
@@ -332,9 +328,7 @@ class UndercutRiskAssessmentSettings:
     critical_axial_extent_mm: float = DEFAULT_UNDERCUT_RISK_CRITICAL_AXIAL_EXTENT_MM
     medium_lateral_extent_mm: float = DEFAULT_UNDERCUT_RISK_MEDIUM_LATERAL_EXTENT_MM
     high_lateral_extent_mm: float = DEFAULT_UNDERCUT_RISK_HIGH_LATERAL_EXTENT_MM
-    critical_lateral_extent_mm: float = (
-        DEFAULT_UNDERCUT_RISK_CRITICAL_LATERAL_EXTENT_MM
-    )
+    critical_lateral_extent_mm: float = DEFAULT_UNDERCUT_RISK_CRITICAL_LATERAL_EXTENT_MM
     medium_negative_draft_degrees: float = (
         DEFAULT_UNDERCUT_RISK_MEDIUM_NEGATIVE_DRAFT_DEGREES
     )
@@ -350,9 +344,7 @@ class UndercutRiskAssessmentSettings:
     medium_severity_score: int = DEFAULT_UNDERCUT_RISK_MEDIUM_SEVERITY_SCORE
     high_severity_score: int = DEFAULT_UNDERCUT_RISK_HIGH_SEVERITY_SCORE
     critical_severity_score: int = DEFAULT_UNDERCUT_RISK_CRITICAL_SEVERITY_SCORE
-    moderate_complexity_score: int = (
-        DEFAULT_UNDERCUT_RISK_MODERATE_COMPLEXITY_SCORE
-    )
+    moderate_complexity_score: int = DEFAULT_UNDERCUT_RISK_MODERATE_COMPLEXITY_SCORE
     complex_complexity_score: int = DEFAULT_UNDERCUT_RISK_COMPLEX_COMPLEXITY_SCORE
     highly_complex_score: int = DEFAULT_UNDERCUT_RISK_HIGHLY_COMPLEX_SCORE
 

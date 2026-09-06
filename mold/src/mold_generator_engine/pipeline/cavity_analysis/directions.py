@@ -111,7 +111,8 @@ class OpeningEvidenceInternalAccessDirectionGenerator:
             )
 
         if any(
-            direction.source is InternalAccessDirectionSource.CHAPTER_3_PULL_DIRECTION_HINT
+            direction.source
+            is InternalAccessDirectionSource.CHAPTER_3_PULL_DIRECTION_HINT
             for direction in directions
         ):
             findings.append(
@@ -242,7 +243,9 @@ def _chapter_3_hint_evidence(
 
 
 def _selected_chapter_3_direction(context: CavityAnalysisContext) -> Vector3D | None:
-    selection = context.detailed_mold_analysis_report.preliminary_pull_direction_selection
+    selection = (
+        context.detailed_mold_analysis_report.preliminary_pull_direction_selection
+    )
     if selection is None or selection.selected_direction is None:
         return None
     try:
@@ -334,7 +337,8 @@ def _candidate_from_cluster(
     )
     finding_codes = (
         (CavityFindingCode.INTERNAL_ACCESS_DIRECTION_IS_NOT_CORE_PULL_DIRECTION,)
-        if best_source is not InternalAccessDirectionSource.CHAPTER_3_PULL_DIRECTION_HINT
+        if best_source
+        is not InternalAccessDirectionSource.CHAPTER_3_PULL_DIRECTION_HINT
         else (
             CavityFindingCode.CHAPTER_3_PULL_DIRECTION_USED_AS_LOW_PRIORITY_HINT,
             CavityFindingCode.INTERNAL_ACCESS_DIRECTION_IS_NOT_CORE_PULL_DIRECTION,
@@ -387,7 +391,9 @@ def _candidate_sort_key(
     )
 
 
-def _quantized_direction_tuple(direction: tuple[float, float, float]) -> tuple[int, ...]:
+def _quantized_direction_tuple(
+    direction: tuple[float, float, float],
+) -> tuple[int, ...]:
     return Vector3D(*direction).canonical_key()
 
 
