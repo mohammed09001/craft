@@ -379,7 +379,14 @@ describe("adoptCommittedSegmentationResult (oversized/segmented cavity bridge)",
   });
 
   expect(useSplitFaceStore.getState().cavity.status).toBe("unavailable");
-  expect(useSplitFaceStore.getState().sprueDefinitions).toEqual(sprueIntentBeforeReadopt);
+  // Intent (anchor/profile/operationId/creationOrder) survives untouched,
+  // but its validation is demoted to pending -- the resolved geometry it
+  // described belonged to the just-replaced topology and no longer exists
+  // (Execution 02, Objective A: a stale "resolved" status must never
+  // outlive the geometry it once described).
+  expect(useSplitFaceStore.getState().sprueDefinitions).toEqual(
+   sprueIntentBeforeReadopt.map(definition=>({...definition,validation:{status:"pending",reasonCode:null,message:"Mold topology changed; sprue requires revalidation."}})),
+  );
  });
  it("propagates the adaptive Segmentation Registration sizing policy into committed Segmentation evaluation, regression for the lost-policy defect",async()=>{
   const canonicalPartGeometry=canonicalCube("m",k1);
@@ -733,5 +740,89 @@ describe("promoteReplannedSegmentationResult (Scale-triggered replan promotion)"
   // The stale result must not have applied.
   expect(useSplitFaceStore.getState().definition!.moldBodies!.map(b=>b.id)).toEqual(currentBodyIds);
   expect(useSplitFaceStore.getState().definition!.referenceMoldBlock.clearanceMm).toBe(170);
+ });
+});
+/**
+ * Execution 02, Objective A: a resolved Sprue's `validation.status` describes
+ * geometry actually resolved against the CURRENT topology. Every topology
+ * replacement below invalidates `sprues` (resolved geometry) while
+ * preserving `sprueDefinitions` (durable intent) -- these tests prove the
+ * preserved intent's own validation status is demoted to "pending" in the
+ * same atomic transition, so it can never keep reporting "resolved" once the
+ * geometry it described is gone.
+ */
+describe("Sprue dependency integrity across topology replacement",()=>{
+ it("Mold Scale demotes a resolved Sprue's preserved intent to pending, never leaving it reporting resolved against geometry that no longer exists",async()=>{
+  await prepareSprueState();
+  expect(await useSplitFaceStore.getState().createSprue(placement())).toBe(true);
+  expect(useSplitFaceStore.getState().sprueDefinitions[0]!.validation.status).toBe("resolved");
+  expect(useSplitFaceStore.getState().sprues.length).toBeGreaterThan(0);
+
+  useSplitFaceStore.getState().setClearanceMm(15);
+
+  expect(useSplitFaceStore.getState().sprues).toEqual([]);
+  expect(useSplitFaceStore.getState().cavity.status).toBe("unavailable");
+  expect(useSplitFaceStore.getState().sprueDefinitions[0]!.validation.status).toBe("pending");
+ });
+ it("adoptCommittedSegmentationResult demotes a resolved Sprue's preserved intent to pending",async()=>{
+  const canonicalPartGeometry=canonicalCube("m",k1);
+  const s=useSplitFaceStore.getState();
+  s.setCanonicalPartGeometrySignature(canonicalPartGeometry.sourceSignature);
+  s.enterSelection();
+  s.toggleFace("front");
+  expect(await useSplitFaceStore.getState().createMoldParts("m",k1)).toBe(true);
+  expect(await useSplitFaceStore.getState().createCavity(canonicalPartGeometry)).toBe(true);
+  expect(await useSplitFaceStore.getState().createSprue(placement())).toBe(true);
+  expect(useSplitFaceStore.getState().sprueDefinitions[0]!.validation.status).toBe("resolved");
+  const sourceDefinition=useSplitFaceStore.getState().definition!;
+
+  useSplitFaceStore.getState().adoptCommittedSegmentationResult({
+   sourceSignature:canonicalPartGeometry.sourceSignature,
+   sourceDefinition,
+   bodies:sourceDefinition.moldBodies!,
+   warnings:[],
+  });
+
+  expect(useSplitFaceStore.getState().sprues).toEqual([]);
+  expect(useSplitFaceStore.getState().cavity.status).toBe("unavailable");
+  expect(useSplitFaceStore.getState().sprueDefinitions[0]!.validation.status).toBe("pending");
+  // Intent itself (anchor/profile) is still durable -- only its resolved truth was demoted.
+  expect(useSplitFaceStore.getState().sprueDefinitions).toHaveLength(1);
+ });
+ it("promoteReplannedSegmentationResult demotes a resolved Sprue's preserved intent to pending after a Scale-triggered segmentation replan lands",async()=>{
+  const canonicalPartGeometry=canonicalCube("m",k1);
+  const s=useSplitFaceStore.getState();
+  s.setCanonicalPartGeometrySignature(canonicalPartGeometry.sourceSignature);
+  s.enterSelection();
+  s.toggleFace("front");
+  expect(await useSplitFaceStore.getState().createMoldParts("m",k1)).toBe(true);
+  const originalDefinition=useSplitFaceStore.getState().definition!;
+
+  useSplitFaceStore.getState().adoptCommittedSegmentationResult({
+   sourceSignature:canonicalPartGeometry.sourceSignature,
+   sourceDefinition:originalDefinition,
+   bodies:originalDefinition.moldBodies!,
+   warnings:[],
+  });
+  expect(await useSplitFaceStore.getState().createCavity(canonicalPartGeometry)).toBe(true);
+  expect(await useSplitFaceStore.getState().createSprue(placement())).toBe(true);
+  expect(useSplitFaceStore.getState().sprueDefinitions[0]!.validation.status).toBe("resolved");
+  expect(useSplitFaceStore.getState().sprues.length).toBeGreaterThan(0);
+
+  useSplitFaceStore.getState().setClearanceMm(30);
+  const revisionAfterScale=useSplitFaceStore.getState().document.revision;
+  const wholeBaseDefinition=useSplitFaceStore.getState().definition!;
+
+  useSplitFaceStore.getState().promoteReplannedSegmentationResult({
+   expectedPriorRevision:revisionAfterScale,
+   sourceSignature:canonicalPartGeometry.sourceSignature,
+   sourceDefinition:wholeBaseDefinition,
+   bodies:wholeBaseDefinition.moldBodies!.map(b=>({...b,id:`${b.id}:replanned`})),
+   warnings:[],
+  });
+
+  expect(useSplitFaceStore.getState().sprues).toEqual([]);
+  expect(useSplitFaceStore.getState().cavity.status).toBe("unavailable");
+  expect(useSplitFaceStore.getState().sprueDefinitions[0]!.validation.status).toBe("pending");
  });
 });

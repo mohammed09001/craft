@@ -3,14 +3,14 @@ import { usePrinterBuildVolumeStore } from "@/features/viewport/printerBuildVolu
 import type { CanonicalPartGeometry } from "@/features/mold-generation/cavity-generation/cavityGeneration.contracts";
 
 import {
-  createSegmentationModeStoreCreator,
-  useSegmentationModeStore,
-} from "@/features/mold-generation/segmentation/segmentationMode.store";
+  createSegmentationStoreCreator,
+  useSegmentationStore,
+} from "@/features/mold-generation/segmentation/segmentation.store";
 import { readFitAnalysisFromStores } from "@/features/mold-generation/segmentation/useFitAnalysis";
 import { create } from "zustand";
 import { act } from "@testing-library/react";
 
-function isSegmentationModeActive(): boolean {
+function isSegmentationActive(): boolean {
   return readFitAnalysisFromStores().overall === "DOES_NOT_FIT";
 }
 
@@ -37,10 +37,10 @@ function setModelSize(size: { x: number; y: number; z: number }) {
   useModelBoundsStore.getState().setGroundedWorldBoundsFromGeometry(geometry);
 }
 
-describe("segmentation mode", () => {
+describe("automatic segmentation activation", () => {
   it("stays NOT_EVALUATED, and inactive, before printer volume and model bounds both exist", () => {
     expect(readFitAnalysisFromStores().overall).toBe("NOT_EVALUATED");
-    expect(isSegmentationModeActive()).toBe(false);
+    expect(isSegmentationActive()).toBe(false);
   });
 
   it("activates automatically once fit analysis reports DOES_NOT_FIT", () => {
@@ -48,17 +48,17 @@ describe("segmentation mode", () => {
     setModelSize({ x: 900, y: 300, z: 300 });
 
     expect(readFitAnalysisFromStores().overall).toBe("DOES_NOT_FIT");
-    expect(isSegmentationModeActive()).toBe(true);
+    expect(isSegmentationActive()).toBe(true);
   });
 });
 
-describe("segmentation mode store factory isolation", () => {
+describe("segmentation store factory isolation", () => {
   it("gives two instances fully independent state and undo/redo histories", () => {
     usePrinterBuildVolumeStore.getState().setPrinterBuildVolume({ x: 600, y: 600, z: 600 });
     setModelSize({ x: 900, y: 300, z: 300 });
 
-    const useDraftA = create(createSegmentationModeStoreCreator());
-    const useDraftB = create(createSegmentationModeStoreCreator());
+    const useDraftA = create(createSegmentationStoreCreator());
+    const useDraftB = create(createSegmentationStoreCreator());
 
     useDraftA.getState().requestPlan();
     useDraftB.getState().requestPlan();
@@ -75,52 +75,52 @@ describe("segmentation mode store factory isolation", () => {
     expect(useDraftB.getState().undoStack).toHaveLength(1);
   });
 
-  it("does not affect the singleton useSegmentationModeStore", () => {
+  it("does not affect the singleton useSegmentationStore", () => {
     usePrinterBuildVolumeStore.getState().setPrinterBuildVolume({ x: 600, y: 600, z: 600 });
     setModelSize({ x: 900, y: 300, z: 300 });
 
-    const useDraft = create(createSegmentationModeStoreCreator());
+    const useDraft = create(createSegmentationStoreCreator());
     useDraft.getState().requestPlan();
 
     expect(useDraft.getState().phase).toBe("preview");
-    expect(useSegmentationModeStore.getState().phase).toBe("idle");
+    expect(useSegmentationStore.getState().phase).toBe("idle");
   });
 });
 
-describe("segmentation mode store extension boundaries", () => {
+describe("segmentation store extension boundaries", () => {
   it("rejects an axis already required by the algorithm plan, leaving extensionBoundaries unchanged", () => {
     usePrinterBuildVolumeStore.getState().setPrinterBuildVolume({ x: 600, y: 600, z: 600 });
     setModelSize({ x: 900, y: 300, z: 300 }); // oversized only on X
-    useSegmentationModeStore.getState().requestPlan();
-    expect(useSegmentationModeStore.getState().plan?.requiredAxes).toEqual(["x"]);
+    useSegmentationStore.getState().requestPlan();
+    expect(useSegmentationStore.getState().plan?.requiredAxes).toEqual(["x"]);
 
-    const accepted = useSegmentationModeStore.getState().applyExtensionBoundary("x", 50);
+    const accepted = useSegmentationStore.getState().applyExtensionBoundary("x", 50);
     expect(accepted).toBe(false);
-    expect(useSegmentationModeStore.getState().extensionBoundaries).toEqual([]);
+    expect(useSegmentationStore.getState().extensionBoundaries).toEqual([]);
   });
 
   it("accepts an axis the algorithm plan did not need, entering preview phase with the new boundary recorded", () => {
     usePrinterBuildVolumeStore.getState().setPrinterBuildVolume({ x: 600, y: 600, z: 600 });
     setModelSize({ x: 900, y: 300, z: 300 });
-    useSegmentationModeStore.getState().requestPlan();
+    useSegmentationStore.getState().requestPlan();
 
-    const accepted = useSegmentationModeStore.getState().applyExtensionBoundary("y", 25);
+    const accepted = useSegmentationStore.getState().applyExtensionBoundary("y", 25);
     expect(accepted).toBe(true);
-    expect(useSegmentationModeStore.getState().extensionBoundaries).toEqual([
+    expect(useSegmentationStore.getState().extensionBoundaries).toEqual([
       { axis: "y", coordinateMm: 25 },
     ]);
-    expect(useSegmentationModeStore.getState().phase).toBe("preview");
+    expect(useSegmentationStore.getState().phase).toBe("preview");
   });
 
   it("rejects a second request on an axis that already has an extension boundary", () => {
     usePrinterBuildVolumeStore.getState().setPrinterBuildVolume({ x: 600, y: 600, z: 600 });
     setModelSize({ x: 900, y: 300, z: 300 });
-    useSegmentationModeStore.getState().requestPlan();
-    useSegmentationModeStore.getState().applyExtensionBoundary("y", 25);
+    useSegmentationStore.getState().requestPlan();
+    useSegmentationStore.getState().applyExtensionBoundary("y", 25);
 
-    const accepted = useSegmentationModeStore.getState().applyExtensionBoundary("y", 10);
+    const accepted = useSegmentationStore.getState().applyExtensionBoundary("y", 10);
     expect(accepted).toBe(false);
-    expect(useSegmentationModeStore.getState().extensionBoundaries).toEqual([
+    expect(useSegmentationStore.getState().extensionBoundaries).toEqual([
       { axis: "y", coordinateMm: 25 },
     ]);
   });
@@ -128,121 +128,121 @@ describe("segmentation mode store extension boundaries", () => {
   it("removeExtensionBoundary removes a previously added axis", () => {
     usePrinterBuildVolumeStore.getState().setPrinterBuildVolume({ x: 600, y: 600, z: 600 });
     setModelSize({ x: 900, y: 300, z: 300 });
-    useSegmentationModeStore.getState().requestPlan();
-    useSegmentationModeStore.getState().applyExtensionBoundary("y", 25);
+    useSegmentationStore.getState().requestPlan();
+    useSegmentationStore.getState().applyExtensionBoundary("y", 25);
 
-    useSegmentationModeStore.getState().removeExtensionBoundary("y");
-    expect(useSegmentationModeStore.getState().extensionBoundaries).toEqual([]);
+    useSegmentationStore.getState().removeExtensionBoundary("y");
+    expect(useSegmentationStore.getState().extensionBoundaries).toEqual([]);
   });
 
   it("keeps `result` non-null across adding and removing an extension boundary (regression: applyExtensionBoundary must not null it out)", () => {
     usePrinterBuildVolumeStore.getState().setPrinterBuildVolume({ x: 600, y: 600, z: 600 });
     setModelSize({ x: 900, y: 300, z: 300 });
-    useSegmentationModeStore.getState().requestPlan();
+    useSegmentationStore.getState().requestPlan();
 
-    expect(useSegmentationModeStore.getState().result).not.toBeNull();
-
-    act(() => {
-      useSegmentationModeStore.getState().applyExtensionBoundary("y", 25);
-    });
-    expect(useSegmentationModeStore.getState().result).not.toBeNull();
+    expect(useSegmentationStore.getState().result).not.toBeNull();
 
     act(() => {
-      useSegmentationModeStore.getState().removeExtensionBoundary("y");
+      useSegmentationStore.getState().applyExtensionBoundary("y", 25);
     });
-    expect(useSegmentationModeStore.getState().result).not.toBeNull();
+    expect(useSegmentationStore.getState().result).not.toBeNull();
+
+    act(() => {
+      useSegmentationStore.getState().removeExtensionBoundary("y");
+    });
+    expect(useSegmentationStore.getState().result).not.toBeNull();
   });
 
   it("moveExtensionBoundary updates an existing extension's coordinate and returns to preview", () => {
     usePrinterBuildVolumeStore.getState().setPrinterBuildVolume({ x: 600, y: 600, z: 600 });
     setModelSize({ x: 900, y: 300, z: 300 });
-    useSegmentationModeStore.getState().requestPlan();
-    useSegmentationModeStore.getState().applyExtensionBoundary("y", 25);
-    useSegmentationModeStore.getState().acceptPlan();
-    expect(useSegmentationModeStore.getState().phase).toBe("accepted");
+    useSegmentationStore.getState().requestPlan();
+    useSegmentationStore.getState().applyExtensionBoundary("y", 25);
+    useSegmentationStore.getState().acceptPlan();
+    expect(useSegmentationStore.getState().phase).toBe("accepted");
 
-    const moved = useSegmentationModeStore.getState().moveExtensionBoundary("y", 40);
+    const moved = useSegmentationStore.getState().moveExtensionBoundary("y", 40);
     expect(moved).toBe(true);
-    expect(useSegmentationModeStore.getState().extensionBoundaries[0]!.coordinateMm).toBe(40);
+    expect(useSegmentationStore.getState().extensionBoundaries[0]!.coordinateMm).toBe(40);
     // A move always requires re-acceptance -- a stale "accepted" phase must
     // never carry an outdated coordinate forward into execution.
-    expect(useSegmentationModeStore.getState().phase).toBe("preview");
+    expect(useSegmentationStore.getState().phase).toBe("preview");
   });
 
   it("returns false when moving an axis that has no existing extension boundary yet", () => {
     usePrinterBuildVolumeStore.getState().setPrinterBuildVolume({ x: 600, y: 600, z: 600 });
     setModelSize({ x: 900, y: 300, z: 300 });
-    useSegmentationModeStore.getState().requestPlan();
-    expect(useSegmentationModeStore.getState().moveExtensionBoundary("y", 40)).toBe(false);
+    useSegmentationStore.getState().requestPlan();
+    expect(useSegmentationStore.getState().moveExtensionBoundary("y", 40)).toBe(false);
   });
 
   it("an invalid move (degenerate coordinate) blocks acceptPlan without resetting the extension, and moving back restores it", () => {
     usePrinterBuildVolumeStore.getState().setPrinterBuildVolume({ x: 600, y: 600, z: 600 });
     setModelSize({ x: 900, y: 300, z: 300 });
-    useSegmentationModeStore.getState().requestPlan();
-    useSegmentationModeStore.getState().applyExtensionBoundary("y", 25);
-    const validCoordinate = useSegmentationModeStore.getState().extensionBoundaries[0]!.coordinateMm;
+    useSegmentationStore.getState().requestPlan();
+    useSegmentationStore.getState().applyExtensionBoundary("y", 25);
+    const validCoordinate = useSegmentationStore.getState().extensionBoundaries[0]!.coordinateMm;
 
     // An exact segment-edge coordinate is degenerate (not strictly interior)
     // -- derived from the real plan's own bounds rather than assumed.
-    const plan = useSegmentationModeStore.getState().plan!;
+    const plan = useSegmentationStore.getState().plan!;
     const degenerateCoordinate = plan.segments[0]!.predictedBounds.min.y;
 
-    const moved = useSegmentationModeStore.getState().moveExtensionBoundary("y", degenerateCoordinate);
+    const moved = useSegmentationStore.getState().moveExtensionBoundary("y", degenerateCoordinate);
     expect(moved).toBe(true); // the move itself is never rejected...
-    expect(useSegmentationModeStore.getState().extensionBoundaries[0]!.coordinateMm).toBe(degenerateCoordinate);
-    expect(useSegmentationModeStore.getState().acceptPlan()).toBe(false); // ...but commit is blocked
+    expect(useSegmentationStore.getState().extensionBoundaries[0]!.coordinateMm).toBe(degenerateCoordinate);
+    expect(useSegmentationStore.getState().acceptPlan()).toBe(false); // ...but commit is blocked
     // The user's chosen (invalid) position is preserved, not snapped back.
-    expect(useSegmentationModeStore.getState().extensionBoundaries[0]!.coordinateMm).toBe(degenerateCoordinate);
-    expect(useSegmentationModeStore.getState().phase).toBe("preview");
+    expect(useSegmentationStore.getState().extensionBoundaries[0]!.coordinateMm).toBe(degenerateCoordinate);
+    expect(useSegmentationStore.getState().phase).toBe("preview");
 
-    useSegmentationModeStore.getState().moveExtensionBoundary("y", validCoordinate);
-    expect(useSegmentationModeStore.getState().acceptPlan()).toBe(true);
-    expect(useSegmentationModeStore.getState().phase).toBe("accepted");
+    useSegmentationStore.getState().moveExtensionBoundary("y", validCoordinate);
+    expect(useSegmentationStore.getState().acceptPlan()).toBe(true);
+    expect(useSegmentationStore.getState().phase).toBe("accepted");
   });
 
   it("undo/redo restores the extension boundary's coordinate across a move", () => {
     usePrinterBuildVolumeStore.getState().setPrinterBuildVolume({ x: 600, y: 600, z: 600 });
     setModelSize({ x: 900, y: 300, z: 300 });
-    useSegmentationModeStore.getState().requestPlan();
-    useSegmentationModeStore.getState().applyExtensionBoundary("y", 25);
-    useSegmentationModeStore.getState().moveExtensionBoundary("y", 40);
-    expect(useSegmentationModeStore.getState().extensionBoundaries[0]!.coordinateMm).toBe(40);
+    useSegmentationStore.getState().requestPlan();
+    useSegmentationStore.getState().applyExtensionBoundary("y", 25);
+    useSegmentationStore.getState().moveExtensionBoundary("y", 40);
+    expect(useSegmentationStore.getState().extensionBoundaries[0]!.coordinateMm).toBe(40);
 
-    useSegmentationModeStore.getState().undo();
-    expect(useSegmentationModeStore.getState().extensionBoundaries[0]!.coordinateMm).toBe(25);
+    useSegmentationStore.getState().undo();
+    expect(useSegmentationStore.getState().extensionBoundaries[0]!.coordinateMm).toBe(25);
 
-    useSegmentationModeStore.getState().redo();
-    expect(useSegmentationModeStore.getState().extensionBoundaries[0]!.coordinateMm).toBe(40);
+    useSegmentationStore.getState().redo();
+    expect(useSegmentationStore.getState().extensionBoundaries[0]!.coordinateMm).toBe(40);
   });
 
   it("clears extension boundaries when the base plan is invalidated by a printer-volume change", () => {
     usePrinterBuildVolumeStore.getState().setPrinterBuildVolume({ x: 600, y: 600, z: 600 });
     setModelSize({ x: 900, y: 300, z: 300 });
-    useSegmentationModeStore.getState().requestPlan();
-    useSegmentationModeStore.getState().applyExtensionBoundary("y", 25);
-    expect(useSegmentationModeStore.getState().extensionBoundaries).toHaveLength(1);
+    useSegmentationStore.getState().requestPlan();
+    useSegmentationStore.getState().applyExtensionBoundary("y", 25);
+    expect(useSegmentationStore.getState().extensionBoundaries).toHaveLength(1);
 
     // Still oversized on X, but a different printer volume -- invalidates
     // the base plan (markStale) without resetting the engine entirely.
     usePrinterBuildVolumeStore.getState().setPrinterBuildVolume({ x: 90, y: 100, z: 100 });
 
-    expect(useSegmentationModeStore.getState().phase).toBe("stale");
-    expect(useSegmentationModeStore.getState().extensionBoundaries).toEqual([]);
+    expect(useSegmentationStore.getState().phase).toBe("stale");
+    expect(useSegmentationStore.getState().extensionBoundaries).toEqual([]);
   });
 
   it("undo/redo restores extensionBoundaries alongside the rest of the snapshot", () => {
     usePrinterBuildVolumeStore.getState().setPrinterBuildVolume({ x: 600, y: 600, z: 600 });
     setModelSize({ x: 900, y: 300, z: 300 });
-    useSegmentationModeStore.getState().requestPlan();
-    useSegmentationModeStore.getState().applyExtensionBoundary("y", 25);
-    expect(useSegmentationModeStore.getState().extensionBoundaries).toHaveLength(1);
+    useSegmentationStore.getState().requestPlan();
+    useSegmentationStore.getState().applyExtensionBoundary("y", 25);
+    expect(useSegmentationStore.getState().extensionBoundaries).toHaveLength(1);
 
-    useSegmentationModeStore.getState().undo();
-    expect(useSegmentationModeStore.getState().extensionBoundaries).toEqual([]);
+    useSegmentationStore.getState().undo();
+    expect(useSegmentationStore.getState().extensionBoundaries).toEqual([]);
 
-    useSegmentationModeStore.getState().redo();
-    expect(useSegmentationModeStore.getState().extensionBoundaries).toEqual([
+    useSegmentationStore.getState().redo();
+    expect(useSegmentationStore.getState().extensionBoundaries).toEqual([
       { axis: "y", coordinateMm: 25 },
     ]);
   });

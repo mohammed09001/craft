@@ -22,7 +22,7 @@ import { useUiShellStore } from "@/state/ui-shell";
 import { renderWithAppProviders } from "@/test/renderApp";
 import { useViewportToolStore } from "@/features/viewport/viewportTool.store";
 import { selectActiveMoldBodies, useSplitFaceStore } from "@/features/mold-generation/split-face";
-import { useSegmentationModeStore } from "@/features/mold-generation/segmentation";
+import { useSegmentationStore } from "@/features/mold-generation/segmentation";
 import { useCuttingWorkflowStore } from "@/features/mold-generation/cutting-workflow";
 import { useModelBoundsStore } from "@/features/viewport/modelBounds.store";
 import { usePrinterBuildVolumeStore } from "@/features/viewport/printerBuildVolume.store";
@@ -95,7 +95,7 @@ function CaptureViewportCommandRunner({
 
 beforeEach(() => {
   useViewportToolStore.getState().resetActiveTool();
-  useSegmentationModeStore.getState().reset();
+  useSegmentationStore.getState().reset();
   useSplitFaceStore.getState().clearForModelReplacement();
   useModelBoundsStore.setState({ groundedWorldBounds: null });
   usePrinterBuildVolumeStore
@@ -1071,7 +1071,7 @@ describe("Oversize Mold Mode toolbar coordination", () => {
     // A valid preview exists (planning succeeded) but nothing has been
     // confirmed yet -- Create Cavity must not be reachable before that,
     // even though the main toolbar itself stays rendered throughout.
-    expect(useSegmentationModeStore.getState().phase).toBe("preview");
+    expect(useSegmentationStore.getState().phase).toBe("preview");
     expect(
       screen.queryByRole("button", { name: /Create Cavity/i }),
     ).not.toBeInTheDocument();
@@ -1087,7 +1087,7 @@ describe("Oversize Mold Mode toolbar coordination", () => {
     await waitFor(() => {
       expect(useCuttingWorkflowStore.getState().state).toEqual({ kind: "idle" });
     });
-    expect(useSegmentationModeStore.getState().phase).toBe("valid");
+    expect(useSegmentationStore.getState().phase).toBe("valid");
     expect(useSplitFaceStore.getState().workflow).toBe("partsReady");
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
 
@@ -1176,7 +1176,7 @@ describe("Oversize Mold Mode toolbar coordination", () => {
   // exists for a model that was never manually split.
   it("renders canonical planned mold sections and real Multi-Plane boundaries once a strategy is selected for a model that was never manually split", async () => {
     act(() => {
-      useSegmentationModeStore.getState().reset();
+      useSegmentationStore.getState().reset();
     });
 
     const setSegmentationVisualization = vi.fn();
@@ -1219,7 +1219,7 @@ describe("Oversize Mold Mode toolbar coordination", () => {
       setSegmentationVisualization.mock.calls.at(-1)!;
     expect(partOffset).toEqual({ x: 0, y: 0, z: 100 });
     expect(previewBodies.length).toBe(
-      useSegmentationModeStore.getState().plan!.segments.length,
+      useSegmentationStore.getState().plan!.segments.length,
     );
     expect(previewPlanes.length).toBeGreaterThan(0);
     expect(committedBodies).toEqual([]);
@@ -1238,7 +1238,7 @@ describe("Printer dimensions prompt -- Segmentation", () => {
       state: { kind: "idle" },
       lastSegmentationProvenance: null,
     });
-    useSegmentationModeStore.getState().reset();
+    useSegmentationStore.getState().reset();
     usePrinterBuildVolumeStore.getState().resetPrinterBuildVolume();
   });
 
@@ -1297,7 +1297,7 @@ describe("Printer dimensions prompt -- Segmentation", () => {
     // The first attempt genuinely fails -- no dimensions yet. Done must
     // stay disabled while no committable plan exists.
     expect(await screen.findByLabelText("Printer build volume")).toBeInTheDocument();
-    expect(useSegmentationModeStore.getState().phase).toBe("failed");
+    expect(useSegmentationStore.getState().phase).toBe("failed");
     expect(screen.getByRole("button", { name: "Done" })).toBeDisabled();
 
     // Fill in the dimensions through the real prompt, exactly as a user
@@ -1322,7 +1322,7 @@ describe("Printer dimensions prompt -- Segmentation", () => {
       expect(screen.queryByLabelText("Printer build volume")).not.toBeInTheDocument();
     });
     await waitFor(() => {
-      expect(useSegmentationModeStore.getState().phase).not.toBe("failed");
+      expect(useSegmentationStore.getState().phase).not.toBe("failed");
     });
 
     // The plan preview computes asynchronously even in the no-Worker path.

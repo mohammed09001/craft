@@ -27,10 +27,10 @@ export {
   readFitAnalysisFromStores,
 } from "./useFitAnalysis";
 export {
-  useSegmentationModeStore,
+  useSegmentationStore,
   computeEffectivePlan,
-} from "./segmentationMode.store";
-export type { ExtensionBoundaryRequest } from "./segmentationMode.store";
+} from "./segmentation.store";
+export type { ExtensionBoundaryRequest } from "./segmentation.store";
 export {
   SEGMENTATION_VISUALIZATION_PHASES,
   useIsSegmentationVisualizationActive,

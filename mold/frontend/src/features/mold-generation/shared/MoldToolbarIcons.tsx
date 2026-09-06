@@ -236,10 +236,6 @@ export function RedoIcon() {
   );
 }
 
-// Partitioning uses a wider 30x24 viewBox (not the 24x24 ToolbarIcon
-// wrapper), so its rendered size is set explicitly via the svg's own
-// width/height attributes rather than the generic .icon class.
-
 export function CutByFaceIcon() {
   return (
     <ToolbarIcon>

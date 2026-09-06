@@ -4,7 +4,7 @@ import { useSplitFaceStore } from "@/features/mold-generation/split-face/splitFa
 
 import { requestSegmentationPlan } from "./application/segmentationApplication";
 import { readCurrentSegmentationSourceSnapshot } from "./application/segmentationSourceSnapshot";
-import { useSegmentationModeStore } from "./segmentationMode.store";
+import { useSegmentationStore } from "./segmentation.store";
 import { readFitAnalysisFromStores } from "./useFitAnalysis";
 
 describe("automatic Segmentation printable-envelope policy", () => {
@@ -13,7 +13,7 @@ describe("automatic Segmentation printable-envelope policy", () => {
   const originalSplit = useSplitFaceStore.getState();
 
   afterEach(() => {
-    useSegmentationModeStore.getState().reset();
+    useSegmentationStore.getState().reset();
     useSplitFaceStore.setState(originalSplit, true);
     useModelBoundsStore.setState(originalBounds, true);
     usePrinterBuildVolumeStore.setState(originalPrinter, true);

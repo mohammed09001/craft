@@ -11,7 +11,7 @@ import type {
   MoldDocument,
   MoldEvaluationState,
 } from "../workflow";
-import { useSegmentationModeStore } from "./segmentationMode.store";
+import { useSegmentationStore } from "./segmentation.store";
 
 const originalMoldState = useSplitFaceStore.getState();
 const bounds = {
@@ -117,25 +117,25 @@ afterEach(() => {
 describe("segmentation lifecycle invalidation", () => {
   it("marks a preview stale after printer-volume changes", () => {
     installCommittedMold();
-    const result = useSegmentationModeStore
+    const result = useSegmentationStore
       .getState()
       .requestPlan();
     expect(result.status).toBe("planned");
-    expect(useSegmentationModeStore.getState().phase).toBe("preview");
-    expect(useSegmentationModeStore.getState().preview).not.toBeNull();
+    expect(useSegmentationStore.getState().phase).toBe("preview");
+    expect(useSegmentationStore.getState().preview).not.toBeNull();
     const authoritativeMoldState = useSplitFaceStore.getState();
 
     usePrinterBuildVolumeStore
       .getState()
       .setPrinterBuildVolume({ x: 120, y: 100, z: 100 });
 
-    expect(useSegmentationModeStore.getState().phase).toBe("stale");
-    expect(useSegmentationModeStore.getState().result).toMatchObject({
+    expect(useSegmentationStore.getState().phase).toBe("stale");
+    expect(useSegmentationStore.getState().result).toMatchObject({
       status: "stale",
       reasonCode: "stale_source_revision",
     });
-    expect(useSegmentationModeStore.getState().preview).toBeNull();
-    expect(useSegmentationModeStore.getState().registration.status).toBe(
+    expect(useSegmentationStore.getState().preview).toBeNull();
+    expect(useSegmentationStore.getState().registration.status).toBe(
       "unavailable",
     );
     expect(useSplitFaceStore.getState()).toBe(authoritativeMoldState);
@@ -143,19 +143,19 @@ describe("segmentation lifecycle invalidation", () => {
 
   it("marks an accepted plan stale after the authoritative mold revision changes", () => {
     installCommittedMold();
-    useSegmentationModeStore
+    useSegmentationStore
       .getState()
       .requestPlan();
-    expect(useSegmentationModeStore.getState().acceptPlan()).toBe(true);
-    expect(useSegmentationModeStore.getState().phase).toBe("accepted");
-    expect(useSegmentationModeStore.getState().preview).not.toBeNull();
+    expect(useSegmentationStore.getState().acceptPlan()).toBe(true);
+    expect(useSegmentationStore.getState().phase).toBe("accepted");
+    expect(useSegmentationStore.getState().preview).not.toBeNull();
 
     useSplitFaceStore.setState({
       document: { ...document, revision: 5, fingerprint: "fingerprint-5" },
     });
 
-    expect(useSegmentationModeStore.getState().phase).toBe("stale");
-    expect(useSegmentationModeStore.getState().preview).toBeNull();
+    expect(useSegmentationStore.getState().phase).toBe("stale");
+    expect(useSegmentationStore.getState().preview).toBeNull();
   });
 
   it("fully resets segmentation state once the model stops being oversized", () => {
@@ -168,10 +168,10 @@ describe("segmentation lifecycle invalidation", () => {
       },
     });
 
-    const planned = useSegmentationModeStore.getState().requestPlan();
+    const planned = useSegmentationStore.getState().requestPlan();
     expect(planned.status).toBe("planned");
-    expect(useSegmentationModeStore.getState().phase).toBe("preview");
-    expect(useSegmentationModeStore.getState().plan).not.toBeNull();
+    expect(useSegmentationStore.getState().phase).toBe("preview");
+    expect(useSegmentationStore.getState().plan).not.toBeNull();
 
     // The printer volume grows large enough that the model now fits on every
     // axis -- the oversized workflow is no longer authoritative, and the
@@ -183,11 +183,11 @@ describe("segmentation lifecycle invalidation", () => {
       .getState()
       .setPrinterBuildVolume({ x: 600, y: 400, z: 400 });
 
-    expect(useSegmentationModeStore.getState().phase).toBe("idle");
-    expect(useSegmentationModeStore.getState().plan).toBeNull();
-    expect(useSegmentationModeStore.getState().result).toBeNull();
-    expect(useSegmentationModeStore.getState().preview).toBeNull();
-    expect(useSegmentationModeStore.getState().registration.status).toBe(
+    expect(useSegmentationStore.getState().phase).toBe("idle");
+    expect(useSegmentationStore.getState().plan).toBeNull();
+    expect(useSegmentationStore.getState().result).toBeNull();
+    expect(useSegmentationStore.getState().preview).toBeNull();
+    expect(useSegmentationStore.getState().registration.status).toBe(
       "unavailable",
     );
   });
@@ -195,26 +195,26 @@ describe("segmentation lifecycle invalidation", () => {
   it("removes preview Registration immediately on workflow reset and model replacement", () => {
     installCommittedMold();
     expect(
-      useSegmentationModeStore.getState().requestPlan()
+      useSegmentationStore.getState().requestPlan()
         .status,
     ).toBe("planned");
-    expect(useSegmentationModeStore.getState().preview).not.toBeNull();
+    expect(useSegmentationStore.getState().preview).not.toBeNull();
 
-    useSegmentationModeStore.getState().reset();
-    expect(useSegmentationModeStore.getState().preview).toBeNull();
-    expect(useSegmentationModeStore.getState().registration.status).toBe(
+    useSegmentationStore.getState().reset();
+    expect(useSegmentationStore.getState().preview).toBeNull();
+    expect(useSegmentationStore.getState().registration.status).toBe(
       "unavailable",
     );
 
     expect(
-      useSegmentationModeStore.getState().requestPlan()
+      useSegmentationStore.getState().requestPlan()
         .status,
     ).toBe("planned");
-    expect(useSegmentationModeStore.getState().preview).not.toBeNull();
+    expect(useSegmentationStore.getState().preview).not.toBeNull();
 
     useSplitFaceStore.getState().clearForModelReplacement();
-    expect(useSegmentationModeStore.getState().preview).toBeNull();
-    expect(useSegmentationModeStore.getState().registration.status).toBe(
+    expect(useSegmentationStore.getState().preview).toBeNull();
+    expect(useSegmentationStore.getState().registration.status).toBe(
       "unavailable",
     );
   });
@@ -233,11 +233,11 @@ describe("segmentation planning for a model never manually split", () => {
     });
     usePrinterBuildVolumeStore.getState().setPrinterBuildVolume({ x: 200, y: 200, z: 200 });
 
-    const result = useSegmentationModeStore.getState().requestPlan();
+    const result = useSegmentationStore.getState().requestPlan();
 
     expect(result.status).toBe("planned");
-    expect(useSegmentationModeStore.getState().phase).toBe("preview");
-    const plan = useSegmentationModeStore.getState().plan;
+    expect(useSegmentationStore.getState().phase).toBe("preview");
+    const plan = useSegmentationStore.getState().plan;
     expect(plan).not.toBeNull();
     // Oversized on X only (1100mm part vs 200mm printer, plus clearance) --
     // the engine's own planning must produce at least one X boundary; this

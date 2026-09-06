@@ -2,7 +2,7 @@ import { useEffect, type PointerEvent } from "react";
 
 import { useViewportToolStore } from "@/features/viewport/viewportTool.store";
 import type { CanonicalPartGeometry } from "../cavity-generation";
-import { useSegmentationModeStore } from "../segmentation/segmentationMode.store";
+import { useSegmentationStore } from "../segmentation/segmentation.store";
 import { AxisExtensionPicker } from "../shared/AxisExtensionPicker";
 import { CutByFaceIcon, SegmentationIcon } from "../shared/MoldToolbarIcons";
 import toolbarStyles from "../shared/MoldToolbar.module.css";
@@ -25,7 +25,7 @@ interface CuttingSessionPanelProps {
  * until this panel existed it never needed a Cancel that could roll it back
  * independently of a committed result -- see cuttingWorkflow.store.ts's
  * preSessionSplitFaceSnapshot, which now covers it too), and Segmentation
- * reads useSegmentationModeStore -- none of that geometry/state ownership
+ * reads useSegmentationStore -- none of that geometry/state ownership
  * changed, only which component hosts the controls and who decides when to
  * commit/cancel.
  */
@@ -82,7 +82,7 @@ export function CuttingSessionPanel({
   }
 
   const canConfirmSegmentation =
-    useSegmentationModeStore.getState().phase === "preview" && isSegmentationPlanValid;
+    useSegmentationStore.getState().phase === "preview" && isSegmentationPlanValid;
 
   async function handleDone() {
     await commitActiveTab(

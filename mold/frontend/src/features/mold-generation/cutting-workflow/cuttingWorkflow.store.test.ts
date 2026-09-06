@@ -6,7 +6,7 @@ import { useViewportToolStore } from "@/features/viewport/viewportTool.store";
 import type { CanonicalPartGeometry } from "@/features/mold-generation/cavity-generation/cavityGeneration.contracts";
 import { useSplitFaceStore } from "@/features/mold-generation/split-face/splitFace.store";
 
-import { useSegmentationModeStore } from "@/features/mold-generation/segmentation/segmentationMode.store";
+import { useSegmentationStore } from "@/features/mold-generation/segmentation/segmentation.store";
 import { readCurrentSegmentationSourceSnapshot } from "@/features/mold-generation/segmentation/application/segmentationSourceSnapshot";
 import { useModelSelectionStore } from "@/features/viewport/modelSelection.store";
 
@@ -48,7 +48,7 @@ function resetAll() {
     lastSegmentationProvenance: null,
     lastCommitBlockedReason: null,
   });
-  useSegmentationModeStore.getState().reset();
+  useSegmentationStore.getState().reset();
   useSplitFaceStore.getState().clearForModelReplacement();
   // Scaled 6x from the pre-150mm-floor fixture (was printer 100mm / model
   // 150x50x50) so "oversized only on X" survives
@@ -109,8 +109,8 @@ describe("cuttingWorkflow.store session lifecycle", () => {
 
     useCuttingWorkflowStore.getState().setActiveTab("segmentation");
     expect(useCuttingWorkflowStore.getState().state).toMatchObject({ activeTab: "segmentation" });
-    expect(useSegmentationModeStore.getState().plan).not.toBeNull();
-    expect(useSegmentationModeStore.getState().plan?.requiredAxes).toEqual(["x"]);
+    expect(useSegmentationStore.getState().plan).not.toBeNull();
+    expect(useSegmentationStore.getState().plan?.requiredAxes).toEqual(["x"]);
 
     useCuttingWorkflowStore.getState().setActiveTab("cutByFace");
     expect(useCuttingWorkflowStore.getState().state).toMatchObject({ activeTab: "cutByFace" });
@@ -141,7 +141,7 @@ describe("cuttingWorkflow.store session lifecycle", () => {
     // Re-visiting does not re-run requestPlan (which would wipe the
     // extension boundary) -- ensureSegmentationTabInitialized only
     // initializes once per session, on first visit.
-    expect(useSegmentationModeStore.getState().extensionBoundaries).toHaveLength(1);
+    expect(useSegmentationStore.getState().extensionBoundaries).toHaveLength(1);
   });
 
   it("resets the active viewport tool on every tab switch", async () => {
@@ -250,7 +250,7 @@ describe("cuttingWorkflow.store Done -- Segmentation tab", () => {
   it("accepts and executes the real plan, promotes it into the singleton, and returns to idle", async () => {
     useCuttingWorkflowStore.getState().openSession();
     useCuttingWorkflowStore.getState().setActiveTab("segmentation");
-    expect(useSegmentationModeStore.getState().phase).toBe("preview");
+    expect(useSegmentationStore.getState().phase).toBe("preview");
     const source = readCurrentSegmentationSourceSnapshot();
     expect(source.status).toBe("ready");
 
@@ -260,7 +260,7 @@ describe("cuttingWorkflow.store Done -- Segmentation tab", () => {
 
     expect(committed).toBe(true);
     expect(useCuttingWorkflowStore.getState().state).toEqual({ kind: "idle" });
-    expect(useSegmentationModeStore.getState().phase).toBe("valid");
+    expect(useSegmentationStore.getState().phase).toBe("valid");
     expect(useSplitFaceStore.getState().workflow).toBe("partsReady");
     expect(useSplitFaceStore.getState().definition?.moldBodiesPartitionReferenceBlock).toBe(false);
     if (source.status === "ready") {
@@ -309,8 +309,8 @@ describe("cuttingWorkflow.store Done -- Segmentation tab", () => {
     useCuttingWorkflowStore.getState().openSession();
     useCuttingWorkflowStore.getState().setActiveTab("segmentation");
 
-    const failedResult = useSegmentationModeStore.getState().result;
-    expect(useSegmentationModeStore.getState().phase).toBe("failed");
+    const failedResult = useSegmentationStore.getState().result;
+    expect(useSegmentationStore.getState().phase).toBe("failed");
     expect(failedResult?.status).toBe("failed");
     if (failedResult?.status === "failed") {
       expect(failedResult.reasonCode).toBe("invalid_printer_volume");
@@ -318,22 +318,22 @@ describe("cuttingWorkflow.store Done -- Segmentation tab", () => {
 
     usePrinterBuildVolumeStore.getState().setPrinterBuildVolume({ x: 600, y: 600, z: 600 });
 
-    expect(useSegmentationModeStore.getState().phase).not.toBe("failed");
-    expect(useSegmentationModeStore.getState().plan?.requiredAxes).toEqual(["x"]);
+    expect(useSegmentationStore.getState().phase).not.toBe("failed");
+    expect(useSegmentationStore.getState().plan?.requiredAxes).toEqual(["x"]);
   });
 
   it("does not retry from the printer-volume subscription when Cut by Face is the active tab", () => {
     usePrinterBuildVolumeStore.getState().resetPrinterBuildVolume();
     useCuttingWorkflowStore.getState().openSession();
     useCuttingWorkflowStore.getState().setActiveTab("segmentation");
-    expect(useSegmentationModeStore.getState().phase).toBe("failed");
+    expect(useSegmentationStore.getState().phase).toBe("failed");
     useCuttingWorkflowStore.getState().setActiveTab("cutByFace");
 
     usePrinterBuildVolumeStore.getState().setPrinterBuildVolume({ x: 100, y: 100, z: 100 });
 
     // Cut by Face owns the panel now -- the stale failed result must not be
     // silently resurrected just because dimensions arrived.
-    expect(useSegmentationModeStore.getState().phase).toBe("failed");
+    expect(useSegmentationStore.getState().phase).toBe("failed");
   });
 });
 
@@ -374,7 +374,7 @@ describe("regenerateSegmentationAfterScale", () => {
     setModelBounds({ x: 840, y: 120, z: 120 });
     useCuttingWorkflowStore.getState().openSession();
     useCuttingWorkflowStore.getState().setActiveTab("segmentation");
-    expect(useSegmentationModeStore.getState().plan?.perAxisSegmentCount.x).toBe(2);
+    expect(useSegmentationStore.getState().plan?.perAxisSegmentCount.x).toBe(2);
 
     expect(
       await useCuttingWorkflowStore.getState().commitActiveTab("model-1", undefined, "sig"),
@@ -431,7 +431,7 @@ describe("regenerateSegmentationAfterScale", () => {
     expect(useSplitFaceStore.getState().workflow).toBe("partsReady");
     // The engine's own state is the honest record of the new (differently-
     // shaped) plan -- inspectable if the user reopens Segmentation manually.
-    expect(useSegmentationModeStore.getState().plan?.perAxisSegmentCount.x).toBe(3);
+    expect(useSegmentationStore.getState().plan?.perAxisSegmentCount.x).toBe(3);
   });
 
   it("Segmentation: replays a committed user extension boundary after Mold Scale instead of permanently collapsing to the whole-K2 base", async () => {
@@ -440,8 +440,8 @@ describe("regenerateSegmentationAfterScale", () => {
     useCuttingWorkflowStore.getState().openSession();
     useCuttingWorkflowStore.getState().setActiveTab("segmentation");
     addSegmentationExtensionAxis("y");
-    expect(useSegmentationModeStore.getState().extensionBoundaries.length).toBeGreaterThan(0);
-    const committedExtensionBoundaries = useSegmentationModeStore.getState().extensionBoundaries;
+    expect(useSegmentationStore.getState().extensionBoundaries.length).toBeGreaterThan(0);
+    const committedExtensionBoundaries = useSegmentationStore.getState().extensionBoundaries;
 
     expect(
       await useCuttingWorkflowStore.getState().commitActiveTab("model-1", undefined, "sig"),
@@ -479,7 +479,7 @@ describe("regenerateSegmentationAfterScale", () => {
     useCuttingWorkflowStore.getState().openSession();
     useCuttingWorkflowStore.getState().setActiveTab("segmentation");
     addSegmentationExtensionAxis("y");
-    expect(useSegmentationModeStore.getState().extensionBoundaries.length).toBeGreaterThan(0);
+    expect(useSegmentationStore.getState().extensionBoundaries.length).toBeGreaterThan(0);
 
     expect(
       await useCuttingWorkflowStore.getState().commitActiveTab("model-1", undefined, "sig"),
@@ -676,12 +676,12 @@ describe("cuttingWorkflow.store cancelSession", () => {
   it("resets the Segmentation engine to idle and clears its state", async () => {
     useCuttingWorkflowStore.getState().openSession();
     useCuttingWorkflowStore.getState().setActiveTab("segmentation");
-    expect(useSegmentationModeStore.getState().plan).not.toBeNull();
+    expect(useSegmentationStore.getState().plan).not.toBeNull();
 
     useCuttingWorkflowStore.getState().cancelSession();
 
-    expect(useSegmentationModeStore.getState().plan).toBeNull();
-    expect(useSegmentationModeStore.getState().plan).toBeNull();
+    expect(useSegmentationStore.getState().plan).toBeNull();
+    expect(useSegmentationStore.getState().plan).toBeNull();
   });
 
   it("clears session-local commit-blocked reasons", async () => {
@@ -754,20 +754,20 @@ describe("cuttingWorkflow.store segmentation extension axes", () => {
   it("adds an available axis to the singleton and rejects an already-used one", () => {
     useCuttingWorkflowStore.getState().openSession();
     useCuttingWorkflowStore.getState().setActiveTab("segmentation");
-    expect(useSegmentationModeStore.getState().plan?.requiredAxes).toEqual(["x"]);
+    expect(useSegmentationStore.getState().plan?.requiredAxes).toEqual(["x"]);
 
     expect(addSegmentationExtensionAxis("x")).toBe(false);
-    expect(useSegmentationModeStore.getState().extensionBoundaries).toEqual([]);
+    expect(useSegmentationStore.getState().extensionBoundaries).toEqual([]);
 
     expect(addSegmentationExtensionAxis("y")).toBe(true);
-    expect(useSegmentationModeStore.getState().extensionBoundaries).toHaveLength(1);
-    expect(useSegmentationModeStore.getState().extensionBoundaries[0]!.axis).toBe("y");
+    expect(useSegmentationStore.getState().extensionBoundaries).toHaveLength(1);
+    expect(useSegmentationStore.getState().extensionBoundaries[0]!.axis).toBe("y");
 
     expect(addSegmentationExtensionAxis("y")).toBe(false);
-    expect(useSegmentationModeStore.getState().extensionBoundaries).toHaveLength(1);
+    expect(useSegmentationStore.getState().extensionBoundaries).toHaveLength(1);
 
     removeSegmentationExtensionAxis("y");
-    expect(useSegmentationModeStore.getState().extensionBoundaries).toEqual([]);
+    expect(useSegmentationStore.getState().extensionBoundaries).toEqual([]);
   });
 
   it("regression: addSegmentationExtensionAxis converts the suggested position to an absolute mm coordinate, not a raw 0..1 fraction", () => {
@@ -775,7 +775,7 @@ describe("cuttingWorkflow.store segmentation extension axes", () => {
     useCuttingWorkflowStore.getState().setActiveTab("segmentation");
 
     expect(addSegmentationExtensionAxis("y")).toBe(true);
-    const boundary = useSegmentationModeStore.getState().extensionBoundaries[0]!;
+    const boundary = useSegmentationStore.getState().extensionBoundaries[0]!;
     expect(boundary.axis).toBe("y");
 
     const source = readCurrentSegmentationSourceSnapshot();
@@ -815,6 +815,6 @@ describe("cuttingWorkflow.store segmentation extension axes", () => {
 
     const moved = moveSegmentationExtensionAxis("y", 40);
     expect(moved).toBe(true);
-    expect(useSegmentationModeStore.getState().extensionBoundaries[0]!.coordinateMm).toBe(40);
+    expect(useSegmentationStore.getState().extensionBoundaries[0]!.coordinateMm).toBe(40);
   });
 });

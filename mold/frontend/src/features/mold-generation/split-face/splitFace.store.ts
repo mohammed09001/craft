@@ -81,15 +81,17 @@ const history=(s:SplitFaceState)=>({undoStack:[...s.undoStack.slice(-49),snap(s)
  * work, keeping interactive scale edits worker-free. */
 const invalidateForClearance=(s:SplitFaceState,clearanceMm:number)=>{
  const definition=rebuildReferenceMoldForClearance(s,clearanceMm);
+ const sprueDefinitions=pendingRevalidation(s.sprueDefinitions);
  return {
  ...s,
  definition,
  clearanceMm,
  lastCommittedResult:null,
  sprues:[],
+ sprueDefinitions,
  cavity:unavailableCavity(s.cavity.clearanceMm),
  registration:unavailableRegistration(),
- document:createDocument(s.document.revision+1,definition,s.cuttingPlanes,clearanceMm,s.cavity.clearanceMm,s.sprueDefinitions),
+ document:createDocument(s.document.revision+1,definition,s.cuttingPlanes,clearanceMm,s.cavity.clearanceMm,sprueDefinitions),
  evaluation:s.evaluation.phase==="evaluating"?{...s.evaluation,phase:"stale" as const}:s.evaluation,
  // A live scale edit has already rebuilt the current base mold. Keep its
  // capability truthful; cavity/registration/Sprue state above carries the
@@ -116,6 +118,24 @@ const invalidateCommittedTopology=()=>({
  sprueDefinitions:[] as readonly SprueOperationDefinition[],
  bodyVisibility:{} as Readonly<Record<string,boolean>>,
 });
+const STALE_SPRUE_TOPOLOGY_MESSAGE="Mold topology changed; sprue requires revalidation.";
+/**
+ * Demotes preserved Sprue intent (`sprueDefinitions`) to `pending` whenever
+ * its resolved geometry (`sprues`) has been invalidated by a topology
+ * replacement that keeps the intent itself alive (Mold Scale,
+ * adoptCommittedSegmentationResult, promoteReplannedSegmentationResult --
+ * unlike invalidateCommittedTopology above, which discards the intent
+ * outright). `validation.status` is resolved-geometry-dependent truth, not
+ * user intent: it must never keep reporting "resolved" once the geometry it
+ * described no longer exists, even while anchor/profile intent survives for
+ * a future rebuild. Leaves already-pending definitions untouched (same
+ * object identity) so this is a no-op on state shape when nothing needs
+ * demoting.
+ */
+const pendingRevalidation=(definitions:readonly SprueOperationDefinition[]):readonly SprueOperationDefinition[]=>
+ definitions.every(definition=>definition.validation.status==="pending")
+  ?definitions
+  :definitions.map(definition=>definition.validation.status==="pending"?definition:{...definition,validation:{status:"pending" as const,reasonCode:null,message:STALE_SPRUE_TOPOLOGY_MESSAGE}});
 const createDocument=(revision:number,definition:ReferenceMoldDefinition|null,cuttingPlanes:readonly CuttingPlaneRecord[],clearanceMm:number,cavityClearanceMm:number,sprues:readonly SprueOperationDefinition[]):MoldDocument=>({schemaVersion:1,revision,fingerprint:documentFingerprint(revision,definition,cuttingPlanes,clearanceMm,cavityClearanceMm,sprues),definition,cuttingPlanes,cavityEnabled:true,cavityClearanceMm,sprues,registrationPolicyId:"default",manufacturingProfile:null});
 const initialDocument=createDocument(0,null,[],DEFAULT_REFERENCE_MOLD_CLEARANCE_MM,DEFAULT_CAVITY_CLEARANCE_MM,[]);
 const initial={selectedFaceIds:[] as readonly PartBoundingBoxFaceId[],selectedSplitFaceId:null as PartBoundingBoxFaceId|null,cuttingPlanes:[] as readonly CuttingPlaneRecord[],workflow:"modelReady" as SplitWorkflowState,definition:null,clearanceMm:DEFAULT_REFERENCE_MOLD_CLEARANCE_MM,activePlaneId:null,cavity:unavailableCavity(),partGeometrySignature:null,sprues:[] as readonly SprueDefinition[],sprueDefinitions:[] as readonly SprueOperationDefinition[],registration:unavailableRegistration(),document:initialDocument,evaluation:idleMoldEvaluation(),lastCommittedResult:null as FinalMoldResult|null,bodyVisibility:{} as Readonly<Record<string,boolean>>,error:null,sprueStatus:"idle" as const,undoStack:[] as readonly Snapshot[],redoStack:[] as readonly Snapshot[],clearanceEditSnapshot:null as Snapshot|null,segmentationRegenerationCount:0};
@@ -464,7 +484,7 @@ return (set,get)=>({...initial,
   // plane is a pure visual/interaction marker on the singleton, not a
   // change to split-face's own geometry pipeline. Bumping the document
   // revision here would make segmentation's own upstream-change
-  // subscription (handleUpstreamChange in segmentationMode.store.ts, which
+  // subscription (handleUpstreamChange in segmentation.store.ts, which
   // watches this same singleton) see a "changed" document and mark its own
   // plan stale -- wiping the very extension boundary this action just
   // added, since preliminary-snapshot planning embeds document.revision in
@@ -1082,11 +1102,16 @@ return (set,get)=>({...initial,
    // (Mold Scale, re-entry), but must not also delete the user's already-
    // durable Sprue intent (see createSprue/resizeSprue and their own
    // "Waiting for cavity geometry" pending state, which this reset leaves
-   // sprueDefinitions in). document's sprues fingerprint input is always fed
-   // intent (sprueDefinitions), not geometry, elsewhere in this file (see
-   // invalidateForClearance, createMoldParts, createCavity) -- matched here
-   // for the same reason.
-   const document=createDocument(s.document.revision+1,definition,[],s.clearanceMm,s.cavity.clearanceMm,s.sprueDefinitions);
+   // sprueDefinitions in). Its validation is demoted to `pending` via
+   // pendingRevalidation -- the resolved geometry this reset just discarded
+   // (`...initial`'s sprues:[]) is exactly what a "resolved" status would
+   // claim still exists; only a fresh Cavity + Sprue rebuild against this
+   // new topology may report it resolved again. document's sprues
+   // fingerprint input is always fed intent (sprueDefinitions), not
+   // geometry, elsewhere in this file (see invalidateForClearance,
+   // createMoldParts, createCavity) -- matched here for the same reason.
+   const sprueDefinitions=pendingRevalidation(s.sprueDefinitions);
+   const document=createDocument(s.document.revision+1,definition,[],s.clearanceMm,s.cavity.clearanceMm,sprueDefinitions);
    const requestId=`segmentation-committed:${document.fingerprint}`;
    const finalResult:FinalMoldResult={
     sourceRevision:document.revision,
@@ -1101,7 +1126,7 @@ return (set,get)=>({...initial,
     ...initial,
     partGeometrySignature:input.sourceSignature,
     clearanceMm:s.clearanceMm,
-    sprueDefinitions:s.sprueDefinitions,
+    sprueDefinitions,
     definition,
     document,
     workflow:"partsReady",
@@ -1120,7 +1145,13 @@ return (set,get)=>({...initial,
    if(s.document.revision!==input.expectedPriorRevision) return s;
    if(input.sourceDefinition===null||input.bodies.length===0) return s;
    const definition=buildSegmentationDerivedDefinition(input.sourceDefinition,input.sourceSignature,input.bodies);
-   const document=createDocument(s.document.revision+1,definition,[],s.clearanceMm,s.cavity.clearanceMm,[]);
+   // Independently re-invalidates resolved Sprue geometry/status on this
+   // path too, rather than trusting the Scale edit that started this replan
+   // (invalidateForClearance) to have already left them safe -- a topology
+   // replacement must never depend on a caller's prior state to stay
+   // truthful. See pendingRevalidation's own doc comment.
+   const sprueDefinitions=pendingRevalidation(s.sprueDefinitions);
+   const document=createDocument(s.document.revision+1,definition,[],s.clearanceMm,s.cavity.clearanceMm,sprueDefinitions);
    const requestId=`segmentation-regenerated:${document.fingerprint}`;
    const finalResult:FinalMoldResult={
     sourceRevision:document.revision,
@@ -1134,6 +1165,8 @@ return (set,get)=>({...initial,
    return {
     ...s,
     partGeometrySignature:input.sourceSignature,
+    sprues:[],
+    sprueDefinitions,
     definition,
     document,
     workflow:"partsReady",

@@ -5,7 +5,7 @@ import { useModelImportStore } from "@/features/viewport/modelImport.store";
 import { useModelBoundsStore } from "@/features/viewport/modelBounds.store";
 import { useModelSelectionStore } from "@/features/viewport/modelSelection.store";
 import { usePrinterBuildVolumeStore } from "@/features/viewport/printerBuildVolume.store";
-import { useSegmentationModeStore } from "@/features/mold-generation/segmentation/segmentationMode.store";
+import { useSegmentationStore } from "@/features/mold-generation/segmentation/segmentation.store";
 import { useUiShellStore } from "@/state/ui-shell";
 
 beforeEach(() => {
@@ -16,7 +16,7 @@ beforeEach(() => {
   useModelSelectionStore.getState().resetSelectionAfterReplacement();
   usePrinterBuildVolumeStore.getState().resetPrinterBuildVolume();
   useModelBoundsStore.getState().setGroundedWorldBoundsFromGeometry(null);
-  useSegmentationModeStore.getState().reset();
+  useSegmentationStore.getState().reset();
   useUiShellStore.getState().resetShellPreferences();
   Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
     configurable: true,

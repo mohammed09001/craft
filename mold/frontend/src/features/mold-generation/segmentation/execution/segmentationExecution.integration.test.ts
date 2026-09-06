@@ -7,7 +7,7 @@ import { useSplitFaceStore } from "../../split-face/splitFace.store";
 import type { FinalMoldResult, MoldDocument, MoldEvaluationState } from "../../workflow";
 import { usePrinterBuildVolumeStore } from "@/features/viewport/printerBuildVolume.store";
 
-import { useSegmentationModeStore } from "../segmentationMode.store";
+import { useSegmentationStore } from "../segmentation.store";
 import { executeSegmentationPlan } from "../application/segmentationApplication";
 import { readCurrentSegmentationSourceSnapshot } from "../application/segmentationSourceSnapshot";
 import { executePlaneSegmentation } from "./segmentationPlaneExecutor";
@@ -103,20 +103,20 @@ function commitFixture(
 }
 
 beforeEach(() => {
-  useSegmentationModeStore.getState().reset();
+  useSegmentationStore.getState().reset();
 });
 
 describe("segmentation execution lifecycle integration", () => {
   it("executes an accepted plan from the real committed source without replacing it", async () => {
     const sourceBody = commitFixture();
-    const planned = useSegmentationModeStore.getState().requestPlan();
+    const planned = useSegmentationStore.getState().requestPlan();
     expect(planned.status).toBe("planned");
-    expect(useSegmentationModeStore.getState().acceptPlan()).toBe(true);
+    expect(useSegmentationStore.getState().acceptPlan()).toBe(true);
 
-    const result = await useSegmentationModeStore.getState().executeAcceptedPlan();
+    const result = await useSegmentationStore.getState().executeAcceptedPlan();
 
     expect(result.status).toBe("executed");
-    expect(useSegmentationModeStore.getState().phase).toBe("valid");
+    expect(useSegmentationStore.getState().phase).toBe("valid");
     expect(useSplitFaceStore.getState().lastCommittedResult?.bodies[0]).toBe(sourceBody);
   });
 
@@ -128,18 +128,18 @@ describe("segmentation execution lifecycle integration", () => {
     const printerVolume = { x: 8.1, y: 8.1, z: 8.1 };
     commitFixture(sourceBounds, printerVolume);
 
-    const planned = useSegmentationModeStore.getState().requestPlan();
+    const planned = useSegmentationStore.getState().requestPlan();
     expect(planned.status).toBe("planned");
     if (planned.status !== "planned") return;
     expect(planned.plan.requiredAxes).toEqual(["y", "z"]);
     expect(planned.plan.segments).toHaveLength(9);
-    expect(useSegmentationModeStore.getState().acceptPlan()).toBe(true);
+    expect(useSegmentationStore.getState().acceptPlan()).toBe(true);
 
-    const result = await useSegmentationModeStore.getState().executeAcceptedPlan();
+    const result = await useSegmentationStore.getState().executeAcceptedPlan();
 
     expect(result.status).toBe("executed");
     if (result.status === "executed") expect(result.bodies).toHaveLength(9);
-    expect(useSegmentationModeStore.getState().phase).toBe("valid");
+    expect(useSegmentationStore.getState().phase).toBe("valid");
   });
 
   it("derives committed Registration only from executed unkeyed Segmentation bodies", async () => {
@@ -150,17 +150,17 @@ describe("segmentation execution lifecycle integration", () => {
       },
       { x: 40, y: 40, z: 10 },
     );
-    const planned = useSegmentationModeStore
+    const planned = useSegmentationStore
       .getState()
       .requestPlan();
     expect(planned.status).toBe("planned");
     if (planned.status !== "planned") return;
-    expect(useSegmentationModeStore.getState().acceptPlan()).toBe(true);
+    expect(useSegmentationStore.getState().acceptPlan()).toBe(true);
 
-    const result = await useSegmentationModeStore
+    const result = await useSegmentationStore
       .getState()
       .executeAcceptedPlan();
-    const state = useSegmentationModeStore.getState();
+    const state = useSegmentationStore.getState();
 
     expect(result.status).toBe("executed");
     if (result.status !== "executed") return;
@@ -180,7 +180,7 @@ describe("segmentation execution lifecycle integration", () => {
 
   it("executes multiple X planes against the real committed source snapshot", async () => {
     const sourceBody = commitFixture();
-    const planned = useSegmentationModeStore.getState().requestPlan();
+    const planned = useSegmentationStore.getState().requestPlan();
     expect(planned.status).toBe("planned");
     if (planned.status !== "planned") return;
     const boundaryTemplate = planned.plan.boundaries[0]!;
@@ -221,7 +221,7 @@ describe("segmentation execution lifecycle integration", () => {
     } as const;
     const printerVolume = { x: 8, y: 8, z: 8 };
     const sourceBody = commitFixture(yBounds, printerVolume);
-    const planned = useSegmentationModeStore.getState().requestPlan();
+    const planned = useSegmentationStore.getState().requestPlan();
     expect(planned.status).toBe("planned");
     if (planned.status !== "planned") return;
     expect(planned.plan.requiredAxes).toEqual(["y"]);
@@ -275,7 +275,7 @@ describe("segmentation execution lifecycle integration", () => {
     } as const;
     const printerVolume = { x: 8, y: 8, z: 8 };
     const sourceBody = commitFixture(zBounds, printerVolume);
-    const planned = useSegmentationModeStore.getState().requestPlan();
+    const planned = useSegmentationStore.getState().requestPlan();
     expect(planned.status).toBe("planned");
     if (planned.status !== "planned") return;
     expect(planned.plan.requiredAxes).toEqual(["z"]);
@@ -328,7 +328,7 @@ describe("segmentation execution lifecycle integration", () => {
       max: { x: 8, y: 12, z: 8 },
     } as const;
     commitFixture(yBounds, { x: 8, y: 8, z: 8 });
-    const planned = useSegmentationModeStore.getState().requestPlan();
+    const planned = useSegmentationStore.getState().requestPlan();
     expect(planned.status).toBe("planned");
     if (planned.status !== "planned") return;
     expect(planned.plan.requiredAxes).toEqual(["y"]);
@@ -361,7 +361,7 @@ describe("segmentation execution lifecycle integration", () => {
       max: { x: 8, y: 8, z: 12 },
     } as const;
     commitFixture(zBounds, { x: 8, y: 8, z: 8 });
-    const planned = useSegmentationModeStore.getState().requestPlan();
+    const planned = useSegmentationStore.getState().requestPlan();
     expect(planned.status).toBe("planned");
     if (planned.status !== "planned") return;
     expect(planned.plan.requiredAxes).toEqual(["z"]);
@@ -388,7 +388,7 @@ describe("segmentation execution lifecycle integration", () => {
 
   it("rejects a stale authoritative source before worker dispatch", async () => {
     commitFixture();
-    const planned = useSegmentationModeStore.getState().requestPlan();
+    const planned = useSegmentationStore.getState().requestPlan();
     expect(planned.status).toBe("planned");
     if (planned.status !== "planned") return;
     const runExecution = vi.fn();

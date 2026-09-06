@@ -2,19 +2,19 @@
  * The unified "Constructed Cutting Plan" orchestrator's own state -- which
  * cutting session is open and which of its two tabs is active, independent
  * of any tab's own geometry state (owned by splitFace.store.ts /
- * segmentationMode.store.ts instances). A tagged union so impossible
+ * segmentation.store.ts instances). A tagged union so impossible
  * combinations (two tabs "active" at once, a panel visible with no session,
  * etc.) are unrepresentable.
  */
 
 import type { FitAxis } from "../segmentation/fitAnalysis";
-import type { ExtensionBoundaryRequest } from "../segmentation/segmentationMode.store";
+import type { ExtensionBoundaryRequest } from "../segmentation/segmentation.store";
 
 /**
  * The two peer tabs the Constructed Cutting Plan panel hosts. Cutting by
  * Face reuses the singleton splitFace store directly (as it always has --
  * see CuttingSessionPanel's own doc comment for why it needs no separate
- * draft); the Segmentation tab reuses `useSegmentationModeStore` directly.
+ * draft); the Segmentation tab reuses `useSegmentationStore` directly.
  */
 export type CuttingSessionTab = "cutByFace" | "segmentation";
 

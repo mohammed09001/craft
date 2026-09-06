@@ -6,7 +6,7 @@ import type { CanonicalPartGeometry } from "@/features/mold-generation/cavity-ge
 import { useModelBoundsStore } from "@/features/viewport/modelBounds.store";
 import { usePrinterBuildVolumeStore } from "@/features/viewport/printerBuildVolume.store";
 
-import { useSegmentationModeStore } from "../segmentation/segmentationMode.store";
+import { useSegmentationStore } from "../segmentation/segmentation.store";
 import { useSplitFaceStore } from "../split-face/splitFace.store";
 import { CuttingSessionPanel } from "./CuttingSessionPanel";
 import { useCuttingWorkflowStore } from "./cuttingWorkflow.store";
@@ -48,7 +48,7 @@ beforeEach(() => {
     lastSegmentationProvenance: null,
     lastCommitBlockedReason: null,
   });
-  useSegmentationModeStore.getState().reset();
+  useSegmentationStore.getState().reset();
   useSplitFaceStore.getState().clearForModelReplacement();
   usePrinterBuildVolumeStore.getState().setPrinterBuildVolume({ x: 100, y: 100, z: 100 });
   setModelBounds({ x: 150, y: 50, z: 50 }); // oversized only on X
@@ -138,7 +138,7 @@ describe("CuttingSessionPanel", () => {
     await waitFor(() => {
       expect(useCuttingWorkflowStore.getState().state).toEqual({ kind: "idle" });
     });
-    expect(useSegmentationModeStore.getState().phase).toBe("valid");
+    expect(useSegmentationStore.getState().phase).toBe("valid");
     expect(useSplitFaceStore.getState().workflow).toBe("partsReady");
   });
 
@@ -151,12 +151,12 @@ describe("CuttingSessionPanel", () => {
     const user = userEvent.setup();
     renderPanel();
     await user.click(screen.getByRole("tab", { name: "Segmentation" }));
-    expect(useSegmentationModeStore.getState().plan).not.toBeNull();
+    expect(useSegmentationStore.getState().plan).not.toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Cancel" }));
 
     expect(useCuttingWorkflowStore.getState().state).toEqual({ kind: "idle" });
-    expect(useSegmentationModeStore.getState().plan).toBeNull();
+    expect(useSegmentationStore.getState().plan).toBeNull();
     expect(useSplitFaceStore.getState().cuttingPlanes).toEqual(preSessionPlanes);
   });
 

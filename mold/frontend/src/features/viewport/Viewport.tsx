@@ -46,7 +46,7 @@ import { usePrinterBuildVolume } from "@/features/viewport/printerBuildVolume.st
 import { useModelBoundsStore } from "@/features/viewport/modelBounds.store";
 import {
   useIsSegmentationVisualizationActive,
-  useSegmentationModeStore,
+  useSegmentationStore,
 } from "@/features/mold-generation/segmentation";
 import {
   CuttingSessionPanel,
@@ -332,13 +332,13 @@ export function Viewport({ onStatusChange }: ViewportProps) {
   // Read-only: this viewport never calls requestPlan/acceptPlan/executeAcceptedPlan.
   // It only maps the Segmentation Engine's already-committed plan/result into
   // display objects -- see docs/agent/PROJECT_MAP.md's runtime ownership rule.
-  const segmentationPlan = useSegmentationModeStore((state) => state.plan);
-  const segmentationResult = useSegmentationModeStore((state) => state.result);
-  const segmentationPreview = useSegmentationModeStore((state) => state.preview);
-  const segmentationRegistration = useSegmentationModeStore(
+  const segmentationPlan = useSegmentationStore((state) => state.plan);
+  const segmentationResult = useSegmentationStore((state) => state.result);
+  const segmentationPreview = useSegmentationStore((state) => state.preview);
+  const segmentationRegistration = useSegmentationStore(
     (state) => state.registration,
   );
-  const resetSegmentationForMoldScale = useSegmentationModeStore(
+  const resetSegmentationForMoldScale = useSegmentationStore(
     (state) => state.reset,
   );
   // Also requires the Segmentation tab to actually be the active tab -- the
@@ -675,7 +675,7 @@ export function Viewport({ onStatusChange }: ViewportProps) {
   // moment Done commits it -- not reactively here. Doing it there instead of
   // in a `useEffect` watching segmentationPhase/segmentationResult removes
   // an entire class of self-invalidation race: the promotion's own write to
-  // the singleton used to retrigger segmentationMode.store.ts's own
+  // the singleton used to retrigger segmentation.store.ts's own
   // handleUpstreamChange staleness subscription, which could mark the
   // just-executed result stale before the reactive effect's promotion had
   // even run. commitActiveTab's single synchronous sequence (execute, then

@@ -4,7 +4,7 @@ import { usePrinterBuildVolumeStore } from "@/features/viewport/printerBuildVolu
 import { useViewportToolStore } from "@/features/viewport/viewportTool.store";
 import type { Bounds3 } from "../split-face/splitFace.contracts";
 import { useSplitFaceStore, type SplitFaceState } from "../split-face/splitFace.store";
-import { useSegmentationModeStore } from "../segmentation/segmentationMode.store";
+import { useSegmentationStore } from "../segmentation/segmentation.store";
 import type { SegmentationExecutionResult } from "../segmentation/execution/segmentationExecution.contracts";
 import type { SegmentationPlan } from "../segmentation/domain/segmentation.contracts";
 import { readCurrentSegmentationSourceSnapshot } from "../segmentation/application/segmentationSourceSnapshot";
@@ -56,7 +56,7 @@ let segmentationTabInitializedThisSession = false;
 function ensureSegmentationTabInitialized() {
   if (segmentationTabInitializedThisSession) return;
   segmentationTabInitializedThisSession = true;
-  useSegmentationModeStore.getState().requestPlan();
+  useSegmentationStore.getState().requestPlan();
 }
 
 /**
@@ -73,14 +73,14 @@ function activateCutByFaceSelection() {
 
 /**
  * Whichever segmentation engine currently owns axis decisions -- the
- * singleton `useSegmentationModeStore`, driven directly by the
+ * singleton `useSegmentationStore`, driven directly by the
  * Segmentation tab (which, like Cut by Face, uses no draft-isolation
  * system), while that tab is open.
  */
 function activeSegmentationEngine() {
   const state = useCuttingWorkflowStore.getState().state;
   if (state.kind !== "sessionOpen") return null;
-  if (state.activeTab === "segmentation") return useSegmentationModeStore;
+  if (state.activeTab === "segmentation") return useSegmentationStore;
   return null;
 }
 
@@ -138,8 +138,8 @@ function currentAxisOwnership(): AxisOwnership {
  */
 export function useActiveAxisOwnership(): AxisOwnership {
   const workflowState = useCuttingWorkflowStore((s) => s.state);
-  const singletonPlan = useSegmentationModeStore((s) => s.plan);
-  const singletonExtensions = useSegmentationModeStore((s) => s.extensionBoundaries);
+  const singletonPlan = useSegmentationStore((s) => s.plan);
+  const singletonExtensions = useSegmentationStore((s) => s.extensionBoundaries);
 
   if (workflowState.kind !== "sessionOpen") return deriveAxisOwnership(NO_AXES, NO_AXES);
   if (workflowState.activeTab === "segmentation") {
@@ -270,7 +270,7 @@ export async function regenerateSegmentationAfterScale(): Promise<void> {
     const segmentationProvenance = useCuttingWorkflowStore.getState().lastSegmentationProvenance;
     if (segmentationProvenance === null) return;
 
-    const engine = useSegmentationModeStore;
+    const engine = useSegmentationStore;
     const expectedPriorRevision = splitFace.document.revision;
 
     const planned = engine.getState().requestPlan();
@@ -330,8 +330,8 @@ export async function regenerateSegmentationAfterScale(): Promise<void> {
  */
 export function useIsActiveSegmentationPlanValid(): boolean {
   const workflowState = useCuttingWorkflowStore((s) => s.state);
-  const singletonPlan = useSegmentationModeStore((s) => s.plan);
-  const singletonExtensions = useSegmentationModeStore((s) => s.extensionBoundaries);
+  const singletonPlan = useSegmentationStore((s) => s.plan);
+  const singletonExtensions = useSegmentationStore((s) => s.extensionBoundaries);
 
   if (workflowState.kind !== "sessionOpen") return true;
   if (workflowState.activeTab === "segmentation") {
@@ -494,7 +494,7 @@ export const useCuttingWorkflowStore = create<CuttingWorkflowStore>((set, get) =
         }
       }
     } else {
-      const segmentation = useSegmentationModeStore.getState();
+      const segmentation = useSegmentationStore.getState();
       if (segmentation.phase !== "preview" || segmentation.plan === null) {
         commitBlockedReason = "Segmentation has not produced a committable plan yet.";
       } else if (!segmentation.acceptPlan()) {
@@ -503,7 +503,7 @@ export const useCuttingWorkflowStore = create<CuttingWorkflowStore>((set, get) =
       } else if (modelId === undefined) {
         commitBlockedReason = "No model is selected to commit against.";
       } else {
-        const result = await useSegmentationModeStore.getState().executeAcceptedPlan();
+        const result = await useSegmentationStore.getState().executeAcceptedPlan();
         if (result.status === "executed") {
           const sourceDefinition = definitionForExecutedSegmentation(result);
           if (sourceDefinition === null) {
@@ -561,7 +561,7 @@ export const useCuttingWorkflowStore = create<CuttingWorkflowStore>((set, get) =
     // settled state (phase "valid") as the record of what was just
     // promoted into the singleton above.
     if (activeTab !== "segmentation") {
-      useSegmentationModeStore.getState().reset();
+      useSegmentationStore.getState().reset();
     }
 
     // A successful commit supersedes whatever the pre-session snapshot was
@@ -596,7 +596,7 @@ export const useCuttingWorkflowStore = create<CuttingWorkflowStore>((set, get) =
     // reset already does this synchronously before wiping state) and
     // returns it to a clean idle engine -- discarded, not destroyed,
     // matching every other exit from this session.
-    useSegmentationModeStore.getState().reset();
+    useSegmentationStore.getState().reset();
 
     // Restore the singleton exactly as it was before this session began --
     // see preSessionSplitFaceSnapshot's doc comment. Absent only if this
@@ -625,7 +625,7 @@ export const useCuttingWorkflowStore = create<CuttingWorkflowStore>((set, get) =
 function segmentationEnginePendingPrinterVolumeRetry() {
   const state = useCuttingWorkflowStore.getState().state;
   if (state.kind !== "sessionOpen") return null;
-  if (state.activeTab === "segmentation") return useSegmentationModeStore;
+  if (state.activeTab === "segmentation") return useSegmentationStore;
   return null;
 }
 

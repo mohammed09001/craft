@@ -82,7 +82,7 @@ export function computeEffectivePlan(
   );
 }
 
-interface SegmentationModeSnapshot {
+interface SegmentationSnapshot {
   readonly phase: SegmentationLifecyclePhase;
   readonly request: SegmentationRequest | null;
   readonly plan: SegmentationPlan | null;
@@ -92,9 +92,9 @@ interface SegmentationModeSnapshot {
   readonly extensionBoundaries: readonly ExtensionBoundaryRequest[];
 }
 
-export type SegmentationModeStore = SegmentationModeSnapshot & {
-  readonly undoStack: readonly SegmentationModeSnapshot[];
-  readonly redoStack: readonly SegmentationModeSnapshot[];
+export type SegmentationStore = SegmentationSnapshot & {
+  readonly undoStack: readonly SegmentationSnapshot[];
+  readonly redoStack: readonly SegmentationSnapshot[];
   requestPlan: () => SegmentationResult;
   acceptPlan: () => boolean;
   executeAcceptedPlan: () => Promise<SegmentationResult>;
@@ -120,7 +120,7 @@ export type SegmentationModeStore = SegmentationModeSnapshot & {
   moveExtensionBoundary: (axis: FitAxis, coordinateMm: number) => boolean;
 };
 
-const idleState: SegmentationModeSnapshot = {
+const idleState: SegmentationSnapshot = {
   phase: "idle",
   request: null,
   plan: null,
@@ -130,7 +130,7 @@ const idleState: SegmentationModeSnapshot = {
   extensionBoundaries: [],
 };
 
-const snap = (s: SegmentationModeSnapshot): SegmentationModeSnapshot => ({
+const snap = (s: SegmentationSnapshot): SegmentationSnapshot => ({
   phase: s.phase,
   request: s.request,
   plan: s.plan,
@@ -140,9 +140,9 @@ const snap = (s: SegmentationModeSnapshot): SegmentationModeSnapshot => ({
   extensionBoundaries: s.extensionBoundaries,
 });
 
-const history = (s: SegmentationModeStore) => ({
+const history = (s: SegmentationStore) => ({
   undoStack: [...s.undoStack.slice(-49), snap(s)],
-  redoStack: [] as readonly SegmentationModeSnapshot[],
+  redoStack: [] as readonly SegmentationSnapshot[],
 });
 
 const generatingRegistration = (revision: string): DerivedRegistrationState => ({
@@ -170,11 +170,11 @@ function resultPhase(result: SegmentationResult): SegmentationLifecyclePhase {
   }
 }
 
-export interface SegmentationModeStoreDeps {
+export interface SegmentationStoreDeps {
   readonly cancelActiveSegmentationExecution: typeof defaultCancelActiveSegmentationExecution;
   readonly runSegmentationExecutionInWorker: typeof defaultRunSegmentationExecutionInWorker;
 }
-const defaultSegmentationModeStoreDeps: SegmentationModeStoreDeps = {
+const defaultSegmentationStoreDeps: SegmentationStoreDeps = {
   cancelActiveSegmentationExecution: defaultCancelActiveSegmentationExecution,
   runSegmentationExecutionInWorker: defaultRunSegmentationExecutionInWorker,
 };
@@ -182,16 +182,16 @@ const defaultSegmentationModeStoreDeps: SegmentationModeStoreDeps = {
 /**
  * Factory so an isolated draft session (see cutting-workflow/) can own its own segmentation-
  * execution worker runner and lifecycle epoch instead of sharing the module-level singleton
- * below. Default args keep `useSegmentationModeStore` behaviorally identical to before this
+ * below. Default args keep `useSegmentationStore` behaviorally identical to before this
  * extraction. Undo/redo covers the planning/execution lifecycle state (phase/plan/result/
  * preview/registration) -- the same fields the singleton already treats as "the current
  * segmentation draft." The engine reads the shared splitFace singleton's clearanceMm for
  * mold-frame geometry; a dedicated clearance parameter is a deliberately deferred follow-up,
  * not silently assumed.
  */
-export function createSegmentationModeStoreCreator(
-  deps: SegmentationModeStoreDeps = defaultSegmentationModeStoreDeps,
-): StateCreator<SegmentationModeStore> {
+export function createSegmentationStoreCreator(
+  deps: SegmentationStoreDeps = defaultSegmentationStoreDeps,
+): StateCreator<SegmentationStore> {
   const { cancelActiveSegmentationExecution, runSegmentationExecutionInWorker } = deps;
   const runExecution = (
     request: SegmentationExecutionRequest,
@@ -603,8 +603,8 @@ export function createSegmentationModeStoreCreator(
   };
 }
 
-export const useSegmentationModeStore = create<SegmentationModeStore>()(
-  createSegmentationModeStoreCreator(),
+export const useSegmentationStore = create<SegmentationStore>()(
+  createSegmentationStoreCreator(),
 );
 
 function planDependencyIsCurrent(plan: SegmentationPlan): boolean {
@@ -635,7 +635,7 @@ function planDependencyIsCurrent(plan: SegmentationPlan): boolean {
 let wasActive = false;
 function handleUpstreamChange() {
   const isActive = readFitAnalysisFromStores().overall === "DOES_NOT_FIT";
-  const store = useSegmentationModeStore.getState();
+  const store = useSegmentationStore.getState();
   if (store.plan !== null && !planDependencyIsCurrent(store.plan)) {
     store.markStale(
       "Printer volume or authoritative mold geometry changed after planning.",
