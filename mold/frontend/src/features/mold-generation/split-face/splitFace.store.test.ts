@@ -925,6 +925,21 @@ describe("Async evaluation commit identity (stale/cancelled results must not mut
   expect(after.sprues).toEqual([]);
   expect(after.sprueDefinitions[0]!.validation.status).toBe("pending");
  });
+ it("createMoldParts: a genuine current failure still surfaces as evaluation.phase 'failed', not stuck at 'evaluating'",async()=>{
+  const s=useSplitFaceStore.getState();
+  s.enterSelection();
+  s.toggleFace("front");
+
+  vi.mocked(runDerivedMoldEvaluation).mockImplementationOnce(async()=>{throw new Error("boom");});
+
+  expect(await useSplitFaceStore.getState().createMoldParts("m",k1)).toBe(false);
+
+  const after=useSplitFaceStore.getState();
+  expect(after.evaluation.phase).toBe("failed");
+  expect(after.evaluation.failure?.message).toBe("boom");
+  expect(after.workflow).toBe("error");
+  expect(after.error).toBe("boom");
+ });
  it("createMoldParts: a stale rejection cannot revert a model-replacement that superseded it mid-flight",async()=>{
   const s=useSplitFaceStore.getState();
   s.enterSelection();

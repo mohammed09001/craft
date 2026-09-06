@@ -819,6 +819,19 @@ return (set,get)=>({...initial,
     return {
      ...s,
      workflow:"error",
+     // identity!==null means the set() above already moved evaluation into
+     // "evaluating" for this request -- it must be moved to a terminal phase
+     // here too, or it stays stuck at "evaluating" forever (the presentation
+     // selector and capability gates read that phase as "replacement still in
+     // flight"). identity===null means buildMoldPartsDefinition/createDocument
+     // threw before that set() ran, so s.evaluation was never touched and must
+     // be left as-is. Same "derived_evaluation_failed" reasonCode convention
+     // as createSprue/rebuildSprueDefinitions's own runDerivedMoldEvaluation
+     // failure handling.
+     evaluation:
+      identity!==null
+       ?{...s.evaluation,phase:"failed",failure:{reasonCode:"derived_evaluation_failed",message:error instanceof Error?error.message:"Mold parts could not be created."}}
+       :s.evaluation,
      error:
       error instanceof Error
        ?error.message

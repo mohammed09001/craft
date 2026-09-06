@@ -180,12 +180,12 @@ const defaultSegmentationStoreDeps: SegmentationStoreDeps = {
 };
 
 /**
- * Factory so an isolated draft session (see cutting-workflow/) can own its own segmentation-
- * execution worker runner and lifecycle epoch instead of sharing the module-level singleton
- * below. Default args keep `useSegmentationStore` behaviorally identical to before this
+ * Factory so an isolated Segmentation store instance (see cutting-workflow/) can own its own
+ * segmentation-execution worker runner and lifecycle epoch instead of sharing the module-level
+ * singleton below. Default args keep `useSegmentationStore` behaviorally identical to before this
  * extraction. Undo/redo covers the planning/execution lifecycle state (phase/plan/result/
- * preview/registration) -- the same fields the singleton already treats as "the current
- * segmentation draft." The engine reads the shared splitFace singleton's clearanceMm for
+ * preview/registration) -- the same fields the singleton already treats as its current
+ * Segmentation lifecycle state. The engine reads the shared splitFace singleton's clearanceMm for
  * mold-frame geometry; a dedicated clearance parameter is a deliberately deferred follow-up,
  * not silently assumed.
  */
@@ -493,7 +493,7 @@ export function createSegmentationStoreCreator(
       );
     },
     undo: () => {
-      cancelActiveSegmentationExecution("Undo changed the segmentation draft.");
+      cancelActiveSegmentationExecution("Undo changed the Segmentation state.");
       lifecycleEpoch += 1;
       set((s) => {
         const previous = s.undoStack.at(-1);
@@ -506,7 +506,7 @@ export function createSegmentationStoreCreator(
       });
     },
     redo: () => {
-      cancelActiveSegmentationExecution("Redo changed the segmentation draft.");
+      cancelActiveSegmentationExecution("Redo changed the Segmentation state.");
       lifecycleEpoch += 1;
       set((s) => {
         const next = s.redoStack[0];

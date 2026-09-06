@@ -37,7 +37,10 @@ test("app boots, imports a deterministic STL, and stays error-free", async ({
 
   await expect(page.locator("canvas")).toHaveCount(1);
 
-  const fileInput = page.getByLabel("Local STL file");
+  // exact: true avoids a strict-mode collision with the empty-state overlay's
+  // "Drop zone for one local STL file" label, which case-insensitively
+  // contains this input's accessible name as a substring.
+  const fileInput = page.getByLabel("Local STL file", { exact: true });
   await fileInput.setInputFiles(TETRAHEDRON_STL);
 
   await expect(

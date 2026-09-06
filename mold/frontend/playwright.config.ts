@@ -21,10 +21,18 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   webServer: {
-    command: "npm run preview -- --port 4173 --strictPort",
+    // Vite's default preview host resolves "localhost" to the IPv6 loopback
+    // (::1) only on this toolchain/Node combination -- it does not also bind
+    // 127.0.0.1. baseURL/url above are IPv4 explicitly, so an unbound host
+    // here leaves Playwright polling an address the server never listens on
+    // until the startup timeout expires. Bind the same IPv4 loopback address
+    // Playwright polls so readiness can actually be observed.
+    command: "npm run preview -- --host 127.0.0.1 --port 4173 --strictPort",
     url: "http://127.0.0.1:4173",
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
+    stdout: "pipe",
+    stderr: "pipe",
   },
   projects: [
     {
