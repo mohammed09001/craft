@@ -243,7 +243,7 @@ Out of scope:
 - No moldability, parting, undercut, draft, or STL repair analysis.
 - No manual rotation controls or transform gizmo.
 
-## Chapter 7 – Stage 11: Engine Integration Readiness And Frontend Evolution Contract
+## Chapter 7 â€“ Stage 11: Engine Integration Readiness And Frontend Evolution Contract
 
 Stage 11 closes the frontend foundation without connecting a real engine.
 

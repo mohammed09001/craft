@@ -452,7 +452,29 @@ export function Viewport({ onStatusChange }: ViewportProps) {
     // regeneration is this same Scale gesture's asynchronous tail, not a
     // separate user action to wait on here.
     void regenerateSegmentationAfterScale();
-  }, [commitSingletonClearanceEdit]);
+    // Cut by Face's own equivalent tail: the live rebuild above already
+    // recomputed the base reference-mold definition synchronously but
+    // deliberately left Cavity/Registration/Sprue invalidated (unavailable)
+    // -- createMoldParts is the sole existing owner of the canonical
+    // build-definition + derived-evaluation + commit pipeline that produces a
+    // fresh committed Registration (see its own doc comment), so re-running
+    // it here regenerates Registration after Scale without a second
+    // duplicate regeneration path. Only fires when Scale actually left an
+    // already-committed Cut by Face mold behind it (workflow "partsReady");
+    // a Segmentation-promoted definition took the branch above instead, and
+    // a mold with no committed parts yet has nothing to regenerate.
+    const state = useSplitFaceStore.getState();
+    const modelId = selectionStatus.selectedModelId;
+    const selectionBoxBounds = selectionStatus.selectionBoxBounds;
+    if (
+      state.workflow === "partsReady" &&
+      state.definition?.segmentationLineage !== true &&
+      modelId !== undefined &&
+      selectionBoxBounds !== undefined
+    ) {
+      void state.createMoldParts(modelId, selectionBoxBounds);
+    }
+  }, [commitSingletonClearanceEdit, selectionStatus.selectedModelId, selectionStatus.selectionBoxBounds]);
 
   useLayoutEffect(() => {
     setPalette(readPalette(hostRef.current));

@@ -104,14 +104,27 @@ describe("derived-state invalidation on Cut by Face topology edits",()=>{
   expect(s.document.definition).toBeNull();
   expect(s.evaluation.phase).toBe("idle");
  });
- it("selectActiveMoldBodies refuses a committed result that no longer matches the document",async()=>{
+ it("selectActiveMoldBodies refuses a committed result that no longer matches the document once no replacement is in flight",async()=>{
   await commitCutByFaceMold();
   const committed=useSplitFaceStore.getState();
-  const served=selectActiveMoldBodies({definition:null,lastCommittedResult:committed.lastCommittedResult,bodyVisibility:{},document:committed.document});
+  expect(committed.evaluation.phase).toBe("complete");
+  const served=selectActiveMoldBodies({definition:null,lastCommittedResult:committed.lastCommittedResult,bodyVisibility:{},document:committed.document,evaluation:committed.evaluation});
   expect(served).not.toBeUndefined();
-  const mismatched=selectActiveMoldBodies({definition:null,lastCommittedResult:committed.lastCommittedResult,bodyVisibility:{},document:{...committed.document,revision:committed.document.revision+1}});
+  const mismatched=selectActiveMoldBodies({definition:null,lastCommittedResult:committed.lastCommittedResult,bodyVisibility:{},document:{...committed.document,revision:committed.document.revision+1},evaluation:committed.evaluation});
   expect(mismatched).toBeUndefined();
-  const fingerprintMismatched=selectActiveMoldBodies({definition:null,lastCommittedResult:committed.lastCommittedResult,bodyVisibility:{},document:{...committed.document,fingerprint:"different"}});
+  const fingerprintMismatched=selectActiveMoldBodies({definition:null,lastCommittedResult:committed.lastCommittedResult,bodyVisibility:{},document:{...committed.document,fingerprint:"different"},evaluation:committed.evaluation});
   expect(fingerprintMismatched).toBeUndefined();
+  const idle=selectActiveMoldBodies({definition:null,lastCommittedResult:committed.lastCommittedResult,bodyVisibility:{},document:{...committed.document,revision:committed.document.revision+1},evaluation:{...committed.evaluation,phase:"idle"}});
+  expect(idle).toBeUndefined();
+  const failed=selectActiveMoldBodies({definition:null,lastCommittedResult:committed.lastCommittedResult,bodyVisibility:{},document:{...committed.document,revision:committed.document.revision+1},evaluation:{...committed.evaluation,phase:"failed"}});
+  expect(failed).toBeUndefined();
+  const cancelled=selectActiveMoldBodies({definition:null,lastCommittedResult:committed.lastCommittedResult,bodyVisibility:{},document:{...committed.document,revision:committed.document.revision+1},evaluation:{...committed.evaluation,phase:"cancelled"}});
+  expect(cancelled).toBeUndefined();
+ });
+ it("selectActiveMoldBodies serves the last committed result as bounded presentation continuity while a replacement for a newer document is genuinely evaluating",async()=>{
+  await commitCutByFaceMold();
+  const committed=useSplitFaceStore.getState();
+  const inFlight=selectActiveMoldBodies({definition:null,lastCommittedResult:committed.lastCommittedResult,bodyVisibility:{},document:{...committed.document,revision:committed.document.revision+1},evaluation:{...committed.evaluation,phase:"evaluating"}});
+  expect(inFlight).toEqual(selectActiveMoldBodies(committed));
  });
 });

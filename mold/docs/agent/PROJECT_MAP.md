@@ -92,9 +92,10 @@ feature.
   behavior, or the evaluation sequencing itself.
 - **Interacts with:** `viewport` (source model, render target),
   `engineering-reports` (pull-direction evaluation feeds mold decisions).
-- **Note:** several `*.bak` files exist alongside active files in this tree
-  (e.g. in `cavity-generation/`, `split-face/`); these are prior-version
-  snapshots, not active code — do not import them.
+- **Note:** `*.bak` files are gitignored scratch snapshots some editing
+  sessions leave beside active files in this tree — never active code, never
+  tracked, and not guaranteed to exist in any given checkout. Do not import
+  them, and do not track new ones.
 
 ### `features/engine-integration`
 - **Responsibility:** the *placeholder* boundary for future frontend↔Python

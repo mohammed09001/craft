@@ -4,7 +4,7 @@ import type {
   WatertightPartSolid,
 } from "./cavityGeneration.contracts";
 import {
-  createDistanceFieldCavityTool,
+  createDistanceFieldCavityTool as defaultCreateDistanceFieldCavityTool,
 } from "./cavityDistanceField.engine";
 import type { DistanceFieldQualityProfile } from "./cavityDistanceField.profile";
 import {
@@ -13,8 +13,27 @@ import {
   type CavityOffsetEngineKind,
 } from "./cavityEngine.selector";
 import {
-  createCavityTool,
+  createCavityTool as defaultCreateCavityTool,
 } from "./manifold.engine";
+
+/**
+ * Injectable engine seam, matching the dependency-injection convention
+ * already used elsewhere for worker-backed engines (see
+ * SplitFaceStoreDeps/createSplitFaceStoreCreator). `createCavityTool`
+ * transitively loads the real `manifold-3d` WASM module -- statically
+ * `vi.mock`-ing that module from a test does not reliably intercept this
+ * orchestrator's own binding to it, so a caller that needs a deterministic
+ * direct-Minkowski failure (for fallback regression coverage) must inject a
+ * stub here instead of relying on module mocking.
+ */
+export interface CavityOffsetEngineDeps {
+  readonly createCavityTool:typeof defaultCreateCavityTool;
+  readonly createDistanceFieldCavityTool:typeof defaultCreateDistanceFieldCavityTool;
+}
+const defaultCavityOffsetEngineDeps:CavityOffsetEngineDeps={
+  createCavityTool:defaultCreateCavityTool,
+  createDistanceFieldCavityTool:defaultCreateDistanceFieldCavityTool,
+};
 
 export interface CavityOffsetAttempt {
   readonly engine:CavityOffsetEngineKind;
@@ -41,7 +60,9 @@ export async function createAutomaticCavityTool(
   clearanceMm:number,
   qualityMode:CavityQualityMode,
   geometryToleranceMm:number,
+  deps:CavityOffsetEngineDeps=defaultCavityOffsetEngineDeps,
 ):Promise<AutomaticCavityOffsetResult> {
+  const {createCavityTool,createDistanceFieldCavityTool}=deps;
   if(
     !Number.isFinite(geometryToleranceMm)||
     geometryToleranceMm<=0

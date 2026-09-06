@@ -68,6 +68,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Audit for high/critical severity advisories
+        run: npm audit --audit-level=high
+
       - name: Run typecheck
         run: npm run typecheck
 
@@ -79,6 +82,44 @@ jobs:
 
       - name: Run tests
         run: npm run test:run
+
+  browser-smoke:
+    name: Browser smoke (mold/frontend/)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mold/frontend
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.0.0
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: mold/frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright's Chromium browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Build production bundle
+        run: npm run build
+
+      - name: Run browser smoke spec
+        run: npm run e2e
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: playwright-report
+          path: mold/frontend/playwright-report/
+          retention-days: 7
 
   repository-integrity:
     name: Repository integrity
@@ -98,19 +139,45 @@ jobs:
             exit 1
           fi
 
+      - name: Verify tracked text files are valid UTF-8
+        run: |
+          set -euo pipefail
+          mapfile -d '' files < <(git ls-files -z -- '*.md' '*.py' '*.ts' '*.tsx' '*.js' '*.jsx' '*.json' '*.yml' '*.yaml' '*.toml' '*.css' '*.html' '*.txt' '*.cfg' '*.ini')
+          status=0
+          for file in "${files[@]}"; do
+            if ! iconv -f UTF-8 -t UTF-8 "$file" > /dev/null 2>&1; then
+              echo "::error file=$file::Tracked text file is not valid UTF-8."
+              status=1
+            fi
+          done
+          echo "Checked ${#files[@]} tracked text files for valid UTF-8."
+          exit "$status"
+
   quality-gate:
     name: Quality gate
     runs-on: ubuntu-latest
     needs:
       - python-quality
       - frontend-quality
+      - browser-smoke
       - repository-integrity
+      - dependency-review
     if: always()
     steps:
+      # dependency-review only runs `if: github.event_name == 'pull_request'`
+      # (see its own job below), so on an ordinary push its result is
+      # legitimately "skipped" -- that must not fail this gate. On a pull
+      # request it always runs, so "skipped" there would mean the job was
+      # misconfigured/didn't trigger, not a legitimate absence; the gate must
+      # fail in that case too, not treat it as automatically successful.
       - name: Require every quality job to have passed
         run: |
           if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "true" ]; then
             echo "::error::One or more required quality jobs did not pass."
+            exit 1
+          fi
+          if [ "${{ github.event_name == 'pull_request' && needs.dependency-review.result != 'success' }}" = "true" ]; then
+            echo "::error::Dependency review is required on pull requests but did not run/succeed (result: ${{ needs.dependency-review.result }})."
             exit 1
           fi
 

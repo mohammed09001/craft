@@ -10,23 +10,7 @@ import type {
   CavityToolData,
   WatertightPartSolid,
 } from "./cavityGeneration.contracts";
-
-const {
-  createCavityToolMock,
-  createDistanceFieldCavityToolMock,
-}=vi.hoisted(()=>({
-  createCavityToolMock:vi.fn(),
-  createDistanceFieldCavityToolMock:vi.fn(),
-}));
-
-vi.mock("./manifold.engine",()=>({
-  createCavityTool:createCavityToolMock,
-}));
-
-vi.mock("./cavityDistanceField.engine",()=>({
-  createDistanceFieldCavityTool:
-    createDistanceFieldCavityToolMock,
-}));
+import type { CavityOffsetEngineDeps } from "./cavityOffset.orchestrator";
 
 import {
   createAutomaticCavityTool,
@@ -77,13 +61,42 @@ function cavityTool(
   };
 }
 
+// `createCavityTool` transitively loads the real `manifold-3d` WASM module.
+// Statically `vi.mock`-ing "./manifold.engine"/"./cavityDistanceField.engine"
+// does not reliably intercept this orchestrator's own binding to that module
+// in this environment -- a rejected mock silently never gets called, and the
+// REAL engine runs instead, which happens to produce the same
+// `implementationMethod` strings as these fixtures for every *successful*
+// case, masking the fact that mocking never worked at all. A genuine
+// deterministic failure (this suite's whole point) can never be forced that
+// way. `createAutomaticCavityTool`'s own injectable `CavityOffsetEngineDeps`
+// seam (the same dependency-injection convention already used for
+// worker-backed engines elsewhere -- see SplitFaceStoreDeps) is used instead,
+// so every test below explicitly proves which engine stub actually ran.
+function engineDeps(
+  overrides:Partial<CavityOffsetEngineDeps> = {},
+):CavityOffsetEngineDeps & {
+  readonly createCavityTool:ReturnType<typeof vi.fn>;
+  readonly createDistanceFieldCavityTool:ReturnType<typeof vi.fn>;
+} {
+  return {
+    createCavityTool:vi.fn(),
+    createDistanceFieldCavityTool:vi.fn(),
+    ...overrides,
+  } as CavityOffsetEngineDeps & {
+    readonly createCavityTool:ReturnType<typeof vi.fn>;
+    readonly createDistanceFieldCavityTool:ReturnType<typeof vi.fn>;
+  };
+}
+
 describe("automatic cavity offset orchestrator",()=>{
   beforeEach(()=>{
     vi.clearAllMocks();
   });
 
   it("uses exact geometry for zero clearance",async()=>{
-    createCavityToolMock.mockResolvedValue(
+    const deps=engineDeps();
+    deps.createCavityTool.mockResolvedValue(
       cavityTool("exact-watertight-part-solid",0),
     );
 
@@ -92,6 +105,7 @@ describe("automatic cavity offset orchestrator",()=>{
       0,
       "high",
       1e-6,
+      deps,
     );
 
     expect(result.decision.engine)
@@ -109,13 +123,15 @@ describe("automatic cavity offset orchestrator",()=>{
       },
     ]);
 
+    expect(deps.createCavityTool).toHaveBeenCalledTimes(1);
     expect(
-      createDistanceFieldCavityToolMock,
+      deps.createDistanceFieldCavityTool,
     ).not.toHaveBeenCalled();
   });
 
   it("uses Minkowski for a simple positive-clearance model",async()=>{
-    createCavityToolMock.mockResolvedValue(
+    const deps=engineDeps();
+    deps.createCavityTool.mockResolvedValue(
       cavityTool(
         "manifold-minkowski-sphere",
         0.2,
@@ -127,6 +143,7 @@ describe("automatic cavity offset orchestrator",()=>{
       0.2,
       "high",
       1e-6,
+      deps,
     );
 
     expect(result.decision.engine)
@@ -136,10 +153,13 @@ describe("automatic cavity offset orchestrator",()=>{
       .toBe("manifold-minkowski-sphere");
 
     expect(result.usedFallback).toBe(false);
+    expect(deps.createCavityTool).toHaveBeenCalledTimes(1);
+    expect(deps.createDistanceFieldCavityTool).not.toHaveBeenCalled();
   });
 
   it("uses distance field directly for a heavy model",async()=>{
-    createDistanceFieldCavityToolMock
+    const deps=engineDeps();
+    deps.createDistanceFieldCavityTool
       .mockResolvedValue({
         tool:cavityTool(
           "manifold-level-set-sdf",
@@ -153,6 +173,7 @@ describe("automatic cavity offset orchestrator",()=>{
       0.2,
       "high",
       1e-6,
+      deps,
     );
 
     expect(result.decision.engine)
@@ -164,16 +185,17 @@ describe("automatic cavity offset orchestrator",()=>{
     expect(result.usedFallback).toBe(false);
 
     expect(
-      createCavityToolMock,
+      deps.createCavityTool,
     ).not.toHaveBeenCalled();
   });
 
   it("falls back to distance field when direct Minkowski fails",async()=>{
-    createCavityToolMock.mockRejectedValue(
+    const deps=engineDeps();
+    deps.createCavityTool.mockRejectedValue(
       new Error("Minkowski failed."),
     );
 
-    createDistanceFieldCavityToolMock
+    deps.createDistanceFieldCavityTool
       .mockResolvedValue({
         tool:cavityTool(
           "manifold-level-set-sdf",
@@ -187,7 +209,11 @@ describe("automatic cavity offset orchestrator",()=>{
       0.2,
       "high",
       1e-6,
+      deps,
     );
+
+    expect(deps.createCavityTool).toHaveBeenCalledTimes(1);
+    expect(deps.createDistanceFieldCavityTool).toHaveBeenCalledTimes(1);
 
     expect(result.decision.engine)
       .toBe("direct-minkowski");
@@ -211,24 +237,50 @@ describe("automatic cavity offset orchestrator",()=>{
     ]);
   });
 
+  it("surfaces a real failure -- never a fabricated success -- when the distance-field fallback engine also fails",async()=>{
+    const deps=engineDeps();
+    deps.createCavityTool.mockRejectedValue(
+      new Error("Minkowski failed."),
+    );
+    deps.createDistanceFieldCavityTool.mockRejectedValue(
+      new Error("Distance field failed too."),
+    );
+
+    await expect(
+      createAutomaticCavityTool(
+        preparedSolid(),
+        0.2,
+        "high",
+        1e-6,
+        deps,
+      ),
+    ).rejects.toThrow("Distance field failed too.");
+
+    expect(deps.createCavityTool).toHaveBeenCalledTimes(1);
+    expect(deps.createDistanceFieldCavityTool).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects invalid geometry tolerance before selecting an engine",async()=>{
+    const deps=engineDeps();
+
     await expect(
       createAutomaticCavityTool(
         preparedSolid(),
         0.2,
         "high",
         0,
+        deps,
       ),
     ).rejects.toThrow(
       "Automatic cavity geometry tolerance must be positive.",
     );
 
     expect(
-      createCavityToolMock,
+      deps.createCavityTool,
     ).not.toHaveBeenCalled();
 
     expect(
-      createDistanceFieldCavityToolMock,
+      deps.createDistanceFieldCavityTool,
     ).not.toHaveBeenCalled();
   });
 });

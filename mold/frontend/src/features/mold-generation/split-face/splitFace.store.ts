@@ -749,9 +749,26 @@ return (set,get)=>({...initial,
  createMoldParts:async(modelId,k1)=>{
   const before=get();
 
+  // "partsReady" is also a legal starting point, not only "planesReady": Mold
+  // Scale's own live rebuild (invalidateForClearance, via setClearanceMm /
+  // commitClearanceEdit) already recomputes the base reference-mold
+  // definition synchronously and leaves workflow at "partsReady", but
+  // deliberately does NOT re-run the derived evaluation -- cavity,
+  // registration, and Sprue are left invalidated/unavailable pending an
+  // explicit rebuild. createMoldParts is the SOLE existing owner of that
+  // canonical build-definition + derived-evaluation + commit pipeline, so
+  // this is the one lifecycle owner for producing a fresh committed
+  // Registration after a scale edit too, rather than a second duplicate
+  // regeneration path. Re-running it here is idempotent: it rebuilds the
+  // same definition from the same current inputs (clearanceMm, cuttingPlanes,
+  // selectedFaceIds) and re-commits. Blocked while a cavity/Sprue evaluation
+  // already owns this document revision, so the two in-flight rebuilds can
+  // never race each other.
   if(
-   before.workflow!=="planesReady"||
-   !before.cuttingPlanes.length
+   !(before.workflow==="planesReady"||before.workflow==="partsReady")||
+   !before.cuttingPlanes.length||
+   before.cavity.status==="generating"||
+   before.sprueStatus==="generating"
   ){
    return false;
   }
@@ -1218,28 +1235,51 @@ return (set,get)=>({...initial,
 export const useSplitFaceStore=create<SplitFaceState>(createSplitFaceStoreCreator());
 
 /**
- * Sole display/export body selector shape. It never switches to an
- * in-progress stage. A committed result is served ONLY while it still
- * matches the current document (revision + fingerprint) -- i.e. only while
- * the topology it was computed against is still the authoritative one;
- * otherwise the current definition's own bodies are served, so a committed
- * result can never outlive the topology it represents. Factory so a second
- * live SplitFaceState-shaped store gets its OWN independent single-slot
- * memoization instead of thrashing a shared module-level cache against a
- * different instance's state on every render -- confirmed unsafe for two
- * concurrently-subscribed live instances during the Phase 6
- * pre-implementation stability review.
+ * Sole display/export body selector. This is a PRESENTATION selector only --
+ * every authoritative consumer (Cavity input, Sprue input, Registration
+ * input, worker input generation, fingerprint calculation) reads
+ * `definition`/`document` directly and never calls this function, so nothing
+ * it returns can leak into authoritative geometry.
+ *
+ * A committed result is served whenever it still matches the current
+ * document (revision + fingerprint) -- i.e. while the topology it was
+ * computed against is still the authoritative one.
+ *
+ * While a replacement evaluation for a NEWER document is genuinely in flight
+ * (`evaluation.phase==="evaluating"`) and an older committed result still
+ * exists, that older result is served as bounded, explicitly
+ * non-authoritative last-known-good presentation continuity -- the atomic
+ * rebuild keeps showing valid geometry instead of jumping to the new,
+ * not-yet-decorated definition bodies. This is safe only because every
+ * in-flight-setting call site (createMoldParts, createCavity, createSprue
+ * and friends, removeSplitFaceAndRebuild) leaves `lastCommittedResult`
+ * untouched until its own commit gate (`canCommitMoldEvaluation`) succeeds;
+ * a topology edit that must NOT preserve continuity (toggleFace,
+ * removeSplitFace, clearSelection, commitPlaneDrag, Mold Scale) instead
+ * synchronously nulls `lastCommittedResult` itself via
+ * invalidateCommittedTopology/invalidateForClearance, so this branch never
+ * sees a stale result for those. Once the in-flight evaluation leaves
+ * "evaluating" (commit, failure, or cancellation/supersession), continuity
+ * ends immediately and the current definition's own bodies are served --
+ * a stale result can never outlive the replacement it was standing in for.
+ *
+ * Factory so a second live SplitFaceState-shaped store gets its OWN
+ * independent single-slot memoization instead of thrashing a shared
+ * module-level cache against a different instance's state on every render --
+ * confirmed unsafe for two concurrently-subscribed live instances during the
+ * Phase 6 pre-implementation stability review.
  */
 export function createSelectActiveMoldBodies() {
  let selectedSourceBodies:readonly import("../reference-mold-definition/orthogonalMold").MoldBodyData[]|undefined;
  let selectedVisibility:Readonly<Record<string,boolean>>|undefined;
  let selectedVisibleBodies:readonly import("../reference-mold-definition/orthogonalMold").MoldBodyData[]|undefined;
- return (state:Pick<SplitFaceState,"definition"|"lastCommittedResult"|"bodyVisibility"|"document">)=>{
+ return (state:Pick<SplitFaceState,"definition"|"lastCommittedResult"|"bodyVisibility"|"document"|"evaluation">)=>{
   const committed=state.lastCommittedResult;
   const committedIsCurrent=committed!==null
    &&committed.sourceRevision===state.document.revision
    &&committed.sourceFingerprint===state.document.fingerprint;
-  const source=committedIsCurrent?committed.bodies:state.definition?.moldBodies;
+  const replacementInFlight=committed!==null&&state.evaluation.phase==="evaluating";
+  const source=(committedIsCurrent||replacementInFlight)?committed.bodies:state.definition?.moldBodies;
   if(source===selectedSourceBodies&&state.bodyVisibility===selectedVisibility)return selectedVisibleBodies;
   selectedSourceBodies=source;selectedVisibility=state.bodyVisibility;selectedVisibleBodies=applyBodyVisibility(source,state.bodyVisibility);
   return selectedVisibleBodies;
