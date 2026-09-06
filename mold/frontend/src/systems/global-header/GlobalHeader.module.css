@@ -1,0 +1,133 @@
+.header {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  height: var(--shell-header-height);
+  align-items: center;
+  gap: var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-panel);
+  padding: 0 var(--space-4);
+}
+
+.brandGroup {
+  display: flex;
+  flex: 0 0 auto;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.toolbarGroup {
+  /*
+   * No overflow-x here: the cutting panel drops down from .toolbarSlot as an
+   * absolutely-positioned overlay below the header (see
+   * MoldToolbar.module.css's .secondaryControls). Per the CSS Overflow
+   * spec, setting overflow-x to a non-visible value forces overflow-y to
+   * "auto" too even when left unset, which would clip that dropdown.
+   */
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.toolbarSlot {
+  position: relative;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+/*
+ * The header covers the full shell, but the workspace begins after
+ * navigation. On desktop, stretch only the existing portal slot across that
+ * usable workspace and center its already-rendered toolbar inside it. The
+ * slot itself never captures input; the toolbar retains its current hit
+ * targets, focus order, portal ownership, and dropdown positioning context.
+ */
+@media (min-width: 901px) {
+  .toolbarGroup {
+    position: static;
+  }
+
+  .toolbarSlot {
+    position: absolute;
+    right: 0;
+    left: var(--shell-toolbar-workspace-start);
+    justify-content: center;
+    pointer-events: none;
+  }
+
+  .toolbarSlot > * {
+    pointer-events: auto;
+  }
+}
+
+.brandMark {
+  display: inline-flex;
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-2);
+  color: var(--accent-strong);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-0);
+  font-weight: var(--font-weight-bold);
+}
+
+.brandText {
+  display: grid;
+  min-width: 0;
+}
+
+.productName {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: var(--font-size-3);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspaceName {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--font-size-0);
+  line-height: var(--line-height-tight);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.controls {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.mobileControl {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .mobileControl {
+    display: inline-flex;
+  }
+}
+
+@media (max-width: 640px) {
+  .header {
+    padding: 0 var(--space-3);
+  }
+
+  .workspaceName {
+    display: none;
+  }
+}

@@ -1,0 +1,200 @@
+/*
+ * The unified Constructed Cutting Plan panel -- replaces the old
+ * ConstructedCuttingPlanFlyout
+ * fragmentation with one self-contained session panel. Docked to the side
+ * of the 3D viewport (Fusion 360-style tool panel), the same positioning
+ * convention MoldBodiesBrowser already uses for its own corner-docked panel
+ * (position: absolute within Viewport's own relatively-positioned host, not
+ * the header's toolbarSlot) -- just the opposite edge, so the two never
+ * collide. All chrome (border/background/color/shadow/blur) is defined
+ * here directly rather than composed with MoldToolbar.module.css's
+ * `.controls`, whose own layout rules (inline-flex row, width: max-content)
+ * are for the horizontal header toolbar and would fight this panel's
+ * vertical column layout.
+ */
+
+.panel {
+  position: absolute;
+  z-index: 5;
+  top: var(--space-4);
+  right: var(--space-4);
+  /* No `bottom` -- the panel sizes to its own content (via max-height +
+     internal scrolling below) instead of always stretching to the full
+     viewport height. A short tab (e.g. Cutting by Face, with few controls)
+     must not cover the model with mostly empty space just because a
+     longer tab (the Segmentation tab's extension picker)
+     could run tall. */
+  max-height: calc(100% - 2 * var(--space-4));
+
+  display: flex;
+  flex-direction: column;
+  width: min(300px, calc(100vw - 32px));
+  overflow-x: hidden;
+  overflow-y: auto;
+
+  padding: var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-2);
+  background: color-mix(in srgb, var(--surface-panel) 94%, transparent);
+  color: var(--text-secondary);
+  box-shadow: var(--shadow-panel);
+  backdrop-filter: blur(8px);
+}
+
+/*
+ * The shared MoldToolbar.module.css separators are thin vertical dividers
+ * (for the horizontal header toolbar) -- restyled here as horizontal
+ * dividers between this panel's stacked sections. Targeted structurally
+ * (direct <span> children of .panel) rather than via the other module's
+ * generated class name, so this reuses the exact same markup unchanged.
+ */
+.panel > span {
+  width: 100%;
+  height: 1px;
+  margin: 6px 0;
+  flex: 0 0 auto;
+}
+
+/* One horizontal row of icon-only mode buttons -- each mode's name is a
+   tooltip (the button's own `title`) plus its accessible name (`aria-label`),
+   never rendered as visible text, per this panel's own icon-only tab
+   requirement. */
+.tabs {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: row;
+  gap: 4px;
+}
+
+.tab {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-1);
+  background: var(--surface-control);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--easing-standard),
+    border-color var(--duration-fast) var(--easing-standard),
+    color var(--duration-fast) var(--easing-standard);
+}
+
+.tab:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--surface-control-hover);
+  color: var(--text-primary);
+}
+
+.tab:focus-visible,
+.textButton:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.tab:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.tabActive {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 24%, var(--surface-control));
+  color: var(--accent-strong);
+}
+
+.tab > .icon {
+  max-width: 20px;
+  max-height: 18px;
+}
+
+.tabContent {
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.badge {
+  min-width: 20px;
+  padding: 0 4px;
+  border-radius: var(--radius-1);
+  background: color-mix(in srgb, var(--surface-control) 72%, transparent);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  line-height: 22px;
+  text-align: center;
+}
+
+.blockedBanner {
+  flex-basis: 100%;
+  margin-top: 4px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--error) 42%, var(--border-subtle));
+  border-radius: var(--radius-3);
+  background: color-mix(in srgb, var(--surface-panel) 95%, transparent);
+  color: var(--error);
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: center;
+  white-space: normal;
+}
+
+/* Cancel and Done, side by side at the panel's bottom -- text buttons (not
+   the icon-only chrome used elsewhere in this panel/the main toolbar) since
+   these two actions close out the whole session and warrant a legible
+   label, not just an icon. */
+.footer {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: row;
+  gap: 6px;
+}
+
+.textButton {
+  flex: 1 1 0;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-1);
+  background: var(--surface-control);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--easing-standard),
+    border-color var(--duration-fast) var(--easing-standard),
+    color var(--duration-fast) var(--easing-standard);
+}
+
+.textButton:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--surface-control-hover);
+  color: var(--text-primary);
+}
+
+.textButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.textButtonPrimary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--surface-panel);
+}
+
+.textButtonPrimary:hover:not(:disabled) {
+  border-color: var(--accent-strong);
+  background: var(--accent-strong);
+  color: var(--surface-panel);
+}

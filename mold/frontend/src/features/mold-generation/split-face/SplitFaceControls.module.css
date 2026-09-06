@@ -1,0 +1,60 @@
+/*
+ * Split-face-only rules. Shared toolbar rules (controls/group/iconButton/
+ * primaryButton/icon/separator) live in ../shared/MoldToolbar.module.css --
+ * do not redefine them here.
+ */
+
+.badge {
+  display: inline-flex;
+  min-width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+
+  padding: 0 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-panel) 70%, transparent);
+  color: var(--text-secondary);
+
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.error {
+  max-width: 220px;
+  margin-left: 4px;
+  color: var(--error);
+  font-size: 12px;
+  white-space: normal;
+}
+
+.errorBanner {
+  position: absolute;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 35;
+
+  max-width: min(520px, calc(100vw - 32px));
+  padding: var(--space-2) 0.875rem;
+  border: 1px solid color-mix(in srgb, var(--error) 42%, var(--border-subtle));
+  border-radius: var(--radius-3);
+  background: color-mix(in srgb, var(--surface-panel) 95%, transparent);
+  color: var(--error);
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: center;
+  white-space: normal;
+  box-shadow: var(--shadow-panel);
+  backdrop-filter: blur(8px);
+}
+
+/*
+ * .commandButton / .commandIcon (the larger command-style icon sizing used
+ * by "Constructed Cutting Plan" and Split mold) moved to
+ * ../shared/MoldToolbar.module.css -- CuttingSessionPanel also hosts the
+ * Constructed Cutting Plan trigger now, so this sizing is no longer
+ * split-face-only.
+ */
