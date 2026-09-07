@@ -107,8 +107,8 @@ jobs:
       - name: Install Playwright's Chromium browser
         run: npx playwright install --with-deps chromium
 
-      - name: Build production bundle
-        run: npm run build
+      - name: Build E2E artifact (production toolchain + test-only harness entry)
+        run: npm run build:e2e
 
       - name: Run browser smoke spec
         run: npm run e2e

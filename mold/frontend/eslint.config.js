@@ -27,4 +27,14 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // Plain Node build/CI scripts (see Craft Execution 07) -- run directly
+    // by `node`, not bundled, so they use Node globals rather than browser
+    // globals.
+    files: ["scripts/**/*.mjs"],
+    languageOptions: {
+      ecmaVersion: 2023,
+      globals: globals.node,
+    },
+  },
 );
