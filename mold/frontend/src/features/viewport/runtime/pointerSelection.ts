@@ -71,29 +71,3 @@ export function updatePointerGesture(
 export function isClickCandidate(gesture: PointerGesture) {
   return !gesture.isDrag;
 }
-
-export function shouldIgnoreEscape(event: KeyboardEvent) {
-  if (event.defaultPrevented) {
-    return true;
-  }
-
-  const target = event.target;
-
-  if (!(target instanceof Element)) {
-    return false;
-  }
-
-  if (target.closest("dialog,[role='dialog'],[aria-modal='true']") !== null) {
-    return true;
-  }
-
-  if (
-    target instanceof HTMLInputElement ||
-    target instanceof HTMLTextAreaElement ||
-    target instanceof HTMLSelectElement
-  ) {
-    return true;
-  }
-
-  return target.closest("[contenteditable=''],[contenteditable='true']") !== null;
-}

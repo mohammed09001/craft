@@ -20,7 +20,6 @@ export {
 export * from "./execution/segmentationExecution.contracts";
 export { createSegmentationExecutionRequest } from "./execution/segmentationExecutionPreflight";
 export { canCommitSegmentationExecution } from "./execution/segmentationExecutionCommitGate";
-export { executePlaneSegmentation } from "./execution/segmentationPlaneExecutor";
 export {
   useAutomaticSegmentationMoldFrameBounds,
   useFitAnalysis,

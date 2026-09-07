@@ -13,6 +13,10 @@ import {
   NORMAL_MOLD_REGISTRATION_SIZING_POLICY,
   type RegistrationSizingPolicy,
 } from "./registrationSizing.policy";
+import type { DerivedRegistrationState } from "./registrationState";
+
+export type { DerivedRegistrationState } from "./registrationState";
+export { unavailableRegistration } from "./registrationState";
 
 export interface RegistrationDependencyInput<TBody extends MoldBodyData> {
   readonly bodies:readonly TBody[];
@@ -33,15 +37,6 @@ export interface RegistrationDependencySnapshot<TBody extends MoldBodyData> {
   readonly manufacturingProfile:RegistrationManufacturingProfile|null;
   readonly sizingPolicy:RegistrationSizingPolicy;
 }
-
-export interface DerivedRegistrationState {
-  readonly status:"unavailable"|"generating"|"generated"|"blocked"|"failed"|"cancelled"|"stale";
-  readonly revision:string|null;
-  readonly bodies:readonly RegistrationSourceBody[]|null;
-  readonly report:RegistrationReport|null;
-}
-
-export const unavailableRegistration=():DerivedRegistrationState=>({status:"unavailable",revision:null,bodies:null,report:null});
 
 const protectedCylinderMesh=(start:{readonly x:number;readonly y:number;readonly z:number},direction:{readonly x:number;readonly y:number;readonly z:number},depth:number,radius:number):import("../reference-mold-definition/orthogonalMold").MoldMeshPayload=>{
   const length=Math.hypot(direction.x,direction.y,direction.z),axis={x:direction.x/length,y:direction.y/length,z:direction.z/length};

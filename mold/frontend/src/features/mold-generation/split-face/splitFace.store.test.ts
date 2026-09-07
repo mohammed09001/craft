@@ -254,6 +254,11 @@ describe("face-driven mold workflow",()=>{
   const service=vi.spyOn(SprueGenerationService.prototype,"generate").mockReturnValueOnce(pending);
   const requestedPlacement=placement();
   const first=useSplitFaceStore.getState().createSprue(requestedPlacement);
+  // The Worker-less evaluation fallback reaches the generator through a
+  // dynamic import (kept out of the eager bundle -- see
+  // derivedMoldEvaluation.workerClient.ts), so the in-flight request is no
+  // longer visible synchronously; wait for the real async boundary instead.
+  await vi.waitFor(()=>expect(service.mock.calls).toHaveLength(1));
   expect(service.mock.calls[0]![0].request.profileDesign).toBe(requestedPlacement.profileDesign);
   expect(useSplitFaceStore.getState().sprueStatus).toBe("generating");
   expect(await useSplitFaceStore.getState().createSprue(placement(4))).toBe(false);

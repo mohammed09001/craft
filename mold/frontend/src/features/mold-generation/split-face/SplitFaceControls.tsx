@@ -7,7 +7,8 @@ import {
 } from "@/features/viewport/partOrientation.store";
 import { useViewportToolStore } from "@/features/viewport/viewportTool.store";
 import { isViewportToolAvailable } from "@/features/viewport/viewportTool.capabilities";
-import { CavityAction, type CanonicalPartGeometry } from "../cavity-generation";
+import { CavityAction } from "../cavity-generation/CavityAction";
+import type { CanonicalPartGeometry } from "../cavity-generation/cavityGeneration.contracts";
 import { useCuttingWorkflowStore } from "../cutting-workflow";
 import {
   ConstructIcon,

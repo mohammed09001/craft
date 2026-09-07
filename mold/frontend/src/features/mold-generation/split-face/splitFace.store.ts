@@ -8,17 +8,19 @@ import type { ReferenceMoldDefinition } from "../reference-mold-definition/refer
 import { PART_BOUNDING_BOX_FACE_IDS, type Bounds3, type CuttingPlaneAxis, type CuttingPlaneRecord, type PartBoundingBoxFaceId, type SplitWorkflowState } from "./splitFace.contracts";
 import { clampNormalizedPosition, createCuttingPlane, cuttingPlanesToCutPlaneData, normalizedToWorldCoordinate } from "./splitFace.geometry";
 import { DEFAULT_CAVITY_CLEARANCE_MM, type CanonicalPartGeometry, type CavityWorkflowState } from "../cavity-generation/cavityGeneration.contracts";
-import { buildCavityGenerationInput } from "../cavity-generation/cavityGeneration.input";
 import { cancelActiveCavityGeneration as defaultCancelActiveCavityGeneration, runCavityGenerationInWorker as defaultRunCavityGenerationInWorker } from "../cavity-generation/cavityGeneration.workerClient";
 import {
   normalizeSprueDiameterMm,
   normalizeSprueEntryNeckDiameterMm,
-  type SprueDefinition,
-  type SprueOperationDefinition,
-  type SpruePreviewPlacement,
-  type SprueProfileDesignResult,
+} from "../sprue-generation/sprueProfile";
+import type {
+  SprueDefinition,
+  SprueOperationDefinition,
+  SpruePreviewPlacement,
+  SprueProfileDesignResult,
 } from "../sprue-generation";
-import { AUTOMATIC_SEGMENTATION_REGISTRATION_SIZING_POLICY, unavailableRegistration, type DerivedRegistrationState, type RegistrationSizingPolicy } from "../registration";
+import { AUTOMATIC_SEGMENTATION_REGISTRATION_SIZING_POLICY, type RegistrationSizingPolicy } from "../registration/registrationSizing.policy";
+import { unavailableRegistration, type DerivedRegistrationState } from "../registration/registrationState";
 import { applyBodyVisibility, canCommitMoldEvaluation, cancelDerivedMoldEvaluation as defaultCancelDerivedMoldEvaluation, idleMoldEvaluation, isEvaluationCancelled, nextEvaluationRequest, runDerivedMoldEvaluation as defaultRunDerivedMoldEvaluation, type FinalMoldResult, type MoldDocument, type MoldEvaluationState } from "../workflow";
 import type { MoldBodyData } from "../reference-mold-definition/orthogonalMold";
 
@@ -871,6 +873,10 @@ return (set,get)=>({...initial,
   const generationVersion=before.cavity.generationVersion+1;
   const document=createDocument(before.document.revision+1,before.definition,before.cuttingPlanes,before.clearanceMm,before.cavity.clearanceMm,before.sprueDefinitions);
   const evaluation=nextEvaluationRequest(document);
+  // Dynamic import keeps cavityGeneration.input.ts's "three" (Matrix4)
+  // dependency out of the eagerly-loaded main bundle -- it's only ever
+  // needed once the user actually triggers cavity generation.
+  const {buildCavityGenerationInput}=await import("../cavity-generation/cavityGeneration.input");
   let input;
 
   try{

@@ -164,22 +164,53 @@ jobs:
       - dependency-review
     if: always()
     steps:
+      # Explicit allowed-result matrix instead of a broad
+      # failure/cancelled-only check: that pattern lets an *unexpected*
+      # skipped/action_required/timed_out result for any of these jobs slip
+      # through as if it were success, since none of those literal strings
+      # are "failure" or "cancelled". Each required job here must equal
+      # "success" exactly, no exceptions.
+      #
       # dependency-review only runs `if: github.event_name == 'pull_request'`
       # (see its own job below), so on an ordinary push its result is
       # legitimately "skipped" -- that must not fail this gate. On a pull
       # request it always runs, so "skipped" there would mean the job was
       # misconfigured/didn't trigger, not a legitimate absence; the gate must
       # fail in that case too, not treat it as automatically successful.
-      - name: Require every quality job to have passed
+      - name: Require every quality job to match its allowed result
+        env:
+          PYTHON_QUALITY_RESULT: ${{ needs.python-quality.result }}
+          FRONTEND_QUALITY_RESULT: ${{ needs.frontend-quality.result }}
+          BROWSER_SMOKE_RESULT: ${{ needs.browser-smoke.result }}
+          REPOSITORY_INTEGRITY_RESULT: ${{ needs.repository-integrity.result }}
+          DEPENDENCY_REVIEW_RESULT: ${{ needs.dependency-review.result }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "true" ]; then
-            echo "::error::One or more required quality jobs did not pass."
-            exit 1
+          set -u
+          status=0
+
+          require_success() {
+            local job_name="$1"
+            local result="$2"
+            if [ "$result" != "success" ]; then
+              echo "::error::${job_name} must equal 'success' but was '${result}'."
+              status=1
+            fi
+          }
+
+          require_success "python-quality" "$PYTHON_QUALITY_RESULT"
+          require_success "frontend-quality" "$FRONTEND_QUALITY_RESULT"
+          require_success "browser-smoke" "$BROWSER_SMOKE_RESULT"
+          require_success "repository-integrity" "$REPOSITORY_INTEGRITY_RESULT"
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            require_success "dependency-review" "$DEPENDENCY_REVIEW_RESULT"
+          elif [ "$DEPENDENCY_REVIEW_RESULT" != "skipped" ]; then
+            echo "::error::dependency-review must equal 'skipped' on a non-pull_request event (${EVENT_NAME}) but was '${DEPENDENCY_REVIEW_RESULT}'."
+            status=1
           fi
-          if [ "${{ github.event_name == 'pull_request' && needs.dependency-review.result != 'success' }}" = "true" ]; then
-            echo "::error::Dependency review is required on pull requests but did not run/succeed (result: ${{ needs.dependency-review.result }})."
-            exit 1
-          fi
+
+          exit "$status"
 
   dependency-review:
     name: Dependency review

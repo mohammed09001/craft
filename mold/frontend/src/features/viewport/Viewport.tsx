@@ -35,7 +35,7 @@ import type {
 } from "@/features/viewport/viewport.contracts";
 import { useViewportRuntime } from "@/features/viewport/useViewportRuntime";
 import { resolveViewportTool, useViewportToolStore } from "@/features/viewport/viewportTool.store";
-import { shouldIgnoreEscape } from "@/features/viewport/runtime/pointerSelection";
+import { shouldIgnoreEscape } from "@/features/viewport/shouldIgnoreEscape";
 import {
   type PartFlipDirection,
   type PartOrientation,

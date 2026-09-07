@@ -7,6 +7,7 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { act, useEffect } from "react";
+import { MemoryRouter } from "react-router-dom";
 
 import { App } from "@/app/App";
 import { AppProviders } from "@/app/providers/AppProviders";
@@ -563,9 +564,11 @@ it("does not add another canvas or recreate the runtime on rerender", async () =
   });
 
   rerender(
-    <AppProviders>
-      <Viewport onStatusChange={vi.fn()} />
-    </AppProviders>,
+    <MemoryRouter initialEntries={["/workspace"]}>
+      <AppProviders>
+        <Viewport onStatusChange={vi.fn()} />
+      </AppProviders>
+    </MemoryRouter>,
   );
 
   expect(document.querySelectorAll("canvas")).toHaveLength(1);
@@ -1344,6 +1347,10 @@ describe("Printer dimensions prompt -- Segmentation", () => {
 
   it("does not require printer dimensions for Import STL to remain available", async () => {
     renderWithSelectedModel();
+
+    await waitFor(() => {
+      expect(runtimeMock.createThreeViewportRuntime).toHaveBeenCalledTimes(1);
+    });
 
     const fileInput = screen.getByLabelText("Local STL file");
     expect(fileInput).toBeInTheDocument();

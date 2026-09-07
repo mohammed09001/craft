@@ -30,7 +30,6 @@ import type {
   SegmentationExecutionRequest,
   SegmentationExecutionResult,
 } from "../execution/segmentationExecution.contracts";
-import { executePlaneSegmentation } from "../execution/segmentationPlaneExecutor";
 
 export interface SegmentationApplicationDependencies {
   readonly readSource: () => SegmentationSourceSnapshotResult;
@@ -192,10 +191,23 @@ export interface SegmentationExecutionDependencies {
 const defaultExecutionDependencies: SegmentationExecutionDependencies = {
   readSource: readCurrentSegmentationSourceSnapshot,
   readPrinterVolume: defaultDependencies.readPrinterVolume,
-  runExecution: (request) =>
-    typeof Worker === "undefined"
-      ? executePlaneSegmentation(request)
-      : runSegmentationExecutionInWorker(request),
+  runExecution: async (request) => {
+    if (typeof Worker === "undefined") {
+      // The Worker-less fallback pulls in the whole manifold-3d/three.js-BVH
+      // segmentation execution engine transitively (see
+      // segmentationPlaneExecutor.ts). A dynamic import keeps that entire
+      // engine out of the eagerly-loaded main bundle -- every real browser
+      // has `Worker`, so this branch exists only for environments that
+      // genuinely lack it, never the normal runtime path.
+      const { executePlaneSegmentation } = await import(
+        "../execution/segmentationPlaneExecutor"
+      );
+
+      return executePlaneSegmentation(request);
+    }
+
+    return runSegmentationExecutionInWorker(request);
+  },
 };
 
 function executionSourceIsCurrent(

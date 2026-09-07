@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 
 import { selectActiveMoldBodies, useSplitFaceStore } from "../split-face/splitFace.store";
 import type { ReferenceMoldDefinition } from "./referenceMoldDefinition.contracts";
@@ -60,7 +60,9 @@ it("is absent before results and toggles mold bodies independently", () => {
 
   expect(screen.queryByRole("complementary")).toBeNull();
 
-  setReadyBodies();
+  act(() => {
+    setReadyBodies();
+  });
   view.rerender(<MoldBodiesBrowser />);
 
   fireEvent.click(screen.getByRole("button", { name: "Hide Mold 1" }));

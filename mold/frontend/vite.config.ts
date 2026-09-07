@@ -10,6 +10,20 @@ export default defineConfig({
       "@": fileURLToPath(new URL("./src", import.meta.url)),
     },
   },
+  build: {
+    rolldownOptions: {
+      input: {
+        app: fileURLToPath(new URL("./index.html", import.meta.url)),
+        // Test-only Playwright entry (see e2e/cavityGeometry.spec.ts /
+        // src/test-harness/cavityGeometryProbe.ts) -- never linked from the
+        // real app, built by this same production toolchain so the browser
+        // proof exercises the real production geometry modules.
+        "e2e-harness": fileURLToPath(
+          new URL("./e2e-harness.html", import.meta.url),
+        ),
+      },
+    },
+  },
   test: {
     environment: "jsdom",
     globals: true,

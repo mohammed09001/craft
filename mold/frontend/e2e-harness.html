@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Craft E2E geometry probe (test-only, not part of the product)</title>
+  </head>
+  <body>
+    <!--
+      Test-only entry point. Never linked from the real app (index.html /
+      main.tsx / the router) and carries no user-facing UI -- it exists only
+      so Playwright can invoke a real production geometry module in a real
+      Chromium page built by the same production toolchain (see
+      e2e/cavityGeometry.spec.ts and src/test-harness/cavityGeometryProbe.ts).
+    -->
+    <script type="module" src="/src/test-harness/cavityGeometryProbe.ts"></script>
+  </body>
+</html>

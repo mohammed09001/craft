@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 import type { ReactElement } from "react";
 import userEvent from "@testing-library/user-event";
 import { useLocation } from "react-router-dom";
@@ -110,7 +110,9 @@ describe("App shell", () => {
   it("does not persist mobile drawer state", () => {
     renderWithAppProviders(<App />);
 
-    useUiShellStore.getState().openMobileNavigation();
+    act(() => {
+      useUiShellStore.getState().openMobileNavigation();
+    });
 
     const storedValue = localStorage.getItem(UI_SHELL_STORAGE_KEY);
 

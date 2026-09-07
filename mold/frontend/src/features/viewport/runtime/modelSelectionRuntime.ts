@@ -13,10 +13,10 @@ import {
   createPointerGesture,
   isClickCandidate,
   normalizePointerToNdc,
-  shouldIgnoreEscape,
   updatePointerGesture,
   type PointerGesture,
 } from "@/features/viewport/runtime/pointerSelection";
+import { shouldIgnoreEscape } from "@/features/viewport/shouldIgnoreEscape";
 import type { RenderScheduler } from "@/features/viewport/runtime/renderScheduler";
 import type { ViewportPalette } from "@/features/viewport/viewport.contracts";
 import type { PartBoundingBoxFaceId } from "@/features/mold-generation/split-face";

@@ -5,9 +5,9 @@ import {
   createPointerGesture,
   isClickCandidate,
   normalizePointerToNdc,
-  shouldIgnoreEscape,
   updatePointerGesture,
 } from "@/features/viewport/runtime/pointerSelection";
+import { shouldIgnoreEscape } from "@/features/viewport/shouldIgnoreEscape";
 
 it("normalizes pointer coordinates with canvas rect offsets", () => {
   const target = new Vector2();

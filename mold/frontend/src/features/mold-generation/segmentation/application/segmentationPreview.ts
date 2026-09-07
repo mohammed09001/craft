@@ -3,12 +3,10 @@ import {
   type MoldBodyData,
 } from "../../reference-mold-definition/orthogonalMold";
 import type { ReferenceMoldDefinition } from "../../reference-mold-definition/referenceMoldDefinition.contracts";
-import {
-  buildRegistrationDependencySnapshot,
-  AUTOMATIC_SEGMENTATION_REGISTRATION_SIZING_POLICY,
-  generateDerivedRegistration,
-  type DerivedRegistrationState,
-  type RegistrationProtectedRegion,
+import { AUTOMATIC_SEGMENTATION_REGISTRATION_SIZING_POLICY } from "../../registration/registrationSizing.policy";
+import type {
+  DerivedRegistrationState,
+  RegistrationProtectedRegion,
 } from "../../registration";
 import type {
   ProtectedRegion,
@@ -87,6 +85,12 @@ export async function generateSegmentationPlanPreview(input: {
 }): Promise<SegmentationPlanPreview> {
   const unkeyedBodies =
     input.unkeyedBodies ?? buildSegmentationPlanPreviewBodies(input);
+  // Dynamic import keeps RegistrationGenerationService's manifold/three-mesh-bvh
+  // dependency out of the eagerly-loaded main bundle -- segmentation.store.ts
+  // (which needs this module) is itself boot-required, but real registration
+  // generation only ever runs once a Segmentation preview/commit is requested.
+  const { buildRegistrationDependencySnapshot, generateDerivedRegistration } =
+    await import("../../registration/registrationLifecycle");
   const baseSnapshot = buildRegistrationDependencySnapshot({
     bodies: unkeyedBodies,
     definition: input.definition,
@@ -129,6 +133,8 @@ export async function generateCommittedSegmentationRegistration(input: {
     readonly geometryVersion: string;
   })[];
 }): Promise<DerivedRegistrationState> {
+  const { buildRegistrationDependencySnapshot, generateDerivedRegistration } =
+    await import("../../registration/registrationLifecycle");
   const baseSnapshot = buildRegistrationDependencySnapshot({
     bodies: input.bodies,
     definition: input.definition,

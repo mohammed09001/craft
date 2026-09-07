@@ -1,4 +1,3 @@
-import { evaluateDerivedMold } from "./evaluateDerivedMold";
 import type { DerivedMoldEvaluationInput, DerivedMoldEvaluationResult, DerivedMoldWorkerRequest, DerivedMoldWorkerResponse } from "./derivedMoldEvaluation.contracts";
 
 type WorkerLike = { onmessage: ((event: MessageEvent<DerivedMoldWorkerResponse>) => void) | null; onerror: ((event: ErrorEvent) => void) | null; postMessage(message: DerivedMoldWorkerRequest): void; terminate(): void };
@@ -23,7 +22,16 @@ export function createDerivedMoldEvaluationRunner(createWorker: DerivedMoldWorke
     onProgress?: (stage: "sprues" | "registration", progress: number) => void,
   ): Promise<DerivedMoldEvaluationResult> => {
     cancelActive("A newer mold evaluation replaced this request.");
-    if (createWorker === browserWorker && typeof Worker === "undefined") return evaluateDerivedMold(input, onProgress);
+    // The Worker-less fallback pulls in the whole registration/Sprue/Manifold
+    // derived-mold engine transitively (see evaluateDerivedMold.ts). A dynamic
+    // import keeps that entire engine out of the eagerly-loaded main bundle --
+    // every real browser has `Worker`, so this branch exists only for
+    // environments that genuinely lack it, never the normal runtime path.
+    if (createWorker === browserWorker && typeof Worker === "undefined") {
+      return import("./evaluateDerivedMold").then(({ evaluateDerivedMold }) =>
+        evaluateDerivedMold(input, onProgress),
+      );
+    }
     const activeWorker = getWorker();
     return new Promise((resolve, reject) => {
       let settled = false;
