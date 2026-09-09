@@ -385,7 +385,132 @@ const defaultSplitFaceStoreDeps:SplitFaceStoreDeps={runDerivedMoldEvaluation:def
 /** Factory so an isolated draft session (see cutting-workflow/) can own its own worker-runner instances instead of sharing the module-level singletons below. Default args keep `useSplitFaceStore` behaviorally identical to before this extraction. */
 export function createSplitFaceStoreCreator(deps:SplitFaceStoreDeps=defaultSplitFaceStoreDeps):StateCreator<SplitFaceState>{
 const{runDerivedMoldEvaluation,cancelDerivedMoldEvaluation,runCavityGenerationInWorker,cancelActiveCavityGeneration}=deps;
-return (set,get)=>({...initial,
+return (set,get)=>{
+/**
+ * Bounded latest-wins scheduler for Sprue derived evaluations. EPHEMERAL,
+ * per-store-instance execution bookkeeping only (closure-owned, never
+ * module-global, never shared between instances): the authoritative
+ * requested Sprue state stays in the store fields (`sprueDefinitions`,
+ * `document`, `evaluation`) and every commit stays behind the
+ * `canCommitMoldEvaluation` identity gate. The scheduler only decides WHEN
+ * the single allowed active evaluation and the single allowed latest-pending
+ * snapshot run, so a rapid burst A,B,C,... lets A run, renders B..superseded
+ * intents non-committable immediately (each acceptance already bumps the
+ * document revision/fingerprint), and evaluates only the final snapshot next.
+ */
+let sprueActiveRequestId:string|null=null;
+let spruePendingLatest:{requestId:string;requested:readonly SprueOperationDefinition[];input:Parameters<typeof runDerivedMoldEvaluation>[0]}|null=null;
+let sprueHistoryBase:Snapshot|null=null;
+/** Clears the whole scheduler cycle. Used by Undo/Redo and every model- or
+ * topology-replacement reset: an orphaned queued snapshot must never start
+ * against a document it was not built for, and an in-flight result is made
+ * stale by the identity gate anyway (cancellation is a resource
+ * optimization, not the correctness mechanism). */
+const cancelSprueScheduler=(reason?:string)=>{sprueActiveRequestId=null;spruePendingLatest=null;sprueHistoryBase=null;cancelDerivedMoldEvaluation(reason);};
+const startPendingSprueIfDue=()=>{
+ const job=spruePendingLatest;
+ if(job===null)return;
+ spruePendingLatest=null;
+ const latest=get();
+ // The queued snapshot may only start while it is still the authoritative
+ // current intent. The reference check against `document.sprues` also
+ // rejects it after any non-Sprue edit (topology, clearance, model
+ // replacement) rebuilt the document while the older evaluation was running.
+ if(latest.evaluation.phase!=="evaluating"||latest.evaluation.requestId!==job.requestId||latest.document.sprues!==job.requested){
+  if(sprueActiveRequestId===null)sprueHistoryBase=null;
+  return;
+ }
+ dispatchSprueEvaluation(job.input);
+};
+const dispatchSprueEvaluation=(input:Parameters<typeof runDerivedMoldEvaluation>[0])=>{
+ const requestId=input.requestId;
+ sprueActiveRequestId=requestId;
+ void (async()=>{
+  try{
+   const derived=await runDerivedMoldEvaluation(input);
+   const latest=get();
+   if(sprueActiveRequestId===requestId)sprueActiveRequestId=null;
+   const finalResult:FinalMoldResult={sourceRevision:input.sourceRevision,sourceFingerprint:input.sourceFingerprint,requestId,bodies:derived.registration.bodies??derived.sprueBodies,keyed:derived.registration.status==="generated",stages:{baseBodies:input.definition.moldBodies??[],cavityResult:input.cavityResult,sprueBodies:derived.sprueBodies,resolvedSprues:derived.resolvedSprues,registration:derived.registration},warnings:derived.warnings};
+   if(!canCommitMoldEvaluation(latest,finalResult)){
+    // Stale success: an older request finished after a newer intent was
+    // accepted. It writes nothing authoritative, no history, and no
+    // status -- then hands the Worker to the latest pending snapshot.
+    startPendingSprueIfDue();
+    return;
+   }
+   const base=sprueHistoryBase;
+   sprueHistoryBase=null;
+   set(s=>({...s,undoStack:[...s.undoStack.slice(-49),...(base!==null?[snap(base)]:[])],redoStack:[],sprues:derived.resolvedSprues,sprueDefinitions:derived.sprueDefinitions,registration:derived.registration,lastCommittedResult:finalResult,sprueStatus:"idle",evaluation:{...s.evaluation,phase:"complete" as const,stage:"validation" as const,progress:1},error:null}));
+   startPendingSprueIfDue();
+  }catch(error){
+   const cancelled=isEvaluationCancelled(error);
+   const latest=get();
+   const stillCurrent=latest.evaluation.phase==="evaluating"&&latest.evaluation.requestId===requestId&&latest.document.revision===input.sourceRevision&&latest.document.fingerprint===input.sourceFingerprint;
+   if(sprueActiveRequestId===requestId)sprueActiveRequestId=null;
+   if(cancelled||!stillCurrent){
+    // Stale or cancelled failure: some newer request already owns
+    // sprueStatus/evaluation -- touching either field here (even to
+    // "idle") would clobber that newer request.
+    startPendingSprueIfDue();
+    return;
+   }
+   // Current failure: truthful terminal state. The requested intents are
+   // marked `invalid` (never left `pending`/`generating`); the presentation
+   // selector maps invalid definitions that still have resolved geometry
+   // back to that last valid resolved geometry, so a failed edit visually
+   // rolls back while the failure stays visible.
+   const message=error instanceof Error?error.message:"Sprue evaluation failed.";
+   sprueHistoryBase=null;
+   set(s=>({...s,sprueDefinitions:s.sprueDefinitions.map(definition=>({...definition,validation:{status:"invalid" as const,reasonCode:null,message}})),sprueStatus:"idle",evaluation:{...s.evaluation,phase:"failed" as const,failure:{reasonCode:"derived_evaluation_failed",message}},error:message}));
+   startPendingSprueIfDue();
+  }
+ })();
+};
+/**
+ * Accepts an already-validated Sprue intent set as the authoritative current
+ * desired state and schedules its derived evaluation under the latest-wins
+ * scheduler. Acceptance is immediate and lightweight: the intent, the bumped
+ * document identity, and the pending presentation are visible to consumers
+ * synchronously; the expensive Manifold/Registration work continues
+ * asynchronously in the persistent Worker.
+ *
+ * Public action contract (createSprue / resizeSprue / resizeSprueEntryNeck /
+ * moveSprue / removeSprue / rebuildSprueDefinitions): the returned promise
+ * resolving `true` means the request was VALID and was ACCEPTED into the
+ * authoritative current intent -- it may still be running or coalesced as
+ * the latest pending snapshot. It does NOT mean final geometry has committed;
+ * observe `evaluation` / resolved `sprues` for that. `false` is reserved for
+ * genuine invalid input or lifecycle preconditions (e.g. no mold
+ * definition); a busy older evaluation is never a reason to reject.
+ */
+const acceptSprueIntent=(requested:readonly SprueOperationDefinition[],before:Snapshot):boolean=>{
+ if(before.definition===null)return false;
+ const document=createDocument(before.document.revision+1,before.definition,before.cuttingPlanes,before.clearanceMm,before.cavity.clearanceMm,requested);
+ const evaluation=nextEvaluationRequest(document);
+ set({sprueDefinitions:requested,document,evaluation,registration:generatingRegistration(document.fingerprint),sprueStatus:"generating",error:null});
+ if(before.cavity.result===null){
+  set(s=>({...s,undoStack:[...s.undoStack.slice(-49),snap(before)],redoStack:[],registration:before.registration,sprueStatus:"idle",evaluation:{...s.evaluation,phase:"complete" as const,stage:"sprues" as const,progress:1}}));
+  return true;
+ }
+ // The history base is captured once per burst cycle (the resolved state the
+ // first superseded-or-final intent started from), so a committed burst
+ // pushes exactly one coherent Undo entry, and superseded intents push none.
+ if(sprueActiveRequestId===null&&spruePendingLatest===null)sprueHistoryBase=null;
+ if(sprueHistoryBase===null)sprueHistoryBase=snap(before);
+ const input:Parameters<typeof runDerivedMoldEvaluation>[0]={requestId:evaluation.requestId!,sourceRevision:document.revision,sourceFingerprint:document.fingerprint,cavityResult:before.cavity.result,definition:before.definition,cuttingPlanes:before.cuttingPlanes,sprueDefinitions:requested,...registrationSizingPolicyFor(before.definition)};
+ if(sprueActiveRequestId===null){
+  dispatchSprueEvaluation(input);
+ }else{
+  spruePendingLatest={requestId:evaluation.requestId!,requested,input};
+  // Resource optimization only: the active result is already
+  // non-committable because the acceptance above advanced the document
+  // identity. Cancellation may be delayed by synchronous WASM and is not
+  // relied on for correctness.
+  cancelDerivedMoldEvaluation("A newer Sprue edit superseded this evaluation.");
+ }
+ return true;
+};
+return {...initial,
  /** Activates the interactive Cut by Face selection workflow (opening the
   * panel's Cut by Face tab, or reopening it after a prior commit). This is
   * an activation, not an edit: it deliberately leaves `definition`,
@@ -1020,41 +1145,14 @@ return (set,get)=>({...initial,
   }
  },
  setCavityClearanceMm:()=>{cancelActiveCavityGeneration("Cavity clearance locked at 0.0 mm.");set(s=>s.cavity.clearanceMm===0?s:{...history(s),cavity:{...readyCavity(s.cavity),clearanceMm:0}});},
- setCanonicalPartGeometrySignature:(signature)=>{cancelActiveCavityGeneration("Model geometry changed.");cancelDerivedMoldEvaluation("Model geometry changed.");set(s=>signature===s.partGeometrySignature?s:{...s,partGeometrySignature:signature,cavity:s.definition?.moldBodies?.length?readyCavity(s.cavity):unavailableCavity(s.cavity.clearanceMm),registration:unavailableRegistration(),document:createDocument(s.document.revision+1,s.definition,s.cuttingPlanes,s.clearanceMm,s.cavity.clearanceMm,s.sprueDefinitions),evaluation:s.evaluation.phase==="evaluating"?{...s.evaluation,phase:"stale"}:s.evaluation});},
+ setCanonicalPartGeometrySignature:(signature)=>{cancelActiveCavityGeneration("Model geometry changed.");cancelSprueScheduler("Model geometry changed.");set(s=>signature===s.partGeometrySignature?s:{...s,partGeometrySignature:signature,cavity:s.definition?.moldBodies?.length?readyCavity(s.cavity):unavailableCavity(s.cavity.clearanceMm),registration:unavailableRegistration(),document:createDocument(s.document.revision+1,s.definition,s.cuttingPlanes,s.clearanceMm,s.cavity.clearanceMm,s.sprueDefinitions),evaluation:s.evaluation.phase==="evaluating"?{...s.evaluation,phase:"stale"}:s.evaluation});},
  createSprue:async(placement)=>{
   const before=get();
-  if(
-   before.sprueStatus==="generating"||
-   placement.coordinateSpace!=="mold-local"
-  )return false;
+  if(placement.coordinateSpace!=="mold-local")return false;
   if(before.definition===null)return false;
   const operationId=`sprue:${hash(`${before.document.revision}:${placement.topPoint.x}:${placement.topPoint.y}:${placement.topPoint.z}:${before.sprueDefinitions.length}`)}`;
-  const intent:SprueOperationDefinition={operationId,anchor:{position:structuredClone(placement.topPoint),surfaceId:"reference-mold:top"},inwardDirection:structuredClone(placement.inwardDirection),profileDesign:placement.profileDesign,creationOrder:before.sprueDefinitions.length,coordinateSpace:"mold-local",validation:{status:placement.status==="valid"?"pending":"pending",reasonCode:null,message:before.cavity.result===null?"Waiting for cavity geometry.":null}};
-  const requested=[...before.sprueDefinitions,intent];
-  const document=createDocument(before.document.revision+1,before.definition,before.cuttingPlanes,before.clearanceMm,before.cavity.clearanceMm,requested);
-  const evaluation=nextEvaluationRequest(document);
-  set({sprueDefinitions:requested,document,evaluation,registration:generatingRegistration(document.fingerprint),sprueStatus:"generating",error:null});
-  if(before.cavity.result===null){
-   set(s=>({...s,undoStack:[...s.undoStack.slice(-49),snap(before)],redoStack:[],registration:before.registration,sprueStatus:"idle",evaluation:{...s.evaluation,phase:"complete",stage:"sprues",progress:1}}));
-   return true;
-  }
-  try{
-   const derived=await runDerivedMoldEvaluation({requestId:evaluation.requestId!,sourceRevision:document.revision,sourceFingerprint:document.fingerprint,cavityResult:before.cavity.result,definition:before.definition,cuttingPlanes:before.cuttingPlanes,sprueDefinitions:requested,...registrationSizingPolicyFor(before.definition)});
-   const latest=get();
-   const finalResult:FinalMoldResult={sourceRevision:document.revision,sourceFingerprint:document.fingerprint,requestId:evaluation.requestId!,bodies:derived.registration.bodies??derived.sprueBodies,keyed:derived.registration.status==="generated",stages:{baseBodies:before.definition.moldBodies??[],cavityResult:before.cavity.result,sprueBodies:derived.sprueBodies,resolvedSprues:derived.resolvedSprues,registration:derived.registration},warnings:derived.warnings};
-   if(!canCommitMoldEvaluation(latest,finalResult))return false;
-   set(s=>({...s,undoStack:[...s.undoStack.slice(-49),snap(before)],redoStack:[],sprues:derived.resolvedSprues,sprueDefinitions:derived.sprueDefinitions,registration:derived.registration,lastCommittedResult:finalResult,sprueStatus:"idle",evaluation:{...s.evaluation,phase:"complete",stage:"validation",progress:1},error:null}));
-   return true;
-  }catch(error){
-   const cancelled=isEvaluationCancelled(error);
-   set(s=>{
-    // Stale or cancelled: some newer request already owns sprueStatus/evaluation --
-    // touching either field here (even to "idle") would clobber that newer request.
-    if(cancelled||!canCommitMoldEvaluation(s,{requestId:evaluation.requestId!,sourceRevision:document.revision,sourceFingerprint:document.fingerprint}))return s;
-    return {...s,sprueStatus:"idle",evaluation:{...s.evaluation,phase:"failed",failure:{reasonCode:"derived_evaluation_failed",message:error instanceof Error?error.message:"Sprue evaluation failed."}},error:error instanceof Error?error.message:"Sprue evaluation failed."};
-   });
-   return false;
-  }
+  const intent:SprueOperationDefinition={operationId,anchor:{position:structuredClone(placement.topPoint),surfaceId:"reference-mold:top"},inwardDirection:structuredClone(placement.inwardDirection),profileDesign:placement.profileDesign,creationOrder:before.sprueDefinitions.length,coordinateSpace:"mold-local",validation:{status:"pending",reasonCode:null,message:before.cavity.result===null?"Waiting for cavity geometry.":null}};
+  return acceptSprueIntent([...before.sprueDefinitions,intent],before);
  },
  resizeSprue:async(operationId,diameterMm)=>{
   const before=get();
@@ -1098,38 +1196,14 @@ return (set,get)=>({...initial,
  },
  rebuildSprueDefinitions:async(requested)=>{
   const before=get();
-  const cavityResult=before.cavity.result;
-  if(before.sprueStatus!=="idle"||before.definition===null)return false;
-  const document=createDocument(before.document.revision+1,before.definition,before.cuttingPlanes,before.clearanceMm,before.cavity.clearanceMm,requested);
-  const evaluation=nextEvaluationRequest(document);
-  set({sprueDefinitions:requested,document,evaluation,registration:generatingRegistration(document.fingerprint),sprueStatus:"generating",error:null});
-  if(cavityResult===null){
-   set(s=>({...s,undoStack:[...s.undoStack.slice(-49),snap(before)],redoStack:[],sprues:[],registration:before.registration,sprueStatus:"idle",evaluation:{...s.evaluation,phase:"complete",stage:"sprues",progress:1}}));
-   return true;
-  }
-  try{
-   const derived=await runDerivedMoldEvaluation({requestId:evaluation.requestId!,sourceRevision:document.revision,sourceFingerprint:document.fingerprint,cavityResult,definition:before.definition,cuttingPlanes:before.cuttingPlanes,sprueDefinitions:requested,...registrationSizingPolicyFor(before.definition)});
-   const latest=get();
-   const finalResult:FinalMoldResult={sourceRevision:document.revision,sourceFingerprint:document.fingerprint,requestId:evaluation.requestId!,bodies:derived.registration.bodies??derived.sprueBodies,keyed:derived.registration.status==="generated",stages:{baseBodies:before.definition.moldBodies??[],cavityResult,sprueBodies:derived.sprueBodies,resolvedSprues:derived.resolvedSprues,registration:derived.registration},warnings:derived.warnings};
-   if(!canCommitMoldEvaluation(latest,finalResult))return false;
-   set(s=>({...s,undoStack:[...s.undoStack.slice(-49),snap(before)],redoStack:[],registration:derived.registration,sprues:derived.resolvedSprues,sprueDefinitions:derived.sprueDefinitions,lastCommittedResult:finalResult,sprueStatus:"idle",evaluation:{...s.evaluation,phase:"complete",stage:"validation",progress:1},error:null}));
-   return true;
-  }catch(error){
-   const cancelled=isEvaluationCancelled(error);
-   set(s=>{
-    // Stale or cancelled: some newer request already owns sprueStatus/evaluation --
-    // touching either field here (even to "idle") would clobber that newer request.
-    if(cancelled||!canCommitMoldEvaluation(s,{requestId:evaluation.requestId!,sourceRevision:document.revision,sourceFingerprint:document.fingerprint}))return s;
-    return {...s,sprueStatus:"idle",evaluation:{...s.evaluation,phase:"failed",failure:{reasonCode:"derived_evaluation_failed",message:error instanceof Error?error.message:"Sprue evaluation failed."}},error:error instanceof Error?error.message:"Sprue evaluation failed."};
-   });
-   return false;
-  }
+  if(before.definition===null)return false;
+  return acceptSprueIntent(requested,before);
  },
  setBodyVisibility:(id,visible)=>set(s=>s.bodyVisibility[id]===visible?s:{...history(s),bodyVisibility:{...s.bodyVisibility,[id]:visible}}),
- undo:()=>{cancelActiveCavityGeneration("Undo changed the mold document.");cancelDerivedMoldEvaluation("Undo changed the mold document.");set(s=>{const p=s.undoStack.at(-1);return p?{...p,error:null,sprueStatus:"idle",undoStack:s.undoStack.slice(0,-1),redoStack:[snap(s),...s.redoStack].slice(0,50)}:s;});},
- redo:()=>{cancelActiveCavityGeneration("Redo changed the mold document.");cancelDerivedMoldEvaluation("Redo changed the mold document.");set(s=>{const n=s.redoStack[0];return n?{...n,error:null,sprueStatus:"idle",undoStack:[...s.undoStack.slice(-49),snap(s)],redoStack:s.redoStack.slice(1)}:s;});},
- clearForOrientationChange:()=>{cancelActiveCavityGeneration("Part orientation changed the mold document.");cancelDerivedMoldEvaluation("Part orientation changed the mold document.");set(s=>({...initial,clearanceMm:s.clearanceMm,cavity:unavailableCavity(s.cavity.clearanceMm),document:createDocument(s.document.revision+1,null,[],s.clearanceMm,s.cavity.clearanceMm,[])}));},
- clearForModelReplacement:()=>{cancelActiveCavityGeneration("Model replacement changed the mold document.");cancelDerivedMoldEvaluation("Model replacement changed the mold document.");set({...initial});},
+ undo:()=>{cancelActiveCavityGeneration("Undo changed the mold document.");cancelSprueScheduler("Undo changed the mold document.");set(s=>{const p=s.undoStack.at(-1);return p?{...p,error:null,sprueStatus:"idle",undoStack:s.undoStack.slice(0,-1),redoStack:[snap(s),...s.redoStack].slice(0,50)}:s;});},
+ redo:()=>{cancelActiveCavityGeneration("Redo changed the mold document.");cancelSprueScheduler("Redo changed the mold document.");set(s=>{const n=s.redoStack[0];return n?{...n,error:null,sprueStatus:"idle",undoStack:[...s.undoStack.slice(-49),snap(s)],redoStack:s.redoStack.slice(1)}:s;});},
+ clearForOrientationChange:()=>{cancelActiveCavityGeneration("Part orientation changed the mold document.");cancelSprueScheduler("Part orientation changed the mold document.");set(s=>({...initial,clearanceMm:s.clearanceMm,cavity:unavailableCavity(s.cavity.clearanceMm),document:createDocument(s.document.revision+1,null,[],s.clearanceMm,s.cavity.clearanceMm,[])}));},
+ clearForModelReplacement:()=>{cancelActiveCavityGeneration("Model replacement changed the mold document.");cancelSprueScheduler("Model replacement changed the mold document.");set({...initial});},
  /**
   * Reopen support: seeds only the committed cutting-plane INPUTS (not the
   * computed geometry outputs -- no mesh/definition/lastCommittedResult is
@@ -1161,7 +1235,7 @@ return (set,get)=>({...initial,
   */
  adoptCommittedSegmentationResult:(input)=>{
   cancelActiveCavityGeneration("A committed segmentation result replaced the mold document.");
-  cancelDerivedMoldEvaluation("A committed segmentation result replaced the mold document.");
+  cancelSprueScheduler("A committed segmentation result replaced the mold document.");
   set(s=>{
    const definition=input.sourceDefinition===null||input.bodies.length===0
      ?null
@@ -1208,7 +1282,7 @@ return (set,get)=>({...initial,
  },
  promoteReplannedSegmentationResult:(input)=>{
   cancelActiveCavityGeneration("A regenerated segmentation result replaced the mold document.");
-  cancelDerivedMoldEvaluation("A regenerated segmentation result replaced the mold document.");
+  cancelSprueScheduler("A regenerated segmentation result replaced the mold document.");
   set(s=>{
    // Superseded by a newer Scale gesture, an Undo, or any other edit since
    // this replan started -- discard rather than overwrite state this
@@ -1249,7 +1323,8 @@ return (set,get)=>({...initial,
  },
  beginSegmentationRegeneration:()=>set(s=>({...s,segmentationRegenerationCount:s.segmentationRegenerationCount+1})),
  endSegmentationRegeneration:()=>set(s=>({...s,segmentationRegenerationCount:Math.max(0,s.segmentationRegenerationCount-1)})),
-});
+ };
+ }
 }
 export const useSplitFaceStore=create<SplitFaceState>(createSplitFaceStoreCreator());
 
@@ -1314,16 +1389,40 @@ export const selectActiveMoldBodies=createSelectActiveMoldBodies();
  * module-level memoization cache against a different instance's state.
  */
 export function createSelectSpruePresentationDefinitions() {
- let selectedSprueDefinitions:readonly SprueOperationDefinition[]|undefined;
- let selectedResolvedSprues:readonly SprueDefinition[]|undefined;
- let selectedSpruePresentation:readonly import("../sprue-generation").SpruePresentationDefinition[]=[];
- return (state:Pick<SplitFaceState,"sprueDefinitions"|"sprues">)=>{
-  if(state.sprueDefinitions===selectedSprueDefinitions&&state.sprues===selectedResolvedSprues)return selectedSpruePresentation;
-  const resolved=new Map(state.sprues.map(sprue=>[sprue.operationId,sprue]));
-  selectedSprueDefinitions=state.sprueDefinitions;selectedResolvedSprues=state.sprues;
-  selectedSpruePresentation=state.sprueDefinitions.map(definition=>{const sprue=resolved.get(definition.operationId);return {operationId:definition.operationId,position:sprue?.position??definition.anchor.position,inwardDirection:sprue?.inwardDirection??definition.inwardDirection,profile:sprue?.profile??definition.profileDesign.profile,...(sprue?.depthMm!==undefined?{depthMm:sprue.depthMm}:{}),...(sprue?.targetBodyIds!==undefined?{targetBodyIds:sprue.targetBodyIds}:{}),status:definition.validation.status};});
-  return selectedSpruePresentation;
- };
+  let selectedSprueDefinitions:readonly SprueOperationDefinition[]|undefined;
+  let selectedResolvedSprues:readonly SprueDefinition[]|undefined;
+  let selectedSpruePresentation:readonly import("../sprue-generation").SpruePresentationDefinition[]=[];
+  return (state:Pick<SplitFaceState,"sprueDefinitions"|"sprues">)=>{
+   if(state.sprueDefinitions===selectedSprueDefinitions&&state.sprues===selectedResolvedSprues)return selectedSpruePresentation;
+   const resolved=new Map(state.sprues.map(sprue=>[sprue.operationId,sprue]));
+   selectedSprueDefinitions=state.sprueDefinitions;selectedResolvedSprues=state.sprues;
+   /**
+    * Presentation precedence is explicit, never accidental:
+    * - `pending` current intent: the requested anchor/inward direction/
+    *   profile ALWAYS beat stale resolved fields, so a pending resize/move
+    *   cannot visually regress to the older resolved diameter or position.
+    *   Resolved-only `depthMm`/`targetBodyIds` are deliberately not reused:
+    *   a changed profile/position cannot prove them geometrically
+    *   meaningful, and they would let pending intent look final.
+    * - `resolved` current intent with matching resolved geometry: resolved
+    *   fields drive presentation.
+    * - `invalid` current intent with resolved geometry still present: the
+    *   last valid resolved geometry is shown (truthful failure rollback)
+    *   while the definition's own `invalid` status keeps the failure
+    *   visible.
+    * - `invalid` with no resolved geometry (failed new Create): the intent
+    *   fields remain as an explicit invalid marker; they can never be
+    *   mistaken for committed geometry because `status` reports `invalid`.
+    */
+   selectedSpruePresentation=state.sprueDefinitions.map(definition=>{
+    const sprue=resolved.get(definition.operationId);
+    if(definition.validation.status==="pending"){
+     return {operationId:definition.operationId,position:definition.anchor.position,inwardDirection:definition.inwardDirection,profile:definition.profileDesign.profile,status:"pending" as const};
+    }
+    return {operationId:definition.operationId,position:sprue?.position??definition.anchor.position,inwardDirection:sprue?.inwardDirection??definition.inwardDirection,profile:sprue?.profile??definition.profileDesign.profile,...(sprue?.depthMm!==undefined?{depthMm:sprue.depthMm}:{}),...(sprue?.targetBodyIds!==undefined?{targetBodyIds:sprue.targetBodyIds}:{}),status:definition.validation.status};
+   });
+   return selectedSpruePresentation;
+  };
 }
 
 /** The singleton's own selector instance -- existing call sites (Viewport.tsx) are unaffected by the factory extraction above. */

@@ -75,20 +75,25 @@ describe("authoritative registration rebuild lifecycle",()=>{
     expect(cavityState.cavity.result!.bodies.every(body=>!body.geometryVersion.startsWith("registration:"))).toBe(true);
 
     expect(await cavityState.createSprue(placement())).toBe(true);
+    await vi.waitFor(()=>expect(useSplitFaceStore.getState().sprues).toHaveLength(1));
     const added=useSplitFaceStore.getState(),operationId=added.sprues[0]!.operationId;
     expect(added.registration.status).toBe("generated");
     expect(added.registration.revision).not.toBe(cavityRevision);
     expect(added.cavity.result!.bodies.every(body=>!body.geometryVersion.startsWith("registration:"))).toBe(true);
 
     expect(await added.moveSprue(operationId,{x:6,y:5,z:30})).toBe(true);
+    await vi.waitFor(()=>expect(useSplitFaceStore.getState().registration.status).toBe("generated"));
     const moved=useSplitFaceStore.getState();
     expect(moved.registration.status).toBe("generated");
     expect(moved.registration.revision).not.toBe(added.registration.revision);
     expect(await moved.resizeSprue(operationId,moved.sprues[0]!.profile.mainDiameterMm+0.5)).toBe(true);
+    await vi.waitFor(()=>expect(useSplitFaceStore.getState().registration.status).toBe("generated"));
     const resized=useSplitFaceStore.getState();
     expect(resized.registration.status).toBe("generated");
     expect(resized.registration.revision).not.toBe(moved.registration.revision);
     expect(await resized.removeSprue(operationId)).toBe(true);
+    await vi.waitFor(()=>expect(useSplitFaceStore.getState().sprues).toHaveLength(0));
+    await vi.waitFor(()=>expect(useSplitFaceStore.getState().registration.revision).toBe(cavityRevision));
     const removed=useSplitFaceStore.getState();
     expect(removed.registration.status).toBe("generated");
     expect(removed.sprues).toHaveLength(0);

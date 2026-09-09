@@ -46,6 +46,7 @@ export const createReferenceMoldBlock3dRuntime = (
   group.userData.referenceMoldVisualization = true;
   let definition: ReferenceMoldDefinition | null = null;
   let geometryIdentity: string | null = null;
+  let geometryIdentityReliable = false;
   let targetModelId: string | null = null;
   let target: Object3D | null = null;
   let appearanceMode: MoldAppearanceMode = "solid";
@@ -55,19 +56,29 @@ export const createReferenceMoldBlock3dRuntime = (
   // Viewport callers intentionally create a fresh definition wrapper for
   // pending Sprue/Registration presentation.  Keep that metadata change out
   // of the expensive BufferGeometry and feature-edge rebuild path.
-  const geometryIdentityOf = (next: ReferenceMoldDefinition | null): string | null => {
-    if (next === null) return null;
+  //
+  // FAIL-SAFE identity contract: the metadata-only skip is allowed ONLY when
+  // every mold body carries a trustworthy geometryVersion. body id, triangle
+  // count, and bounds alone can never prove two meshes equal -- if any body
+  // lacks a version the identity is reported unreliable and the runtime
+  // always rebuilds. Correctness beats an unproven optimization.
+  const geometryIdentityOf = (next: ReferenceMoldDefinition | null): { identity: string | null; reliable: boolean } => {
+    if (next === null) return { identity: null, reliable: true };
     const bounds = next.referenceMoldBlock.bounds;
-    return JSON.stringify({
-      definitionId: next.definitionId,
-      bounds,
-      bodies: next.moldBodies?.map((body) => ({
-        id: body.id,
-        triangleCount: body.triangleCount,
-        bounds: body.bounds,
-        geometryVersion: (body as typeof body & { geometryVersion?: string }).geometryVersion ?? null,
-      })) ?? null,
-    });
+    const bodies = next.moldBodies;
+    if (bodies === null || bodies === undefined) {
+      // The rendered surface is derived purely from the block bounds.
+      return { identity: JSON.stringify({ definitionId: next.definitionId, bounds, bodies: null }), reliable: true };
+    }
+    const identityBodies = bodies.map((body) => ({
+      id: body.id,
+      triangleCount: body.triangleCount,
+      bounds: body.bounds,
+      geometryVersion: (body as typeof body & { geometryVersion?: string }).geometryVersion ?? null,
+    }));
+    const reliable = identityBodies.every((body) => typeof body.geometryVersion === "string" && body.geometryVersion.length > 0);
+    if (!reliable) return { identity: null, reliable: false };
+    return { identity: JSON.stringify({ definitionId: next.definitionId, bounds, bodies: identityBodies }), reliable: true };
   };
 
   const disposeMaterials = (material: Material | Material[]) => {
@@ -172,9 +183,17 @@ export const createReferenceMoldBlock3dRuntime = (
     object: group,
     setDefinition: (nextDefinition) => {
       const nextGeometryIdentity = geometryIdentityOf(nextDefinition);
-      const geometryUnchanged = geometryIdentity === nextGeometryIdentity;
+      // Skip the rebuild only on a double-verified match: both the previous
+      // and the next identity must be trustworthy. An unreliable identity
+      // (any body missing geometryVersion) always rebuilds -- including two
+      // consecutive unreliable sets, which never compare equal here.
+      const geometryUnchanged =
+        geometryIdentityReliable &&
+        nextGeometryIdentity.reliable &&
+        geometryIdentity === nextGeometryIdentity.identity;
       definition = nextDefinition;
-      geometryIdentity = nextGeometryIdentity;
+      geometryIdentity = nextGeometryIdentity.identity;
+      geometryIdentityReliable = nextGeometryIdentity.reliable;
       if (geometryUnchanged) return;
       rebuild();
     },
@@ -235,6 +254,7 @@ export const createReferenceMoldBlock3dRuntime = (
       target = null;
       definition = null;
       geometryIdentity = null;
+      geometryIdentityReliable = false;
       onGroundZChange(null);
     },
   };

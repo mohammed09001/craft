@@ -147,9 +147,20 @@ export function createSpruePreview3dRuntime(options: {
   const axis = new Vector3(0, 1, 0);
   const normalMatrix = new Matrix3();
   const orientation = new Quaternion();
-  const moldTargets: Mesh<BufferGeometry, Material>[] = [];
-  const materialSnapshots = new Map<Material, MaterialSnapshot>();
-  const glassEdges: LineSegments[] = [];
+const moldTargets: Mesh<BufferGeometry, Material>[] = [];
+const materialSnapshots = new Map<Material, MaterialSnapshot>();
+/**
+ * Presentation-local cache of Sprue glass feature edges, keyed by the actual
+ * source BufferGeometry OBJECT (the real geometry identity inside this Three
+ * runtime -- never body id or triangle count). Extracting EdgesGeometry is
+ * expensive, so repeated Sprue activation against unchanged mold geometry
+ * reuses the cached overlay instead of rebuilding it. Entries are detached
+ * (not disposed) on deactivation, pruned+disposed as soon as their source
+ * geometry leaves the current target set, and fully disposed with the
+ * runtime -- so nothing outlives the mold it was extracted from and no
+ * duplicate edge objects accumulate across activations.
+ */
+const glassEdgeCache = new Map<BufferGeometry, { edges: LineSegments }>();
   let moldRoot: Object3D | null = null;
   let cavityTarget: Mesh<BufferGeometry, MeshBasicMaterial> | null = null;
   let cavityToolData: CavityToolData | null = null;
@@ -224,6 +235,12 @@ export function createSpruePreview3dRuntime(options: {
     invalidate();
   }
 
+  function disposeGlassEdgeEntry(entry: { edges: LineSegments }) {
+    entry.edges.removeFromParent();
+    entry.edges.geometry.dispose();
+    (entry.edges.material as Material).dispose();
+  }
+
   function restoreGlass() {
     for (const [moldMaterial, snapshot] of materialSnapshots) {
       moldMaterial.depthWrite = snapshot.depthWrite;
@@ -232,10 +249,11 @@ export function createSpruePreview3dRuntime(options: {
       moldMaterial.needsUpdate = true;
     }
     materialSnapshots.clear();
-    for (const edges of glassEdges.splice(0)) {
-      edges.removeFromParent();
-      edges.geometry.dispose();
-      (edges.material as Material).dispose();
+    // Detach every cached overlay WITHOUT disposing it: the extraction is
+    // keyed by the source BufferGeometry object, so unchanged geometry can
+    // be re-glassed on the next activation with zero new EdgesGeometry work.
+    for (const entry of glassEdgeCache.values()) {
+      entry.edges.removeFromParent();
     }
   }
 
@@ -244,6 +262,16 @@ export function createSpruePreview3dRuntime(options: {
     if (!active) {
       invalidate();
       return;
+    }
+    const sourceGeometries = new Set(moldTargets.map((target) => target.geometry));
+    // Deterministic disposal: prune (and dispose) entries whose source
+    // geometry is no longer among the current mold targets -- exactly the
+    // affected entry is recreated when that geometry appears again.
+    for (const [geometry, entry] of [...glassEdgeCache]) {
+      if (!sourceGeometries.has(geometry)) {
+        disposeGlassEdgeEntry(entry);
+        glassEdgeCache.delete(geometry);
+      }
     }
     for (const target of moldTargets) {
       const materials = Array.isArray(target.material)
@@ -263,21 +291,26 @@ export function createSpruePreview3dRuntime(options: {
         moldMaterial.needsUpdate = true;
       }
 
-      const edges = new LineSegments(
-        new EdgesGeometry(target.geometry),
-        new LineBasicMaterial({
-          color: 0x762d34,
-          opacity: 0.78,
-          transparent: true,
-          depthWrite: false,
-        }),
-      );
-      edges.name = "SprueGlassEdges";
-      edges.renderOrder = 9;
-      edges.raycast = () => undefined;
-      edges.userData.spruePreviewHelper = true;
-      target.add(edges);
-      glassEdges.push(edges);
+      let entry = glassEdgeCache.get(target.geometry);
+      if (entry === undefined) {
+        entry = {
+          edges: new LineSegments(
+            new EdgesGeometry(target.geometry),
+            new LineBasicMaterial({
+              color: 0x762d34,
+              opacity: 0.78,
+              transparent: true,
+              depthWrite: false,
+            }),
+          ),
+        };
+        entry.edges.name = "SprueGlassEdges";
+        entry.edges.renderOrder = 9;
+        entry.edges.raycast = () => undefined;
+        entry.edges.userData.spruePreviewHelper = true;
+        glassEdgeCache.set(target.geometry, entry);
+      }
+      target.add(entry.edges);
     }
     invalidate();
   }
@@ -518,6 +551,10 @@ export function createSpruePreview3dRuntime(options: {
       canvas.removeEventListener("pointerleave", handlePointerLeave);
       canvas.removeEventListener("pointercancel", handlePointerCancel);
       restoreGlass();
+      for (const entry of glassEdgeCache.values()) {
+        disposeGlassEdgeEntry(entry);
+      }
+      glassEdgeCache.clear();
       cavityTarget?.geometry.dispose();
       cavityTarget?.material.dispose();
       cavityTarget = null;

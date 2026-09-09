@@ -112,6 +112,8 @@ describe("face-driven mold workflow",()=>{
   const originalVersion=body.geometryVersion;
   const firstCreated=await before.createSprue(placement());
   expect({created:firstCreated,error:useSplitFaceStore.getState().error}).toEqual({created:true,error:null});
+  // Acceptance is immediate; the authoritative commit lands asynchronously.
+  await vi.waitFor(()=>expect(useSplitFaceStore.getState().sprues).toHaveLength(1));
   const afterFirst=useSplitFaceStore.getState();
   const firstBody=afterFirst.lastCommittedResult!.stages.sprueBodies.find(candidate=>candidate.id===body.id)!;
   expect(firstBody.geometryVersion).not.toBe(originalVersion);
@@ -120,6 +122,7 @@ describe("face-driven mold workflow",()=>{
   expect(afterFirst.sprueStatus).toBe("idle");
   const secondCreated=await afterFirst.createSprue(placement(8));
   expect({created:secondCreated,error:useSplitFaceStore.getState().error}).toEqual({created:true,error:null});
+  await vi.waitFor(()=>expect(useSplitFaceStore.getState().sprues).toHaveLength(2));
   const afterSecond=useSplitFaceStore.getState();
   const secondBody=afterSecond.lastCommittedResult!.stages.sprueBodies.find(candidate=>candidate.id===body.id)!;
   expect(secondBody.geometryVersion).not.toBe(firstBody.geometryVersion);
@@ -133,6 +136,7 @@ describe("face-driven mold workflow",()=>{
   await prepareSprueState();
   expect(await useSplitFaceStore.getState().createSprue(placement())).toBe(true);
   expect(await useSplitFaceStore.getState().createSprue(placement(8))).toBe(true);
+  await vi.waitFor(()=>expect(useSplitFaceStore.getState().sprues).toHaveLength(2));
   const before=useSplitFaceStore.getState();
   const [first,second]=before.sprues;
   expect(first).toBeDefined();expect(second).toBeDefined();
@@ -141,6 +145,7 @@ describe("face-driven mold workflow",()=>{
   const historyLength=before.undoStack.length;
 
   expect(await before.resizeSprue(first!.operationId,requestedDiameter)).toBe(true);
+  await vi.waitFor(()=>expect(useSplitFaceStore.getState().sprues[0]!.profile.mainDiameterMm).toBe(requestedDiameter));
   const resized=useSplitFaceStore.getState();
   expect(resized.undoStack).toHaveLength(historyLength+1);
   expect(resized.sprues).toHaveLength(2);
@@ -158,15 +163,17 @@ describe("face-driven mold workflow",()=>{
   expect(await useSplitFaceStore.getState().resizeSprue(first!.operationId,Number.NaN)).toBe(false);
   expect(useSplitFaceStore.getState().undoStack).toHaveLength(beforeInvalid);
   expect(await useSplitFaceStore.getState().resizeSprue(first!.operationId,requestedDiameter+.25)).toBe(true);
-  expect(useSplitFaceStore.getState().sprues[0]!.profile.mainDiameterMm).toBe(requestedDiameter+.25);
+  await vi.waitFor(()=>expect(useSplitFaceStore.getState().sprues[0]!.profile.mainDiameterMm).toBe(requestedDiameter+.25));
  });
  it("resizes the entry neck (lower opening) independently of the main diameter, clamped by it",async()=>{
   await prepareSprueState();
   expect(await useSplitFaceStore.getState().createSprue(placement())).toBe(true);
+  await vi.waitFor(()=>expect(useSplitFaceStore.getState().sprues).toHaveLength(1));
   const created=useSplitFaceStore.getState();
   const [createdSprue]=created.sprues;
   expect(createdSprue).toBeDefined();
   expect(await created.resizeSprue(createdSprue!.operationId,createdSprue!.profile.mainDiameterMm+2)).toBe(true);
+  await vi.waitFor(()=>expect(useSplitFaceStore.getState().sprues[0]!.profile.mainDiameterMm).toBe(createdSprue!.profile.mainDiameterMm+2));
 
   const before=useSplitFaceStore.getState();
   const [first]=before.sprues;
@@ -178,6 +185,7 @@ describe("face-driven mold workflow",()=>{
   const historyLength=before.undoStack.length;
 
   expect(await before.resizeSprueEntryNeck(first!.operationId,requestedDiameter)).toBe(true);
+  await vi.waitFor(()=>expect(useSplitFaceStore.getState().sprues[0]!.profile.entryNeckDiameterMm).toBe(requestedDiameter));
   const resized=useSplitFaceStore.getState();
   expect(resized.undoStack).toHaveLength(historyLength+1);
   expect(resized.sprues[0]!.profile.entryNeckDiameterMm).toBe(requestedDiameter);
@@ -191,22 +199,25 @@ describe("face-driven mold workflow",()=>{
   expect(await useSplitFaceStore.getState().resizeSprueEntryNeck(first!.operationId,Number.NaN)).toBe(false);
   expect(useSplitFaceStore.getState().undoStack).toHaveLength(beforeInvalid);
   expect(await useSplitFaceStore.getState().resizeSprueEntryNeck(first!.operationId,originalMain+10)).toBe(true);
-  expect(useSplitFaceStore.getState().sprues[0]!.profile.entryNeckDiameterMm).toBe(originalMain);
+  await vi.waitFor(()=>expect(useSplitFaceStore.getState().sprues[0]!.profile.entryNeckDiameterMm).toBe(originalMain));
  });
  it("skips regenerating unaffected Sprues by reusing cached per-Sprue results",async()=>{
   await prepareSprueState();
   const generateSpy=vi.spyOn(SprueGenerationService.prototype,"generate");
 
   expect(await useSplitFaceStore.getState().createSprue(placement())).toBe(true);
+  await vi.waitFor(()=>expect(useSplitFaceStore.getState().sprues).toHaveLength(1));
   const callsAfterFirst=generateSpy.mock.calls.length;
   expect(callsAfterFirst).toBeGreaterThan(0);
 
   expect(await useSplitFaceStore.getState().createSprue(placement(8))).toBe(true);
+  await vi.waitFor(()=>expect(useSplitFaceStore.getState().sprues).toHaveLength(2));
   const callsAfterSecond=generateSpy.mock.calls.length;
   expect(callsAfterSecond-callsAfterFirst).toBe(1);
 
   const second=useSplitFaceStore.getState().sprues[1]!;
   expect(await useSplitFaceStore.getState().resizeSprue(second.operationId,second.profile.mainDiameterMm+.5)).toBe(true);
+  await vi.waitFor(()=>expect(useSplitFaceStore.getState().sprues[1]!.profile.mainDiameterMm).toBe(second.profile.mainDiameterMm+.5));
   const callsAfterResize=generateSpy.mock.calls.length;
   expect(callsAfterResize-callsAfterSecond).toBe(1);
  });
@@ -221,6 +232,7 @@ describe("face-driven mold workflow",()=>{
   const historyLength=before.undoStack.length;
 
   expect(await before.createSprue(placement())).toBe(true);
+  await vi.waitFor(()=>expect(useSplitFaceStore.getState().sprues).toHaveLength(1));
 
   const after=useSplitFaceStore.getState();
   const changed=after.lastCommittedResult!.stages.sprueBodies.filter(
@@ -245,6 +257,7 @@ describe("face-driven mold workflow",()=>{
   const bodies=before.cavity.result!.bodies;
   const historyLength=before.undoStack.length;
   expect(await before.createSprue(placement(15))).toBe(true);
+  await vi.waitFor(()=>expect(useSplitFaceStore.getState().sprueStatus).toBe("idle"));
   expect(useSplitFaceStore.getState().cavity.result!.bodies).toBe(bodies);
   expect(useSplitFaceStore.getState().undoStack).toHaveLength(historyLength+1);
   expect(useSplitFaceStore.getState().sprueDefinitions.at(-1)?.validation.status).toBe("invalid");
@@ -261,13 +274,22 @@ describe("face-driven mold workflow",()=>{
   await vi.waitFor(()=>expect(service.mock.calls).toHaveLength(1));
   expect(service.mock.calls[0]![0].request.profileDesign).toBe(requestedPlacement.profileDesign);
   expect(useSplitFaceStore.getState().sprueStatus).toBe("generating");
-  expect(await useSplitFaceStore.getState().createSprue(placement(4))).toBe(false);
+  // Latest-wins: a valid newer intent is ACCEPTED while the older
+  // evaluation is still in flight, not rejected by a busy guard.
+  expect(await useSplitFaceStore.getState().createSprue(placement(4))).toBe(true);
+  expect(useSplitFaceStore.getState().sprueStatus).toBe("generating");
   release!({status:"failure",reasonCode:"SPRUE_BOOLEAN_FAILED",message:"stopped"});
   expect(await first).toBe(true);
-  expect(useSplitFaceStore.getState().sprueStatus).toBe("idle");
+  await vi.waitFor(()=>expect(useSplitFaceStore.getState().sprueStatus).toBe("idle"));
+  // The stale per-Sprue failure result of the older request cannot clobber
+  // the newer pending intent: the newer create commits instead.
+  expect(useSplitFaceStore.getState().error).toBeNull();
+  expect(useSplitFaceStore.getState().sprues.some(sprue=>sprue.position.x===4)).toBe(true);
+  expect(useSplitFaceStore.getState().undoStack).toHaveLength(historyLength+2);
   service.mockRejectedValueOnce(new Error("engine unavailable"));
-  expect(await useSplitFaceStore.getState().createSprue(placement())).toBe(false);
-  expect(useSplitFaceStore.getState().sprueStatus).toBe("idle");
+  expect(await useSplitFaceStore.getState().createSprue(placement())).toBe(true);
+  await vi.waitFor(()=>expect(useSplitFaceStore.getState().sprueStatus).toBe("idle"));
+  expect(useSplitFaceStore.getState().evaluation.phase).toBe("failed");
   expect(useSplitFaceStore.getState().error).toBe("engine unavailable");
   expect(useSplitFaceStore.getState().undoStack).toHaveLength(historyLength+2);
  });
@@ -368,6 +390,7 @@ describe("adoptCommittedSegmentationResult (oversized/segmented cavity bridge)",
   });
   expect(await useSplitFaceStore.getState().createCavity(canonicalPartGeometry)).toBe(true);
   expect(await useSplitFaceStore.getState().createSprue(placement())).toBe(true);
+  await vi.waitFor(()=>expect(useSplitFaceStore.getState().sprueDefinitions[0]!.validation.status).toBe("resolved"));
   const sprueIntentBeforeReadopt=useSplitFaceStore.getState().sprueDefinitions;
   expect(sprueIntentBeforeReadopt.length).toBeGreaterThan(0);
 
@@ -760,7 +783,7 @@ describe("Sprue dependency integrity across topology replacement",()=>{
  it("Mold Scale demotes a resolved Sprue's preserved intent to pending, never leaving it reporting resolved against geometry that no longer exists",async()=>{
   await prepareSprueState();
   expect(await useSplitFaceStore.getState().createSprue(placement())).toBe(true);
-  expect(useSplitFaceStore.getState().sprueDefinitions[0]!.validation.status).toBe("resolved");
+  await vi.waitFor(()=>expect(useSplitFaceStore.getState().sprueDefinitions[0]!.validation.status).toBe("resolved"));
   expect(useSplitFaceStore.getState().sprues.length).toBeGreaterThan(0);
 
   useSplitFaceStore.getState().setClearanceMm(15);
@@ -778,7 +801,7 @@ describe("Sprue dependency integrity across topology replacement",()=>{
   expect(await useSplitFaceStore.getState().createMoldParts("m",k1)).toBe(true);
   expect(await useSplitFaceStore.getState().createCavity(canonicalPartGeometry)).toBe(true);
   expect(await useSplitFaceStore.getState().createSprue(placement())).toBe(true);
-  expect(useSplitFaceStore.getState().sprueDefinitions[0]!.validation.status).toBe("resolved");
+  await vi.waitFor(()=>expect(useSplitFaceStore.getState().sprueDefinitions[0]!.validation.status).toBe("resolved"));
   const sourceDefinition=useSplitFaceStore.getState().definition!;
 
   useSplitFaceStore.getState().adoptCommittedSegmentationResult({
@@ -811,7 +834,7 @@ describe("Sprue dependency integrity across topology replacement",()=>{
   });
   expect(await useSplitFaceStore.getState().createCavity(canonicalPartGeometry)).toBe(true);
   expect(await useSplitFaceStore.getState().createSprue(placement())).toBe(true);
-  expect(useSplitFaceStore.getState().sprueDefinitions[0]!.validation.status).toBe("resolved");
+  await vi.waitFor(()=>expect(useSplitFaceStore.getState().sprueDefinitions[0]!.validation.status).toBe("resolved"));
   expect(useSplitFaceStore.getState().sprues.length).toBeGreaterThan(0);
 
   useSplitFaceStore.getState().setClearanceMm(30);
@@ -835,11 +858,13 @@ describe("Async evaluation commit identity (stale/cancelled results must not mut
  it("a genuine current failure still surfaces as evaluation.phase 'failed'",async()=>{
   await prepareSprueState();
   expect(await useSplitFaceStore.getState().createSprue(placement())).toBe(true);
+  await vi.waitFor(()=>expect(useSplitFaceStore.getState().sprues).toHaveLength(1));
   const target=useSplitFaceStore.getState().sprueDefinitions[0]!;
 
   vi.mocked(runDerivedMoldEvaluation).mockImplementationOnce(async()=>{throw new Error("boom");});
 
-  expect(await useSplitFaceStore.getState().resizeSprue(target.operationId,target.profileDesign.profile.mainDiameterMm+2)).toBe(false);
+  expect(await useSplitFaceStore.getState().resizeSprue(target.operationId,target.profileDesign.profile.mainDiameterMm+2)).toBe(true);
+  await vi.waitFor(()=>expect(useSplitFaceStore.getState().evaluation.phase).toBe("failed"));
 
   const after=useSplitFaceStore.getState();
   expect(after.evaluation.phase).toBe("failed");
@@ -850,22 +875,21 @@ describe("Async evaluation commit identity (stale/cancelled results must not mut
  it("a stale rejection (superseded by Undo mid-flight) cannot mark the now-current state failed",async()=>{
   await prepareSprueState();
   expect(await useSplitFaceStore.getState().createSprue(placement())).toBe(true);
+  await vi.waitFor(()=>expect(useSplitFaceStore.getState().sprues).toHaveLength(1));
   const target=useSplitFaceStore.getState().sprueDefinitions[0]!;
 
   let rejectStale:(error:unknown)=>void=()=>undefined;
   vi.mocked(runDerivedMoldEvaluation).mockImplementationOnce(()=>new Promise((_,reject)=>{rejectStale=reject;}));
 
   const pending=useSplitFaceStore.getState().resizeSprue(target.operationId,target.profileDesign.profile.mainDiameterMm+2);
-  await Promise.resolve();
-  await Promise.resolve();
-  expect(useSplitFaceStore.getState().sprueStatus).toBe("generating");
+  await vi.waitFor(()=>expect(useSplitFaceStore.getState().sprueStatus).toBe("generating"));
 
   // A different action supersedes the in-flight request while it is still pending.
   useSplitFaceStore.getState().undo();
   const superseded={document:useSplitFaceStore.getState().document,evaluation:useSplitFaceStore.getState().evaluation,sprueDefinitions:useSplitFaceStore.getState().sprueDefinitions,sprueStatus:useSplitFaceStore.getState().sprueStatus,error:useSplitFaceStore.getState().error};
 
   rejectStale(new Error("late failure from a superseded request"));
-  expect(await pending).toBe(false);
+  expect(await pending).toBe(true);
 
   const after=useSplitFaceStore.getState();
   expect(after.document).toEqual(superseded.document);
@@ -877,30 +901,30 @@ describe("Async evaluation commit identity (stale/cancelled results must not mut
  it("a stale/late cancellation is discarded silently, never converted into evaluation.phase 'failed'",async()=>{
   await prepareSprueState();
   expect(await useSplitFaceStore.getState().createSprue(placement())).toBe(true);
+  await vi.waitFor(()=>expect(useSplitFaceStore.getState().sprues).toHaveLength(1));
   const target=useSplitFaceStore.getState().sprueDefinitions[0]!;
 
   let rejectStale:(error:unknown)=>void=()=>undefined;
   vi.mocked(runDerivedMoldEvaluation).mockImplementationOnce(()=>new Promise((_,reject)=>{rejectStale=reject;}));
 
   const pending=useSplitFaceStore.getState().resizeSprue(target.operationId,target.profileDesign.profile.mainDiameterMm+2);
-  await Promise.resolve();
-  await Promise.resolve();
-
+  await vi.waitFor(()=>expect(useSplitFaceStore.getState().sprueStatus).toBe("generating"));
   useSplitFaceStore.getState().undo();
   const superseded={document:useSplitFaceStore.getState().document,evaluation:useSplitFaceStore.getState().evaluation,sprueStatus:useSplitFaceStore.getState().sprueStatus};
 
   rejectStale(Object.assign(new Error("superseded"),{code:"evaluation_cancelled"}));
-  expect(await pending).toBe(false);
+  expect(await pending).toBe(true);
 
   const after=useSplitFaceStore.getState();
   expect(after.evaluation.phase).not.toBe("failed");
   expect(after.document).toEqual(superseded.document);
   expect(after.evaluation).toEqual(superseded.evaluation);
   expect(after.sprueStatus).toBe(superseded.sprueStatus);
- });
+ },20000);
  it("a stale success (topology replaced mid-flight) cannot resurrect resolved Sprue geometry over the newer pending state",async()=>{
   await prepareSprueState();
   expect(await useSplitFaceStore.getState().createSprue(placement())).toBe(true);
+  await vi.waitFor(()=>expect(useSplitFaceStore.getState().sprues).toHaveLength(1));
   const target=useSplitFaceStore.getState().sprueDefinitions[0]!;
 
   let releaseStale:()=>void=()=>undefined;
@@ -913,8 +937,7 @@ describe("Async evaluation commit identity (stale/cancelled results must not mut
   });
 
   const pending=useSplitFaceStore.getState().resizeSprue(target.operationId,target.profileDesign.profile.mainDiameterMm+2);
-  await Promise.resolve();
-  await Promise.resolve();
+  await vi.waitFor(()=>expect(useSplitFaceStore.getState().sprueStatus).toBe("generating"));
 
   // Topology is replaced (Mold Scale) while the resize's evaluation is still pending.
   useSplitFaceStore.getState().setClearanceMm(15);
@@ -922,7 +945,7 @@ describe("Async evaluation commit identity (stale/cancelled results must not mut
   expect(useSplitFaceStore.getState().sprues).toEqual([]);
 
   releaseStale();
-  expect(await pending).toBe(false);
+  expect(await pending).toBe(true);
 
   const after=useSplitFaceStore.getState();
   // The late success from the superseded resize must not resurrect resolved geometry
@@ -995,6 +1018,7 @@ describe("Sprue presentation: pending intent never masquerades as resolved geome
  it("resolved presentation requires current resolved geometry: topology invalidation strips depth/targetBodyIds and the selector reports pending again",async()=>{
   await prepareSprueState();
   expect(await useSplitFaceStore.getState().createSprue(placement())).toBe(true);
+  await vi.waitFor(()=>expect(useSplitFaceStore.getState().sprues).toHaveLength(1));
   const resolved=useSplitFaceStore.getState();
   const resolvedPresentation=selectSpruePresentationDefinitions(resolved)[0]!;
   expect(resolvedPresentation.status).toBe("resolved");
