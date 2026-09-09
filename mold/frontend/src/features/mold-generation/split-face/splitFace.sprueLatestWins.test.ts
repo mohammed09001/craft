@@ -241,6 +241,26 @@ describe("Sprue history coalescing",()=>{
 });
 
 describe("Sprue current-failure rollback",()=>{
+ it("atomically restores the pre-burst Sprue-owned state when the current resize fails",async()=>{
+  const resolved=await prepareResolvedSprue();
+  const before=useSplitFaceStore.getState();
+  const control=controlledEvaluation();
+
+  expect(await useSplitFaceStore.getState().resizeSprue(resolved.operationId,resolved.profile.mainDiameterMm+5)).toBe(true);
+  await waitFor(()=>expect(control.calls()).toHaveLength(1));
+  control.reject(new Error("engine unavailable"));
+  await waitFor(()=>expect(useSplitFaceStore.getState().sprueStatus).toBe("idle"));
+
+  const after=useSplitFaceStore.getState();
+  expect(after.document).toBe(before.document);
+  expect(after.registration).toBe(before.registration);
+  expect(after.lastCommittedResult).toBe(before.lastCommittedResult);
+  expect(after.sprues).toBe(before.sprues);
+  expect(after.sprueDefinitions).toBe(before.sprueDefinitions);
+  expect(after.evaluation.phase).toBe("failed");
+  expect(after.error).toBe("engine unavailable");
+ });
+
  it("a current resize failure rolls the presentation back to the last valid resolved geometry and stays truthful",async()=>{
   const resolved=await prepareResolvedSprue();
   const historyLength=useSplitFaceStore.getState().undoStack.length;
@@ -259,7 +279,7 @@ describe("Sprue current-failure rollback",()=>{
   expect(after.undoStack).toHaveLength(historyLength);
   const presentation=selectSpruePresentationDefinitions(after)[0]!;
   expect(presentation.profile).toEqual(resolved.profile);
-  expect(presentation.status).toBe("invalid");
+  expect(presentation.status).toBe("resolved");
   expect(presentation.depthMm).toBe(resolved.depthMm);
  });
 
@@ -280,10 +300,7 @@ describe("Sprue current-failure rollback",()=>{
   expect(after.evaluation.phase).toBe("failed");
   expect(after.error).toBe("sprue cannot be built");
   expect(after.undoStack).toHaveLength(historyLength);
-  const presentation=selectSpruePresentationDefinitions(after)[0]!;
-  expect(presentation.status).toBe("invalid");
-  expect(presentation).not.toHaveProperty("depthMm");
-  expect(presentation).not.toHaveProperty("targetBodyIds");
+  expect(selectSpruePresentationDefinitions(after)).toHaveLength(0);
  });
 });
 
@@ -325,6 +342,21 @@ describe("Sprue pending presentation precedence",()=>{
 });
 
 describe("Sprue scheduler lifecycle",()=>{
+ it("Mold Scale terminates an active Sprue cycle so stale work cannot leave ghost busy state",async()=>{
+  const resolved=await prepareResolvedSprue();
+  const control=controlledEvaluation();
+
+  expect(await useSplitFaceStore.getState().resizeSprue(resolved.operationId,resolved.profile.mainDiameterMm+4)).toBe(true);
+  await waitFor(()=>expect(control.calls()).toHaveLength(1));
+  useSplitFaceStore.getState().setClearanceMm(useSplitFaceStore.getState().clearanceMm+1);
+
+  expect(useSplitFaceStore.getState().sprueStatus).toBe("idle");
+  control.resolve();
+  await waitFor(()=>expect(control.pending).toHaveLength(0));
+  expect(control.calls()).toHaveLength(1);
+  expect(useSplitFaceStore.getState().sprueStatus).toBe("idle");
+ });
+
  it("undo during an active evaluation invalidates it and clears the scheduler",async()=>{
   const resolved=await prepareResolvedSprue();
   const control=controlledEvaluation();

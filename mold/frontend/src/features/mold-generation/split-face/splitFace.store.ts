@@ -119,6 +119,7 @@ const invalidateCommittedTopology=()=>({
  sprues:[] as readonly SprueDefinition[],
  sprueDefinitions:[] as readonly SprueOperationDefinition[],
  bodyVisibility:{} as Readonly<Record<string,boolean>>,
+ sprueStatus:"idle" as const,
 });
 const STALE_SPRUE_TOPOLOGY_MESSAGE="Mold topology changed; sprue requires revalidation.";
 /**
@@ -407,6 +408,21 @@ let sprueHistoryBase:Snapshot|null=null;
  * stale by the identity gate anyway (cancellation is a resource
  * optimization, not the correctness mechanism). */
 const cancelSprueScheduler=(reason?:string)=>{sprueActiveRequestId=null;spruePendingLatest=null;sprueHistoryBase=null;cancelDerivedMoldEvaluation(reason);};
+/** Restores only the authoritative cluster owned by an accepted Sprue burst.
+ * The rejected provisional document must never remain paired with the prior
+ * committed bodies/registration; unrelated interaction and visibility state
+ * deliberately stays current. */
+const rollbackFailedSprueCycle=(current:SplitFaceState,base:Snapshot,message:string)=>({
+ ...current,
+ sprues:base.sprues,
+ sprueDefinitions:base.sprueDefinitions,
+ registration:base.registration,
+ document:base.document,
+ lastCommittedResult:base.lastCommittedResult,
+ evaluation:{...base.evaluation,phase:"failed" as const,failure:{reasonCode:"derived_evaluation_failed",message}},
+ sprueStatus:"idle" as const,
+ error:message,
+});
 const startPendingSprueIfDue=()=>{
  const job=spruePendingLatest;
  if(job===null)return;
@@ -460,8 +476,11 @@ const dispatchSprueEvaluation=(input:Parameters<typeof runDerivedMoldEvaluation>
    // back to that last valid resolved geometry, so a failed edit visually
    // rolls back while the failure stays visible.
    const message=error instanceof Error?error.message:"Sprue evaluation failed.";
+   const base=sprueHistoryBase;
    sprueHistoryBase=null;
-   set(s=>({...s,sprueDefinitions:s.sprueDefinitions.map(definition=>({...definition,validation:{status:"invalid" as const,reasonCode:null,message}})),sprueStatus:"idle",evaluation:{...s.evaluation,phase:"failed" as const,failure:{reasonCode:"derived_evaluation_failed",message}},error:message}));
+   set(s=>base===null
+    ?{...s,sprueDefinitions:s.sprueDefinitions.map(definition=>({...definition,validation:{status:"invalid" as const,reasonCode:null,message}})),sprueStatus:"idle",evaluation:{...s.evaluation,phase:"failed" as const,failure:{reasonCode:"derived_evaluation_failed",message}},error:message}
+    :rollbackFailedSprueCycle(s,base,message));
    startPendingSprueIfDue();
   }
  })();
@@ -553,6 +572,7 @@ return {...initial,
     )
    :id;
 
+   cancelSprueScheduler("Cut by Face changed the mold document.");
    return {
     ...invalidateCommittedTopology(),
     ...history(s),
@@ -678,6 +698,7 @@ return {...initial,
    return {...history(s),selectedFaceIds,selectedSplitFaceId,cuttingPlanes,workflow:editableWorkflow(cuttingPlanes.length),error:null,activePlaneId:null};
   }
 
+  cancelSprueScheduler("Cut by Face changed the mold document.");
   return {
    ...invalidateCommittedTopology(),
    ...history(s),
@@ -711,6 +732,8 @@ return {...initial,
   if(!targetExists){
    return false;
   }
+
+  cancelSprueScheduler("Cut by Face changed the mold document.");
 
   const cuttingPlanes=before.cuttingPlanes.filter(
    plane=>plane.sourceFaceId!==id
@@ -773,7 +796,7 @@ return {...initial,
    );
    document=createDocument(before.document.revision+1,definition,cuttingPlanes,before.clearanceMm,before.cavity.clearanceMm,before.sprueDefinitions);
    evaluation=nextEvaluationRequest(document);
-   set({document,evaluation,registration:generatingRegistration(document.fingerprint)});
+   set({document,evaluation,registration:generatingRegistration(document.fingerprint),sprueStatus:"idle"});
    const derived=await runDerivedMoldEvaluation({requestId:evaluation.requestId!,sourceRevision:document.revision,sourceFingerprint:document.fingerprint,cavityResult:null,definition,cuttingPlanes,sprueDefinitions:before.sprueDefinitions,...registrationSizingPolicyFor(definition)});
    const latest=get();
    const finalResult:FinalMoldResult={sourceRevision:document.revision,sourceFingerprint:document.fingerprint,requestId:evaluation.requestId!,bodies:derived.registration.bodies??derived.sprueBodies,keyed:derived.registration.status==="generated",stages:{baseBodies:definition.moldBodies??[],cavityResult:null,sprueBodies:derived.sprueBodies,resolvedSprues:[],registration:derived.registration},warnings:derived.warnings};
@@ -851,10 +874,10 @@ return {...initial,
    modelId,
    k1,
   );
- }, clearSelection:()=>{cancelDerivedMoldEvaluation("Mold document changed.");set(s=>s.cuttingPlanes.length?{...invalidateCommittedTopology(),...history(s),selectedFaceIds:[],selectedSplitFaceId:null,cuttingPlanes:[],workflow:"selectingFaces",definition:null,cavity:unavailableCavity(s.cavity.clearanceMm),registration:unavailableRegistration(),document:createDocument(s.document.revision+1,null,[],s.clearanceMm,s.cavity.clearanceMm,[]),evaluation:idleMoldEvaluation(),error:null,activePlaneId:null}:s);},
+ }, clearSelection:()=>{cancelSprueScheduler("Mold document changed.");set(s=>s.cuttingPlanes.length?{...invalidateCommittedTopology(),...history(s),selectedFaceIds:[],selectedSplitFaceId:null,cuttingPlanes:[],workflow:"selectingFaces",definition:null,cavity:unavailableCavity(s.cavity.clearanceMm),registration:unavailableRegistration(),document:createDocument(s.document.revision+1,null,[],s.clearanceMm,s.cavity.clearanceMm,[]),evaluation:idleMoldEvaluation(),error:null,activePlaneId:null}:s);},
  beginPlaneDrag:(id)=>set(s=>s.cuttingPlanes.some(p=>p.id===id)?{...s,workflow:"draggingPlane",activePlaneId:id,error:null}:s),
  cancelPlaneDrag:()=>set(s=>s.workflow==="draggingPlane"?{...s,workflow:editableWorkflow(s.cuttingPlanes.length),activePlaneId:null}:s),
- commitPlaneDrag:(id,normalized,k1)=>{cancelDerivedMoldEvaluation("Mold document changed.");set(s=>{
+ commitPlaneDrag:(id,normalized,k1)=>{set(s=>{
   const plane=s.cuttingPlanes.find(p=>p.id===id);
   if(plane===undefined)return {...s,workflow:editableWorkflow(s.cuttingPlanes.length),activePlaneId:null};
   const next=clampNormalizedPosition(normalized,k1,plane.axis);
@@ -871,6 +894,7 @@ return {...initial,
   if(isExtensionPlane){
    return {...history(s),cuttingPlanes,workflow:"planesReady",activePlaneId:null,error:null};
   }
+  cancelSprueScheduler("Mold document changed.");
   return {...invalidateCommittedTopology(),...history({...s,definition:null}),cuttingPlanes,workflow:"planesReady",activePlaneId:null,definition:null,cavity:unavailableCavity(s.cavity.clearanceMm),registration:unavailableRegistration(),document:createDocument(s.document.revision+1,null,cuttingPlanes,s.clearanceMm,s.cavity.clearanceMm,[]),evaluation:idleMoldEvaluation(),error:null};
  });},
  createMoldParts:async(modelId,k1)=>{
@@ -914,7 +938,8 @@ return {...initial,
    );
    document=createDocument(before.document.revision+1,definition,before.cuttingPlanes,before.clearanceMm,before.cavity.clearanceMm,before.sprueDefinitions);
    evaluation=nextEvaluationRequest(document);
-   set(s=>({...s,workflow:"generatingParts",definition,document:document!,evaluation:evaluation!,registration:generatingRegistration(document!.fingerprint),error:null}));
+   cancelSprueScheduler("Mold parts rebuild changed the mold document.");
+   set(s=>({...s,workflow:"generatingParts",definition,document:document!,evaluation:evaluation!,registration:generatingRegistration(document!.fingerprint),sprueStatus:"idle",error:null}));
    const derived=await runDerivedMoldEvaluation({requestId:evaluation.requestId!,sourceRevision:document.revision,sourceFingerprint:document.fingerprint,cavityResult:null,definition,cuttingPlanes:before.cuttingPlanes,sprueDefinitions:before.sprueDefinitions,...registrationSizingPolicyFor(definition)});
    const latest=get();
    const finalBodies=derived.registration.bodies??derived.sprueBodies;
@@ -974,11 +999,11 @@ return {...initial,
  // old undoStack/redoStack), so applying it after history(s) would silently
  // clobber the freshly-pushed history entry and this instant-commit scale
  // edit would never become undoable.
- setClearanceMm:(mm)=>{cancelDerivedMoldEvaluation("Mold size changed.");set(s=>{const clearanceMm=clampReferenceMoldClearance(mm);if(clearanceMm===s.clearanceMm)return s;return {...invalidateForClearance(s,clearanceMm),...history(s),clearanceEditSnapshot:null};});},
+ setClearanceMm:(mm)=>{const clearanceMm=clampReferenceMoldClearance(mm);if(clearanceMm===get().clearanceMm)return;cancelSprueScheduler("Mold size changed.");set(s=>({...invalidateForClearance(s,clearanceMm),...history(s),clearanceEditSnapshot:null,sprueStatus:"idle"}));},
  beginClearanceEdit:()=>set(s=>s.clearanceEditSnapshot===null?{...s,clearanceEditSnapshot:snap(s)}:s),
- updateClearanceEdit:(mm)=>{cancelDerivedMoldEvaluation("Mold size changed.");set(s=>{const clearanceMm=clampReferenceMoldClearance(mm);if(clearanceMm===s.clearanceMm)return s;const snapshot=s.clearanceEditSnapshot??snap(s);return {...invalidateForClearance(s,clearanceMm),clearanceEditSnapshot:snapshot,redoStack:[]};});},
+ updateClearanceEdit:(mm)=>{const clearanceMm=clampReferenceMoldClearance(mm);if(clearanceMm===get().clearanceMm)return;cancelSprueScheduler("Mold size changed.");set(s=>{const snapshot=s.clearanceEditSnapshot??snap(s);return {...invalidateForClearance(s,clearanceMm),clearanceEditSnapshot:snapshot,redoStack:[],sprueStatus:"idle"};});},
  commitClearanceEdit:()=>set(s=>{const before=s.clearanceEditSnapshot;if(before===null)return s;return {...s,clearanceEditSnapshot:null,undoStack:before.clearanceMm===s.clearanceMm?s.undoStack:[...s.undoStack.slice(-49),before],redoStack:[]};}),
- cancelClearanceEdit:()=>{cancelDerivedMoldEvaluation("Mold scale edit cancelled.");set(s=>s.clearanceEditSnapshot===null?s:{...s.clearanceEditSnapshot,clearanceEditSnapshot:null,error:null,sprueStatus:"idle"});},
+ cancelClearanceEdit:()=>{cancelSprueScheduler("Mold scale edit cancelled.");set(s=>s.clearanceEditSnapshot===null?s:{...s.clearanceEditSnapshot,clearanceEditSnapshot:null,error:null,sprueStatus:"idle"});},
   createCavity:async(sourcePartMesh)=>{
    const before=get();
 
@@ -1145,7 +1170,7 @@ return {...initial,
   }
  },
  setCavityClearanceMm:()=>{cancelActiveCavityGeneration("Cavity clearance locked at 0.0 mm.");set(s=>s.cavity.clearanceMm===0?s:{...history(s),cavity:{...readyCavity(s.cavity),clearanceMm:0}});},
- setCanonicalPartGeometrySignature:(signature)=>{cancelActiveCavityGeneration("Model geometry changed.");cancelSprueScheduler("Model geometry changed.");set(s=>signature===s.partGeometrySignature?s:{...s,partGeometrySignature:signature,cavity:s.definition?.moldBodies?.length?readyCavity(s.cavity):unavailableCavity(s.cavity.clearanceMm),registration:unavailableRegistration(),document:createDocument(s.document.revision+1,s.definition,s.cuttingPlanes,s.clearanceMm,s.cavity.clearanceMm,s.sprueDefinitions),evaluation:s.evaluation.phase==="evaluating"?{...s.evaluation,phase:"stale"}:s.evaluation});},
+ setCanonicalPartGeometrySignature:(signature)=>{cancelActiveCavityGeneration("Model geometry changed.");cancelSprueScheduler("Model geometry changed.");set(s=>signature===s.partGeometrySignature?s:{...s,partGeometrySignature:signature,cavity:s.definition?.moldBodies?.length?readyCavity(s.cavity):unavailableCavity(s.cavity.clearanceMm),registration:unavailableRegistration(),document:createDocument(s.document.revision+1,s.definition,s.cuttingPlanes,s.clearanceMm,s.cavity.clearanceMm,s.sprueDefinitions),evaluation:s.evaluation.phase==="evaluating"?{...s.evaluation,phase:"stale"}:s.evaluation,sprueStatus:"idle"});},
  createSprue:async(placement)=>{
   const before=get();
   if(placement.coordinateSpace!=="mold-local")return false;
@@ -1282,13 +1307,13 @@ return {...initial,
  },
  promoteReplannedSegmentationResult:(input)=>{
   cancelActiveCavityGeneration("A regenerated segmentation result replaced the mold document.");
-  cancelSprueScheduler("A regenerated segmentation result replaced the mold document.");
   set(s=>{
    // Superseded by a newer Scale gesture, an Undo, or any other edit since
    // this replan started -- discard rather than overwrite state this
    // in-flight Worker result no longer describes.
    if(s.document.revision!==input.expectedPriorRevision) return s;
    if(input.sourceDefinition===null||input.bodies.length===0) return s;
+   cancelSprueScheduler("A regenerated segmentation result replaced the mold document.");
    const definition=buildSegmentationDerivedDefinition(input.sourceDefinition,input.sourceSignature,input.bodies);
    // Independently re-invalidates resolved Sprue geometry/status on this
    // path too, rather than trusting the Scale edit that started this replan
@@ -1317,6 +1342,7 @@ return {...initial,
     workflow:"partsReady",
     lastCommittedResult:finalResult,
     evaluation:{phase:"complete",requestId,sourceRevision:document.revision,sourceFingerprint:document.fingerprint,stage:"validation",progress:1,failure:null},
+    sprueStatus:"idle",
     error:null,
    };
   });
