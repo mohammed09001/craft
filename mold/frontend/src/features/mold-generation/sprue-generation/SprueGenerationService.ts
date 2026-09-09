@@ -156,9 +156,21 @@ function createProfileTool(
   }
 }
 
-function bodyVersion(body: SprueSourceBody, operationId: string): string {
+/**
+ * A derived body is an input to later Sprues.  Its identity must therefore
+ * include every deterministic Sprue input, not merely the operation id: an
+ * edit keeps that id while changing the Boolean result.
+ */
+function bodyVersion(body: SprueSourceBody, input: SprueGenerationInput): string {
   let hash = 2166136261;
-  const text = `${body.geometryVersion}:${operationId}`;
+  const { request } = input;
+  const text = JSON.stringify({
+    upstreamGeometryVersion: body.geometryVersion,
+    operationId: request.operationId,
+    position: request.position,
+    profileDesign: request.profileDesign,
+    moldRevision: request.moldRevision,
+  });
   for (let index = 0; index < text.length; index += 1) {
     hash = Math.imul(hash ^ text.charCodeAt(index), 16777619);
   }
@@ -451,7 +463,7 @@ export class SprueGenerationService {
             mesh,
             triangleCount: updated.numTri(),
             volumeMm3: volume,
-            geometryVersion: bodyVersion(body, input.request.operationId),
+            geometryVersion: bodyVersion(body, input),
             sprueOperationId: input.request.operationId,
           });
         } finally {

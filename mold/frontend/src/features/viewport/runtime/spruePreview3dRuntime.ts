@@ -154,11 +154,39 @@ export function createSpruePreview3dRuntime(options: {
   let cavityTarget: Mesh<BufferGeometry, MeshBasicMaterial> | null = null;
   let cavityToolData: CavityToolData | null = null;
   let placement: SpruePreviewPlacement | null = null;
-  let clickPlacement: SpruePreviewPlacement | null = null;
   let gesture: PointerGesture | null = null;
   let visualStatus: SpruePreviewPlacement["status"] = "invalid";
   let active = false;
   let disposed = false;
+  let pendingPointerNdc: Vector2 | null = null;
+  let pendingPointerFrame: number | null = null;
+
+  function cancelPendingPointer() {
+    if (pendingPointerFrame !== null) cancelAnimationFrame(pendingPointerFrame);
+    pendingPointerFrame = null;
+    pendingPointerNdc = null;
+  }
+
+  function flushPendingPointer() {
+    if (pendingPointerFrame === null || pendingPointerNdc === null) return;
+    cancelAnimationFrame(pendingPointerFrame);
+    pendingPointerFrame = null;
+    pointerRaycaster.setFromCamera(pendingPointerNdc, camera);
+    pendingPointerNdc = null;
+    updateFromRay(pointerRaycaster.ray);
+  }
+
+  function schedulePointerPreview(normalized: Vector2) {
+    pendingPointerNdc = pendingPointerNdc?.copy(normalized) ?? normalized.clone();
+    if (pendingPointerFrame !== null) return;
+    pendingPointerFrame = requestAnimationFrame(() => {
+      pendingPointerFrame = null;
+      if (!active || pendingPointerNdc === null) return;
+      pointerRaycaster.setFromCamera(pendingPointerNdc, camera);
+      pendingPointerNdc = null;
+      updateFromRay(pointerRaycaster.ray);
+    });
+  }
 
   function setVisualStatus(status: SpruePreviewPlacement["status"]) {
     if (visualStatus === status) return;
@@ -190,7 +218,6 @@ export function createSpruePreview3dRuntime(options: {
 
   function hide() {
     placement = null;
-    clickPlacement = null;
     setVisualStatus("invalid");
     if (!object.visible) return;
     object.visible = false;
@@ -435,22 +462,22 @@ export function createSpruePreview3dRuntime(options: {
       hide();
       return;
     }
-    pointerRaycaster.setFromCamera(normalized, camera);
-    updateFromRay(pointerRaycaster.ray);
+    schedulePointerPreview(normalized);
   }
 
   function handlePointerDown(event: PointerEvent) {
     if (!active || !event.isPrimary) return;
     gesture = createPointerGesture(event);
-    clickPlacement = event.button === 0 ? placement : null;
   }
 
   function handlePointerUp(event: PointerEvent) {
     if (gesture === null || gesture.pointerId !== event.pointerId) return;
     const completed = gesture;
     gesture = null;
-    const requestedPlacement = clickPlacement;
-    clickPlacement = null;
+    // Click is a boundary: use the latest pointer coordinate even if its RAF
+    // has not fired yet, so creation never lags one frame behind the cursor.
+    flushPendingPointer();
+    const requestedPlacement = placement;
     if (
       completed.button === 0 &&
       isClickCandidate(completed) &&
@@ -461,11 +488,13 @@ export function createSpruePreview3dRuntime(options: {
   }
 
   function handlePointerCancel() {
+    cancelPendingPointer();
     gesture = null;
     hide();
   }
 
   function handlePointerLeave() {
+    cancelPendingPointer();
     gesture = null;
     hide();
   }
@@ -482,6 +511,7 @@ export function createSpruePreview3dRuntime(options: {
     dispose: () => {
       if (disposed) return;
       disposed = true;
+      cancelPendingPointer();
       canvas.removeEventListener("pointermove", handlePointerMove);
       canvas.removeEventListener("pointerdown", handlePointerDown);
       canvas.removeEventListener("pointerup", handlePointerUp);
@@ -506,11 +536,13 @@ export function createSpruePreview3dRuntime(options: {
     setActive: (nextActive) => {
       if (active === nextActive) return;
       active = nextActive;
+      if (!active) cancelPendingPointer();
       gesture = null;
       hide();
       applyGlass();
     },
     setCavityGeometry: (cavityTool) => {
+      cancelPendingPointer();
       hide();
       cavityTarget?.geometry.dispose();
       cavityTarget?.material.dispose();
@@ -535,6 +567,7 @@ export function createSpruePreview3dRuntime(options: {
       cavityTarget.userData.sprueCavityRaycastTarget = true;
     },
     setMoldRoot: (root) => {
+      cancelPendingPointer();
       hide();
       restoreGlass();
       moldRoot = root;

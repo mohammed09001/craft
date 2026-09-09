@@ -14,7 +14,18 @@ import type { DerivedMoldEvaluationInput, DerivedMoldEvaluationResult } from "./
  */
 let sprueResultCache = new Map<string, { readonly key: string; readonly result: SprueGenerationResult }>();
 function sprueCacheKey(moldRevision: string, definition: SprueOperationDefinition): string {
-  return `${moldRevision}::${JSON.stringify(definition.anchor.position)}::${JSON.stringify(definition.profileDesign)}`;
+  // This is deliberately a complete snapshot of the values forwarded to
+  // SprueGenerationService (plus the authoritative upstream body revision).
+  // The map is operation-id indexed only for storage; the operation id stays
+  // in the key so a cache record can never be reinterpreted for another op.
+  return JSON.stringify({
+    moldRevision,
+    operationId: definition.operationId,
+    anchor: definition.anchor,
+    inwardDirection: definition.inwardDirection,
+    profileDesign: definition.profileDesign,
+    coordinateSpace: definition.coordinateSpace,
+  });
 }
 
 function mergeBodies(bodies: readonly SprueSourceBody[], updated: readonly SprueUpdatedBody[]): readonly SprueSourceBody[] {

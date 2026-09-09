@@ -257,11 +257,11 @@ export function createSprueResizeRuntime(options: {
     color(handle, "active");
     invalidate();
   }
-  function cancelDrag() {
+  function finishDrag(revertPreview: boolean) {
     if (drag === null) return;
     const current = drag;
     drag = null;
-    current.handle.group.scale.setScalar(1);
+    if (revertPreview) current.handle.group.scale.setScalar(1);
     controls.enabled = current.controlsWereEnabled;
     try { canvas.releasePointerCapture(current.pointerId); } catch { /* already released */ }
     hideLabel();
@@ -347,7 +347,10 @@ export function createSprueResizeRuntime(options: {
     event.preventDefault(); event.stopImmediatePropagation();
     const current = drag;
     const changed = current.previewDiameterMm !== current.originalDiameterMm;
-    cancelDrag();
+    // A normal release is a commit boundary, not a cancellation boundary.
+    // Keep the proxy at the requested diameter until the authoritative
+    // definition replaces it (or a failure restores the last resolved state).
+    finishDrag(false);
     if (changed) void commitForHandle(current.handle, current.previewDiameterMm);
   }
   function onDoubleClick(event: MouseEvent) {
@@ -359,29 +362,30 @@ export function createSprueResizeRuntime(options: {
   }
   function onKeyDown(event: KeyboardEvent) {
     if (event.key !== "Escape") return;
-    if (drag !== null) { event.preventDefault(); cancelDrag(); }
+    if (drag !== null) { event.preventDefault(); finishDrag(true); }
     else if (numericInput !== null) { event.preventDefault(); closeNumeric(); }
   }
   function onLeave() { if (drag === null && numericInput === null) setHovered(null); }
+  const cancelDragFromPointer = () => finishDrag(true);
 
   canvas.addEventListener("pointermove", onPointerMove, true);
   canvas.addEventListener("pointerdown", onPointerDown, true);
   canvas.addEventListener("pointerup", onPointerUp, true);
-  canvas.addEventListener("pointercancel", cancelDrag);
-  canvas.addEventListener("lostpointercapture", cancelDrag);
+  canvas.addEventListener("pointercancel", cancelDragFromPointer);
+  canvas.addEventListener("lostpointercapture", cancelDragFromPointer);
   canvas.addEventListener("pointerleave", onLeave);
   canvas.addEventListener("dblclick", onDoubleClick, true);
   window.addEventListener("keydown", onKeyDown);
 
   return { object, getInteractionState: interactionState,
-    setActive(next) { if (active === next) return; if (!next) { cancelDrag(); closeNumeric(); setHovered(null); hideLabel(); }
+    setActive(next) { if (active === next) return; if (!next) { finishDrag(true); closeNumeric(); setHovered(null); hideLabel(); }
       active = next; object.visible = active; cursor(); invalidate(); },
-    setMoldRoot(root) { if (drag !== null) cancelDrag(); moldRoot = root; collectMoldTargets(); rebuildHandles(); },
-    setSprues(next) { if (drag !== null) cancelDrag(); closeNumeric(); sprues = next; rebuildHandles(); },
-    dispose() { if (disposed) return; disposed=true; cancelDrag(); closeNumeric(); disposeHandles(); hideLabel(); label.remove();
+    setMoldRoot(root) { if (drag !== null) finishDrag(true); moldRoot = root; collectMoldTargets(); rebuildHandles(); },
+    setSprues(next) { if (drag !== null) finishDrag(true); closeNumeric(); sprues = next; rebuildHandles(); },
+    dispose() { if (disposed) return; disposed=true; finishDrag(true); closeNumeric(); disposeHandles(); hideLabel(); label.remove();
       canvas.removeEventListener("pointermove", onPointerMove, true); canvas.removeEventListener("pointerdown", onPointerDown, true);
-      canvas.removeEventListener("pointerup", onPointerUp, true); canvas.removeEventListener("pointercancel", cancelDrag);
-      canvas.removeEventListener("lostpointercapture", cancelDrag); canvas.removeEventListener("pointerleave", onLeave);
+      canvas.removeEventListener("pointerup", onPointerUp, true); canvas.removeEventListener("pointercancel", cancelDragFromPointer);
+      canvas.removeEventListener("lostpointercapture", cancelDragFromPointer); canvas.removeEventListener("pointerleave", onLeave);
       canvas.removeEventListener("dblclick", onDoubleClick, true); window.removeEventListener("keydown", onKeyDown);
       object.removeFromParent(); canvas.style.cursor=""; moldTargets.length=0; hiddenBodyVisibility.clear(); },
   };

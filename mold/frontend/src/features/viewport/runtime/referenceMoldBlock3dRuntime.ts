@@ -45,11 +45,30 @@ export const createReferenceMoldBlock3dRuntime = (
   group.name = "ReferenceMoldBlockGroup";
   group.userData.referenceMoldVisualization = true;
   let definition: ReferenceMoldDefinition | null = null;
+  let geometryIdentity: string | null = null;
   let targetModelId: string | null = null;
   let target: Object3D | null = null;
   let appearanceMode: MoldAppearanceMode = "solid";
   let currentPalette: ViewportPalette | undefined = undefined;
   const featureEdges = createFeatureEdgeOverlay();
+
+  // Viewport callers intentionally create a fresh definition wrapper for
+  // pending Sprue/Registration presentation.  Keep that metadata change out
+  // of the expensive BufferGeometry and feature-edge rebuild path.
+  const geometryIdentityOf = (next: ReferenceMoldDefinition | null): string | null => {
+    if (next === null) return null;
+    const bounds = next.referenceMoldBlock.bounds;
+    return JSON.stringify({
+      definitionId: next.definitionId,
+      bounds,
+      bodies: next.moldBodies?.map((body) => ({
+        id: body.id,
+        triangleCount: body.triangleCount,
+        bounds: body.bounds,
+        geometryVersion: (body as typeof body & { geometryVersion?: string }).geometryVersion ?? null,
+      })) ?? null,
+    });
+  };
 
   const disposeMaterials = (material: Material | Material[]) => {
     const materials = Array.isArray(material) ? material : [material];
@@ -152,8 +171,10 @@ export const createReferenceMoldBlock3dRuntime = (
   return {
     object: group,
     setDefinition: (nextDefinition) => {
-      const geometryUnchanged = definition === nextDefinition;
+      const nextGeometryIdentity = geometryIdentityOf(nextDefinition);
+      const geometryUnchanged = geometryIdentity === nextGeometryIdentity;
       definition = nextDefinition;
+      geometryIdentity = nextGeometryIdentity;
       if (geometryUnchanged) return;
       rebuild();
     },
@@ -213,6 +234,7 @@ export const createReferenceMoldBlock3dRuntime = (
       targetModelId = null;
       target = null;
       definition = null;
+      geometryIdentity = null;
       onGroundZChange(null);
     },
   };

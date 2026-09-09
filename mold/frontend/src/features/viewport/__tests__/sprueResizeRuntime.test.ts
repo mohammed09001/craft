@@ -72,6 +72,9 @@ describe("Sprue resize runtime",()=>{
     expect(host.querySelector("[data-sprue-diameter-label]")?.textContent).toBe(`Ø ${expected.toFixed(2)} mm`);
     canvas.dispatchEvent(pointer("pointerup",66));
     expect(controls.enabled).toBe(true);expect(runtime.getInteractionState()).toBe("rim-hover");
+    // Pointer-up is an accepted pending commit, not cancellation: retaining
+    // this proxy prevents the old-diameter snap-back while evaluation runs.
+    expect(runtime.object.getObjectByName("SprueResizeHandle:sprue:1:top")?.scale.x).toBeCloseTo(expected / 10);
     expect(commit).toHaveBeenCalledTimes(1);expect(commit).toHaveBeenCalledWith("sprue:1",expected);
     expect((host.querySelector("[data-sprue-diameter-label]") as HTMLElement).style.display).toBe("none");
     runtime.dispose();
