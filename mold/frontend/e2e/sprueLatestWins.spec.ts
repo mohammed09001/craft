@@ -32,7 +32,7 @@ interface SprueProbeResult {
  * prefix" from "changed entry" and that upstream-body invalidation propagates
  * through moldRevision in a real browser, not just under jsdom.
  */
-test("per-Sprue cache reuses unchanged Sprues and only regenerates the changed one", async ({
+test("derived-engine cache reuses unchanged Sprues and only regenerates the changed one", async ({
   page,
 }) => {
   const pageErrors: Error[] = [];
