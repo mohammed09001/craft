@@ -8,18 +8,22 @@ import { createCavityTool } from "../cavity-generation/manifold.engine";
 import { validateAndPreparePartSolid } from "../cavity-generation/partSolid.validator";
 import { designSprueProfile } from "../sprue-generation";
 import type { ValidSpruePreviewPlacement } from "../sprue-generation/sprueGeneration.contracts";
+import type { SprueDefinition } from "../sprue-generation/sprueGeneration.contracts";
 import type { DerivedMoldEvaluationInput, DerivedMoldEvaluationResult } from "../workflow/derivedMoldEvaluation.contracts";
 import { cancelDerivedMoldEvaluation as cancelDerivedMoldEvaluationProduction, runDerivedMoldEvaluation as runDerivedMoldEvaluationProduction } from "../workflow";
 import { createStore, type StoreApi } from "zustand/vanilla";
 
 const runDerivedMoldEvaluation = vi.fn(runDerivedMoldEvaluationProduction);
 const cancelDerivedMoldEvaluation = vi.fn(cancelDerivedMoldEvaluationProduction);
-const runCavityGenerationInWorker = Object.assign(vi.fn(async(input:CavityGenerationInput)=>{
+type CavityDependency = SplitFaceStoreDeps["runCavityGenerationInWorker"];
+type CavityCall = (input: Parameters<CavityDependency>[0], options?: Parameters<CavityDependency>[1]) => ReturnType<CavityDependency>;
+const runCavityGenerationMock = vi.fn<CavityCall>(async(input:CavityGenerationInput)=>{
  const validation=validateAndPreparePartSolid(input);
  if(!validation.ok||validation.prepared===null)throw new Error(validation.blockers[0]?.message??"Uploaded model is not a subtractable solid.");
  const tool=await createCavityTool(validation.prepared,input.cavityClearanceMm,input.qualityMode,input.geometryToleranceMm);
  return {result:await generateCavityBodies(input,tool),validationWarnings:validation.warnings};
-}),{cancel:vi.fn()}) as SplitFaceStoreDeps["runCavityGenerationInWorker"];
+});
+const runCavityGenerationInWorker = Object.assign(runCavityGenerationMock,{cancel:vi.fn()});
 const cancelActiveCavityGeneration = vi.fn();
 
 const k1={min:{x:0,y:0,z:0},max:{x:10,y:10,z:10}};
@@ -52,7 +56,7 @@ function controlled(){
  cancelDerivedMoldEvaluation.mockImplementation((reason?:string)=>cancelActiveEntry(reason));
  const template=useSplitFaceStore.getState().sprues[0];
  const derivedOk=(input:DerivedMoldEvaluationInput):DerivedMoldEvaluationResult=>{
-  const resolvedTemplate=template??{operationId:input.requestId,position:{x:5,y:5,z:30},inwardDirection:{x:0,y:0,z:-1},profile:input.sprueDefinitions[0]?.profileDesign.profile??profileDesign.profile,depthMm:10,targetBodyIds:["b"]};
+  const resolvedTemplate=template??({operationId:input.requestId,position:{x:5,y:5,z:30},inwardDirection:{x:0,y:0,z:-1},profile:input.sprueDefinitions[0]?.profileDesign.profile??profileDesign.profile,depthMm:10,targetBodyIds:["b"],circularSegments:32,coordinateSpace:"mold-local",moldFrameId:"test:z-up",tolerancePolicy:{linearToleranceMm:.01,areaToleranceMm2:.01,volumeToleranceMm3:.01,meaningfulVolumeMm3:.01,surfaceToleranceMm:.01,outsideMarginMm:0,beyondMarginMm:0}} satisfies SprueDefinition);
   return {
    requestId:input.requestId,sourceRevision:input.sourceRevision,sourceFingerprint:input.sourceFingerprint,
    sprueBodies:[],
@@ -99,7 +103,7 @@ interface InvalidationRow{
  act:(ctx:RowContext)=>void|Promise<void>;
  intentPolicy:"cleared"|"pending"|"restored";
  /** True when the mutation itself dispatches its own derived evaluation. */
- selfDispatch?:boolean;
+ expectedSelfDispatchDelta:0|1;
 }
 
 const idle=(store:StoreApi<SplitFaceState>)=>store.getState().sprueStatus;
@@ -115,25 +119,25 @@ async function addSecondCommittedPlane({store,geometry}:RowContext){
 }
 
 const invalidatingRows:InvalidationRow[]=[
- {name:"toggleFace",intentPolicy:"cleared",act:({store})=>store.getState().toggleFace("right")},
- {name:"removeSplitFace",intentPolicy:"cleared",act:({store})=>store.getState().removeSplitFace("front")},
- {name:"clearSelection",intentPolicy:"cleared",act:({store})=>store.getState().clearSelection()},
- {name:"commitPlaneDrag (moved)",intentPolicy:"cleared",act:({store})=>{const plane=store.getState().cuttingPlanes[0]!;store.getState().beginPlaneDrag(plane.id);store.getState().commitPlaneDrag(plane.id,.4,k1);}},
- {name:"removeSplitFaceAndRebuild (non-final)",intentPolicy:"restored",selfDispatch:true,
+ {name:"toggleFace",intentPolicy:"cleared",expectedSelfDispatchDelta:0,act:({store})=>store.getState().toggleFace("right")},
+ {name:"removeSplitFace",intentPolicy:"cleared",expectedSelfDispatchDelta:0,act:({store})=>store.getState().removeSplitFace("front")},
+ {name:"clearSelection",intentPolicy:"cleared",expectedSelfDispatchDelta:0,act:({store})=>store.getState().clearSelection()},
+ {name:"commitPlaneDrag (moved)",intentPolicy:"cleared",expectedSelfDispatchDelta:0,act:({store})=>{const plane=store.getState().cuttingPlanes[0]!;store.getState().beginPlaneDrag(plane.id);store.getState().commitPlaneDrag(plane.id,.4,k1);}},
+ {name:"removeSplitFaceAndRebuild (non-final)",intentPolicy:"restored",expectedSelfDispatchDelta:1,
   setup:async(ctx)=>{await addSecondCommittedPlane(ctx);},
   act:async({store,control})=>{const before=control.calls().length;const removing=store.getState().removeSplitFaceAndRebuild("front","m",k1);await waitFor(()=>expect(control.calls()).toHaveLength(before+1));control.resolveNext();expect(await removing).toBe(true);}},
- {name:"removeSplitFaceAndRebuild (final plane)",intentPolicy:"cleared",
+ {name:"removeSplitFaceAndRebuild (final plane)",intentPolicy:"cleared",expectedSelfDispatchDelta:0,
   act:async({store})=>{expect(await store.getState().removeSplitFaceAndRebuild("front","m",k1)).toBe(true);}},
- {name:"removeSelectedSplitFaceAndRebuild",intentPolicy:"restored",selfDispatch:true,
+ {name:"removeSelectedSplitFaceAndRebuild",intentPolicy:"restored",expectedSelfDispatchDelta:1,
   setup:async(ctx)=>{await addSecondCommittedPlane(ctx);ctx.store.getState().selectSplitFace("front");},
   act:async({store,control})=>{const before=control.calls().length;const removing=store.getState().removeSelectedSplitFaceAndRebuild("m",k1);await waitFor(()=>expect(control.calls()).toHaveLength(before+1));control.resolveNext();expect(await removing).toBe(true);}},
- {name:"Mold Scale (setClearanceMm)",intentPolicy:"pending",act:({store})=>store.getState().setClearanceMm(store.getState().clearanceMm+1)},
- {name:"Mold Scale (drag transaction commit)",intentPolicy:"pending",act:({store})=>{store.getState().beginClearanceEdit();store.getState().updateClearanceEdit(store.getState().clearanceMm+2);store.getState().commitClearanceEdit();}},
- {name:"Mold Scale drag cancel",intentPolicy:"restored",act:({store})=>{store.getState().beginClearanceEdit();store.getState().updateClearanceEdit(store.getState().clearanceMm+2);store.getState().cancelClearanceEdit();}},
- {name:"canonical geometry signature replacement",intentPolicy:"restored",act:({store})=>store.getState().setCanonicalPartGeometrySignature("cube:changed")},
- {name:"orientation change",intentPolicy:"cleared",act:({store})=>store.getState().clearForOrientationChange()},
- {name:"model replacement",intentPolicy:"cleared",act:({store})=>store.getState().clearForModelReplacement()},
- {name:"undo",intentPolicy:"restored",act:({store})=>store.getState().undo()},
+ {name:"Mold Scale (setClearanceMm)",intentPolicy:"pending",expectedSelfDispatchDelta:0,act:({store})=>store.getState().setClearanceMm(store.getState().clearanceMm+1)},
+ {name:"Mold Scale (drag transaction commit)",intentPolicy:"pending",expectedSelfDispatchDelta:0,act:({store})=>{store.getState().beginClearanceEdit();store.getState().updateClearanceEdit(store.getState().clearanceMm+2);store.getState().commitClearanceEdit();}},
+ {name:"Mold Scale drag cancel",intentPolicy:"restored",expectedSelfDispatchDelta:0,act:({store})=>{store.getState().beginClearanceEdit();store.getState().updateClearanceEdit(store.getState().clearanceMm+2);store.getState().cancelClearanceEdit();}},
+ {name:"canonical geometry signature replacement",intentPolicy:"restored",expectedSelfDispatchDelta:0,act:({store})=>store.getState().setCanonicalPartGeometrySignature("cube:changed")},
+ {name:"orientation change",intentPolicy:"cleared",expectedSelfDispatchDelta:0,act:({store})=>store.getState().clearForOrientationChange()},
+ {name:"model replacement",intentPolicy:"cleared",expectedSelfDispatchDelta:0,act:({store})=>store.getState().clearForModelReplacement()},
+ {name:"undo",intentPolicy:"cleared",expectedSelfDispatchDelta:0,act:({store})=>store.getState().undo()},
  {name:"redo",
   setup:async({store})=>{
    const target=store.getState().sprues[0]!;
@@ -142,13 +146,13 @@ const invalidatingRows:InvalidationRow[]=[
    store.getState().undo();
    await waitFor(()=>expect(idle(store)).toBe("idle"));
   },
-  intentPolicy:"restored",
+  intentPolicy:"restored",expectedSelfDispatchDelta:0,
   act:({store})=>store.getState().redo()},
- {name:"fresh Segmentation adoption",intentPolicy:"pending",act:({store})=>{
+ {name:"fresh Segmentation adoption",intentPolicy:"pending",expectedSelfDispatchDelta:0,act:({store})=>{
    const definition=store.getState().definition!;
    store.getState().adoptCommittedSegmentationResult({sourceSignature:store.getState().partGeometrySignature,sourceDefinition:definition,bodies:definition.moldBodies??[],warnings:[]});
   }},
- {name:"Scale-triggered Segmentation promotion",intentPolicy:"pending",act:({store})=>{
+ {name:"Scale-triggered Segmentation promotion",intentPolicy:"pending",expectedSelfDispatchDelta:0,act:({store})=>{
    const state=store.getState();
    const definition=state.definition!;
    store.getState().promoteReplannedSegmentationResult({expectedPriorRevision:state.document.revision,sourceSignature:state.partGeometrySignature,sourceDefinition:definition,bodies:definition.moldBodies??[],warnings:[]});
@@ -172,7 +176,7 @@ function expectInert(store:StoreApi<SplitFaceState>,captured:ReturnType<typeof c
 }
 
 describe("Upstream invalidation matrix: stale work is observationally inert",()=>{
- it.each(invalidatingRows)("$name: active-only cycle -- the cancelled old request commits nothing and a fresh retry is atomic",async({setup,act,intentPolicy,selfDispatch})=>{
+ it.each(invalidatingRows)("$name: active-only cycle -- the cancelled old request commits nothing and a fresh retry is atomic",async({setup,act,intentPolicy,expectedSelfDispatchDelta})=>{
   await prepareResolvedSprue();
   const store=useSplitFaceStore;
   const ctx:RowContext={store,control:null as unknown as Control,geometry:canonicalCube("m",k1)};
@@ -196,7 +200,7 @@ describe("Upstream invalidation matrix: stale work is observationally inert",()=
   await waitFor(()=>expect(idle(store)).toBe("idle"));
   expectInert(store,captured);
   // No queued obsolete work may start beyond the mutation's own (declared) dispatch.
-  expect(control.calls().length).toBe(dispatchesBeforeAct+(selfDispatch??0));
+  expect(control.calls().length).toBe(dispatchesBeforeAct+expectedSelfDispatchDelta);
 
   // Retry readiness for the current document.
   if(store.getState().cavity.result!==null){
@@ -223,7 +227,7 @@ describe("Upstream invalidation matrix: stale work is observationally inert",()=
   }
  },30_000);
 
- it.each(invalidatingRows)("$name: active+pending-latest cycle -- queued obsolete work never starts, the old tail is silent",async({setup,act,intentPolicy,selfDispatch})=>{
+ it.each(invalidatingRows)("$name: active+pending-latest cycle -- queued obsolete work never starts, the old tail is silent",async({setup,act,intentPolicy,expectedSelfDispatchDelta})=>{
   await prepareResolvedSprue();
   const store=useSplitFaceStore;
   const ctx:RowContext={store,control:null as unknown as Control,geometry:canonicalCube("m",k1)};
@@ -252,7 +256,7 @@ describe("Upstream invalidation matrix: stale work is observationally inert",()=
   // start queued obsolete work beyond the mutation's own (declared) dispatch.
   await waitFor(()=>expect(idle(store)).toBe("idle"));
   expectInert(store,captured);
-  expect(control.calls().length).toBe(dispatchesBeforeAct+(selfDispatch??0));
+  expect(control.calls().length).toBe(dispatchesBeforeAct+expectedSelfDispatchDelta);
   expect(store.getState().error).toBeNull();
  },30_000);
 });
@@ -298,7 +302,7 @@ describe("Registration-stage progress channel ownership",()=>{
   // Start a second cavity attempt; hold its worker, then release it so its
   // derived dispatch (which wires onProgress) lands in the controlled queue.
   let release!:(execution:CavityWorkerExecutionResult)=>void;
-  runCavityGenerationInWorker.mockImplementationOnce(()=>{
+  runCavityGenerationMock.mockImplementationOnce(()=>{
    return new Promise<CavityWorkerExecutionResult>((resolve)=>{
     release=resolve;
    });

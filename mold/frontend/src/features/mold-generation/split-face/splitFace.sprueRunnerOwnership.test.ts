@@ -6,12 +6,10 @@ import { createCavityTool } from "../cavity-generation/manifold.engine";
 import { validateAndPreparePartSolid } from "../cavity-generation/partSolid.validator";
 import { designSprueProfile } from "../sprue-generation";
 import type { ValidSpruePreviewPlacement } from "../sprue-generation/sprueGeneration.contracts";
+import type { SprueDefinition } from "../sprue-generation/sprueGeneration.contracts";
 import type { DerivedMoldEvaluationInput, DerivedMoldEvaluationResult } from "../workflow/derivedMoldEvaluation.contracts";
 import { cancelDerivedMoldEvaluation as cancelDerivedMoldEvaluationProduction, runDerivedMoldEvaluation as runDerivedMoldEvaluationProduction } from "../workflow";
 import { createStore, type StoreApi } from "zustand/vanilla";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import path from "node:path";
 
 const runCavityGenerationInWorker = Object.assign(vi.fn(async(input:CavityGenerationInput)=>{
  const validation=validateAndPreparePartSolid(input);
@@ -36,7 +34,7 @@ function sharedRunner(){
   requestId:input.requestId,sourceRevision:input.sourceRevision,sourceFingerprint:input.sourceFingerprint,
   sprueBodies:[],
   sprueDefinitions:input.sprueDefinitions.map(definition=>({...definition,validation:{status:"resolved" as const,reasonCode:null,message:null}})),
-  resolvedSprues:input.sprueDefinitions.map(definition=>({operationId:definition.operationId,position:definition.anchor.position,inwardDirection:definition.inwardDirection,profile:definition.profileDesign.profile,depthMm:10,targetBodyIds:["b"]})),
+  resolvedSprues:input.sprueDefinitions.map(definition=>({operationId:definition.operationId,position:definition.anchor.position,inwardDirection:definition.inwardDirection,profile:definition.profileDesign.profile,depthMm:10,targetBodyIds:["b"],circularSegments:32,coordinateSpace:"mold-local",moldFrameId:"test:z-up",tolerancePolicy:{linearToleranceMm:.01,areaToleranceMm2:.01,volumeToleranceMm3:.01,meaningfulVolumeMm3:.01,surfaceToleranceMm:.01,outsideMarginMm:0,beyondMarginMm:0}} satisfies SprueDefinition)),
   registration:{status:"generated",revision:input.sourceFingerprint,bodies:[],report:null},
   warnings:[],
  });
@@ -113,29 +111,5 @@ describe("Default derived-runner ownership (Article 05/19)",()=>{
   expect(first.getState().sprues).toHaveLength(0);
  });
 
- it("construction boundary: exactly one production site creates the store, and it is the singleton module itself",()=>{
-  const srcDir=path.join(path.dirname(fileURLToPath(import.meta.url)),"..","..","..");
-  expect(existsSync(srcDir)).toBe(true);
-  const skipped=new Set(["node_modules",".tmp","dist"]);
-  const productionFiles:string[]=[];
-  const walk=(dir:string)=>{
-   for(const entry of readdirSync(dir,{withFileTypes:true})){
-    const full=path.join(dir,entry.name);
-    if(entry.isDirectory()){if(!skipped.has(entry.name))walk(full);continue;}
-    if(!/\.tsx?$/.test(entry.name))continue;
-    // Tests and the E2E-only harness may create isolated stores; the
-    // invariant is about PRODUCTION modules.
-    if(/\.test\.tsx?$/.test(entry.name))continue;
-    if(full.includes(`${path.sep}test-harness${path.sep}`))continue;
-    if(readFileSync(full,"utf8").includes("createSplitFaceStoreCreator("))productionFiles.push(path.relative(srcDir,full));
-   }
-  };
-  walk(srcDir);
-  // The singleton in splitFace.store.ts is the ONLY production consumer of
-  // the module-level default runner. Any second production store created
-  // with default deps would share the module-level runner's single
-  // cancellation slot (proven unsafe above) and must fail this test.
-  expect(productionFiles).toEqual([path.join("features","mold-generation","split-face","splitFace.store.ts")]);
- });
 });
 

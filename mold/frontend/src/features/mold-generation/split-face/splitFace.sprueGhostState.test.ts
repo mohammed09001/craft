@@ -1,6 +1,6 @@
 ﻿import { createSplitFaceStoreCreator, type SplitFaceState, type SplitFaceStoreDeps } from "./splitFace.store";
 import { canonicalCube } from "../cavity-generation/cavityGeneration.testFixtures";
-import type { CavityGenerationInput, CavityGenerationResult } from "../cavity-generation/cavityGeneration.contracts";
+import type { CavityGenerationInput } from "../cavity-generation/cavityGeneration.contracts";
 import type { CanonicalPartGeometry } from "../cavity-generation/cavityGeneration.contracts";
 import type { CavityWorkerExecutionResult } from "../cavity-generation/cavityGeneration.workerClient";
 import { generateCavityBodies } from "../cavity-generation/cavityBody.generator";
@@ -14,12 +14,15 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 
 const runDerivedMoldEvaluation = vi.fn(runDerivedMoldEvaluationProduction);
 const cancelDerivedMoldEvaluation = vi.fn(cancelDerivedMoldEvaluationProduction);
-const runCavityGenerationInWorker = Object.assign(vi.fn(async(input:CavityGenerationInput)=>{
+type CavityDependency = SplitFaceStoreDeps["runCavityGenerationInWorker"];
+type CavityCall = (input: Parameters<CavityDependency>[0], options?: Parameters<CavityDependency>[1]) => ReturnType<CavityDependency>;
+const runCavityGenerationMock = vi.fn<CavityCall>(async(input:CavityGenerationInput)=>{
  const validation=validateAndPreparePartSolid(input);
  if(!validation.ok||validation.prepared===null)throw new Error(validation.blockers[0]?.message??"Uploaded model is not a subtractable solid.");
  const tool=await createCavityTool(validation.prepared,input.cavityClearanceMm,input.qualityMode,input.geometryToleranceMm);
  return {result:await generateCavityBodies(input,tool),validationWarnings:validation.warnings};
-}),{cancel:vi.fn()}) as SplitFaceStoreDeps["runCavityGenerationInWorker"];
+});
+const runCavityGenerationInWorker = Object.assign(runCavityGenerationMock,{cancel:vi.fn()});
 const cancelActiveCavityGeneration = vi.fn();
 
 const k1={min:{x:0,y:0,z:0},max:{x:10,y:10,z:10}};
@@ -69,10 +72,10 @@ function deferredDerivedRunner(){
 type HeldCavity={promise:Promise<boolean>;armed:()=>boolean;reject:(error:unknown)=>void;release:(execution:CavityWorkerExecutionResult)=>void;};
 /** Arms the NEXT cavity Worker run as a manually-controlled deferred promise for `createCavity`. */
 function holdNextCavityWorker(canonicalPartGeometry:CanonicalPartGeometry):HeldCavity{
- let release:(result:CavityGenerationResult)=>void=()=>undefined;
+ let release:(result:CavityWorkerExecutionResult)=>void=()=>undefined;
  let reject:(error:unknown)=>void=()=>undefined;
  let armed=false;
- runCavityGenerationInWorker.mockImplementationOnce(()=>{
+ runCavityGenerationMock.mockImplementationOnce(()=>{
   armed=true;
   return new Promise<CavityWorkerExecutionResult>((resolve,rej)=>{release=resolve;reject=rej;});
  });

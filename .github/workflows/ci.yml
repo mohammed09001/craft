@@ -71,6 +71,9 @@ jobs:
       - name: Audit for moderate-or-higher severity advisories
         run: npm audit --audit-level=moderate
 
+      - name: Verify architecture ownership guards
+        run: npm run check:architecture
+
       - name: Run typecheck
         run: npm run typecheck
 
