@@ -408,6 +408,34 @@ let sprueHistoryBase:Snapshot|null=null;
  * stale by the identity gate anyway (cancellation is a resource
  * optimization, not the correctness mechanism). */
 const cancelSprueScheduler=(reason?:string)=>{sprueActiveRequestId=null;spruePendingLatest=null;sprueHistoryBase=null;cancelDerivedMoldEvaluation(reason);};
+/** The busy flag is owned by the scheduler: `sprueStatus:"generating"` is
+ * only ever set by an acceptance that immediately dispatches (active) or
+ * coalesces (pending) scheduler work. When no scheduler work is live, a
+ * remaining "generating" is un-owned ghost state left behind by an upstream
+ * mutation (e.g. a Cavity rebuild) that superseded the Sprue cycle without
+ * owning this field -- it must clear, or capability gates that read it
+ * (createMoldParts) stay blocked forever. */
+const clearUnOwnedSprueBusy=()=>{
+ if(sprueActiveRequestId!==null||spruePendingLatest!==null)return;
+ const latest=get();
+ if(latest.sprueStatus==="generating")set({sprueStatus:"idle"});
+};
+const startPendingSprueIfDue=()=>{
+ const job=spruePendingLatest;
+ if(job===null){clearUnOwnedSprueBusy();return;}
+ spruePendingLatest=null;
+ const latest=get();
+ // The queued snapshot may only start while it is still the authoritative
+ // current intent. The reference check against `document.sprues` also
+ // rejects it after any non-Sprue edit (topology, clearance, model
+ // replacement) rebuilt the document while the older evaluation was running.
+ if(latest.evaluation.phase!=="evaluating"||latest.evaluation.requestId!==job.requestId||latest.document.sprues!==job.requested){
+  if(sprueActiveRequestId===null)sprueHistoryBase=null;
+  clearUnOwnedSprueBusy();
+  return;
+ }
+ dispatchSprueEvaluation(job.input);
+};
 /** Restores only the authoritative cluster owned by an accepted Sprue burst.
  * The rejected provisional document must never remain paired with the prior
  * committed bodies/registration; unrelated interaction and visibility state
@@ -422,22 +450,7 @@ const rollbackFailedSprueCycle=(current:SplitFaceState,base:Snapshot,message:str
  evaluation:{...base.evaluation,phase:"failed" as const,failure:{reasonCode:"derived_evaluation_failed",message}},
  sprueStatus:"idle" as const,
  error:message,
-});
-const startPendingSprueIfDue=()=>{
- const job=spruePendingLatest;
- if(job===null)return;
- spruePendingLatest=null;
- const latest=get();
- // The queued snapshot may only start while it is still the authoritative
- // current intent. The reference check against `document.sprues` also
- // rejects it after any non-Sprue edit (topology, clearance, model
- // replacement) rebuilt the document while the older evaluation was running.
- if(latest.evaluation.phase!=="evaluating"||latest.evaluation.requestId!==job.requestId||latest.document.sprues!==job.requested){
-  if(sprueActiveRequestId===null)sprueHistoryBase=null;
-  return;
- }
- dispatchSprueEvaluation(job.input);
-};
+ });
 const dispatchSprueEvaluation=(input:Parameters<typeof runDerivedMoldEvaluation>[0])=>{
  const requestId=input.requestId;
  sprueActiveRequestId=requestId;
@@ -1150,7 +1163,17 @@ return {...initial,
       s.cavity.generationVersion===generationVersion
         ?{
           ...s,
-          evaluation:{...s.evaluation,phase:cancelled?"cancelled":"failed",failure:{reasonCode,message:e instanceof Error?e.message:"Cavity generation failed."}},
+          // Ownership gates: this attempt may only terminate the channels it
+          // still owns. `evaluation` belongs to the document identity this
+          // attempt created -- a newer Sprue acceptance (or Undo/Redo/Scale)
+          // that bumped the document owns it now and must not be clobbered
+          // by this stale failure. The "generating" Registration stamped
+          // with THIS attempt's fingerprint is likewise owned by it; a
+          // newer writer's registration state passes through untouched.
+          evaluation:
+            s.document.revision===document.revision&&s.document.fingerprint===document.fingerprint
+              ?{...s.evaluation,phase:cancelled?"cancelled":"failed",failure:{reasonCode,message:e instanceof Error?e.message:"Cavity generation failed."}}
+              :s.evaluation,
           cavity:{
             ...s.cavity,
             status:"blocked",
@@ -1162,6 +1185,10 @@ return {...initial,
                 ?e.message
                 :"Cavity generation failed.",
           },
+          registration:
+            s.registration.status==="generating"&&s.registration.revision===document.fingerprint
+              ?unavailableRegistration()
+              :s.registration,
         }
         :s,
     );
