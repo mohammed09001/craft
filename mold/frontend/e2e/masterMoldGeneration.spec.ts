@@ -73,3 +73,68 @@ test("runs a real Manifold + three-mesh-bvh Master Mold generation through the p
     `Console errors: ${consoleErrors.join("; ")}`,
   ).toHaveLength(0);
 });
+
+// Mirrors MasterMoldRealisticWorkflowResult in
+// src/test-harness/masterMoldRealisticWorkflowProbe.ts.
+interface MasterMoldRealisticWorkflowResult {
+  readonly ok: boolean;
+  readonly error: string | null;
+  readonly registrationStatus: string | null;
+  readonly bodyCountBeforeSprue: number | null;
+  readonly statusBeforeSprue: string | null;
+  readonly bodyCountAfterSprue: number | null;
+  readonly statusAfterSprue: string | null;
+  readonly geometryChangedAfterSprue: boolean | null;
+  readonly volumesAfterSprueMm3: readonly number[] | null;
+}
+
+/**
+ * Article 01/10: the probe above proves the Worker/Manifold/three-mesh-bvh
+ * plumbing runs for real, but deliberately skips final-mold-target synthesis
+ * entirely (a bare box, no cavity, no Sprue, no Registration) -- exactly the
+ * gap Execution 03 calls out ("Do not use a direct worker probe as the only
+ * E2E evidence"). This drives the SAME production store creators the real
+ * toolbar uses (createSplitFaceStoreCreator, createMasterMoldStoreCreator),
+ * wired to their real Worker-backed clients, through Create Cavity -> Sprue
+ * -> Master Mold against a realistic cavity-bearing, Sprue-and-Registration
+ * final-mold target, and proves the result reaches a usable `current` state
+ * both before and after the Sprue is added -- never `blocked` for this
+ * manufacturable fixture (Product Invariants: blocked/stale is not a
+ * successful result for an ordinary integration case).
+ */
+test("drives the real Create Cavity -> Sprue -> Master Mold production stores against a realistic cavity + Sprue + Registration fixture in Chromium", async ({
+  page,
+}) => {
+  const pageErrors: Error[] = [];
+  const consoleErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error));
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
+
+  await page.goto("/e2e-harness.html");
+  await page.waitForFunction(
+    () => typeof (globalThis as { __masterMoldRealisticWorkflowProbe?: unknown }).__masterMoldRealisticWorkflowProbe === "function",
+  );
+
+  const result = await page.evaluate<MasterMoldRealisticWorkflowResult>(() =>
+    (globalThis as unknown as { __masterMoldRealisticWorkflowProbe: () => Promise<MasterMoldRealisticWorkflowResult> }).__masterMoldRealisticWorkflowProbe(),
+  );
+
+  expect(result.error, `Master Mold realistic workflow probe reported an error: ${result.error}`).toBeNull();
+  expect(result.ok).toBe(true);
+  expect(result.registrationStatus).toBe("generated");
+
+  expect(result.statusBeforeSprue).toBe("current");
+  expect(result.bodyCountBeforeSprue).toBeGreaterThan(0);
+
+  // The Product Invariant this whole spec exists to enforce: a valid Sprue
+  // addition must regenerate to a usable `current` Master Mold, not `blocked`.
+  expect(result.statusAfterSprue).toBe("current");
+  expect(result.bodyCountAfterSprue).toBe(result.bodyCountBeforeSprue);
+  expect(result.geometryChangedAfterSprue).toBe(true);
+  expect(result.volumesAfterSprueMm3?.every((volume) => volume > 0)).toBe(true);
+
+  expect(pageErrors, `Uncaught page errors: ${pageErrors.map((e) => e.message).join("; ")}`).toHaveLength(0);
+  expect(consoleErrors, `Console errors: ${consoleErrors.join("; ")}`).toHaveLength(0);
+});
