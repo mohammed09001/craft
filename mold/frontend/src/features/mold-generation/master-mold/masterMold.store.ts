@@ -150,10 +150,20 @@ export function createMasterMoldStoreCreator(deps: MasterMoldStoreDeps = default
       ) {
         return;
       }
-      if (state.status !== "current" && state.status !== "blocked") return;
 
       set((s) => ({
         ...s,
+        // Article 09: bump generationVersion unconditionally, even while
+        // `status === "generating"` -- an in-flight generate() call
+        // captured the PRIOR version and only trusts its own result while
+        // get().generationVersion still matches it (the same mechanism
+        // reset() already relies on). Without this, a document-identity
+        // change arriving mid-flight used to be silently dropped (the old
+        // status-must-be-current-or-blocked guard made this a no-op while
+        // generating), and the in-flight call would then overwrite this
+        // state back to a falsely `current` result computed against an
+        // already-obsolete document once it settled.
+        generationVersion: s.generationVersion + 1,
         status: "stale",
         bodies: s.bodies.map((body) => (body.status === "stale" ? body : { ...body, status: "stale" as const })),
       }));
@@ -166,7 +176,12 @@ export function createMasterMoldStoreCreator(deps: MasterMoldStoreDeps = default
         const bodies = s.bodies.map((body) =>
           ids.has(body.source.finalMoldPartId) && body.status !== "stale" ? { ...body, status: "stale" as const } : body,
         );
-        return { ...s, bodies, status: overallStatusOf(bodies) };
+        // Article 09: same generationVersion bump as markMasterMoldStale,
+        // and for the same reason -- otherwise an in-flight generate() call
+        // started before this invalidation (and so still computing against
+        // the pre-invalidation mesh for the named part) would overwrite it
+        // back to `current` once it settles.
+        return { ...s, bodies, status: overallStatusOf(bodies), generationVersion: s.generationVersion + 1 };
       });
     },
 

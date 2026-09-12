@@ -329,6 +329,69 @@ describe("masterMold.store", () => {
     expect(store.getState().bodies.map((b) => b.source.finalMoldPartId)).toEqual(["b"]);
   });
 
+  it("Article 09: a document-identity change mid-flight is never overwritten back to current once the in-flight generate() call settles", async () => {
+    let resolveSecond!: (result: MasterMoldResult) => void;
+    const { deps, run } = createDeps(() => new Promise<MasterMoldResult>((resolve) => { resolveSecond = resolve; }));
+    run.mockImplementationOnce(async (request: MasterMoldRequest) => ({
+      operationId: request.operationId,
+      generationVersion: request.generationVersion,
+      elapsedMs: 1,
+      bodies: request.targets.map((t) => currentResultFor({ id: t.source.finalMoldPartId, name: t.source.finalMoldPartName, mesh: t.mesh, bounds: t.bounds, volumeMm3: t.volumeMm3 })),
+    }));
+    const store = createMasterMoldStoreCreator(deps);
+
+    await store.getState().generate([inputA], { revision: 1, fingerprint: "doc-1" });
+    expect(store.getState().status).toBe("current");
+
+    const changedA = bodyInput("a", 999);
+    const pending = store.getState().generate([changedA], { revision: 1, fingerprint: "doc-1" });
+    expect(store.getState().status).toBe("generating");
+
+    // The old guard (only mark stale while status is current/blocked) made
+    // this a silent no-op during "generating" -- the identity change was
+    // simply lost, and the in-flight call below would overwrite it back to
+    // `current` once it settled, even though it was computed against an
+    // already-obsolete document.
+    store.getState().markMasterMoldStale({ revision: 2, fingerprint: "doc-2" });
+    expect(store.getState().status).toBe("stale");
+
+    resolveSecond({ operationId: "stale", generationVersion: 2, elapsedMs: 1, bodies: [currentResultFor(changedA)] });
+    expect(await pending).toBe(false);
+
+    expect(store.getState().status).toBe("stale");
+  });
+
+  it("Article 09: a per-part invalidation mid-flight is never overwritten back to current once the in-flight generate() call settles", async () => {
+    let resolveSecond!: (result: MasterMoldResult) => void;
+    const { deps, run } = createDeps(() => new Promise<MasterMoldResult>((resolve) => { resolveSecond = resolve; }));
+    run.mockImplementationOnce(async (request: MasterMoldRequest) => ({
+      operationId: request.operationId,
+      generationVersion: request.generationVersion,
+      elapsedMs: 1,
+      bodies: request.targets.map((t) => currentResultFor({ id: t.source.finalMoldPartId, name: t.source.finalMoldPartName, mesh: t.mesh, bounds: t.bounds, volumeMm3: t.volumeMm3 })),
+    }));
+    const store = createMasterMoldStoreCreator(deps);
+
+    await store.getState().generate([inputA, inputB], { revision: 1, fingerprint: "doc-1" });
+    expect(store.getState().status).toBe("current");
+
+    const changedB = bodyInput("b", 999);
+    const pending = store.getState().generate([inputA, changedB], { revision: 1, fingerprint: "doc-1" });
+    expect(store.getState().status).toBe("generating");
+
+    // Part "a" is invalidated independently while the call above (for "b")
+    // is still computing -- its own captured input for "a" already
+    // reflects the pre-invalidation mesh, so its eventual completion must
+    // never resurrect "a" as current.
+    store.getState().invalidateMasterMoldParts(["a"]);
+    expect(store.getState().bodies.find((b) => b.source.finalMoldPartId === "a")?.status).toBe("stale");
+
+    resolveSecond({ operationId: "stale", generationVersion: 2, elapsedMs: 1, bodies: [currentResultFor(inputA), currentResultFor(changedB)] });
+    expect(await pending).toBe(false);
+
+    expect(store.getState().bodies.find((b) => b.source.finalMoldPartId === "a")?.status).toBe("stale");
+  });
+
   it("Article 09: reset() during an in-flight generate() is not clobbered once the cancelled call's promise settles", async () => {
     let rejectPending!: (error: Error) => void;
     const { deps } = createDeps(() => new Promise<MasterMoldResult>((_resolve, reject) => { rejectPending = reject; }));
