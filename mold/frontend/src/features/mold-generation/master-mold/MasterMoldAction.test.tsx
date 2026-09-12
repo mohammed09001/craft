@@ -182,6 +182,47 @@ it("marks Master Mold stale (never current) the moment the final-mold document c
   expect(screen.getByRole("button", { name: "Master Mold" })).toHaveAttribute("aria-describedby", status.id);
 });
 
+it("Article 04: marks Master Mold stale (never falsely current) when a new final-mold part appears that has no Master Mold body yet", async () => {
+  const partMesh = await reachPartsReadyWithCommittedCavity("top");
+  render(<MasterMoldAction sourcePartMesh={partMesh} />);
+  fireEvent.click(screen.getByRole("button", { name: "Master Mold" }));
+
+  await waitFor(() => {
+    expect(useMasterMoldStore.getState().status).toBe("current");
+  });
+
+  // Simulate a new commit that introduces a brand-new final-mold part
+  // (never seen by Master Mold before) alongside the existing ones, without
+  // going through the full real multi-cut pipeline -- the committed
+  // result's own identity (sourceRevision/sourceFingerprint) still advances
+  // exactly as a real commit would.
+  const committed = useSplitFaceStore.getState().lastCommittedResult!;
+  const existingBody = committed.bodies[0]!;
+  const newPartBody = { ...existingBody, id: `${existingBody.id}-new-part`, name: "New Part" };
+  const newRevision = useSplitFaceStore.getState().document.revision + 1;
+  const newFingerprint = `${useSplitFaceStore.getState().document.fingerprint}-added-part`;
+
+  act(() => {
+    useSplitFaceStore.setState((s) => ({
+      ...s,
+      document: { ...s.document, revision: newRevision, fingerprint: newFingerprint },
+      lastCommittedResult: {
+        ...committed,
+        sourceRevision: newRevision,
+        sourceFingerprint: newFingerprint,
+        bodies: [...committed.bodies, newPartBody],
+      },
+    }));
+  });
+
+  await waitFor(() => {
+    expect(useMasterMoldStore.getState().status).toBe("stale");
+  });
+  // The pre-existing bodies must not remain falsely `current` while the
+  // newly-appeared required part has no Master Mold body at all yet.
+  expect(useMasterMoldStore.getState().bodies.every((body) => body.status === "stale")).toBe(true);
+});
+
 it("shows an accessible alert with the blocked reason when a Master Mold part cannot be generated", async () => {
   const partMesh = await reachPartsReadyWithCommittedCavity();
   render(<MasterMoldAction sourcePartMesh={partMesh} />);

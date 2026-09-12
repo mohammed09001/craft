@@ -77,6 +77,22 @@ export function MasterMoldAction({
       return;
     }
 
+    // Article 04: a brand-new required part (never seen by Master Mold
+    // before) has no existing body to diff against, so it can never appear
+    // in `changedPartIds` below -- left unhandled, the collection would keep
+    // reporting whatever it last reported (often `current`) while the new
+    // part silently has no Master Mold body at all. That is a coarser
+    // invalidation than any single part going stale, so it uses the same
+    // whole-collection fallback as a document-identity mismatch.
+    const hasNewPart = lastCommittedResult.bodies.some(
+      (body) => !existingBodies.some((existingBody) => existingBody.source.finalMoldPartId === body.id),
+    );
+
+    if (hasNewPart) {
+      markMasterMoldStale(documentIdentity);
+      return;
+    }
+
     const changedPartIds = lastCommittedResult.bodies
       .filter((body) => {
         const existing = existingBodies.find((b) => b.source.finalMoldPartId === body.id);
