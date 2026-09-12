@@ -29,6 +29,7 @@ import {
   resizeViewport,
 } from "@/features/viewport/runtime/resizeViewport";
 import { createReferenceMoldBlock3dRuntime } from "@/features/viewport/runtime/referenceMoldBlock3dRuntime";
+import { createMasterMoldBody3dRuntime } from "@/features/viewport/runtime/masterMoldBody3dRuntime";
 import { createCuttingPlane3dRuntime } from "@/features/viewport/runtime/cuttingPlane3dRuntime";
 import { createGroundPlaneRulerRuntime } from "@/features/viewport/runtime/createGroundPlaneRulerRuntime";
 import { createSegmentationVisualization3dRuntime } from "@/features/viewport/runtime/segmentationVisualization3dRuntime";
@@ -59,6 +60,7 @@ function createInactiveRuntime({
     setSplitFaceSelection: () => undefined,
     setCuttingPlanes: () => undefined,
     setReferenceMoldDefinition: () => undefined,
+    setMasterMoldBodies: () => undefined,
     setMoldAppearanceMode: () => undefined,
     setSprueCavityGeometry: () => undefined,
     setSpruePreviewActive: () => undefined,
@@ -217,6 +219,8 @@ export function createThreeViewportRuntime({
       scheduler.invalidate();
     });
     scene.add(moldBlock3dRuntime.object);
+    const masterMoldBody3dRuntime = createMasterMoldBody3dRuntime(scheduler.invalidate);
+    scene.add(masterMoldBody3dRuntime.object);
     const spruePreviewRuntime = createSpruePreview3dRuntime({
       camera,
       canvas,
@@ -379,10 +383,12 @@ export function createThreeViewportRuntime({
       },
       setMoldAppearanceMode: (mode) => {
         moldBlock3dRuntime.setAppearanceMode(mode);
+        masterMoldBody3dRuntime.setAppearanceMode(mode);
         segmentationVisualizationRuntime.setAppearanceMode(mode);
         spruePreviewRuntime.setMoldRoot(moldBlock3dRuntime.object);
         sprueResizeRuntime.setMoldRoot(moldBlock3dRuntime.object);
       },
+      setMasterMoldBodies: masterMoldBody3dRuntime.setBodies,
       setSprueCavityGeometry: spruePreviewRuntime.setCavityGeometry,
       setSpruePreviewActive: (active) => {
         selectionRuntime.setInteractionBlocked(active);
@@ -419,6 +425,7 @@ export function createThreeViewportRuntime({
         selectionRuntime.setPalette(nextPalette);
         measurementRuntime.setPalette(nextPalette);
         moldBlock3dRuntime.setPalette(nextPalette);
+        masterMoldBody3dRuntime.setPalette(nextPalette);
         segmentationVisualizationRuntime.setPalette(nextPalette);
         scheduler.invalidate();
       },
@@ -440,6 +447,7 @@ export function createThreeViewportRuntime({
         sprueResizeRuntime.dispose();
         moldScaleRuntime.dispose();
         moldBlock3dRuntime.dispose();
+        masterMoldBody3dRuntime.dispose();
         cuttingPlaneRuntime.dispose();
         segmentationVisualizationRuntime.dispose();
         groundPlaneRuler.dispose();

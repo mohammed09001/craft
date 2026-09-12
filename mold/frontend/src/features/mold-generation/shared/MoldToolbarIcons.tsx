@@ -170,6 +170,46 @@ export function SprueIcon() {
   );
 }
 
+/**
+ * Two vertical rectangles: a smaller navy-filled one (the printable Master
+ * Mold shell) beside a larger transparent one (the final-mold part it casts)
+ * -- deliberately not a cube or isometric illustration. The navy fill is a
+ * literal hex value rather than a design-system token: no "navy" token
+ * exists yet, and ConstructIcon above is this toolbar's own precedent for a
+ * hardcoded-color icon fill.
+ */
+export function MasterMoldIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className={styles.icon}
+      fill="none"
+      height="18"
+      viewBox="0 0 24 24"
+      width="18"
+    >
+      <rect
+        fill="#1c2f4d"
+        height="12"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        width="5"
+        x="4"
+        y="7"
+      />
+      <rect
+        fill="none"
+        height="17"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        width="8"
+        x="12"
+        y="4"
+      />
+    </svg>
+  );
+}
+
 export function MinusIcon() {
   return (
     <ToolbarIcon>

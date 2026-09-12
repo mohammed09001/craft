@@ -293,6 +293,26 @@ it("exposes setPartOrientation on the production runtime object and forwards cal
 
   expect(setPartOrientationSpy).toHaveBeenCalledWith(testOrientation);
 
+  expect(runtime.setMasterMoldBodies).toBeDefined();
+  expect(typeof runtime.setMasterMoldBodies).toBe("function");
+  expect(() =>
+    runtime.setMasterMoldBodies!([
+      {
+        id: "master-a",
+        name: "Master Mold A",
+        visible: true,
+        bounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 10, y: 10, z: 10 } },
+        triangleCount: 2,
+        volumeMm3: 1000,
+        watertight: true,
+        mesh: {
+          positions: [0, 0, 0, 10, 0, 0, 0, 10, 0, 10, 10, 0, 0, 10, 10, 10, 0, 10],
+          indices: [0, 1, 2, 3, 4, 5],
+        },
+      },
+    ]),
+  ).not.toThrow();
+
   runtime.dispose();
 });
 

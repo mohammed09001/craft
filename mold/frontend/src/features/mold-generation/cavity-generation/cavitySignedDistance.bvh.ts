@@ -22,9 +22,9 @@ export interface CavitySignedDistanceField {
 }
 
 const DEFAULT_SURFACE_EPSILON_MM=1e-7;
-const RAY_INTERSECTION_EPSILON_MM=1e-7;
+export const RAY_INTERSECTION_EPSILON_MM=1e-7;
 
-const rayDirections=Object.freeze([
+export const rayDirections=Object.freeze([
   new Vector3(
     1,
     Math.SQRT1_2,
@@ -44,7 +44,7 @@ const rayDirections=Object.freeze([
   ).normalize(),
 ]);
 
-function buildGeometry(
+export function buildGeometry(
   mesh:MoldMeshPayload,
 ):BufferGeometry {
   if(
@@ -85,7 +85,7 @@ function buildGeometry(
   return geometry;
 }
 
-function countUniqueForwardIntersections(
+export function countUniqueForwardIntersections(
   bvh:MeshBVH,
   origin:Vector3,
   direction:Vector3,
@@ -126,7 +126,7 @@ function countUniqueForwardIntersections(
   return uniqueCount;
 }
 
-function classifyPointInside(
+export function classifyPointInside(
   bvh:MeshBVH,
   point:Vector3,
 ):boolean {

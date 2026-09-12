@@ -74,6 +74,9 @@ export type ViewportRuntime = {
   setReferenceMoldDefinition: (
     definition: import("@/features/mold-generation/reference-mold-definition").ReferenceMoldDefinition | null,
   ) => void;
+  setMasterMoldBodies?: (
+    bodies: readonly import("@/features/mold-generation/reference-mold-definition/orthogonalMold").MoldBodyData[],
+  ) => void;
   setMoldAppearanceMode?: (
     mode: import("@/features/mold-generation/reference-mold-definition/moldAppearance.store").MoldAppearanceMode,
   ) => void;

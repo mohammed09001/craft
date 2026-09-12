@@ -10,6 +10,7 @@ import { isViewportToolAvailable } from "@/features/viewport/viewportTool.capabi
 import { CavityAction } from "../cavity-generation/CavityAction";
 import type { CanonicalPartGeometry } from "../cavity-generation/cavityGeneration.contracts";
 import { useCuttingWorkflowStore } from "../cutting-workflow";
+import { MasterMoldAction } from "../master-mold/MasterMoldAction";
 import {
   ConstructIcon,
   EraserIcon,
@@ -247,6 +248,7 @@ export function SplitFaceControls({
         </div>
 
         <CavityAction sourcePartMesh={canonicalPartGeometry} />
+        <MasterMoldAction sourcePartMesh={canonicalPartGeometry} />
 
         <span
           aria-hidden="true"

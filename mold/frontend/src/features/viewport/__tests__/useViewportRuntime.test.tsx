@@ -54,6 +54,7 @@ function createOptions(
     partOrientation: { x: 0, y: 0, z: 0, w: 1 },
     orientationToolActive: false,
     referenceMoldDefinition: null,
+    masterMoldBodies: [],
     moldAppearanceMode: "solid",
     sprueCavityGeometry: null,
     spruePreviewActive: false,

@@ -27,6 +27,13 @@ import { MoldBodiesBrowser } from "@/features/mold-generation/reference-mold-def
 import { useMoldAppearanceStore } from "@/features/mold-generation/reference-mold-definition/moldAppearance.store";
 import { selectActiveMoldBodies, selectSpruePresentationDefinitions, SplitFaceControls, useSplitFaceStore } from "@/features/mold-generation/split-face";
 import type { CanonicalPartGeometry } from "@/features/mold-generation/cavity-generation/cavityGeneration.contracts";
+// Imported directly from the store module rather than the master-mold
+// barrel: that barrel also re-exports the geometry generator/direction
+// analyzer (Manifold + three-mesh-bvh), which must stay out of the eagerly-
+// loaded viewport bundle (see the bundle-budget check in `npm run build`).
+import { useMasterMoldStore } from "@/features/mold-generation/master-mold/masterMold.store";
+import { selectRenderableMasterMoldBodies } from "@/features/mold-generation/master-mold/masterMoldViewportAdapter";
+import type { MoldBodyData } from "@/features/mold-generation/reference-mold-definition/orthogonalMold";
 import { createReferenceMoldBlockBounds } from "@/features/mold-generation/reference-mold-definition/referenceMoldBlock.geometry";
 import { validateLocalStlFiles } from "@/features/viewport/modelImportValidation";
 import type {
@@ -306,6 +313,15 @@ export function Viewport({ onStatusChange }: ViewportProps) {
     [activeMoldBodies, baseReferenceMoldDefinition, registrationState, spruePresentation],
   );
 
+  // Master Mold is an independent tool, not a Create Cavity presentation
+  // state -- rendered as its own body group (see masterMoldBody3dRuntime)
+  // rather than folded into referenceMoldDefinition.moldBodies above.
+  const masterMoldBodyResults = useMasterMoldStore((state) => state.bodies);
+  const masterMoldBodies = useMemo<readonly MoldBodyData[]>(
+    () => selectRenderableMasterMoldBodies(masterMoldBodyResults),
+    [masterMoldBodyResults],
+  );
+
   const splitWorkflow = useSplitFaceStore((state) => state.workflow);
   const selectedSplitFaces = useSplitFaceStore((state) => state.selectedFaceIds);
   const cuttingPlanes = useSplitFaceStore((state) => state.cuttingPlanes);
@@ -579,6 +595,7 @@ export function Viewport({ onStatusChange }: ViewportProps) {
     partOrientation,
     orientationToolActive: effectiveViewportTool === "orientation",
     referenceMoldDefinition,
+    masterMoldBodies,
     moldAppearanceMode,
     sprueCavityGeometry,
     spruePreviewActive:

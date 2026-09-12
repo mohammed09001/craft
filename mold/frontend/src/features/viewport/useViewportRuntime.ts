@@ -36,6 +36,7 @@ type UseViewportRuntimeOptions = {
   partOrientation: PartOrientation;
   orientationToolActive: boolean;
   referenceMoldDefinition: ReferenceMoldDefinition | null;
+  masterMoldBodies: readonly MoldBodyData[];
   moldAppearanceMode: MoldAppearanceMode;
   sprueCavityGeometry: CavityToolData | null;
   spruePreviewActive: boolean;
@@ -84,6 +85,7 @@ export function useViewportRuntime({
   partOrientation,
   orientationToolActive,
   referenceMoldDefinition,
+  masterMoldBodies,
   moldAppearanceMode,
   sprueCavityGeometry,
   spruePreviewActive,
@@ -128,6 +130,7 @@ export function useViewportRuntime({
   const latestPartOrientationRef = useRef(partOrientation);
   const latestOrientationToolActiveRef = useRef(orientationToolActive);
   const latestReferenceMoldDefinitionRef = useRef(referenceMoldDefinition);
+  const latestMasterMoldBodiesRef = useRef(masterMoldBodies);
   const latestMoldAppearanceModeRef = useRef(moldAppearanceMode);
   const latestSprueCavityGeometryRef = useRef(sprueCavityGeometry);
   const latestSpruePreviewActiveRef = useRef(spruePreviewActive);
@@ -250,6 +253,7 @@ export function useViewportRuntime({
         runtime.setPartOrientation?.(latestPartOrientationRef.current);
         runtime.setOrientationToolActive?.(latestOrientationToolActiveRef.current);
         runtime.setReferenceMoldDefinition(latestReferenceMoldDefinitionRef.current);
+        runtime.setMasterMoldBodies?.(latestMasterMoldBodiesRef.current);
         runtime.setMoldAppearanceMode?.(latestMoldAppearanceModeRef.current);
         runtime.setSprueCavityGeometry?.(latestSprueCavityGeometryRef.current);
         runtime.setSpruePreviewActive?.(latestSpruePreviewActiveRef.current);
@@ -321,6 +325,11 @@ export function useViewportRuntime({
     latestReferenceMoldDefinitionRef.current = referenceMoldDefinition;
     runtimeRef.current?.setReferenceMoldDefinition(referenceMoldDefinition);
   }, [referenceMoldDefinition]);
+
+  useEffect(() => {
+    latestMasterMoldBodiesRef.current = masterMoldBodies;
+    runtimeRef.current?.setMasterMoldBodies?.(masterMoldBodies);
+  }, [masterMoldBodies]);
 
   useEffect(() => {
     latestMoldAppearanceModeRef.current = moldAppearanceMode;

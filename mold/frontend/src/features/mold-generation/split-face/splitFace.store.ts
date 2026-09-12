@@ -19,9 +19,8 @@ import type {
   SpruePreviewPlacement,
   SprueProfileDesignResult,
 } from "../sprue-generation";
-import { AUTOMATIC_SEGMENTATION_REGISTRATION_SIZING_POLICY, type RegistrationSizingPolicy } from "../registration/registrationSizing.policy";
 import { unavailableRegistration, type DerivedRegistrationState } from "../registration/registrationState";
-import { applyBodyVisibility, canCommitMoldEvaluation, cancelDerivedMoldEvaluation as defaultCancelDerivedMoldEvaluation, idleMoldEvaluation, isEvaluationCancelled, nextEvaluationRequest, runDerivedMoldEvaluation as defaultRunDerivedMoldEvaluation, type FinalMoldResult, type MoldDocument, type MoldEvaluationState } from "../workflow";
+import { applyBodyVisibility, canCommitMoldEvaluation, cancelDerivedMoldEvaluation as defaultCancelDerivedMoldEvaluation, idleMoldEvaluation, isEvaluationCancelled, nextEvaluationRequest, registrationSizingPolicyFor, runDerivedMoldEvaluation as defaultRunDerivedMoldEvaluation, type FinalMoldResult, type MoldDocument, type MoldEvaluationState } from "../workflow";
 import type { MoldBodyData } from "../reference-mold-definition/orthogonalMold";
 
 interface Snapshot { selectedFaceIds:readonly PartBoundingBoxFaceId[]; selectedSplitFaceId:PartBoundingBoxFaceId|null; cuttingPlanes:readonly CuttingPlaneRecord[]; workflow:SplitWorkflowState; definition:ReferenceMoldDefinition|null; clearanceMm:number; activePlaneId:string|null; cavity:CavityWorkflowState; partGeometrySignature:string|null; sprues:readonly SprueDefinition[]; sprueDefinitions:readonly SprueOperationDefinition[]; registration:DerivedRegistrationState; document:MoldDocument; evaluation:MoldEvaluationState; lastCommittedResult:FinalMoldResult|null; bodyVisibility:Readonly<Record<string,boolean>> }
@@ -367,20 +366,11 @@ function buildSegmentationDerivedDefinition(
   segmentationLineage:true,
  };
 }
-/**
- * Selects the Registration sizing policy for the committed evaluation of
- * `definition` from its own authoritative, persisted provenance --
- * `segmentationLineage`, the same field `rebuildReferenceMoldForClearance`
- * above already uses to distinguish Segmentation-promoted definitions from
- * Cut by Face (which never sets it and must stay on the NORMAL
- * default applied by buildRegistrationDependencySnapshot). Returns a
- * spreadable field (never an explicit `undefined` value) so the NORMAL case
- * omits `registrationSizingPolicy` entirely, matching this project's
- * `exactOptionalPropertyTypes` contract.
- */
-function registrationSizingPolicyFor(definition:ReferenceMoldDefinition):{registrationSizingPolicy:RegistrationSizingPolicy}|Record<string,never>{
- return definition.segmentationLineage===true?{registrationSizingPolicy:AUTOMATIC_SEGMENTATION_REGISTRATION_SIZING_POLICY}:{};
-}
+// registrationSizingPolicyFor (selects the Registration sizing policy for the
+// committed evaluation of `definition` from its own authoritative, persisted
+// `segmentationLineage` provenance) now lives in workflow/finalMoldTarget.ts
+// so Master Mold's own final-mold-target synthesis can share the exact same
+// rule instead of duplicating it; imported above from "../workflow".
 export interface SplitFaceStoreDeps{runDerivedMoldEvaluation:typeof defaultRunDerivedMoldEvaluation;cancelDerivedMoldEvaluation:typeof defaultCancelDerivedMoldEvaluation;runCavityGenerationInWorker:typeof defaultRunCavityGenerationInWorker;cancelActiveCavityGeneration:typeof defaultCancelActiveCavityGeneration;}
 const defaultSplitFaceStoreDeps:SplitFaceStoreDeps={runDerivedMoldEvaluation:defaultRunDerivedMoldEvaluation,cancelDerivedMoldEvaluation:defaultCancelDerivedMoldEvaluation,runCavityGenerationInWorker:defaultRunCavityGenerationInWorker,cancelActiveCavityGeneration:defaultCancelActiveCavityGeneration};
 /** Factory so an isolated draft session (see cutting-workflow/) can own its own worker-runner instances instead of sharing the module-level singletons below. Default args keep `useSplitFaceStore` behaviorally identical to before this extraction. */
