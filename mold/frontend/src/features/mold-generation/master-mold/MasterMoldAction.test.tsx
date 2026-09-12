@@ -168,7 +168,9 @@ it("marks Master Mold stale (never current) the moment the final-mold document c
   });
 
   // Mold Scale change: an authoritative input to the final-mold target changes.
-  useSplitFaceStore.getState().setClearanceMm(useSplitFaceStore.getState().clearanceMm + 5);
+  act(() => {
+    useSplitFaceStore.getState().setClearanceMm(useSplitFaceStore.getState().clearanceMm + 5);
+  });
 
   await waitFor(() => {
     expect(useMasterMoldStore.getState().status).toBe("stale");
@@ -303,12 +305,16 @@ it("never shows Master Mold as current again after Undo, even when Undo restores
     expect(useMasterMoldStore.getState().status).toBe("current");
   });
 
-  useSplitFaceStore.getState().setClearanceMm(useSplitFaceStore.getState().clearanceMm + 5);
+  act(() => {
+    useSplitFaceStore.getState().setClearanceMm(useSplitFaceStore.getState().clearanceMm + 5);
+  });
   await waitFor(() => {
     expect(useMasterMoldStore.getState().status).toBe("stale");
   });
 
-  useSplitFaceStore.getState().undo();
+  act(() => {
+    useSplitFaceStore.getState().undo();
+  });
 
   // Conservative by design (Article 01/05): Undo restoring the same document
   // revision Master Mold was built from does not silently flip it back to
@@ -338,7 +344,9 @@ it("fully resets Master Mold (not merely stale) once the workflow leaves partsRe
     expect(useMasterMoldStore.getState().status).toBe("current");
   });
 
-  useSplitFaceStore.getState().clearForModelReplacement();
+  act(() => {
+    useSplitFaceStore.getState().clearForModelReplacement();
+  });
 
   await waitFor(() => {
     expect(useMasterMoldStore.getState().status).toBe("unavailable");
