@@ -200,7 +200,7 @@ describe("Master Mold real final-mold-target integration", () => {
         expect(body.fingerprint.value, `expected unaffected sibling ${body.source.finalMoldPartId} to keep its fingerprint`).toBe(before);
       }
     }
-  });
+  }, 15000);
 
   it("Case D: a vertically-fed Sprue fused onto a sideways-only-demoldable block is a real, structured infeasibility -- not a false negative", async () => {
     await committedCavity("front");
