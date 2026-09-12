@@ -116,7 +116,15 @@ export function createMasterMoldStoreCreator(deps: MasterMoldStoreDeps = default
       set({
         status: "unavailable",
         parameters: get().parameters,
-        generationVersion: get().generationVersion,
+        // Article 09: bump generationVersion even though there is no new
+        // generation -- an in-flight generate() call captured the PRIOR
+        // version and only trusts its own result while
+        // get().generationVersion still matches it. Cancelling the
+        // underlying Worker call above makes its promise settle later
+        // (typically a rejection), and without this bump that settling
+        // would pass the version check and clobber this reset back to
+        // "error"/stale bodies once it resolves.
+        generationVersion: get().generationVersion + 1,
         bodies: [],
         progress: 0,
         lastError: null,

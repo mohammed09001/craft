@@ -310,4 +310,28 @@ describe("masterMold.store", () => {
 
     expect(store.getState().bodies.map((b) => b.source.finalMoldPartId)).toEqual(["b"]);
   });
+
+  it("Article 09: reset() during an in-flight generate() is not clobbered once the cancelled call's promise settles", async () => {
+    let rejectPending!: (error: Error) => void;
+    const { deps } = createDeps(() => new Promise<MasterMoldResult>((_resolve, reject) => { rejectPending = reject; }));
+    const store = createMasterMoldStoreCreator(deps);
+
+    const pending = store.getState().generate([inputA]);
+    expect(store.getState().status).toBe("generating");
+
+    store.getState().reset();
+    expect(store.getState().status).toBe("unavailable");
+    expect(store.getState().bodies).toEqual([]);
+
+    // The cancelled Worker call's promise settling later (rejection, as a
+    // real cancellation would produce) must never resurrect the state
+    // reset() already moved past -- generationVersion is the only gate
+    // generate()'s catch handler checks, so reset() must invalidate it too.
+    rejectPending(Object.assign(new Error("Master Mold generation was cancelled."), { code: "cancelled" }));
+    await pending;
+
+    expect(store.getState().status).toBe("unavailable");
+    expect(store.getState().bodies).toEqual([]);
+    expect(store.getState().lastError).toBeNull();
+  });
 });

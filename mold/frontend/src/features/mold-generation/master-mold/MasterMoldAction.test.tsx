@@ -94,6 +94,33 @@ it("generates a Master Mold by reusing an already-committed cavity result", asyn
   expect(bodies.map((body) => body.source.finalMoldPartId).sort()).toEqual(committedBodies.map((body) => body.id).sort());
 });
 
+it("Article 09: a rapid duplicate click before the button disables never corrupts the final result", async () => {
+  const partMesh = await reachPartsReadyWithCommittedCavity();
+  const committedBodies = useSplitFaceStore.getState().lastCommittedResult!.bodies;
+
+  render(<MasterMoldAction sourcePartMesh={partMesh} />);
+  const button = screen.getByRole("button", { name: "Master Mold" });
+  // Two clicks fired back to back, before React has a chance to commit the
+  // `disabled` update from the first click's setPreparing(true) -- the
+  // worst case for a duplicate/overlapping request. The store's
+  // generationVersion latest-wins gate (masterMold.store.test.ts: "never
+  // lets a superseded generate() call overwrite a newer one") must keep the
+  // final result correct regardless of how many overlapping calls fired.
+  fireEvent.click(button);
+  fireEvent.click(button);
+
+  await waitFor(() => {
+    expect(useMasterMoldStore.getState().status).toBe("current");
+  });
+
+  const state = useMasterMoldStore.getState();
+  expect(state.bodies).toHaveLength(committedBodies.length);
+  expect(state.bodies.every((body) => body.status === "current")).toBe(true);
+  expect(state.bodies.map((body) => body.source.finalMoldPartId).sort()).toEqual(committedBodies.map((body) => body.id).sort());
+  // No duplicate/leftover bodies for the same part from an overlapping call.
+  expect(new Set(state.bodies.map((body) => body.source.finalMoldPartId)).size).toBe(state.bodies.length);
+});
+
 it("generates a Master Mold without requiring the user to press Create Cavity first", async () => {
   const partMesh = canonicalCube("m", k1);
   const state = useSplitFaceStore.getState();
