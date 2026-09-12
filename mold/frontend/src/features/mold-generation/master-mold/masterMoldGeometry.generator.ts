@@ -14,6 +14,7 @@ import { buildGeometry, classifyPointInside, countUniqueForwardIntersections } f
 import type { Bounds3 } from "../split-face/splitFace.contracts";
 import type { MoldMeshPayload } from "../reference-mold-definition/orthogonalMold";
 import { axisOf, analyzeMasterMoldOpenDirection, DIRECTION_VECTORS, isPositive, masterStockBoundsFor } from "./masterMoldDirection.analyzer";
+import { verifyDemoldTranslation } from "./masterMoldDemold.verifier";
 import { buildMasterMoldSourceFingerprint } from "./masterMold.fingerprint";
 import {
   MASTER_MOLD_DIRECTIONS,
@@ -21,6 +22,8 @@ import {
   MIN_MASTER_MOLD_WALL_MM,
   type MasterMoldBodyResult,
   type MasterMoldDirection,
+  type MasterMoldDirectionAnalysis,
+  type MasterMoldDirectionCandidate,
   type MasterMoldFailureReason,
   type MasterMoldParameters,
   type MasterMoldTargetInput,
@@ -33,12 +36,11 @@ function blocked(
   failureReason: MasterMoldFailureReason,
   failureMessage: string,
   directionAnalysis: MasterMoldBodyResult["directionAnalysis"] = { candidates: [], selected: null, feasible: false },
-  direction: MasterMoldDirection | null = null,
 ): MasterMoldBodyResult {
   return {
     source: target.source,
     status: "blocked",
-    direction,
+    direction: null,
     directionAnalysis,
     mesh: null,
     bounds: null,
@@ -73,6 +75,9 @@ function isFiniteMesh(mesh: MasterMoldTargetInput["mesh"]): boolean {
  * large relative to the part itself.
  */
 const OPEN_FACE_EXTENSION_SAFETY_FACTOR = 8;
+
+/** Article 02: the precise demold sweep samples out to the candidate's required stock depth plus this margin, so the target is proven fully clear of tool material, not merely past its own footprint. */
+const DEMOLD_CLEARANCE_SAFETY_FACTOR = 1.1;
 
 /** Bounds of a box spanning the target's own footprint, from its open face outward past the (flush) Master Stock boundary by `extensionMm` -- Article 02's "extend through chosen open plane" construction. */
 function openFaceExtensionBoxBounds(bounds: Bounds3, direction: MasterMoldDirection, extensionMm: number): Bounds3 {
@@ -166,12 +171,198 @@ export function validateOpenFaceAccess(resultMesh: MoldMeshPayload, interiorProb
   }
 }
 
+type DirectionAttemptOutcome =
+  | { readonly kind: "success"; readonly mesh: MoldMeshPayload; readonly bounds: Bounds3; readonly volumeMm3: number }
+  | { readonly kind: "failure"; readonly failureReason: MasterMoldFailureReason; readonly failureMessage: string };
+
+/**
+ * Article 02/03: build the actual candidate Master Mold tool for one
+ * direction and precisely verify it -- watertight/manifold/single-opening as
+ * before, plus (new) a real translation collision sweep of the actual target
+ * against the actual generated tool. The direction ultimately reported
+ * `current` is always the one this function accepted, never a separate
+ * heuristic guess (Article 03's required invariant).
+ */
+async function attemptDirection(
+  module: Awaited<ReturnType<typeof getManifoldModule>>,
+  target: MasterMoldTargetInput,
+  parameters: MasterMoldParameters,
+  direction: MasterMoldDirection,
+  requiredDepthMm: number,
+): Promise<DirectionAttemptOutcome> {
+  const name = target.source.finalMoldPartName;
+  const fail = (failureReason: MasterMoldFailureReason, failureMessage: string): DirectionAttemptOutcome => ({
+    kind: "failure",
+    failureReason,
+    failureMessage,
+  });
+
+  const stockBounds = masterStockBoundsFor(target.bounds, direction, parameters.wallThicknessMm, parameters.bottomThicknessMm);
+  const tolerancePolicy = buildCavityGeometryTolerancePolicy(stockBounds, 0);
+  const openFaceExtensionMm = tolerancePolicy.surfaceToleranceMm * OPEN_FACE_EXTENSION_SAFETY_FACTOR;
+
+  const targetSolid = manifoldFromPayload(module, target.mesh, tolerancePolicy.booleanToleranceMm);
+  const stockSolid = createBlankSolid(module, stockBounds);
+  const extensionSolid = createBlankSolid(module, openFaceExtensionBoxBounds(target.bounds, direction, openFaceExtensionMm));
+  let extendedTargetSolid: ReturnType<typeof targetSolid.add> | null = null;
+  let resultSolid: ReturnType<typeof stockSolid.subtract> | null = null;
+  let intersectionSolid: ReturnType<typeof stockSolid.intersect> | null = null;
+
+  try {
+    // Article 02: never rely on exact coplanar coincidence between the
+    // target and the Master Stock at the open face -- extend the target
+    // through that plane by a tolerance-safe distance first, so the
+    // subtraction unambiguously breaches the stock's boundary there instead
+    // of leaving an ill-conditioned zero-thickness coincidence for the
+    // Boolean kernel to resolve arbitrarily.
+    extendedTargetSolid = targetSolid.add(extensionSolid);
+    resultSolid = stockSolid.subtract(extendedTargetSolid);
+
+    if (resultSolid.status() !== "NoError" || resultSolid.isEmpty()) {
+      return fail("boolean_failed", `${name}: Master Mold Boolean subtraction failed.`);
+    }
+
+    // Expected volume is derived independently of resultSolid (via an
+    // intersection, not the subtraction under test) so this remains a real
+    // sanity check; it uses the extended target's volume actually inside the
+    // stock, since the extension itself removes a (tolerance-scale) sliver
+    // beyond the target's own volume by design.
+    intersectionSolid = stockSolid.intersect(extendedTargetSolid);
+    const resultVolume = resultSolid.volume();
+    const expectedVolume = stockSolid.volume() - intersectionSolid.volume();
+    const volumeTolerance = Math.max(tolerancePolicy.volumeToleranceMm3, expectedVolume * 1e-6);
+
+    if (!Number.isFinite(resultVolume) || resultVolume <= tolerancePolicy.volumeToleranceMm3 || Math.abs(resultVolume - expectedVolume) > volumeTolerance) {
+      return fail("master_stock_invalid", `${name}: Master Mold volume is invalid or its open face may have been unexpectedly sealed.`);
+    }
+
+    const components = resultSolid.decompose();
+
+    try {
+      const volumes = components.map((component) => component.volume());
+      const classification = classifyFragmentVolumes(volumes, tolerancePolicy.minimumFragmentVolumeMm3);
+
+      if (classification.meaningfulVolumes.length === 0) {
+        return fail("master_stock_invalid", `${name}: Master Mold has no meaningful material after subtraction.`);
+      }
+
+      if (classification.meaningfulVolumes.length > 1) {
+        return fail("detached_fragment", `${name}: Master Mold separated into ${classification.meaningfulVolumes.length} disconnected pieces.`);
+      }
+
+      const mesh = payloadFromManifold(resultSolid);
+      const meshTopology = topology(mesh);
+
+      if (meshTopology.openEdgeCount > 0 || meshTopology.nonManifoldEdgeCount > 0) {
+        return fail("non_manifold_result", `${name}: Master Mold result is not a closed manifold.`);
+      }
+
+      if (!mesh.positions.every(Number.isFinite)) {
+        return fail("master_stock_invalid", `${name}: Master Mold result contains non-finite geometry.`);
+      }
+
+      // Article 02: watertight + manifold is not sufficient proof of a real
+      // casting opening -- prove the cavity is actually reachable from the
+      // exterior through the intended face, and that no unintended second
+      // opening exists, before ever reporting "current".
+      const targetGeometry = buildGeometry(target.mesh);
+      let interiorProbe: Vector3 | null;
+      try {
+        interiorProbe = findInteriorProbePoint(new MeshBVH(targetGeometry), target.mesh, target.bounds);
+      } finally {
+        targetGeometry.dispose();
+      }
+
+      if (interiorProbe === null) {
+        return fail("master_stock_invalid", `${name}: could not locate a point inside the target to verify casting access.`);
+      }
+
+      const access = validateOpenFaceAccess(mesh, interiorProbe);
+
+      if (!access.openDirections.includes(direction)) {
+        return fail("open_face_inaccessible", `${name}: the casting cavity is not reachable through the ${direction} opening.`);
+      }
+
+      if (access.openDirections.length > 1) {
+        return fail(
+          "multiple_open_faces",
+          `${name}: Master Mold has ${access.openDirections.length} exterior openings (${access.openDirections.join(", ")}); exactly one is required.`,
+        );
+      }
+
+      // Article 02/03: the physical decision -- can the actual target
+      // translate out of this actual generated tool along `direction`
+      // without penetrating tool material beyond tolerance? This, not the
+      // broad-phase bounds check above, is the final authority on
+      // demoldability.
+      const clearanceMm = requiredDepthMm * DEMOLD_CLEARANCE_SAFETY_FACTOR;
+      // `minimumFragmentVolumeMm3`, not `volumeToleranceMm3` -- the latter is
+      // `linearToleranceMm**3`, orders of magnitude below the floating-point
+      // noise floor a real Boolean intersection carries at this scale (a
+      // genuinely non-colliding sample can still read as a ~1e-13 mm3
+      // residual), which would flag every direction as colliding. The
+      // "smallest volume that counts as a real fragment" scale-aware
+      // threshold the rest of the pipeline already uses for the same
+      // "is this actually material or just numerical noise" question.
+      const demold = verifyDemoldTranslation(
+        resultSolid,
+        targetSolid,
+        direction,
+        clearanceMm,
+        tolerancePolicy.surfaceToleranceMm,
+        tolerancePolicy.minimumFragmentVolumeMm3,
+      );
+
+      if (!demold.removable) {
+        const atMm = demold.firstCollisionDistanceMm !== null ? demold.firstCollisionDistanceMm.toFixed(3) : "?";
+        return fail(
+          "no_valid_open_direction",
+          `${name}: the target collides with Master Mold material ${atMm} mm into the ${direction} pull -- no one-piece open-face Master Mold is feasible along this direction.`,
+        );
+      }
+
+      return {
+        kind: "success",
+        mesh,
+        bounds: boundsFromManifold(resultSolid),
+        volumeMm3: resultVolume,
+      };
+    } finally {
+      components.forEach((component) => component.delete());
+    }
+  } finally {
+    intersectionSolid?.delete();
+    resultSolid?.delete();
+    extendedTargetSolid?.delete();
+    extensionSolid.delete();
+    stockSolid.delete();
+    targetSolid.delete();
+  }
+}
+
+function buildFinalAnalysis(
+  stageA: MasterMoldDirectionAnalysis,
+  attempted: ReadonlyMap<MasterMoldDirection, MasterMoldDirectionCandidate>,
+  selected: MasterMoldDirection | null,
+): MasterMoldDirectionAnalysis {
+  const candidates = stageA.candidates.map((candidate) => attempted.get(candidate.direction) ?? candidate);
+  return { candidates, selected, feasible: selected !== null };
+}
+
 /**
  * Article 05: generate one printable, watertight, single-open-face Master
  * Mold for one committed final-mold target, reusing the same Manifold
  * infrastructure (module, mesh conversion, tolerance policy, fragment
  * classification, topology check) the cavity pipeline already validates
  * with -- no second Boolean engine, no manual mesh surgery.
+ *
+ * Article 02/03: direction selection and geometry generation are the same
+ * pass -- every candidate direction is actually built and precisely
+ * verified (Stage B) in best-first order (Stage A's bounds-only score), and
+ * the first one that survives Boolean/topology/open-face/demold
+ * verification is the one returned as `current`. There is no separate
+ * heuristic-only decision that the generated geometry merely happens to
+ * agree with.
  */
 export async function generateMasterMoldBody(
   target: MasterMoldTargetInput,
@@ -191,151 +382,98 @@ export async function generateMasterMoldBody(
     return blocked(target, parameters, directionOverride, "insufficient_bottom_thickness", `Bottom thickness must be at least ${MIN_MASTER_MOLD_BOTTOM_MM} mm.`);
   }
 
-  const directionAnalysis = analyzeMasterMoldOpenDirection(target.mesh, target.bounds, {
+  const stageA = analyzeMasterMoldOpenDirection(target.bounds, {
     wallThicknessMm: parameters.wallThicknessMm,
     bottomThicknessMm: parameters.bottomThicknessMm,
     geometryToleranceMm: parameters.geometryToleranceMm,
   });
 
-  const candidate = directionOverride === null
-    ? (directionAnalysis.selected === null ? null : directionAnalysis.candidates.find((c) => c.direction === directionAnalysis.selected) ?? null)
-    : directionAnalysis.candidates.find((c) => c.direction === directionOverride) ?? null;
+  const stageAByDirection = new Map(stageA.candidates.map((candidate) => [candidate.direction, candidate]));
 
-  if (candidate === null || !candidate.valid) {
+  const candidateOrder: MasterMoldDirection[] =
+    directionOverride === null
+      ? stageA.candidates
+          .filter((candidate) => candidate.valid)
+          .slice()
+          .sort((a, b) => b.score - a.score)
+          .map((candidate) => candidate.direction)
+      : (stageAByDirection.get(directionOverride)?.valid ?? false)
+        ? [directionOverride]
+        : [];
+
+  if (candidateOrder.length === 0) {
     return blocked(
       target,
       parameters,
       directionOverride,
       "no_valid_open_direction",
       `${target.source.finalMoldPartName}: no one-piece open-face Master Mold is feasible${directionOverride === null ? "" : ` for the requested ${directionOverride} direction`}.`,
-      directionAnalysis,
+      stageA,
     );
   }
 
-  const direction = candidate.direction;
-  const stockBounds = masterStockBoundsFor(target.bounds, direction, parameters.wallThicknessMm, parameters.bottomThicknessMm);
-  const tolerancePolicy = buildCavityGeometryTolerancePolicy(stockBounds, 0);
-  const openFaceExtensionMm = tolerancePolicy.surfaceToleranceMm * OPEN_FACE_EXTENSION_SAFETY_FACTOR;
-
   const module = await getManifoldModule();
-  const targetSolid = manifoldFromPayload(module, target.mesh, tolerancePolicy.booleanToleranceMm);
-  const stockSolid = createBlankSolid(module, stockBounds);
-  const extensionSolid = createBlankSolid(module, openFaceExtensionBoxBounds(target.bounds, direction, openFaceExtensionMm));
-  let extendedTargetSolid: ReturnType<typeof targetSolid.add> | null = null;
-  let resultSolid: ReturnType<typeof stockSolid.subtract> | null = null;
-  let intersectionSolid: ReturnType<typeof stockSolid.intersect> | null = null;
+  const attempted = new Map<MasterMoldDirection, MasterMoldDirectionCandidate>();
+  let best: { readonly direction: MasterMoldDirection; readonly outcome: Extract<DirectionAttemptOutcome, { kind: "success" }> } | null = null;
+  // Article 02 exit gate: "every final no_valid_open_direction result means
+  // all allowed orthogonal candidates failed precise verification" -- every
+  // bounds-valid candidate is actually attempted, never skipped once a
+  // winner is found, so a body's directionAnalysis truthfully reports each
+  // direction's own precisely-verified outcome (not just the winner's).
+  let firstNonDemoldFailure: { readonly failureReason: MasterMoldFailureReason; readonly failureMessage: string } | null = null;
+  let lastDemoldFailure: { readonly failureReason: MasterMoldFailureReason; readonly failureMessage: string } | null = null;
 
-  try {
-    // Article 02: never rely on exact coplanar coincidence between the
-    // target and the Master Stock at the open face -- extend the target
-    // through that plane by a tolerance-safe distance first, so the
-    // subtraction unambiguously breaches the stock's boundary there instead
-    // of leaving an ill-conditioned zero-thickness coincidence for the
-    // Boolean kernel to resolve arbitrarily.
-    extendedTargetSolid = targetSolid.add(extensionSolid);
-    resultSolid = stockSolid.subtract(extendedTargetSolid);
+  for (const direction of candidateOrder) {
+    const stageACandidate = stageAByDirection.get(direction)!;
+    const outcome = await attemptDirection(module, target, parameters, direction, stageACandidate.requiredDepthMm);
 
-    if (resultSolid.status() !== "NoError" || resultSolid.isEmpty()) {
-      return blocked(target, parameters, directionOverride, "boolean_failed", `${target.source.finalMoldPartName}: Master Mold Boolean subtraction failed.`, directionAnalysis, direction);
+    if (outcome.kind === "success") {
+      attempted.set(direction, { ...stageACandidate, valid: true, reasonCode: "demold_path_verified" });
+      if (best === null) best = { direction, outcome };
+      continue;
     }
 
-    // Expected volume is derived independently of resultSolid (via an
-    // intersection, not the subtraction under test) so this remains a real
-    // sanity check; it uses the extended target's volume actually inside the
-    // stock, since the extension itself removes a (tolerance-scale) sliver
-    // beyond the target's own volume by design.
-    intersectionSolid = stockSolid.intersect(extendedTargetSolid);
-    const resultVolume = resultSolid.volume();
-    const expectedVolume = stockSolid.volume() - intersectionSolid.volume();
-    const volumeTolerance = Math.max(tolerancePolicy.volumeToleranceMm3, expectedVolume * 1e-6);
-
-    if (!Number.isFinite(resultVolume) || resultVolume <= tolerancePolicy.volumeToleranceMm3 || Math.abs(resultVolume - expectedVolume) > volumeTolerance) {
-      return blocked(target, parameters, directionOverride, "master_stock_invalid", `${target.source.finalMoldPartName}: Master Mold volume is invalid or its open face may have been unexpectedly sealed.`, directionAnalysis, direction);
+    attempted.set(direction, { ...stageACandidate, valid: false, reasonCode: outcome.failureReason });
+    if (outcome.failureReason === "no_valid_open_direction") {
+      lastDemoldFailure = outcome;
+    } else if (firstNonDemoldFailure === null) {
+      firstNonDemoldFailure = outcome;
     }
-
-    const components = resultSolid.decompose();
-
-    try {
-      const volumes = components.map((component) => component.volume());
-      const classification = classifyFragmentVolumes(volumes, tolerancePolicy.minimumFragmentVolumeMm3);
-
-      if (classification.meaningfulVolumes.length === 0) {
-        return blocked(target, parameters, directionOverride, "master_stock_invalid", `${target.source.finalMoldPartName}: Master Mold has no meaningful material after subtraction.`, directionAnalysis, direction);
-      }
-
-      if (classification.meaningfulVolumes.length > 1) {
-        return blocked(target, parameters, directionOverride, "detached_fragment", `${target.source.finalMoldPartName}: Master Mold separated into ${classification.meaningfulVolumes.length} disconnected pieces.`, directionAnalysis, direction);
-      }
-
-      const mesh = payloadFromManifold(resultSolid);
-      const meshTopology = topology(mesh);
-
-      if (meshTopology.openEdgeCount > 0 || meshTopology.nonManifoldEdgeCount > 0) {
-        return blocked(target, parameters, directionOverride, "non_manifold_result", `${target.source.finalMoldPartName}: Master Mold result is not a closed manifold.`, directionAnalysis, direction);
-      }
-
-      if (!mesh.positions.every(Number.isFinite)) {
-        return blocked(target, parameters, directionOverride, "master_stock_invalid", `${target.source.finalMoldPartName}: Master Mold result contains non-finite geometry.`, directionAnalysis, direction);
-      }
-
-      // Article 02: watertight + manifold is not sufficient proof of a real
-      // casting opening -- prove the cavity is actually reachable from the
-      // exterior through the intended face, and that no unintended second
-      // opening exists, before ever reporting "current".
-      const targetGeometry = buildGeometry(target.mesh);
-      let interiorProbe: Vector3 | null;
-      try {
-        interiorProbe = findInteriorProbePoint(new MeshBVH(targetGeometry), target.mesh, target.bounds);
-      } finally {
-        targetGeometry.dispose();
-      }
-
-      if (interiorProbe === null) {
-        return blocked(target, parameters, directionOverride, "master_stock_invalid", `${target.source.finalMoldPartName}: could not locate a point inside the target to verify casting access.`, directionAnalysis, direction);
-      }
-
-      const access = validateOpenFaceAccess(mesh, interiorProbe);
-
-      if (!access.openDirections.includes(direction)) {
-        return blocked(target, parameters, directionOverride, "open_face_inaccessible", `${target.source.finalMoldPartName}: the casting cavity is not reachable through the ${direction} opening.`, directionAnalysis, direction);
-      }
-
-      if (access.openDirections.length > 1) {
-        return blocked(
-          target,
-          parameters,
-          directionOverride,
-          "multiple_open_faces",
-          `${target.source.finalMoldPartName}: Master Mold has ${access.openDirections.length} exterior openings (${access.openDirections.join(", ")}); exactly one is required.`,
-          directionAnalysis,
-          direction,
-        );
-      }
-
-      return {
-        source: target.source,
-        status: "current",
-        direction,
-        directionAnalysis,
-        mesh,
-        bounds: boundsFromManifold(resultSolid),
-        volumeMm3: resultVolume,
-        triangleCount: mesh.indices.length / 3,
-        watertight: true,
-        manifold: true,
-        failureReason: null,
-        failureMessage: null,
-        fingerprint: buildMasterMoldSourceFingerprint(target.source.finalMoldGeometryVersion, parameters, directionOverride),
-      };
-    } finally {
-      components.forEach((component) => component.delete());
-    }
-  } finally {
-    intersectionSolid?.delete();
-    resultSolid?.delete();
-    extendedTargetSolid?.delete();
-    extensionSolid.delete();
-    stockSolid.delete();
-    targetSolid.delete();
   }
+
+  if (best !== null) {
+    return {
+      source: target.source,
+      status: "current",
+      direction: best.direction,
+      directionAnalysis: buildFinalAnalysis(stageA, attempted, best.direction),
+      mesh: best.outcome.mesh,
+      bounds: best.outcome.bounds,
+      volumeMm3: best.outcome.volumeMm3,
+      triangleCount: best.outcome.mesh.indices.length / 3,
+      watertight: true,
+      manifold: true,
+      failureReason: null,
+      failureMessage: null,
+      fingerprint: buildMasterMoldSourceFingerprint(target.source.finalMoldGeometryVersion, parameters, directionOverride),
+    };
+  }
+
+  // A demold-collision failure means at least one candidate was actually
+  // proven physically infeasible by the precise verifier -- that is a
+  // decisive, meaningful answer and takes priority as the overall summary
+  // even if an unrelated candidate also failed earlier (e.g. a direction
+  // that was structurally never going to produce a single connected body,
+  // independent of demoldability). Only when NO candidate ever reached the
+  // demold check -- every one failed at an earlier Boolean/topology/access
+  // stage -- does that earlier, more specific engineering defect become the
+  // overall reason, since physical feasibility was never actually assessed
+  // for any candidate in that case (Article 07).
+  const failure = lastDemoldFailure ??
+    firstNonDemoldFailure ?? {
+      failureReason: "no_valid_open_direction" as const,
+      failureMessage: `${target.source.finalMoldPartName}: no one-piece open-face Master Mold is feasible.`,
+    };
+
+  return blocked(target, parameters, directionOverride, failure.failureReason, failure.failureMessage, buildFinalAnalysis(stageA, attempted, null));
 }

@@ -80,12 +80,19 @@ export const createMasterMoldBody3dRuntime = (
     }
   };
 
+  /**
+   * Article 05: keyed on `geometryIdentity` (the body's own source
+   * fingerprint), not shape-derived stats like bounds/triangleCount, which
+   * two genuinely different meshes can share. `id`/`visible`/`stale` are
+   * kept alongside it because they change the render even when the
+   * underlying geometry identity does not (a body being added/removed, or
+   * flipping stale/current on an otherwise-unchanged mesh).
+   */
   const identityOf = (bodies: readonly MasterMoldRenderableBody[]): string =>
     JSON.stringify(
       bodies.map((body) => ({
         id: body.id,
-        triangleCount: body.triangleCount,
-        bounds: body.bounds,
+        geometryIdentity: body.geometryIdentity,
         visible: body.visible,
         stale: body.stale,
       })),

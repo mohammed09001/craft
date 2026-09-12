@@ -107,7 +107,7 @@ describe("generateMasterMoldBody", () => {
   });
 
   it("reports no_valid_open_direction for a target with no feasible one-piece pull direction", async () => {
-    const { mesh, bounds } = buildPedestalMesh();
+    const { mesh, bounds } = await buildPedestalMesh();
     const target: MasterMoldTargetInput = {
       source: { finalMoldPartId: "pedestal", finalMoldPartName: "Pedestal", finalMoldGeometryVersion: "geom:pedestal:1" },
       mesh,

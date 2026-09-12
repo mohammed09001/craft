@@ -10,6 +10,16 @@ import type { MasterMoldBodyResult } from "./masterMold.contracts";
 export interface MasterMoldRenderableBody extends MoldBodyData {
   /** True when this body's source has changed since it was generated -- the runtime must render it as a visually distinct, non-manufacturable holdover, never as an ordinary current result (Article 02). */
   readonly stale: boolean;
+  /**
+   * Article 05: a stable identity for the actual generated mesh content --
+   * the body's own source fingerprint, which changes exactly when
+   * (finalMoldGeometryVersion, parameters, directionOverride) changes, i.e.
+   * exactly when regeneration could produce different geometry. Shape-derived
+   * stats like bounds/triangleCount can coincide across two genuinely
+   * different meshes; this cannot, so the render runtime keys its rebuild
+   * decision on this instead.
+   */
+  readonly geometryIdentity: string;
 }
 
 /**
@@ -35,5 +45,6 @@ export function selectRenderableMasterMoldBodies(
       watertight: true as const,
       mesh: body.mesh!,
       stale: body.status === "stale",
+      geometryIdentity: body.fingerprint.value,
     }));
 }

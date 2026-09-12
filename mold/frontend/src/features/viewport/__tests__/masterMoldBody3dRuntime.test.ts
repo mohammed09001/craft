@@ -13,6 +13,7 @@ const bodyA: MasterMoldRenderableBody = {
   volumeMm3: 1000,
   watertight: true,
   stale: false,
+  geometryIdentity: "geom:master-a:v1",
   mesh: {
     positions: [0, 0, 0, 10, 0, 0, 0, 10, 0, 10, 10, 0, 0, 10, 10, 10, 0, 10],
     indices: [0, 1, 2, 3, 4, 5],
@@ -52,6 +53,37 @@ describe("masterMoldBody3dRuntime", () => {
     runtime.setBodies([bodyA, bodyB]);
     expect(invalidate).toHaveBeenCalled();
     expect(runtime.object.getObjectByName("Master Mold B")).toBeDefined();
+
+    runtime.dispose();
+  });
+
+  it("rebuilds the mesh when geometry actually changes even though id/bounds/triangleCount/visible/stale are all unchanged (Article 05/Article 01 Case 1)", () => {
+    const invalidate = vi.fn();
+    const runtime = createMasterMoldBody3dRuntime(invalidate);
+
+    runtime.setBodies([bodyA]);
+    const firstGeometry = (runtime.object.getObjectByName("Master Mold A") as Mesh).geometry;
+    invalidate.mockClear();
+
+    // Same id, bounds, triangleCount, visible, stale -- only the actual mesh
+    // positions/indices and the fingerprint-derived geometryIdentity differ.
+    // A cache key built only from the shape-derived stats above would
+    // wrongly treat this as unchanged and keep rendering the old mesh.
+    const changedMesh: MasterMoldRenderableBody = {
+      ...bodyA,
+      geometryIdentity: "geom:master-a:v2",
+      mesh: {
+        positions: [0, 0, 0, 10, 0, 0, 0, 10, 0, 3, 3, 0, 0, 10, 10, 10, 0, 10],
+        indices: [0, 1, 2, 3, 4, 5],
+      },
+    };
+
+    runtime.setBodies([changedMesh]);
+
+    expect(invalidate).toHaveBeenCalled();
+    const secondGeometry = (runtime.object.getObjectByName("Master Mold A") as Mesh).geometry;
+    expect(secondGeometry).not.toBe(firstGeometry);
+    expect(Array.from(secondGeometry.attributes.position!.array)).toEqual(changedMesh.mesh.positions);
 
     runtime.dispose();
   });
