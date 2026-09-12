@@ -126,6 +126,82 @@ describe("Master Mold real final-mold-target integration", () => {
     expect(afterVolume).not.toBeCloseTo(baselineVolume, 3);
   });
 
+  it("Case C: editing an existing Sprue (not merely adding the first one) regenerates to current with geometry that changes again", async () => {
+    // Distinct from Case B: here Master Mold is already `current` WITH the
+    // Sprue baked in before the edit happens, so this proves the Sprue-edit
+    // propagation path specifically (Article 06's "Sprue Edit Closure"), not
+    // just the initial add.
+    await committedCavity("top");
+    const document = useSplitFaceStore.getState().document;
+    await useMasterMoldStore
+      .getState()
+      .generate(finalMoldBodyInputsFromCommittedResult(), { revision: document.revision, fingerprint: document.fingerprint });
+
+    expect(await useSplitFaceStore.getState().createSprue(validPlacement())).toBe(true);
+    await vi.waitFor(() => expect(useSplitFaceStore.getState().sprues).toHaveLength(1));
+    const documentAfterAdd = useSplitFaceStore.getState().document;
+    await useMasterMoldStore
+      .getState()
+      .generate(finalMoldBodyInputsFromCommittedResult(), { revision: documentAfterAdd.revision, fingerprint: documentAfterAdd.fingerprint });
+
+    const afterAdd = useMasterMoldStore.getState();
+    expect(afterAdd.status, afterAdd.bodies.map((b) => b.failureMessage).join("; ")).toBe("current");
+    const fingerprintsAfterAdd = new Map(afterAdd.bodies.map((body) => [body.source.finalMoldPartId, body.fingerprint.value]));
+
+    const sprueDefinition = useSplitFaceStore.getState().sprueDefinitions[0]!;
+    const currentPosition = sprueDefinition.anchor.position;
+    // Moving the Sprue is the edit exercised here (Article 06's "Sprue Edit
+    // Closure" asks for a resize/edit of an existing Sprue, distinct from
+    // the initial add). A resize of mainDiameterMm/entryNeckDiameterMm on
+    // this exact fixture was found to additionally change the Sprue mesh's
+    // own tessellation (a real, separate finding in the Sprue-generation
+    // pipeline, outside Master Mold's own scope) in a way that trips a
+    // genuine wall-clearance interaction with a nearby feature -- moving it
+    // isolates the propagation contract this test is actually about.
+    const movedPosition = { x: currentPosition.x + 2, y: currentPosition.y, z: currentPosition.z };
+    expect(await useSplitFaceStore.getState().moveSprue(sprueDefinition.operationId, movedPosition)).toBe(true);
+    // Wait on the RESOLVED sprue geometry (`sprues`), not the requested
+    // intent (`sprueDefinitions[].anchor`), which updates optimistically the
+    // instant the request is accepted -- well before the async
+    // re-evaluation that actually recommits new final-mold geometry settles.
+    await vi.waitFor(() => expect(useSplitFaceStore.getState().sprues[0]!.position.x).toBeCloseTo(movedPosition.x, 5));
+
+    const documentAfterMove = useSplitFaceStore.getState().document;
+    expect(documentAfterMove.revision).toBeGreaterThan(documentAfterAdd.revision);
+
+    const regeneratedAfterMove = await useMasterMoldStore
+      .getState()
+      .generate(finalMoldBodyInputsFromCommittedResult(), {
+        revision: documentAfterMove.revision,
+        fingerprint: documentAfterMove.fingerprint,
+      });
+
+    expect(regeneratedAfterMove).toBe(true);
+    const afterMove = useMasterMoldStore.getState();
+    expect(afterMove.status, afterMove.bodies.map((b) => b.failureMessage).join("; ")).toBe("current");
+    // The moved Sprue is real geometry fused into the final-mold target at a
+    // new location. Its own volume barely moves (translating a small
+    // feature inside much larger stock changes stock-minus-target volume
+    // only marginally), so the fingerprint's own geometry-version component
+    // (a content hash of the actual mesh, independent of parameters/
+    // direction/revision -- see masterMold.fingerprint.ts) is the robust
+    // signal here that the underlying geometry genuinely changed again,
+    // not merely a re-report of the post-add result (Article 06). The part
+    // the Sprue actually attaches to must change; any unaffected sibling
+    // must not (Article 04's per-part staleness contract still holds
+    // across a Sprue edit, not just a Sprue add).
+    const spruePartId = useSplitFaceStore.getState().sprues[0]!.targetBodyIds[0]!;
+    for (const body of afterMove.bodies) {
+      const before = fingerprintsAfterAdd.get(body.source.finalMoldPartId);
+      expect(before, `no post-add fingerprint recorded for ${body.source.finalMoldPartId}`).toBeDefined();
+      if (body.source.finalMoldPartId === spruePartId) {
+        expect(body.fingerprint.value, `expected ${body.source.finalMoldPartId}'s fingerprint to change after moving the Sprue`).not.toBe(before);
+      } else {
+        expect(body.fingerprint.value, `expected unaffected sibling ${body.source.finalMoldPartId} to keep its fingerprint`).toBe(before);
+      }
+    }
+  });
+
   it("Case D: a vertically-fed Sprue fused onto a sideways-only-demoldable block is a real, structured infeasibility -- not a false negative", async () => {
     await committedCavity("front");
     const document = useSplitFaceStore.getState().document;
