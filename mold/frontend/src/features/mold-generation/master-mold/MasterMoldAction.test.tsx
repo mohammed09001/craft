@@ -59,12 +59,12 @@ beforeEach(() => {
   useMasterMoldStore.setState({ status: "unavailable", generationVersion: 0, bodies: [], progress: 0, lastError: null });
 });
 
-async function reachPartsReadyWithCommittedCavity() {
+async function reachPartsReadyWithCommittedCavity(face: "front" | "top" = "front") {
   const partMesh = canonicalCube("m", k1);
   const state = useSplitFaceStore.getState();
   state.setCanonicalPartGeometrySignature(partMesh.sourceSignature);
   state.enterSelection();
-  state.toggleFace("front");
+  state.toggleFace(face);
   expect(await useSplitFaceStore.getState().createMoldParts("m", k1)).toBe(true);
   expect(await useSplitFaceStore.getState().createCavity(partMesh)).toBe(true);
   return partMesh;
@@ -358,8 +358,13 @@ it("marks Master Mold stale (not a full reset) when a committed Segmentation res
   expect(useMasterMoldStore.getState().bodies.length).toBeGreaterThan(0);
 });
 
-it("marks Master Mold stale when the user adds a real Sprue (Article 04: Master Mold reproduces current Sprue geometry, it does not own an independent copy)", async () => {
-  const partMesh = await reachPartsReadyWithCommittedCavity();
+it("marks Master Mold stale when the user adds a real Sprue, then regenerates to a usable current result in a manufacturable orientation (Article 04/05: Master Mold reproduces current Sprue geometry, it does not own an independent copy)", async () => {
+  // Cut on "top" (a Z-axis split): this fixture's Sprue is vertically fed
+  // (topPoint/-Z inwardDirection), so the block's own pull axis must also be
+  // Z for the Sprue to be a manufacturable addition. Product Invariants:
+  // an integration acceptance test must assert a usable `current` result,
+  // never tolerate `["current", "blocked"]` as proof integration works.
+  const partMesh = await reachPartsReadyWithCommittedCavity("top");
 
   render(<MasterMoldAction sourcePartMesh={partMesh} />);
   fireEvent.click(screen.getByRole("button", { name: "Master Mold" }));
@@ -378,13 +383,12 @@ it("marks Master Mold stale when the user adds a real Sprue (Article 04: Master 
 
   // Regenerating picks up the real Sprue geometry through the one shared
   // final-mold-target pipeline (synthesizeFinalMoldTarget), not a Master
-  // Mold-specific copy: the target actually carries the sprue channel now,
-  // so at least one part's real geometry version changes (it may even make
-  // that part's one-piece pull infeasible -- a genuine geometric outcome of
-  // reproducing the real sprue, not a bug). It must never come back "stale".
+  // Mold-specific copy, and reaches a usable current result: it must never
+  // come back "stale", and -- in this manufacturable orientation -- never
+  // "blocked" either.
   fireEvent.click(screen.getByRole("button", { name: "Master Mold" }));
   await waitFor(() => {
-    expect(["current", "blocked"]).toContain(useMasterMoldStore.getState().status);
+    expect(useMasterMoldStore.getState().status).toBe("current");
   });
   const geometryVersionsAfter = useMasterMoldStore.getState().bodies.map((body) => body.source.finalMoldGeometryVersion);
   expect(geometryVersionsAfter).not.toEqual(geometryVersionsBefore);
