@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { CavityAction } from "../cavity-generation/CavityAction";
+import { cavityBodyGeometryVersion } from "../cavity-generation/cavityGeneration.signature";
 import { canonicalCube } from "../cavity-generation/cavityGeneration.testFixtures";
 import { useCuttingWorkflowStore } from "../cutting-workflow/cuttingWorkflow.store";
 import { useSplitFaceStore } from "../split-face/splitFace.store";
@@ -339,11 +340,20 @@ it("marks Master Mold stale (not a full reset) when a committed Segmentation res
   });
 
   const before = useSplitFaceStore.getState();
+  // Article 07: genuinely different geometry per part (not the same bodies
+  // replayed verbatim) -- Master Mold's own per-part geometry hash must see
+  // a real content change here, not merely a document revision bump, for
+  // this to be a meaningful "upstream input changed" case rather than an
+  // artifact of reusing identical body data.
+  const resegmentedBodies = before.lastCommittedResult!.bodies.map((body) => ({
+    ...body,
+    mesh: { ...body.mesh, positions: body.mesh.positions.map((value, index) => (index === 0 ? value + 0.5 : value)) },
+  }));
   act(() => {
     useSplitFaceStore.getState().adoptCommittedSegmentationResult({
       sourceSignature: partMesh.sourceSignature,
       sourceDefinition: before.definition!,
-      bodies: before.lastCommittedResult!.bodies,
+      bodies: resegmentedBodies,
       warnings: [],
     });
   });
@@ -392,6 +402,41 @@ it("marks Master Mold stale when the user adds a real Sprue, then regenerates to
   });
   const geometryVersionsAfter = useMasterMoldStore.getState().bodies.map((body) => body.source.finalMoldGeometryVersion);
   expect(geometryVersionsAfter).not.toEqual(geometryVersionsBefore);
+});
+
+it("Article 07: a local edit marks only the Master Mold part(s) whose own geometry actually changed stale, leaving unaffected siblings current", async () => {
+  const partMesh = await reachPartsReadyWithCommittedCavity("top");
+  render(<MasterMoldAction sourcePartMesh={partMesh} />);
+  fireEvent.click(screen.getByRole("button", { name: "Master Mold" }));
+  await waitFor(() => {
+    expect(useMasterMoldStore.getState().status).toBe("current");
+  });
+
+  const before = new Map(useMasterMoldStore.getState().bodies.map((body) => [body.source.finalMoldPartId, body.source.finalMoldGeometryVersion]));
+  expect(before.size).toBeGreaterThan(0);
+
+  await act(async () => {
+    expect(await useSplitFaceStore.getState().createSprue(validSpruePlacement())).toBe(true);
+  });
+  await waitFor(() => {
+    expect(useMasterMoldStore.getState().status).toBe("stale");
+  });
+
+  const after = useMasterMoldStore.getState().bodies;
+  // Ground truth for which parts actually changed comes straight from the
+  // freshly committed final-mold geometry's own content hash -- independent
+  // of Master Mold's own `stale` flag, so this isn't circular.
+  const committedAfter = useSplitFaceStore.getState().lastCommittedResult!.bodies;
+  const actuallyChangedPartIds = new Set(
+    committedAfter.filter((body) => before.get(body.id) !== cavityBodyGeometryVersion(body)).map((body) => body.id),
+  );
+
+  for (const body of after) {
+    const changed = actuallyChangedPartIds.has(body.source.finalMoldPartId);
+    expect(body.status, `part ${body.source.finalMoldPartId} (changed=${changed}) has unexpected status`).toBe(changed ? "stale" : "current");
+  }
+  // At least one part changed -- otherwise this test isn't exercising anything.
+  expect(actuallyChangedPartIds.size).toBeGreaterThan(0);
 });
 
 it("is disabled while Segmentation regeneration is pending, matching Create Cavity's own gate", async () => {

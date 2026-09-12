@@ -1,5 +1,6 @@
 import { useEffect, useId, useState } from "react";
 
+import { cavityBodyGeometryVersion } from "../cavity-generation/cavityGeneration.signature";
 import type { CanonicalPartGeometry } from "../cavity-generation/cavityGeneration.contracts";
 import { MasterMoldIcon } from "../shared/MoldToolbarIcons";
 import toolbarStyles from "../shared/MoldToolbar.module.css";
@@ -27,10 +28,12 @@ export function MasterMoldAction({
   const sprueDefinitions = useSplitFaceStore((s) => s.sprueDefinitions);
   const moldDocument = useSplitFaceStore((s) => s.document);
   const lastCommittedResult = useSplitFaceStore((s) => s.lastCommittedResult);
+  const evaluationPhase = useSplitFaceStore((s) => s.evaluation.phase);
   const segmentationRegenerationPending = useSplitFaceStore((s) => s.segmentationRegenerationCount > 0);
 
   const generate = useMasterMoldStore((s) => s.generate);
   const markMasterMoldStale = useMasterMoldStore((s) => s.markMasterMoldStale);
+  const invalidateMasterMoldParts = useMasterMoldStore((s) => s.invalidateMasterMoldParts);
   const resetMasterMold = useMasterMoldStore((s) => s.reset);
   const status = useMasterMoldStore((s) => s.status);
   const bodies = useMasterMoldStore((s) => s.bodies);
@@ -40,12 +43,52 @@ export function MasterMoldAction({
   const [synthesisError, setSynthesisError] = useState<string | null>(null);
   const bannerId = useId();
 
-  // Article 01: propagate staleness the moment the authoritative final-mold
-  // document changes identity -- never wait for the next Generate click to
-  // discover it. A no-op before any generation, or once already stale.
+  // Article 01/07: propagate staleness the moment the authoritative
+  // final-mold document changes identity -- never wait for the next
+  // Generate click to discover it. When the freshly committed result
+  // already matches this document identity, each part's own geometry hash
+  // (the same cavityBodyGeometryVersion generate() itself fingerprints
+  // against) tells us exactly which Master Mold bodies it actually touched,
+  // so only those go stale -- an unrelated sibling part must not flicker to
+  // stale for an edit that never reached it.
+  //
+  // Deliberately skipped while `evaluation.phase === "evaluating"`:
+  // document.revision bumps synchronously the instant an edit is accepted
+  // (acceptSprueIntent et al.), well before the async Worker evaluation
+  // resolves and lastCommittedResult catches up. Reacting to that transient
+  // mismatch would either coarse-mark an untouched sibling stale (the
+  // fallback below) or misdiff against not-yet-updated data -- and unlike
+  // the coarse mark, a wrong granular verdict is never later corrected, since
+  // nothing else revives a body back to "current" outside of generate()
+  // itself. Waiting for the evaluation to settle means lastCommittedResult
+  // is authoritative one way or another by the time this runs.
   useEffect(() => {
-    markMasterMoldStale({ revision: moldDocument.revision, fingerprint: moldDocument.fingerprint });
-  }, [markMasterMoldStale, moldDocument.revision, moldDocument.fingerprint]);
+    if (evaluationPhase === "evaluating") return;
+
+    const documentIdentity = { revision: moldDocument.revision, fingerprint: moldDocument.fingerprint };
+    const existingBodies = useMasterMoldStore.getState().bodies;
+    const committedMatchesDocument =
+      lastCommittedResult !== null &&
+      lastCommittedResult.sourceRevision === moldDocument.revision &&
+      lastCommittedResult.sourceFingerprint === moldDocument.fingerprint;
+
+    if (!committedMatchesDocument || existingBodies.length === 0) {
+      markMasterMoldStale(documentIdentity);
+      return;
+    }
+
+    const changedPartIds = lastCommittedResult.bodies
+      .filter((body) => {
+        const existing = existingBodies.find((b) => b.source.finalMoldPartId === body.id);
+        if (existing === undefined) return false;
+        return existing.source.finalMoldGeometryVersion !== cavityBodyGeometryVersion(body);
+      })
+      .map((body) => body.id);
+
+    if (changedPartIds.length > 0) {
+      invalidateMasterMoldParts(changedPartIds);
+    }
+  }, [markMasterMoldStale, invalidateMasterMoldParts, moldDocument.revision, moldDocument.fingerprint, lastCommittedResult, evaluationPhase]);
 
   // Article 01: `definition` becomes null exactly when there is no longer a
   // committed final-mold basis to speak of at all -- model replacement,
