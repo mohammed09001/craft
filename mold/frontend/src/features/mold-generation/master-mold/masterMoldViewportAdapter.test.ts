@@ -21,6 +21,11 @@ function currentBody(id: string): MasterMoldBodyResult {
   };
 }
 
+function staleBody(id: string): MasterMoldBodyResult {
+  const current = currentBody(id);
+  return { ...current, status: "stale" };
+}
+
 function blockedBody(id: string): MasterMoldBodyResult {
   return {
     source: { finalMoldPartId: id, finalMoldPartName: `Final Mold ${id}`, finalMoldGeometryVersion: `geom:${id}` },
@@ -40,13 +45,19 @@ function blockedBody(id: string): MasterMoldBodyResult {
 }
 
 describe("selectRenderableMasterMoldBodies", () => {
-  it("renders only current bodies, never a blocked or stale one", () => {
-    const bodies = [currentBody("a"), blockedBody("b"), currentBody("c")];
+  it("renders current and stale bodies, never a blocked one", () => {
+    const bodies = [currentBody("a"), blockedBody("b"), staleBody("c")];
 
     const rendered = selectRenderableMasterMoldBodies(bodies);
 
     expect(rendered.map((body) => body.id)).toEqual(["a", "c"]);
     expect(rendered.every((body) => body.watertight === true && body.mesh !== null)).toBe(true);
+  });
+
+  it("tags stale bodies as stale and current bodies as not stale (Article 02: stale must render as a ghosted holdover, never disappear)", () => {
+    const rendered = selectRenderableMasterMoldBodies([currentBody("a"), staleBody("b")]);
+    expect(rendered.find((body) => body.id === "a")?.stale).toBe(false);
+    expect(rendered.find((body) => body.id === "b")?.stale).toBe(true);
   });
 
   it("returns an empty list when every body is blocked", () => {

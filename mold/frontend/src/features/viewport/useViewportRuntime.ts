@@ -12,6 +12,7 @@ import type { SpruePreviewPlacement } from "@/features/mold-generation/sprue-gen
 import type {
   BoundaryIntent,
 } from "@/features/mold-generation/segmentation";
+import type { MasterMoldRenderableBody } from "@/features/mold-generation/master-mold/masterMoldViewportAdapter";
 import type { MoldBodyData } from "@/features/mold-generation/reference-mold-definition/orthogonalMold";
 import {
   getPartOrientationCapability,
@@ -36,7 +37,7 @@ type UseViewportRuntimeOptions = {
   partOrientation: PartOrientation;
   orientationToolActive: boolean;
   referenceMoldDefinition: ReferenceMoldDefinition | null;
-  masterMoldBodies: readonly MoldBodyData[];
+  masterMoldBodies: readonly MasterMoldRenderableBody[];
   moldAppearanceMode: MoldAppearanceMode;
   sprueCavityGeometry: CavityToolData | null;
   spruePreviewActive: boolean;

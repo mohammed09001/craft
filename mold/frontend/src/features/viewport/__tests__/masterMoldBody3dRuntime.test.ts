@@ -2,9 +2,9 @@ import { Group, Mesh, MeshPhysicalMaterial, MeshStandardMaterial } from "three";
 import { describe, expect, it, vi } from "vitest";
 
 import { createMasterMoldBody3dRuntime } from "../runtime/masterMoldBody3dRuntime";
-import type { MoldBodyData } from "../../mold-generation/reference-mold-definition/orthogonalMold";
+import type { MasterMoldRenderableBody } from "../../mold-generation/master-mold/masterMoldViewportAdapter";
 
-const bodyA: MoldBodyData = {
+const bodyA: MasterMoldRenderableBody = {
   id: "master-a",
   name: "Master Mold A",
   visible: true,
@@ -12,13 +12,14 @@ const bodyA: MoldBodyData = {
   triangleCount: 2,
   volumeMm3: 1000,
   watertight: true,
+  stale: false,
   mesh: {
     positions: [0, 0, 0, 10, 0, 0, 0, 10, 0, 10, 10, 0, 0, 10, 10, 10, 0, 10],
     indices: [0, 1, 2, 3, 4, 5],
   },
 };
 
-const bodyB: MoldBodyData = { ...bodyA, id: "master-b", name: "Master Mold B" };
+const bodyB: MasterMoldRenderableBody = { ...bodyA, id: "master-b", name: "Master Mold B" };
 
 describe("masterMoldBody3dRuntime", () => {
   it("renders every current Master Mold body as a visible mesh", () => {
@@ -84,6 +85,34 @@ describe("masterMoldBody3dRuntime", () => {
     runtime.dispose();
     expect(runtime.object.children.length).toBe(0);
     expect(runtime.object.parent).toBeNull();
+  });
+
+  it("renders a stale body as a transparent, non-manufacturable ghost instead of hiding it (Article 02)", () => {
+    const runtime = createMasterMoldBody3dRuntime(vi.fn());
+    runtime.setBodies([{ ...bodyA, stale: true }]);
+
+    const mesh = runtime.object.getObjectByName("Master Mold A") as Mesh;
+    expect(mesh).toBeDefined();
+    expect(mesh.visible).toBe(true);
+    const material = mesh.material as MeshStandardMaterial;
+    expect(material.transparent).toBe(true);
+    expect(material.opacity).toBeLessThan(0.5);
+    expect(mesh.userData.masterMoldStale).toBe(true);
+
+    runtime.dispose();
+  });
+
+  it("keeps a stale body ghosted after an appearance-mode change", () => {
+    const runtime = createMasterMoldBody3dRuntime(vi.fn());
+    runtime.setBodies([{ ...bodyA, stale: true }]);
+
+    runtime.setAppearanceMode("glass");
+    const mesh = runtime.object.getObjectByName("Master Mold A") as Mesh;
+    const material = mesh.material as MeshPhysicalMaterial;
+    expect(material.transparent).toBe(true);
+    expect(material.opacity).toBeLessThan(0.5);
+
+    runtime.dispose();
   });
 
   it("stays isolated from a reference mold block group added to the same scene", () => {

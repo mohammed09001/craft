@@ -32,8 +32,7 @@ import type { CanonicalPartGeometry } from "@/features/mold-generation/cavity-ge
 // analyzer (Manifold + three-mesh-bvh), which must stay out of the eagerly-
 // loaded viewport bundle (see the bundle-budget check in `npm run build`).
 import { useMasterMoldStore } from "@/features/mold-generation/master-mold/masterMold.store";
-import { selectRenderableMasterMoldBodies } from "@/features/mold-generation/master-mold/masterMoldViewportAdapter";
-import type { MoldBodyData } from "@/features/mold-generation/reference-mold-definition/orthogonalMold";
+import { selectRenderableMasterMoldBodies, type MasterMoldRenderableBody } from "@/features/mold-generation/master-mold/masterMoldViewportAdapter";
 import { createReferenceMoldBlockBounds } from "@/features/mold-generation/reference-mold-definition/referenceMoldBlock.geometry";
 import { validateLocalStlFiles } from "@/features/viewport/modelImportValidation";
 import type {
@@ -317,7 +316,7 @@ export function Viewport({ onStatusChange }: ViewportProps) {
   // state -- rendered as its own body group (see masterMoldBody3dRuntime)
   // rather than folded into referenceMoldDefinition.moldBodies above.
   const masterMoldBodyResults = useMasterMoldStore((state) => state.bodies);
-  const masterMoldBodies = useMemo<readonly MoldBodyData[]>(
+  const masterMoldBodies = useMemo<readonly MasterMoldRenderableBody[]>(
     () => selectRenderableMasterMoldBodies(masterMoldBodyResults),
     [masterMoldBodyResults],
   );

@@ -305,6 +305,7 @@ it("exposes setPartOrientation on the production runtime object and forwards cal
         triangleCount: 2,
         volumeMm3: 1000,
         watertight: true,
+        stale: false,
         mesh: {
           positions: [0, 0, 0, 10, 0, 0, 0, 10, 0, 10, 10, 0, 0, 10, 10, 10, 0, 10],
           indices: [0, 1, 2, 3, 4, 5],

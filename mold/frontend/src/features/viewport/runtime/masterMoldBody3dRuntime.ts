@@ -1,11 +1,34 @@
-import { Group, Line, LineSegments, Mesh, type Material } from "three";
+import { Group, Line, LineSegments, Mesh, type Material, MeshStandardMaterial } from "three";
 
 import type { MoldAppearanceMode } from "@/features/mold-generation/reference-mold-definition/moldAppearance.store";
-import type { MoldBodyData } from "@/features/mold-generation/reference-mold-definition/orthogonalMold";
+import type { MasterMoldRenderableBody } from "@/features/mold-generation/master-mold/masterMoldViewportAdapter";
 import { createFeatureEdgeOverlay } from "@/features/viewport/runtime/featureEdgeOverlay";
 import { applyMoldBodyMeshAppearance, createMoldBodyMesh } from "@/features/viewport/runtime/moldBodyMesh3d";
 import { resolveCadTheme } from "@/features/viewport/runtime/viewportVisualTheme";
 import type { ViewportPalette } from "@/features/viewport/viewport.contracts";
+
+/**
+ * Article 02: a stale Master Mold body must read as a ghosted holdover, not
+ * a manufacturable result -- deliberately much more transparent than the
+ * "glass" appearance mode (which still represents a real, current body) so
+ * the two are never confused. Applied on top of whatever role/appearance
+ * material the body would otherwise get, never replacing per-role color.
+ */
+const STALE_MASTER_MOLD_OPACITY = 0.2;
+
+function applyStaleGhosting(mesh: Mesh): void {
+  const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+  for (const material of materials) {
+    if (material instanceof MeshStandardMaterial) {
+      material.transparent = true;
+      material.opacity = Math.min(material.opacity, STALE_MASTER_MOLD_OPACITY);
+      material.depthWrite = false;
+    }
+  }
+  mesh.renderOrder = 7;
+  mesh.castShadow = false;
+  mesh.userData.masterMoldStale = true;
+}
 
 /**
  * Article 10: renders generated Master Mold pieces. Deliberately a small,
@@ -18,7 +41,7 @@ import type { ViewportPalette } from "@/features/viewport/viewport.contracts";
  */
 export interface MasterMoldBody3dRuntime {
   readonly object: Group;
-  setBodies(bodies: readonly MoldBodyData[]): void;
+  setBodies(bodies: readonly MasterMoldRenderableBody[]): void;
   setAppearanceMode(mode: MoldAppearanceMode): void;
   setPalette(palette: ViewportPalette): void;
   dispose(): void;
@@ -57,17 +80,18 @@ export const createMasterMoldBody3dRuntime = (
     }
   };
 
-  const identityOf = (bodies: readonly MoldBodyData[]): string =>
+  const identityOf = (bodies: readonly MasterMoldRenderableBody[]): string =>
     JSON.stringify(
       bodies.map((body) => ({
         id: body.id,
         triangleCount: body.triangleCount,
         bounds: body.bounds,
         visible: body.visible,
+        stale: body.stale,
       })),
     );
 
-  const rebuild = (bodies: readonly MoldBodyData[]) => {
+  const rebuild = (bodies: readonly MasterMoldRenderableBody[]) => {
     clearGeometry();
 
     if (bodies.length === 0) {
@@ -81,6 +105,7 @@ export const createMasterMoldBody3dRuntime = (
       const mesh = createMoldBodyMesh({ body, mode: appearanceMode, palette: currentPalette });
       mesh.renderOrder = 8;
       mesh.userData.masterMoldVisualization = true;
+      if (body.stale) applyStaleGhosting(mesh);
       group.add(mesh);
       moldMeshes.push(mesh);
     }
@@ -92,7 +117,11 @@ export const createMasterMoldBody3dRuntime = (
 
   const applyToMeshes = () => {
     group.traverse((descendant) => {
-      if (descendant instanceof Mesh) applyMoldBodyMeshAppearance(descendant, appearanceMode, currentPalette);
+      if (descendant instanceof Mesh) {
+        const wasStale = descendant.userData.masterMoldStale === true;
+        applyMoldBodyMeshAppearance(descendant, appearanceMode, currentPalette);
+        if (wasStale) applyStaleGhosting(descendant);
+      }
     });
   };
 
