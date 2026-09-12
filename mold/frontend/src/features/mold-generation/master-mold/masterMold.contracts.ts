@@ -30,6 +30,7 @@ export type MasterMoldFailureReason =
   | "insufficient_bottom_thickness"
   | "detached_fragment"
   | "open_face_inaccessible"
+  | "multiple_open_faces"
   | "non_manifold_result"
   | "cancelled"
   | "stale_request";
@@ -87,7 +88,7 @@ export interface MasterMoldRequest {
 
 export interface MasterMoldBodyResult {
   readonly source: MasterMoldSource;
-  readonly status: "current" | "blocked";
+  readonly status: "current" | "stale" | "blocked";
   readonly direction: MasterMoldDirection | null;
   readonly directionAnalysis: MasterMoldDirectionAnalysis;
   readonly mesh: MoldMeshPayload | null;

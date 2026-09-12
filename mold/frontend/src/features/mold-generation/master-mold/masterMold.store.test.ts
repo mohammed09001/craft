@@ -189,6 +189,106 @@ describe("masterMold.store", () => {
     expect(store.getState().bodies).toEqual(before);
   });
 
+  it("marks current bodies stale when the document identity changes, without discarding their geometry", async () => {
+    const { deps } = createDeps(async (request) => ({
+      operationId: request.operationId,
+      generationVersion: request.generationVersion,
+      elapsedMs: 1,
+      bodies: request.targets.map((target) => currentResultFor({ id: target.source.finalMoldPartId, name: target.source.finalMoldPartName, mesh: target.mesh, bounds: target.bounds, volumeMm3: target.volumeMm3 })),
+    }));
+    const store = createMasterMoldStoreCreator(deps);
+
+    await store.getState().generate([inputA, inputB], { revision: 1, fingerprint: "doc-1" });
+    expect(store.getState().status).toBe("current");
+
+    store.getState().markMasterMoldStale({ revision: 2, fingerprint: "doc-2" });
+
+    expect(store.getState().status).toBe("stale");
+    expect(store.getState().bodies.every((b) => b.status === "stale")).toBe(true);
+    expect(store.getState().bodies.map((b) => b.mesh)).toEqual([inputA.mesh, inputB.mesh]);
+  });
+
+  it("does not mark stale when the document identity is unchanged", async () => {
+    const { deps } = createDeps(async (request) => ({
+      operationId: request.operationId,
+      generationVersion: request.generationVersion,
+      elapsedMs: 1,
+      bodies: request.targets.map((target) => currentResultFor({ id: target.source.finalMoldPartId, name: target.source.finalMoldPartName, mesh: target.mesh, bounds: target.bounds, volumeMm3: target.volumeMm3 })),
+    }));
+    const store = createMasterMoldStoreCreator(deps);
+
+    await store.getState().generate([inputA], { revision: 1, fingerprint: "doc-1" });
+    store.getState().markMasterMoldStale({ revision: 1, fingerprint: "doc-1" });
+
+    expect(store.getState().status).toBe("current");
+  });
+
+  it("is a no-op before any generation has ever happened", () => {
+    const { deps } = createDeps(async () => {
+      throw new Error("should not be called");
+    });
+    const store = createMasterMoldStoreCreator(deps);
+
+    store.getState().markMasterMoldStale({ revision: 1, fingerprint: "doc-1" });
+
+    expect(store.getState().status).toBe("unavailable");
+  });
+
+  it("revives a reused body from stale back to current once generate() re-validates it against the live document", async () => {
+    const { deps } = createDeps(async (request) => ({
+      operationId: request.operationId,
+      generationVersion: request.generationVersion,
+      elapsedMs: 1,
+      bodies: request.targets.map((target) => currentResultFor({ id: target.source.finalMoldPartId, name: target.source.finalMoldPartName, mesh: target.mesh, bounds: target.bounds, volumeMm3: target.volumeMm3 })),
+    }));
+    const store = createMasterMoldStoreCreator(deps);
+
+    await store.getState().generate([inputA, inputB], { revision: 1, fingerprint: "doc-1" });
+    store.getState().markMasterMoldStale({ revision: 2, fingerprint: "doc-2" });
+    expect(store.getState().status).toBe("stale");
+
+    // Same geometry for both parts -- both are reused (skip the Worker) but must shed the stale flag.
+    const ok = await store.getState().generate([inputA, inputB], { revision: 2, fingerprint: "doc-2" });
+
+    expect(ok).toBe(true);
+    expect(store.getState().status).toBe("current");
+    expect(store.getState().bodies.every((b) => b.status === "current")).toBe(true);
+  });
+
+  it("invalidates only the named parts, leaving unaffected siblings current", async () => {
+    const { deps } = createDeps(async (request) => ({
+      operationId: request.operationId,
+      generationVersion: request.generationVersion,
+      elapsedMs: 1,
+      bodies: request.targets.map((target) => currentResultFor({ id: target.source.finalMoldPartId, name: target.source.finalMoldPartName, mesh: target.mesh, bounds: target.bounds, volumeMm3: target.volumeMm3 })),
+    }));
+    const store = createMasterMoldStoreCreator(deps);
+
+    await store.getState().generate([inputA, inputB], { revision: 1, fingerprint: "doc-1" });
+    store.getState().invalidateMasterMoldParts(["a"]);
+
+    expect(store.getState().status).toBe("stale");
+    expect(store.getState().bodies.find((b) => b.source.finalMoldPartId === "a")?.status).toBe("stale");
+    expect(store.getState().bodies.find((b) => b.source.finalMoldPartId === "b")?.status).toBe("current");
+  });
+
+  it("reset() clears the tracked document identity so a later markMasterMoldStale is a no-op", async () => {
+    const { deps } = createDeps(async (request) => ({
+      operationId: request.operationId,
+      generationVersion: request.generationVersion,
+      elapsedMs: 1,
+      bodies: request.targets.map((target) => currentResultFor({ id: target.source.finalMoldPartId, name: target.source.finalMoldPartName, mesh: target.mesh, bounds: target.bounds, volumeMm3: target.volumeMm3 })),
+    }));
+    const store = createMasterMoldStoreCreator(deps);
+
+    await store.getState().generate([inputA], { revision: 1, fingerprint: "doc-1" });
+    store.getState().reset();
+
+    expect(store.getState().sourceDocumentIdentity).toBeNull();
+    store.getState().markMasterMoldStale({ revision: 2, fingerprint: "doc-2" });
+    expect(store.getState().status).toBe("unavailable");
+  });
+
   it("never lets a superseded generate() call overwrite a newer one", async () => {
     let resolveFirst!: (result: MasterMoldResult) => void;
     const { deps, run } = createDeps(() => new Promise<MasterMoldResult>((resolve) => { resolveFirst = resolve; }));

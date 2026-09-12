@@ -14,7 +14,7 @@ import {
   type MasterMoldDirectionCandidate,
 } from "./masterMold.contracts";
 
-const DIRECTION_VECTORS: Readonly<Record<MasterMoldDirection, Readonly<[number, number, number]>>> = {
+export const DIRECTION_VECTORS: Readonly<Record<MasterMoldDirection, Readonly<[number, number, number]>>> = {
   "+X": [1, 0, 0],
   "-X": [-1, 0, 0],
   "+Y": [0, 1, 0],
@@ -26,11 +26,11 @@ const DIRECTION_VECTORS: Readonly<Record<MasterMoldDirection, Readonly<[number, 
 /** Dimensionless threshold on a unit-normal dot a unit pull vector -- not a length, so it is never geometryToleranceMm. */
 const NORMAL_ALIGNMENT_EPSILON = 1e-9;
 
-function axisOf(direction: MasterMoldDirection): "x" | "y" | "z" {
+export function axisOf(direction: MasterMoldDirection): "x" | "y" | "z" {
   return direction[1]!.toLowerCase() as "x" | "y" | "z";
 }
 
-function isPositive(direction: MasterMoldDirection): boolean {
+export function isPositive(direction: MasterMoldDirection): boolean {
   return direction[0] === "+";
 }
 
@@ -106,6 +106,56 @@ function stageAFilter(
  * other -- is resolved conservatively below by an inside/outside probe
  * before a candidate point is treated as a genuine collision.
  */
+
+/**
+ * Article 03: how far each near-vertex probe sits between the triangle's
+ * centroid (0) and its own vertex (1). Kept strictly below 1 so every probe
+ * origin stays inside the triangle (never exactly on a shared edge/vertex,
+ * which would make the inside/outside classification depend on neighboring
+ * triangle winding rather than this triangle's own local geometry).
+ */
+const NEAR_VERTEX_PROBE_BLEND = 0.9;
+
+/**
+ * Article 03: a single centroid probe per reverse-facing triangle is not
+ * enough evidence on its own -- a large or irregularly tessellated triangle
+ * (narrow necks, shoulders, re-entrant geometry, and other adversarial
+ * fixtures all produce these) can have a centroid that happens to clear a
+ * nearby obstruction while a corner of the same triangle does not. This
+ * samples the centroid AND all three near-vertex points (adaptive refinement
+ * scoped to exactly the triangles already flagged as candidates, never a
+ * blanket grid over the whole mesh) and treats the triangle as blocking the
+ * moment ANY sample collides -- strictly more conservative than centroid-only.
+ */
+function triangleBlocksDirection(
+  bvh: MeshBVH,
+  a: Vector3,
+  b: Vector3,
+  c: Vector3,
+  centroid: Vector3,
+  directionVector: Vector3,
+  probeDistanceMm: number,
+): boolean {
+  const sample = new Vector3();
+  const probe = new Vector3();
+
+  for (const vertex of [centroid, a, b, c]) {
+    if (vertex === centroid) {
+      sample.copy(centroid);
+    } else {
+      sample.copy(centroid).lerp(vertex, NEAR_VERTEX_PROBE_BLEND);
+    }
+
+    probe.copy(sample).addScaledVector(directionVector, probeDistanceMm);
+
+    if (!classifyPointInside(bvh, probe)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function findUndercut(
   bvh: MeshBVH,
   mesh: MoldMeshPayload,
@@ -129,7 +179,6 @@ function findUndercut(
   const edgeAC = new Vector3();
   const normal = new Vector3();
   const centroid = new Vector3();
-  const probe = new Vector3();
 
   for (let triangle = 0; triangle < triangleCount; triangle += 1) {
     const i0 = indices[triangle * 3]! * 3;
@@ -152,9 +201,7 @@ function findUndercut(
       continue;
     }
 
-    probe.copy(centroid).addScaledVector(directionVector, probeDistanceMm);
-
-    if (!classifyPointInside(bvh, probe)) {
+    if (triangleBlocksDirection(bvh, a, b, c, centroid, directionVector, probeDistanceMm)) {
       return true;
     }
   }

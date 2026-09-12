@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import type { Bounds3 } from "../split-face/splitFace.contracts";
 import { cubeMesh } from "../cavity-generation/cavityGeneration.testFixtures";
-import { generateMasterMoldBody } from "./masterMoldGeometry.generator";
+import { boundsFromManifold, createBlankSolid, getManifoldModule, payloadFromManifold } from "../cavity-generation/manifold.engine";
+import { generateMasterMoldBody, findInteriorProbePoint, validateOpenFaceAccess } from "./masterMoldGeometry.generator";
+import { buildGeometry } from "../cavity-generation/cavitySignedDistance.bvh";
 import { buildPedestalMesh } from "./masterMold.testFixtures";
 import type { MasterMoldParameters, MasterMoldTargetInput } from "./masterMold.contracts";
+import { MeshBVH } from "three-mesh-bvh";
 
 const PARAMETERS: MasterMoldParameters = { wallThicknessMm: 3, bottomThicknessMm: 3, geometryToleranceMm: 1e-3 };
 
@@ -20,8 +23,26 @@ function targetFor(bounds: Bounds3, id = "part-a"): MasterMoldTargetInput {
   };
 }
 
+/** Article 02: proves a generated result's cavity is genuinely reachable from the exterior through exactly its reported `direction`, using the same probe/validator the generator itself relies on. */
+function assertSingleVerifiedOpenFace(target: MasterMoldTargetInput, result: Awaited<ReturnType<typeof generateMasterMoldBody>>): void {
+  expect(result.mesh).not.toBeNull();
+  expect(result.direction).not.toBeNull();
+
+  const targetGeometry = buildGeometry(target.mesh);
+  let probe;
+  try {
+    probe = findInteriorProbePoint(new MeshBVH(targetGeometry), target.mesh, target.bounds);
+  } finally {
+    targetGeometry.dispose();
+  }
+
+  expect(probe).not.toBeNull();
+  const access = validateOpenFaceAccess(result.mesh!, probe!);
+  expect(access.openDirections).toEqual([result.direction]);
+}
+
 describe("generateMasterMoldBody", () => {
-  it("wraps a simple box target in a watertight Master Mold with the expected volume", async () => {
+  it("wraps a simple box target in a watertight Master Mold with the expected volume and a verified single open face", async () => {
     const bounds: Bounds3 = { min: { x: 0, y: 0, z: 0 }, max: { x: 10, y: 6, z: 4 } };
     const target = targetFor(bounds);
 
@@ -39,6 +60,39 @@ describe("generateMasterMoldBody", () => {
     const stockVolume = (10 + 2 * 3) * (6 + 2 * 3) * (4 + 3);
     const targetVolume = 10 * 6 * 4;
     expect(result.volumeMm3!).toBeCloseTo(stockVolume - targetVolume, 3);
+
+    assertSingleVerifiedOpenFace(target, result);
+  });
+
+  it("produces a verified, single-open-face Master Mold for an irregular (non-box, stepped) removable target", async () => {
+    // A wide base fused under a narrower top, both centered on Z -- extractable
+    // only downward through the wide base (-Z); every other direction is
+    // blocked by the shoulder the base forms around the narrower top. Built
+    // as a real Manifold union (rather than a hand-authored triangle soup) so
+    // it is guaranteed watertight/manifold going into the Boolean pipeline.
+    const module = await getManifoldModule();
+    const base = createBlankSolid(module, { min: { x: -5, y: -5, z: 0 }, max: { x: 5, y: 5, z: 2 } });
+    const tower = createBlankSolid(module, { min: { x: -2, y: -2, z: 2 }, max: { x: 2, y: 2, z: 5 } });
+    const pedestal = base.add(tower);
+    const mesh = payloadFromManifold(pedestal);
+    const bounds = boundsFromManifold(pedestal);
+    const volumeMm3 = pedestal.volume();
+    base.delete();
+    tower.delete();
+    pedestal.delete();
+
+    const target: MasterMoldTargetInput = {
+      source: { finalMoldPartId: "pedestal", finalMoldPartName: "Pedestal", finalMoldGeometryVersion: "geom:pedestal:1" },
+      mesh,
+      bounds,
+      volumeMm3,
+    };
+
+    const result = await generateMasterMoldBody(target, PARAMETERS);
+
+    expect(result.status).toBe("current");
+    expect(result.direction).toBe("-Z");
+    assertSingleVerifiedOpenFace(target, result);
   });
 
   it("blocks generation when the requested wall thickness is below the safe minimum", async () => {

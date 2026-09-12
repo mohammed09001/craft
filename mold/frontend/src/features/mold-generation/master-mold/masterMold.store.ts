@@ -25,7 +25,13 @@ export interface MasterMoldFinalBodyInput {
   readonly volumeMm3: number;
 }
 
-export type MasterMoldOverallStatus = "unavailable" | "generating" | "current" | "blocked" | "error";
+export type MasterMoldOverallStatus = "unavailable" | "generating" | "current" | "stale" | "blocked" | "error";
+
+/** Identifies the upstream final-mold document snapshot a Master Mold result was built against (Article 01). */
+export interface MasterMoldSourceDocumentIdentity {
+  readonly revision: number;
+  readonly fingerprint: string;
+}
 
 export interface MasterMoldStoreDeps {
   readonly runMasterMoldGenerationInWorker: typeof defaultRunMasterMoldGenerationInWorker;
@@ -44,14 +50,36 @@ export interface MasterMoldState {
   readonly bodies: readonly MasterMoldBodyResult[];
   readonly progress: number;
   readonly lastError: string | null;
-  generate(finalMoldBodies: readonly MasterMoldFinalBodyInput[]): Promise<boolean>;
+  /** The final-mold document snapshot `bodies` was generated against, or null before the first generation (Article 01). */
+  readonly sourceDocumentIdentity: MasterMoldSourceDocumentIdentity | null;
+  generate(
+    finalMoldBodies: readonly MasterMoldFinalBodyInput[],
+    documentIdentity?: MasterMoldSourceDocumentIdentity,
+  ): Promise<boolean>;
   setParameters(partial: Partial<Pick<MasterMoldParameters, "wallThicknessMm" | "bottomThicknessMm">>): void;
   reset(): void;
+  /**
+   * Article 01's invalidation seam: called reactively whenever the upstream
+   * final-mold document changes identity (revision/fingerprint), so a stale
+   * result is flagged the moment its source changes rather than only being
+   * discovered on the next Generate click. A no-op before any generation, or
+   * when the given identity still matches what `bodies` was built from.
+   */
+  markMasterMoldStale(documentIdentity: MasterMoldSourceDocumentIdentity): void;
+  /** Marks only the named final-mold parts stale, leaving unaffected siblings reusable (Article 01). */
+  invalidateMasterMoldParts(partIds: readonly string[]): void;
 }
 
 function overallStatusOf(bodies: readonly MasterMoldBodyResult[]): MasterMoldOverallStatus {
   if (bodies.length === 0) return "unavailable";
+  if (bodies.some((body) => body.status === "stale")) return "stale";
   return bodies.some((body) => body.status === "blocked") ? "blocked" : "current";
+}
+
+/** Reused bodies must shed any prior `stale` overlay -- a fresh generate() call re-validates against the live document, so its result is truthfully current/blocked again, never left showing stale. */
+function reviveIfStale(body: MasterMoldBodyResult): MasterMoldBodyResult {
+  if (body.status !== "stale") return body;
+  return { ...body, status: body.mesh !== null && body.bounds !== null ? "current" : "blocked" };
 }
 
 const initialParameters: MasterMoldParameters = {
@@ -77,6 +105,7 @@ export function createMasterMoldStoreCreator(deps: MasterMoldStoreDeps = default
     bodies: [],
     progress: 0,
     lastError: null,
+    sourceDocumentIdentity: null,
 
     setParameters: (partial) => {
       set((state) => ({ ...state, parameters: { ...state.parameters, ...partial } }));
@@ -84,10 +113,47 @@ export function createMasterMoldStoreCreator(deps: MasterMoldStoreDeps = default
 
     reset: () => {
       cancelActiveMasterMoldGeneration("Master Mold state was reset.");
-      set({ status: "unavailable", parameters: get().parameters, generationVersion: get().generationVersion, bodies: [], progress: 0, lastError: null });
+      set({
+        status: "unavailable",
+        parameters: get().parameters,
+        generationVersion: get().generationVersion,
+        bodies: [],
+        progress: 0,
+        lastError: null,
+        sourceDocumentIdentity: null,
+      });
     },
 
-    generate: async (finalMoldBodies) => {
+    markMasterMoldStale: (documentIdentity) => {
+      const state = get();
+      if (state.sourceDocumentIdentity === null) return;
+      if (
+        state.sourceDocumentIdentity.revision === documentIdentity.revision &&
+        state.sourceDocumentIdentity.fingerprint === documentIdentity.fingerprint
+      ) {
+        return;
+      }
+      if (state.status !== "current" && state.status !== "blocked") return;
+
+      set((s) => ({
+        ...s,
+        status: "stale",
+        bodies: s.bodies.map((body) => (body.status === "stale" ? body : { ...body, status: "stale" as const })),
+      }));
+    },
+
+    invalidateMasterMoldParts: (partIds) => {
+      const ids = new Set(partIds);
+      set((s) => {
+        if (s.bodies.length === 0 || ids.size === 0) return s;
+        const bodies = s.bodies.map((body) =>
+          ids.has(body.source.finalMoldPartId) && body.status !== "stale" ? { ...body, status: "stale" as const } : body,
+        );
+        return { ...s, bodies, status: overallStatusOf(bodies) };
+      });
+    },
+
+    generate: async (finalMoldBodies, documentIdentity) => {
       const before = get();
       const generationVersion = before.generationVersion + 1;
       const parameters = before.parameters;
@@ -102,7 +168,7 @@ export function createMasterMoldStoreCreator(deps: MasterMoldStoreDeps = default
         const existing = existingByPartId.get(input.id);
 
         if (existing !== undefined && isMasterMoldBodyCurrent(existing.fingerprint, fingerprint)) {
-          reused.push(existing);
+          reused.push(reviveIfStale(existing));
           continue;
         }
 
@@ -115,7 +181,14 @@ export function createMasterMoldStoreCreator(deps: MasterMoldStoreDeps = default
       }
 
       if (targets.length === 0) {
-        set({ status: overallStatusOf(reused), generationVersion, bodies: reused, progress: 1, lastError: null });
+        set({
+          status: overallStatusOf(reused),
+          generationVersion,
+          bodies: reused,
+          progress: 1,
+          lastError: null,
+          sourceDocumentIdentity: documentIdentity ?? before.sourceDocumentIdentity,
+        });
         return true;
       }
 
@@ -136,7 +209,14 @@ export function createMasterMoldStoreCreator(deps: MasterMoldStoreDeps = default
         for (const body of result.bodies) byPartId.set(body.source.finalMoldPartId, body);
         const merged = finalMoldBodies.map((input) => byPartId.get(input.id)).filter((body): body is MasterMoldBodyResult => body !== undefined);
 
-        set({ status: overallStatusOf(merged), generationVersion, bodies: merged, progress: 1, lastError: null });
+        set({
+          status: overallStatusOf(merged),
+          generationVersion,
+          bodies: merged,
+          progress: 1,
+          lastError: null,
+          sourceDocumentIdentity: documentIdentity ?? before.sourceDocumentIdentity,
+        });
         return true;
       } catch (error) {
         if (get().generationVersion !== generationVersion) {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useId, useState } from "react";
 
 import type { CanonicalPartGeometry } from "../cavity-generation/cavityGeneration.contracts";
 import { MasterMoldIcon } from "../shared/MoldToolbarIcons";
@@ -30,12 +30,39 @@ export function MasterMoldAction({
   const segmentationRegenerationPending = useSplitFaceStore((s) => s.segmentationRegenerationCount > 0);
 
   const generate = useMasterMoldStore((s) => s.generate);
+  const markMasterMoldStale = useMasterMoldStore((s) => s.markMasterMoldStale);
+  const resetMasterMold = useMasterMoldStore((s) => s.reset);
   const status = useMasterMoldStore((s) => s.status);
   const bodies = useMasterMoldStore((s) => s.bodies);
   const workerError = useMasterMoldStore((s) => s.lastError);
 
   const [preparing, setPreparing] = useState(false);
   const [synthesisError, setSynthesisError] = useState<string | null>(null);
+  const bannerId = useId();
+
+  // Article 01: propagate staleness the moment the authoritative final-mold
+  // document changes identity -- never wait for the next Generate click to
+  // discover it. A no-op before any generation, or once already stale.
+  useEffect(() => {
+    markMasterMoldStale({ revision: moldDocument.revision, fingerprint: moldDocument.fingerprint });
+  }, [markMasterMoldStale, moldDocument.revision, moldDocument.fingerprint]);
+
+  // Article 01: `definition` becomes null exactly when there is no longer a
+  // committed final-mold basis to speak of at all -- model replacement,
+  // orientation change, a Cut by Face edit (toggleFace/removeSplitFace), or
+  // clearing every cutting plane all null it in the same update as the edit
+  // itself. That is a stronger invalidation than `stale`: old Master Mold
+  // part IDs cannot even be looked up against whatever gets committed next,
+  // so this fully resets rather than flags. Deliberately NOT keyed on
+  // `workflow` alone -- merely opening/reopening the Constructed Cutting
+  // Plan session (or Cancelling out of it without editing anything) leaves
+  // `definition` untouched, and must not destroy a valid Master Mold result
+  // (Article 05: "switching between them must not corrupt either result").
+  useEffect(() => {
+    if (definition === null) {
+      resetMasterMold();
+    }
+  }, [definition, resetMasterMold]);
 
   if (workflow !== "partsReady") {
     return null;
@@ -44,9 +71,23 @@ export function MasterMoldAction({
   const mesh = sourcePartMesh ?? null;
   const generating = status === "generating" || preparing;
   const complete = status === "current";
+  const stale = status === "stale";
   const blocked = status === "blocked";
   const blockedMessages = bodies.filter((body) => body.status === "blocked").map((body) => body.failureMessage).filter((message): message is string => message !== null);
   const lastError = synthesisError ?? workerError ?? (blockedMessages.length > 0 ? blockedMessages[0]! : null);
+
+  // Article 06: multi-part partial failure must be communicated (which part
+  // failed) without ever discarding or hiding an already-valid sibling --
+  // the failing bodies stay out of the viewport (Article 01's rendering
+  // gate) while the valid ones keep rendering; this only adds the message.
+  const partialFailure = blocked && blockedMessages.length > 0 && blockedMessages.length < bodies.length;
+  const partialFailureMessage = partialFailure
+    ? `${blockedMessages.length} of ${bodies.length} Master Mold part(s) could not be generated; the rest remain valid. ${blockedMessages[0]}`
+    : null;
+
+  const staleMessage = stale ? "Master Mold needs regeneration: the final mold changed since it was generated." : null;
+  const bannerMessage = lastError !== null ? (partialFailureMessage ?? lastError) : staleMessage;
+  const bannerRole = lastError !== null ? "alert" : "status";
 
   const handleClick = async () => {
     if (mesh === null || definition === null || generating || segmentationRegenerationPending) {
@@ -94,7 +135,7 @@ export function MasterMoldAction({
         volumeMm3: body.volumeMm3,
       }));
 
-      await generate(finalMoldBodies);
+      await generate(finalMoldBodies, { revision: moldDocument.revision, fingerprint: moldDocument.fingerprint });
     } catch (error) {
       setSynthesisError(error instanceof Error ? error.message : "Master Mold could not obtain the final-mold geometry.");
     } finally {
@@ -103,22 +144,32 @@ export function MasterMoldAction({
   };
 
   return (
-    <button
-      aria-label="Master Mold"
-      aria-pressed={complete}
-      className={`${toolbarStyles.iconButton} ${complete ? toolbarStyles.primaryButton : ""}`}
-      disabled={generating || segmentationRegenerationPending || mesh === null}
-      onClick={() => void handleClick()}
-      title={
-        generating
-          ? "Generating Master Mold…"
-          : blocked && lastError !== null
-            ? `Master Mold: ${lastError}`
-            : "Master Mold"
-      }
-      type="button"
-    >
-      <MasterMoldIcon />
-    </button>
+    <span className={toolbarStyles.flyoutWithBanner}>
+      <button
+        aria-describedby={bannerMessage !== null ? bannerId : undefined}
+        aria-label="Master Mold"
+        aria-pressed={complete}
+        className={`${toolbarStyles.iconButton} ${complete ? toolbarStyles.primaryButton : ""}`}
+        disabled={generating || segmentationRegenerationPending || mesh === null}
+        onClick={() => void handleClick()}
+        title={
+          generating
+            ? "Generating Master Mold…"
+            : blocked && lastError !== null
+              ? `Master Mold: ${lastError}`
+              : stale
+                ? "Master Mold: needs regeneration (final mold changed)"
+                : "Master Mold"
+        }
+        type="button"
+      >
+        <MasterMoldIcon />
+      </button>
+      {bannerMessage !== null && (
+        <div className={toolbarStyles.reopenBlockedBanner} id={bannerId} role={bannerRole}>
+          {bannerMessage}
+        </div>
+      )}
+    </span>
   );
 }
