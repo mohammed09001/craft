@@ -189,6 +189,24 @@ describe("masterMold.store", () => {
     expect(store.getState().bodies).toEqual(before);
   });
 
+  it("Article 07: reportSynthesisFailure makes a final-mold target synthesis failure an observable store state, not merely local UI text", async () => {
+    const { deps } = createDeps(async (request) => ({
+      operationId: request.operationId,
+      generationVersion: request.generationVersion,
+      elapsedMs: 1,
+      bodies: request.targets.map((t) => currentResultFor({ id: t.source.finalMoldPartId, name: t.source.finalMoldPartName, mesh: t.mesh, bounds: t.bounds, volumeMm3: t.volumeMm3 })),
+    }));
+    const store = createMasterMoldStoreCreator(deps);
+
+    await store.getState().generate([inputA]);
+    expect(store.getState().status).toBe("current");
+
+    store.getState().reportSynthesisFailure("Master Mold could not obtain the final-mold geometry.");
+
+    expect(store.getState().status).toBe("error");
+    expect(store.getState().lastError).toBe("Master Mold could not obtain the final-mold geometry.");
+  });
+
   it("marks current bodies stale when the document identity changes, without discarding their geometry", async () => {
     const { deps } = createDeps(async (request) => ({
       operationId: request.operationId,

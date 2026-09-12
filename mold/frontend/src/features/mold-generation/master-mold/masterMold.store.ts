@@ -68,6 +68,15 @@ export interface MasterMoldState {
   markMasterMoldStale(documentIdentity: MasterMoldSourceDocumentIdentity): void;
   /** Marks only the named final-mold parts stale, leaving unaffected siblings reusable (Article 01). */
   invalidateMasterMoldParts(partIds: readonly string[]): void;
+  /**
+   * Article 07: a final-mold target synthesis failure (thrown before
+   * `generate()` is even reached, e.g. while assembling the cutting/cavity
+   * geometry Master Mold consumes) is itself a Master Mold production
+   * state, not merely UI text local to one component -- callers other than
+   * the toolbar action must be able to observe it via the store, the same
+   * way a Worker-side failure already surfaces through `status`/`lastError`.
+   */
+  reportSynthesisFailure(message: string): void;
 }
 
 function overallStatusOf(bodies: readonly MasterMoldBodyResult[]): MasterMoldOverallStatus {
@@ -159,6 +168,10 @@ export function createMasterMoldStoreCreator(deps: MasterMoldStoreDeps = default
         );
         return { ...s, bodies, status: overallStatusOf(bodies) };
       });
+    },
+
+    reportSynthesisFailure: (message) => {
+      set((s) => ({ ...s, status: "error", lastError: message }));
     },
 
     generate: async (finalMoldBodies, documentIdentity) => {

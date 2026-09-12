@@ -35,12 +35,12 @@ export function MasterMoldAction({
   const markMasterMoldStale = useMasterMoldStore((s) => s.markMasterMoldStale);
   const invalidateMasterMoldParts = useMasterMoldStore((s) => s.invalidateMasterMoldParts);
   const resetMasterMold = useMasterMoldStore((s) => s.reset);
+  const reportSynthesisFailure = useMasterMoldStore((s) => s.reportSynthesisFailure);
   const status = useMasterMoldStore((s) => s.status);
   const bodies = useMasterMoldStore((s) => s.bodies);
   const workerError = useMasterMoldStore((s) => s.lastError);
 
   const [preparing, setPreparing] = useState(false);
-  const [synthesisError, setSynthesisError] = useState<string | null>(null);
   const bannerId = useId();
 
   // Article 01/07: propagate staleness the moment the authoritative
@@ -133,7 +133,7 @@ export function MasterMoldAction({
   const stale = status === "stale";
   const blocked = status === "blocked";
   const blockedMessages = bodies.filter((body) => body.status === "blocked").map((body) => body.failureMessage).filter((message): message is string => message !== null);
-  const lastError = synthesisError ?? workerError ?? (blockedMessages.length > 0 ? blockedMessages[0]! : null);
+  const lastError = workerError ?? (blockedMessages.length > 0 ? blockedMessages[0]! : null);
 
   // Article 06: multi-part partial failure must be communicated (which part
   // failed) without ever discarding or hiding an already-valid sibling --
@@ -154,7 +154,6 @@ export function MasterMoldAction({
     }
 
     setPreparing(true);
-    setSynthesisError(null);
 
     try {
       // `lastCommittedResult` already exists right after the cutting commit,
@@ -196,7 +195,7 @@ export function MasterMoldAction({
 
       await generate(finalMoldBodies, { revision: moldDocument.revision, fingerprint: moldDocument.fingerprint });
     } catch (error) {
-      setSynthesisError(error instanceof Error ? error.message : "Master Mold could not obtain the final-mold geometry.");
+      reportSynthesisFailure(error instanceof Error ? error.message : "Master Mold could not obtain the final-mold geometry.");
     } finally {
       setPreparing(false);
     }
