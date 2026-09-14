@@ -248,7 +248,7 @@ export function SplitFaceControls({
         </div>
 
         <CavityAction sourcePartMesh={canonicalPartGeometry} />
-        <MasterMoldAction sourcePartMesh={canonicalPartGeometry} />
+        <MasterMoldAction sourcePartMesh={canonicalPartGeometry ?? null} />
 
         <span
           aria-hidden="true"

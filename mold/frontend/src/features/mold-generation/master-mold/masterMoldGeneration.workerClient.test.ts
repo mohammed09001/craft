@@ -18,14 +18,14 @@ function createRequest(overrides: Partial<MasterMoldRequest> = {}): MasterMoldRe
   return {
     operationId: "operation-1",
     generationVersion: 3,
-    parameters: { wallThicknessMm: 3, bottomThicknessMm: 3, geometryToleranceMm: 1e-3 },
-    targets: [],
+    snapshot: { schemaVersion: 1, snapshotId: "snap-1" },
+    priorSets: [],
     ...overrides,
-  };
+  } as MasterMoldRequest;
 }
 
 function createResult(request: MasterMoldRequest): MasterMoldResult {
-  return { operationId: request.operationId, generationVersion: request.generationVersion, elapsedMs: 10, bodies: [] };
+  return { operationId: request.operationId, generationVersion: request.generationVersion, elapsedMs: 10, sets: [] };
 }
 
 function createHarness() {

@@ -20,7 +20,8 @@ import type {
   SprueProfileDesignResult,
 } from "../sprue-generation";
 import { unavailableRegistration, type DerivedRegistrationState } from "../registration/registrationState";
-import { applyBodyVisibility, canCommitMoldEvaluation, cancelDerivedMoldEvaluation as defaultCancelDerivedMoldEvaluation, idleMoldEvaluation, isEvaluationCancelled, nextEvaluationRequest, registrationSizingPolicyFor, runDerivedMoldEvaluation as defaultRunDerivedMoldEvaluation, type FinalMoldResult, type MoldDocument, type MoldEvaluationState } from "../workflow";
+import { applyBodyVisibility, canCommitMoldEvaluation, cancelDerivedMoldEvaluation as defaultCancelDerivedMoldEvaluation, idleMoldEvaluation, isEvaluationCancelled, nextEvaluationRequest, runDerivedMoldEvaluation as defaultRunDerivedMoldEvaluation, type FinalMoldResult, type MoldDocument, type MoldEvaluationState } from "../workflow";
+import { registrationSizingPolicyFor } from "../registration/registrationSizing.policy";
 import type { MoldBodyData } from "../reference-mold-definition/orthogonalMold";
 
 interface Snapshot { selectedFaceIds:readonly PartBoundingBoxFaceId[]; selectedSplitFaceId:PartBoundingBoxFaceId|null; cuttingPlanes:readonly CuttingPlaneRecord[]; workflow:SplitWorkflowState; definition:ReferenceMoldDefinition|null; clearanceMm:number; activePlaneId:string|null; cavity:CavityWorkflowState; partGeometrySignature:string|null; sprues:readonly SprueDefinition[]; sprueDefinitions:readonly SprueOperationDefinition[]; registration:DerivedRegistrationState; document:MoldDocument; evaluation:MoldEvaluationState; lastCommittedResult:FinalMoldResult|null; bodyVisibility:Readonly<Record<string,boolean>> }

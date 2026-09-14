@@ -15,18 +15,29 @@ interface WorkspaceBounds3 {
   readonly max: { readonly x: number; readonly y: number; readonly z: number };
 }
 
-interface WorkspaceMasterMoldBody {
-  readonly status: string;
-  readonly direction: string | null;
+interface WorkspaceMasterMoldPiece {
   readonly watertight: boolean;
   readonly manifold: boolean;
-  readonly triangleCount: number | null;
-  readonly volumeMm3: number | null;
+  readonly triangleCount: number;
+  readonly volumeMm3: number;
+}
+
+interface WorkspaceMasterMoldSet {
+  readonly status: string;
+  readonly failureMessage: string | null;
+  readonly set: {
+    readonly releaseMode: string;
+    readonly warnings: readonly string[];
+    readonly assembly: {
+      readonly pieces: readonly WorkspaceMasterMoldPiece[];
+      readonly releaseSequence: readonly { readonly collisionVerified: boolean }[];
+    };
+  } | null;
 }
 
 interface WorkspaceMasterMoldState {
   readonly status: string;
-  readonly bodies: readonly WorkspaceMasterMoldBody[];
+  readonly sets: readonly WorkspaceMasterMoldSet[];
 }
 
 interface E2eWorkspaceStores {
@@ -127,21 +138,47 @@ test("drives the real Create Cavity -> Master Mold toolbar buttons against a rea
   await expect(masterMoldButton).toBeEnabled();
   await masterMoldButton.click();
 
-  await expect(masterMoldButton).toHaveAttribute("aria-pressed", "true", { timeout: 30_000 });
+  // The engine runs a real multi-stage Boolean pipeline in the Worker:
+  // poll until it settles (not generating) before asserting the outcome.
+  await expect
+    .poll(
+      async () =>
+        page.evaluate(
+          () =>
+            (globalThis as unknown as { __e2eWorkspaceStores: E2eWorkspaceStores }).__e2eWorkspaceStores
+              .useMasterMoldStore.getState().status,
+        ),
+      { timeout: 120_000 },
+    )
+    .not.toBe("generating");
 
   const masterMoldState = await page.evaluate<WorkspaceMasterMoldState>(() =>
     (globalThis as unknown as { __e2eWorkspaceStores: E2eWorkspaceStores }).__e2eWorkspaceStores.useMasterMoldStore.getState(),
   );
 
-  expect(masterMoldState.status).toBe("current");
-  expect(masterMoldState.bodies.length).toBeGreaterThan(0);
-  for (const body of masterMoldState.bodies) {
-    expect(body.status).toBe("current");
-    expect(body.watertight).toBe(true);
-    expect(body.manifold).toBe(true);
-    expect(body.triangleCount ?? 0).toBeGreaterThan(0);
-    expect(body.volumeMm3 ?? 0).toBeGreaterThan(0);
+  // Execution 05: the engine runs its full pipeline (cast targets, pour
+  // face, release analysis, planning) and returns per-part tooling sets.
+  // Every set is either a verified current tooling set (watertight, manifold
+  // pieces with a collision-checked release sequence) or a structured
+  // blocked-with-reason outcome -- never a fake.
+  expect(masterMoldState.sets.length).toBeGreaterThan(0);
+  for (const entry of masterMoldState.sets) {
+    if (entry.status === "current") {
+      expect(entry.set).not.toBeNull();
+      expect(entry.set!.assembly.pieces.length).toBeGreaterThan(0);
+      for (const piece of entry.set!.assembly.pieces) {
+        expect(piece.watertight).toBe(true);
+        expect(piece.manifold).toBe(true);
+        expect(piece.volumeMm3).toBeGreaterThan(0);
+      }
+      expect(entry.set!.assembly.releaseSequence.length).toBe(entry.set!.assembly.pieces.length);
+    } else {
+      expect(entry.status).toBe("blocked");
+      expect(entry.failureMessage).toContain("reusable_plan_not_found");
+    }
   }
+  expect(masterMoldState.status).toBe("current");
+  await expect(masterMoldButton).toHaveAttribute("aria-pressed", "true");
 
   // The real UI/viewport did not break: still exactly one canvas, no
   // uncaught errors from the real Worker/Boolean/viewport pipeline.

@@ -1,6 +1,6 @@
 import type { Bounds3 } from "../split-face/splitFace.contracts";
 import type { MoldMeshPayload } from "../reference-mold-definition/orthogonalMold";
-import { boundsFromManifold, createBlankSolid, getManifoldModule, payloadFromManifold } from "../cavity-generation/manifold.engine";
+import { boundsFromManifold, createBlankSolid, getManifoldModule, payloadFromManifold } from "../geometry/manifold";
 
 /**
  * A two-tier "pedestal": a wide 10x10 base (z in [0,2]) fused under a narrow

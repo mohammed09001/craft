@@ -1,4 +1,18 @@
 import type { RegistrationTolerancePolicy } from "./registration.contracts";
+import type { ReferenceMoldDefinition } from "../reference-mold-definition";
+
+/**
+ * Execution 05 Article 03: which Registration sizing policy the committed
+ * Registration stage should use, selected from authoritative committed
+ * provenance (`definition.segmentationLineage`) -- never guessed downstream.
+ * Lives in the Registration domain (it is a Registration policy), and is
+ * consumed by any workflow that commits a Registration stage.
+ */
+export function registrationSizingPolicyFor(
+  definition: ReferenceMoldDefinition,
+): { readonly registrationSizingPolicy: RegistrationSizingPolicy } | Record<string, never> {
+  return definition.segmentationLineage === true ? { registrationSizingPolicy: AUTOMATIC_SEGMENTATION_REGISTRATION_SIZING_POLICY } : {};
+}
 
 /**
  * "smallest-first" searches the profile ladder from the most minimal

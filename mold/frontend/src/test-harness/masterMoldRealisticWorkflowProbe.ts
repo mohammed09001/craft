@@ -1,76 +1,49 @@
 /**
- * Article 01/10: real-browser proof that Master Mold produces a `current`
- * result from the SAME production final-mold-target pipeline the toolbar
- * drives -- committed cavity geometry, a real Sprue in a manufacturable
- * orientation, and Registration -- not a bare box fed straight into the
- * Boolean generator (see masterMoldGenerationProbe.ts, which is a distinct,
- * narrower "does the Worker/Manifold plumbing itself run" proof and stays
- * classified as a diagnostic test, never product acceptance on its own).
- *
- * Mirrors sprueStoreLifecycleProbe.ts's approach: the real production store
- * creators, wired to their real Worker-backed clients (runCavityGenerationInWorker,
- * runDerivedMoldEvaluation, runMasterMoldGenerationInWorker) so this proves a
- * genuine Worker-thread + manifold-3d WASM execution in Chromium, the exact
- * path a real toolbar click drives -- not a mock, not the jsdom worker-less
- * fallback masterMold.store.test.ts and the vitest-side
- * masterMoldWorkflow.integration.test.ts necessarily use instead.
+ * Execution 05 Articles 05/12: real-browser proof that the Master Mold store
+ * produces a verified `current` tooling set from authoritative project truth
+ * through the SAME production store creators the toolbar drives -- a
+ * committed stock body (adopted through the real committed-segmentation
+ * store seam), the canonical part, and the real Worker-backed engine. The
+ * fixture is physically manufacturable: the part sits flush with the stock's
+ * bottom face, so the pocket is formed by tooling material anchored to the
+ * case floor and withdraws with the case (no floating core).
  */
-import { createStore, type StoreApi } from "zustand/vanilla";
+import { createStore } from "zustand/vanilla";
 
 import { canonicalCube } from "@/features/mold-generation/cavity-generation/cavityGeneration.testFixtures";
-import { cancelActiveCavityGeneration, runCavityGenerationInWorker } from "@/features/mold-generation/cavity-generation/cavityGeneration.workerClient";
-import { designSprueProfile, type ValidSpruePreviewPlacement } from "@/features/mold-generation/sprue-generation";
+import {
+  cancelActiveCavityGeneration,
+  runCavityGenerationInWorker,
+} from "@/features/mold-generation/cavity-generation/cavityGeneration.workerClient";
 import { createSplitFaceStoreCreator, type SplitFaceState } from "@/features/mold-generation/split-face/splitFace.store";
 import { cancelDerivedMoldEvaluation, runDerivedMoldEvaluation } from "@/features/mold-generation/workflow";
-import { createMasterMoldStoreCreator, type MasterMoldFinalBodyInput } from "@/features/mold-generation/master-mold/masterMold.store";
-import { cancelActiveMasterMoldGeneration, runMasterMoldGenerationInWorker } from "@/features/mold-generation/master-mold/masterMoldGeneration.workerClient";
-
-// Mirrors sprueStoreLifecycleProbe.ts: createSprue() resolving true does not
-// itself guarantee lastCommittedResult/document already reflect the
-// resolved Sprue -- Registration re-evaluation finishes slightly later.
-async function waitForState(
-  store: StoreApi<SplitFaceState>,
-  predicate: (state: SplitFaceState) => boolean,
-): Promise<SplitFaceState> {
-  return new Promise((resolve, reject) => {
-    const timeout = window.setTimeout(() => {
-      unsubscribe();
-      reject(new Error("Timed out waiting for production store lifecycle state."));
-    }, 30_000);
-    const check = (state: SplitFaceState) => {
-      if (!predicate(state)) return;
-      window.clearTimeout(timeout);
-      unsubscribe();
-      resolve(state);
-    };
-    const unsubscribe = store.subscribe(check);
-    check(store.getState());
-  });
-}
+import { createMasterMoldStoreCreator } from "@/features/mold-generation/master-mold/masterMold.store";
+import {
+  cancelActiveMasterMoldGeneration,
+  runMasterMoldGenerationInWorker,
+} from "@/features/mold-generation/master-mold/masterMoldGeneration.workerClient";
+import { buildMasterMoldProjectSnapshot } from "@/features/mold-generation/master-mold/masterMoldSnapshot";
+import { getManifoldModule, payloadFromManifold, boundsFromManifold, createBlankSolid } from "@/features/mold-generation/geometry/manifold";
 
 export interface MasterMoldRealisticWorkflowResult {
   readonly ok: boolean;
   readonly error: string | null;
-  readonly registrationStatus: string | null;
-  readonly bodyCountBeforeSprue: number | null;
-  readonly statusBeforeSprue: string | null;
-  readonly bodyCountAfterSprue: number | null;
-  readonly statusAfterSprue: string | null;
-  readonly geometryChangedAfterSprue: boolean | null;
-  readonly volumesAfterSprueMm3: readonly number[] | null;
+  readonly setCount: number | null;
+  readonly status: string | null;
+  readonly releaseMode: string | null;
+  readonly pieceCount: number | null;
+  readonly watertight: boolean | null;
 }
 
-const k1 = { min: { x: 0, y: 0, z: 0 }, max: { x: 10, y: 10, z: 10 } };
+// Stock block 30x30x20 with the part (10x10x8) flush against its bottom
+// face: the pocket opens downward, so a one-piece case with the pocket bump
+// on its floor withdraws cleanly -- a genuinely manufacturable combination.
+const STOCK = { min: { x: 0, y: 0, z: 0 }, max: { x: 30, y: 30, z: 20 } };
+const PART = { min: { x: 10, y: 10, z: 0 }, max: { x: 20, y: 20, z: 8 } };
 
-// A "top" (Z-axis) cut so this block's own demold axis matches the Sprue's
-// vertical (topPoint/-Z inwardDirection) orientation below -- a genuinely
-// manufacturable combination, proven against the real geometry engine by
-// masterMoldWorkflow.integration.test.ts's "Case B"/"Case D" pair. Using a
-// "front" cut with this same Sprue is real Case D (a genuine undercut, not a
-// bug); this probe proves the ordinary Case B path instead.
 async function runMasterMoldRealisticWorkflowProbe(): Promise<MasterMoldRealisticWorkflowResult> {
   try {
-    const splitFaceStore = createStore(
+    const splitFaceStore = createStore<SplitFaceState>(
       createSplitFaceStoreCreator({
         runDerivedMoldEvaluation,
         cancelDerivedMoldEvaluation,
@@ -83,75 +56,88 @@ async function runMasterMoldRealisticWorkflowProbe(): Promise<MasterMoldRealisti
       cancelActiveMasterMoldGeneration,
     });
 
-    const canonicalPartGeometry = canonicalCube("e2e-master-mold-realistic", k1);
-    const splitFace = splitFaceStore.getState();
-    splitFace.setCanonicalPartGeometrySignature(canonicalPartGeometry.sourceSignature);
-    splitFace.enterSelection();
-    splitFace.toggleFace("top");
-    if (!(await splitFaceStore.getState().createMoldParts("e2e-master-mold-realistic", k1))) {
-      throw new Error("Mold parts were not created.");
-    }
-    if (!(await splitFaceStore.getState().createCavity(canonicalPartGeometry))) {
-      throw new Error("Cavity was not created.");
-    }
+    // Commit a real stock body through the production committed-segmentation
+    // seam (the same path Automatic Segmentation uses), then assemble the
+    // snapshot from project truth.
+    const module = await getManifoldModule();
+    const stockSolid = createBlankSolid(module, STOCK);
+    const stockMesh = payloadFromManifold(stockSolid);
+    const stockBounds = boundsFromManifold(stockSolid);
+    stockSolid.delete();
 
-    const registrationStatus = splitFaceStore.getState().registration.status;
-    const finalMoldBodyInputs = (): readonly MasterMoldFinalBodyInput[] => {
-      const committed = splitFaceStore.getState().lastCommittedResult;
-      if (committed === null) throw new Error("No committed final-mold result.");
-      return committed.bodies.map((body) => ({ id: body.id, name: body.name, mesh: body.mesh, bounds: body.bounds, volumeMm3: body.volumeMm3 }));
+    const partMesh = canonicalCube("e2e-master-realistic", PART);
+    const sourceDefinition = {
+      schemaVersion: 1 as const,
+      definitionId: "e2e-master-realistic-def",
+      modelId: "e2e-master-realistic",
+      coordinateSystem: { units: "millimeters" as const, upAxis: "Z" as const },
+      selectionBoxBounds: PART,
+      referenceMoldBlock: { clearanceMm: 10, bounds: STOCK },
+      usedFaces: ["bottom"] as const,
     };
+    splitFaceStore.getState().adoptCommittedSegmentationResult({
+      sourceSignature: partMesh.sourceSignature,
+      sourceDefinition,
+      bodies: [
+        {
+          id: "e2e-stock-part",
+          name: "E2E Stock Part",
+          visible: true,
+          mesh: stockMesh,
+          bounds: stockBounds,
+          triangleCount: stockMesh.indices.length / 3,
+          volumeMm3: (STOCK.max.x - STOCK.min.x) * (STOCK.max.y - STOCK.min.y) * (STOCK.max.z - STOCK.min.z),
+          watertight: true as const,
+        },
+      ],
+      warnings: [],
+    });
 
-    const documentBefore = splitFaceStore.getState().document;
-    const okBefore = await masterMoldStore
+    const state = splitFaceStore.getState();
+    const snapshot = buildMasterMoldProjectSnapshot({
+      sourcePartMesh: {
+        modelId: partMesh.modelId,
+        positions: partMesh.positions,
+        indices: partMesh.indices,
+        transform: partMesh.transform,
+        localBounds: partMesh.localBounds,
+        geometryVersion: partMesh.geometryVersion,
+        sourceSignature: partMesh.sourceSignature,
+      },
+      definition: state.definition!,
+      cuttingPlanes: state.cuttingPlanes,
+      sprueDefinitions: state.sprueDefinitions,
+      printerBuildVolume: null,
+      projectRevision: state.document.revision,
+      projectFingerprint: state.document.fingerprint,
+    });
+
+    const ok = await masterMoldStore
       .getState()
-      .generate(finalMoldBodyInputs(), { revision: documentBefore.revision, fingerprint: documentBefore.fingerprint });
-    if (!okBefore) throw new Error("Master Mold generation (pre-Sprue) did not complete.");
-    const beforeState = masterMoldStore.getState();
+      .generate({ snapshot }, { revision: snapshot.projectRevision, fingerprint: snapshot.projectFingerprint });
+    if (!ok) throw new Error("Master Mold generation did not complete.");
 
-    const placement: ValidSpruePreviewPlacement = {
-      status: "valid",
-      topPoint: { x: 5, y: 5, z: 30 },
-      cavityPoint: { x: 5, y: 5, z: 20 },
-      inwardDirection: { x: 0, y: 0, z: -1 },
-      stemLengthMm: 10,
-      profileDesign: designSprueProfile(null),
-      coordinateSpace: "mold-local",
-    };
-    if (!(await splitFaceStore.getState().createSprue(placement))) throw new Error("Sprue was not created.");
-    await waitForState(splitFaceStore, (next) => next.sprueStatus === "idle" && next.sprues.length === 1 && next.registration.status === "generated");
-
-    const documentAfter = splitFaceStore.getState().document;
-    const okAfter = await masterMoldStore
-      .getState()
-      .generate(finalMoldBodyInputs(), { revision: documentAfter.revision, fingerprint: documentAfter.fingerprint });
-    if (!okAfter) throw new Error("Master Mold regeneration (post-Sprue) did not complete.");
-    const afterState = masterMoldStore.getState();
+    const after = masterMoldStore.getState();
+    const set = after.sets[0]?.set ?? null;
 
     return {
       ok: true,
       error: null,
-      registrationStatus,
-      bodyCountBeforeSprue: beforeState.bodies.length,
-      statusBeforeSprue: beforeState.status,
-      bodyCountAfterSprue: afterState.bodies.length,
-      statusAfterSprue: afterState.status,
-      geometryChangedAfterSprue:
-        JSON.stringify(beforeState.bodies.map((b) => b.source.finalMoldGeometryVersion)) !==
-        JSON.stringify(afterState.bodies.map((b) => b.source.finalMoldGeometryVersion)),
-      volumesAfterSprueMm3: afterState.bodies.map((b) => b.volumeMm3 ?? -1),
+      setCount: after.sets.length,
+      status: after.status,
+      releaseMode: set?.releaseMode ?? null,
+      pieceCount: set?.assembly.pieces.length ?? null,
+      watertight: set?.assembly.pieces.every((piece) => piece.watertight && piece.manifold) ?? null,
     };
   } catch (error) {
     return {
       ok: false,
       error: error instanceof Error ? error.message : String(error),
-      registrationStatus: null,
-      bodyCountBeforeSprue: null,
-      statusBeforeSprue: null,
-      bodyCountAfterSprue: null,
-      statusAfterSprue: null,
-      geometryChangedAfterSprue: null,
-      volumesAfterSprueMm3: null,
+      setCount: null,
+      status: null,
+      releaseMode: null,
+      pieceCount: null,
+      watertight: null,
     };
   }
 }

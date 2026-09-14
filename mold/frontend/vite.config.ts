@@ -83,6 +83,13 @@ export default defineConfig(({ mode }) => ({
     globals: true,
     setupFiles: "./src/test/setup.ts",
     css: true,
+    // Heavy manifold-3d WASM suites (Master Mold engine, cavity Booleans)
+    // saturate CPU when test files run in parallel, intermittently starving
+    // timing-sensitive jsdom tests in OTHER files (observed as flaky
+    // waitFor/state-machine failures that never reproduce in isolation).
+    // Serializing test files keeps the full-suite gate deterministic; each
+    // file's own tests still run concurrently in its worker.
+    fileParallelism: false,
     // e2e/ holds Playwright browser specs (see playwright.config.ts) --
     // they call Playwright's own test(), not Vitest's, and must never be
     // collected by Vitest's default *.spec.ts discovery.

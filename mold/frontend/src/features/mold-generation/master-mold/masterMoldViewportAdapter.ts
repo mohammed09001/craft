@@ -1,50 +1,50 @@
 import type { MoldBodyData } from "../reference-mold-definition/orthogonalMold";
-import type { MasterMoldBodyResult } from "./masterMold.contracts";
+import type { MasterToolingSetState } from "./masterMold.contracts";
 
 /**
- * Article 02: a Master Mold body the viewport may draw, tagged with whether
- * it is the live current result or a ghosted holdover from before the source
- * went stale. Never a `blocked` body -- its `mesh`/`bounds` are null by
- * construction (Article 05), so a failed piece has no geometry to show at all.
+ * Execution 05 Article 14: a Master Mold tooling piece the viewport may
+ * draw, tagged with whether its set is the live current result or a ghosted
+ * holdover from before the source went stale. Blocked sets contribute no
+ * geometry at all -- a failed or sacrificial-recommended part has no
+ * printable tooling to show.
  */
 export interface MasterMoldRenderableBody extends MoldBodyData {
-  /** True when this body's source has changed since it was generated -- the runtime must render it as a visually distinct, non-manufacturable holdover, never as an ordinary current result (Article 02). */
+  /** True when this piece's source has changed since it was generated -- the runtime must render it as a visually distinct, non-manufacturable holdover, never as an ordinary current result (Article 02). */
   readonly stale: boolean;
   /**
-   * Article 05: a stable identity for the actual generated mesh content --
-   * the body's own source fingerprint, which changes exactly when
-   * (finalMoldGeometryVersion, parameters, directionOverride) changes, i.e.
-   * exactly when regeneration could produce different geometry. Shape-derived
-   * stats like bounds/triangleCount can coincide across two genuinely
-   * different meshes; this cannot, so the render runtime keys its rebuild
-   * decision on this instead.
+   * A stable identity for the actual generated mesh content -- the owning
+   * set's fingerprint plus the piece id, which changes exactly when the
+   * set's inputs or plan change. Shape-derived stats like bounds or triangle
+   * counts can coincide across two genuinely different meshes; this cannot,
+   * so the render runtime keys its rebuild decision on this.
    */
   readonly geometryIdentity: string;
 }
 
 /**
- * Article 02: a stale result still has valid, previously-generated
- * `mesh`/`bounds` (Article 01's `reviveIfStale`/`markMasterMoldStale` never
- * null them out) -- dropping it from the viewport entirely is exactly the
- * "Master Mold disappears when it becomes stale" regression this repairs.
- * Both `current` and `stale` bodies are returned so the runtime can render
- * the stale ones as a clearly ghosted holdover instead of erasing them.
+ * Both `current` and `stale` sets are returned so the runtime can render the
+ * stale ones as a clearly ghosted holdover instead of erasing them --
+ * dropping a set from the viewport entirely is exactly the "Master Mold
+ * disappears when it becomes stale" regression.
  */
 export function selectRenderableMasterMoldBodies(
-  bodies: readonly MasterMoldBodyResult[],
+  sets: readonly MasterToolingSetState[],
 ): readonly MasterMoldRenderableBody[] {
-  return bodies
-    .filter((body) => (body.status === "current" || body.status === "stale") && body.mesh !== null && body.bounds !== null)
-    .map((body) => ({
-      id: body.source.finalMoldPartId,
-      name: body.source.finalMoldPartName,
-      visible: true,
-      bounds: body.bounds!,
-      triangleCount: body.triangleCount ?? 0,
-      volumeMm3: body.volumeMm3 ?? 0,
-      watertight: true as const,
-      mesh: body.mesh!,
-      stale: body.status === "stale",
-      geometryIdentity: body.fingerprint.value,
-    }));
+  return sets
+    .filter((entry) => (entry.status === "current" || entry.status === "stale") && entry.set !== null)
+    .flatMap((entry) => {
+      const set = entry.set!;
+      return set.assembly.pieces.map((piece) => ({
+        id: piece.pieceId,
+        name: piece.name,
+        visible: true,
+        bounds: piece.bounds,
+        triangleCount: piece.triangleCount,
+        volumeMm3: piece.volumeMm3,
+        watertight: true as const,
+        mesh: piece.mesh,
+        stale: entry.status === "stale",
+        geometryIdentity: `${set.fingerprint}:${piece.pieceId}`,
+      }));
+    });
 }

@@ -315,7 +315,9 @@ export function Viewport({ onStatusChange }: ViewportProps) {
   // Master Mold is an independent tool, not a Create Cavity presentation
   // state -- rendered as its own body group (see masterMoldBody3dRuntime)
   // rather than folded into referenceMoldDefinition.moldBodies above.
-  const masterMoldBodyResults = useMasterMoldStore((state) => state.bodies);
+  // Execution 05 Article 14: each Master tooling PIECE renders as its own
+  // body, driven by the engine's tooling sets.
+  const masterMoldBodyResults = useMasterMoldStore((state) => state.sets);
   const masterMoldBodies = useMemo<readonly MasterMoldRenderableBody[]>(
     () => selectRenderableMasterMoldBodies(masterMoldBodyResults),
     [masterMoldBodyResults],

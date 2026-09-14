@@ -5,7 +5,31 @@ import {
   AUTOMATIC_SEGMENTATION_REGISTRATION_SIZING_POLICY,
   NORMAL_MOLD_REGISTRATION_SIZING_POLICY,
   REGISTRATION_MANUFACTURING_MINIMUM_WIDTH_MM,
+  registrationSizingPolicyFor,
 } from "./registrationSizing.policy";
+import type { ReferenceMoldDefinition } from "../reference-mold-definition";
+
+function definitionWithLineage(segmentationLineage: boolean): ReferenceMoldDefinition {
+  return {
+    schemaVersion: 1,
+    definitionId: "d",
+    modelId: "m",
+    coordinateSystem: { units: "millimeters", upAxis: "Z" },
+    selectionBoxBounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 1, y: 1, z: 1 } },
+    referenceMoldBlock: { clearanceMm: 10, bounds: { min: { x: -10, y: -10, z: -10 }, max: { x: 11, y: 11, z: 11 } } },
+    usedFaces: [],
+    ...(segmentationLineage ? { segmentationLineage: true } : {}),
+  };
+}
+
+describe("registrationSizingPolicyFor", () => {
+  it("selects the automatic Segmentation policy only from committed segmentation provenance", () => {
+    expect(registrationSizingPolicyFor(definitionWithLineage(false))).toEqual({});
+    expect(registrationSizingPolicyFor(definitionWithLineage(true))).toEqual({
+      registrationSizingPolicy: AUTOMATIC_SEGMENTATION_REGISTRATION_SIZING_POLICY,
+    });
+  });
+});
 
 describe("Registration sizing policy", () => {
   it("owns the automatic Segmentation 30 mm preferred width without changing normal molds", () => {

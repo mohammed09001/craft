@@ -1,78 +1,95 @@
 import { describe, expect, it } from "vitest";
 
 import { selectRenderableMasterMoldBodies } from "./masterMoldViewportAdapter";
-import type { MasterMoldBodyResult } from "./masterMold.contracts";
+import type { MasterToolingSetState } from "./masterMold.contracts";
+import type { MasterToolingSet } from "./engine/contracts";
 
-function currentBody(id: string): MasterMoldBodyResult {
+function piece(index: number) {
   return {
-    source: { finalMoldPartId: id, finalMoldPartName: `Final Mold ${id}`, finalMoldGeometryVersion: `geom:${id}` },
-    status: "current",
-    direction: "+Z",
-    directionAnalysis: { candidates: [], selected: "+Z", feasible: true },
+    pieceId: `piece-${index}`,
+    name: `Tooling Piece ${index}`,
     mesh: { positions: [0, 0, 0, 1, 0, 0, 0, 1, 0], indices: [0, 1, 2] },
     bounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 1, y: 1, z: 1 } },
     volumeMm3: 10,
     triangleCount: 1,
     watertight: true,
     manifold: true,
-    failureReason: null,
-    failureMessage: null,
-    fingerprint: { finalMoldGeometryVersion: `geom:${id}`, parametersSignature: "p", directionOverride: null, value: `v:${id}` },
+    releaseDirection: "+Z" as const,
+    regions: [],
+    toolingRegistrationFeatureIds: [],
+    fitsBuildVolume: true,
   };
 }
 
-function staleBody(id: string): MasterMoldBodyResult {
-  const current = currentBody(id);
-  return { ...current, status: "stale" };
-}
-
-function blockedBody(id: string): MasterMoldBodyResult {
+function setFor(id: string, pieces: number): MasterToolingSet {
   return {
-    source: { finalMoldPartId: id, finalMoldPartName: `Final Mold ${id}`, finalMoldGeometryVersion: `geom:${id}` },
-    status: "blocked",
-    direction: null,
-    directionAnalysis: { candidates: [], selected: null, feasible: false },
-    mesh: null,
-    bounds: null,
-    volumeMm3: null,
-    triangleCount: null,
-    watertight: false,
-    manifold: false,
-    failureReason: "no_valid_open_direction",
-    failureMessage: "No feasible direction.",
-    fingerprint: { finalMoldGeometryVersion: `geom:${id}`, parametersSignature: "p", directionOverride: null, value: `v:${id}` },
+    moldPartId: id,
+    moldPartName: `Mold ${id}`,
+    castTargetVersion: `ct:${id}`,
+    sourceSignature: `sig:${id}`,
+    pourFaceDecision: { selected: "+Z", castingOrientation: "+Z", score: 1, candidates: [], fillabilityWarnings: [] },
+    accessibility: { directions: [], onePieceReleaseFeasible: true },
+    releaseMode: pieces > 1 ? "multi-piece" : "one-piece",
+    partingSurfaces: [],
+    assembly: {
+      pieces: Array.from({ length: pieces }, (_, index) => piece(index)),
+      registrationFeatures: [],
+      releaseSequence: [],
+    },
+    warnings: [],
+    fingerprint: `set:${id}`,
   };
 }
 
-describe("selectRenderableMasterMoldBodies", () => {
-  it("renders current and stale bodies, never a blocked one", () => {
-    const bodies = [currentBody("a"), blockedBody("b"), staleBody("c")];
+function entry(id: string, status: MasterToolingSetState["status"], pieces = 1, set: MasterToolingSet | null = setFor(id, pieces)): MasterToolingSetState {
+  return {
+    moldPartId: id,
+    moldPartName: `Mold ${id}`,
+    status,
+    sourceSignature: `sig:${id}`,
+    contentVersion: `ct:${id}`,
+    set: status === "blocked" ? null : set,
+    failureMessage: status === "blocked" ? "no reusable tooling plan." : null,
+  };
+}
 
-    const rendered = selectRenderableMasterMoldBodies(bodies);
+describe("selectRenderableMasterMoldBodies (Execution 05 Article 14)", () => {
+  it("renders every piece of current and stale sets, never a blocked one", () => {
+    const rendered = selectRenderableMasterMoldBodies([
+      entry("a", "current", 2),
+      entry("b", "blocked"),
+      entry("c", "stale", 1),
+    ]);
 
-    expect(rendered.map((body) => body.id)).toEqual(["a", "c"]);
-    expect(rendered.every((body) => body.watertight === true && body.mesh !== null)).toBe(true);
+    expect(rendered).toHaveLength(3);
+    expect(rendered.map((body) => body.id)).toEqual(["piece-0", "piece-1", "piece-0"]);
+    expect(rendered.every((body) => body.watertight === true)).toBe(true);
   });
 
-  it("tags stale bodies as stale and current bodies as not stale (Article 02: stale must render as a ghosted holdover, never disappear)", () => {
-    const rendered = selectRenderableMasterMoldBodies([currentBody("a"), staleBody("b")]);
-    expect(rendered.find((body) => body.id === "a")?.stale).toBe(false);
-    expect(rendered.find((body) => body.id === "b")?.stale).toBe(true);
+  it("tags pieces of stale sets as stale and current sets as not stale (Article 02: stale must render as a ghosted holdover, never disappear)", () => {
+    const rendered = selectRenderableMasterMoldBodies([entry("a", "current"), entry("b", "stale")]);
+    expect(rendered.find((body) => body.name === "Tooling Piece 0" && body.geometryIdentity.includes("set:a"))?.stale).toBe(false);
+    expect(rendered.find((body) => body.geometryIdentity.includes("set:b"))?.stale).toBe(true);
   });
 
-  it("returns an empty list when every body is blocked", () => {
-    expect(selectRenderableMasterMoldBodies([blockedBody("a")])).toEqual([]);
+  it("returns an empty list when every set is blocked", () => {
+    expect(selectRenderableMasterMoldBodies([entry("a", "blocked")])).toEqual([]);
   });
 
-  it("maps provenance fields to the MoldBodyData shape the viewport renderer expects", () => {
-    const [rendered] = selectRenderableMasterMoldBodies([currentBody("a")]);
+  it("maps piece provenance to the MoldBodyData shape the viewport renderer expects", () => {
+    const [rendered] = selectRenderableMasterMoldBodies([entry("a", "current", 1)]);
     expect(rendered).toMatchObject({
-      id: "a",
-      name: "Final Mold a",
+      id: "piece-0",
+      name: "Tooling Piece 0",
       visible: true,
       triangleCount: 1,
       volumeMm3: 10,
       watertight: true,
     });
+  });
+
+  it("keys each piece's geometry identity on the owning set's fingerprint (stable across renders, unique across regenerations)", () => {
+    const [first] = selectRenderableMasterMoldBodies([entry("a", "current", 2)]);
+    expect(first!.geometryIdentity).toBe("set:a:piece-0");
   });
 });

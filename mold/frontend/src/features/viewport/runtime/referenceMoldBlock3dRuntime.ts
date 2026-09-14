@@ -12,6 +12,7 @@ import {
 } from "three";
 
 import type { ReferenceMoldDefinition } from "@/features/mold-generation/reference-mold-definition";
+import type { MoldBodyData } from "@/features/mold-generation/reference-mold-definition/orthogonalMold";
 import type { MoldAppearanceMode } from "@/features/mold-generation/reference-mold-definition/moldAppearance.store";
 import { createFeatureEdgeOverlay } from "@/features/viewport/runtime/featureEdgeOverlay";
 import {
@@ -29,6 +30,14 @@ export { resolveBodyRole };
 export interface ReferenceMoldBlock3dRuntime {
   readonly object: Group;
   setDefinition(definition: ReferenceMoldDefinition | null): void;
+  /**
+   * Execution 05 Article 02: presentation-only synchronization path.
+   * Updates the existing body meshes' `visible` flag by stable body id --
+   * no geometry disposal, no rebuild, no identity change. `setDefinition`
+   * calls this automatically whenever it skips the rebuild on an unchanged
+   * geometry identity, so a visibility flip reaches the rendered scene.
+   */
+  syncBodyPresentation(bodies: readonly MoldBodyData[] | null | undefined): void;
   setAppearanceMode(mode: MoldAppearanceMode): void;
   setPalette(palette: ViewportPalette): void;
   setTarget(modelId: string, target: Object3D): void;
@@ -115,6 +124,26 @@ export const createReferenceMoldBlock3dRuntime = (
     group.quaternion.set(0, 0, 0, 1);
   };
 
+  // Execution 05 Article 02: `visible` is presentation state, deliberately
+  // excluded from the geometry identity above -- so a visibility flip must
+  // reach the already-built Three.js meshes through this path instead of
+  // relying on (or forcing) an expensive geometry rebuild.
+  const syncBodyPresentation = (bodies: readonly MoldBodyData[] | null | undefined) => {
+    if (!bodies?.length) return;
+    const visibleById = new Map(bodies.map((body) => [body.id, body.visible] as const));
+    let changed = false;
+    group.traverse((descendant) => {
+      if (!(descendant instanceof Mesh)) return;
+      const bodyId = descendant.userData.moldBodyId;
+      if (typeof bodyId !== "string") return;
+      const visible = visibleById.get(bodyId);
+      if (visible === undefined || descendant.visible === visible) return;
+      descendant.visible = visible;
+      changed = true;
+    });
+    if (changed) invalidate();
+  };
+
   const rebuild = () => {
     clearGeometry();
     syncTransform();
@@ -194,9 +223,15 @@ export const createReferenceMoldBlock3dRuntime = (
       definition = nextDefinition;
       geometryIdentity = nextGeometryIdentity.identity;
       geometryIdentityReliable = nextGeometryIdentity.reliable;
-      if (geometryUnchanged) return;
+      if (geometryUnchanged) {
+        // Presentation state (`visible`) is excluded from the identity, so
+        // an unchanged geometry can still carry a changed visibility flag.
+        syncBodyPresentation(nextDefinition?.moldBodies ?? null);
+        return;
+      }
       rebuild();
     },
+    syncBodyPresentation,
     setAppearanceMode: (mode) => {
       if (mode === appearanceMode) return;
       appearanceMode = mode;

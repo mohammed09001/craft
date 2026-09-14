@@ -3,6 +3,14 @@ import type { Bounds3 } from "../split-face/splitFace.contracts";
 import type { CavityBodyValidation, CavityGenerationInput, CavityGenerationResult, CavityIssue, CavityMoldBodyData, CavitySubtractionDiagnostics, CavityToolData } from "./cavityGeneration.contracts";
 import { boundsFromManifold, getManifoldModule, manifoldFromPayload, payloadFromManifold } from "./manifold.engine";
 import { cavityBodyGeometryVersion } from "./cavityGeneration.signature";
+import { classifyFragmentVolumes, compareComponentDescriptors, type ComponentOrderingDescriptor, type FragmentVolumeClassification } from "../geometry/fragmentClassification";
+import { meshTopology } from "../geometry/meshTopology";
+
+// Execution 05 Article 04: fragment classification and ordering math moved
+// to the neutral geometry core; re-exported here for Cavity-domain callers.
+export { classifyFragmentVolumes, compareComponentDescriptors };
+export type { ComponentOrderingDescriptor, FragmentVolumeClassification };
+export const topology = meshTopology;
 
 const issue=(severity:"warning"|"blocker",reasonCode:string,message:string):CavityIssue=>({severity,reasonCode,message});
 const overlaps=(a:Bounds3,b:Bounds3,t:number)=>a.min.x<b.max.x-t&&a.max.x>b.min.x+t&&a.min.y<b.max.y-t&&a.max.y>b.min.y+t&&a.min.z<b.max.z-t&&a.max.z>b.min.z+t;
@@ -21,107 +29,6 @@ export function assertCavityCoordinateAlignment(input:CavityGenerationInput,tool
   if(!boundsMatch(payloadBounds(tool.mesh),tool.bounds,tolerance))throw codedError("cavity_coordinate_mismatch","Cavity tool mesh bounds do not match its declared bounds.");
   for(const source of input.moldBodies)if(!boundsMatch(payloadBounds(source.mesh),source.bounds,tolerance))throw codedError("cavity_coordinate_mismatch",`${source.name} mesh bounds do not match its declared bounds.`);
   if(!input.moldBodies.some(source=>overlaps(source.bounds,tool.bounds,tolerance)))throw codedError("cavity_no_material_intersection","The cavity tool did not intersect any mold material. Verify mold-body construction and coordinate alignment.");
-}
-
-export interface FragmentVolumeClassification {
-  readonly meaningfulVolumes:readonly number[];
-  readonly discardedVolumes:readonly number[];
-}
-
-export interface ComponentOrderingDescriptor {
-  readonly volumeMm3:number;
-  readonly bounds:Bounds3;
-}
-
-function quantizeComponentValue(
-  value:number,
-  tolerance:number,
-):number {
-  return Math.round(value/tolerance);
-}
-
-export function compareComponentDescriptors(
-  left:ComponentOrderingDescriptor,
-  right:ComponentOrderingDescriptor,
-  geometryToleranceMm:number,
-):number {
-  if(
-    !Number.isFinite(geometryToleranceMm)||
-    geometryToleranceMm<=0
-  ){
-    throw new Error(
-      "Component ordering tolerance must be positive.",
-    );
-  }
-
-  const volumeToleranceMm3=geometryToleranceMm**3;
-
-  const comparisons=[
-    quantizeComponentValue(
-      right.volumeMm3,
-      volumeToleranceMm3,
-    )-
-    quantizeComponentValue(
-      left.volumeMm3,
-      volumeToleranceMm3,
-    ),
-    quantizeComponentValue(
-      left.bounds.min.x,
-      geometryToleranceMm,
-    )-
-    quantizeComponentValue(
-      right.bounds.min.x,
-      geometryToleranceMm,
-    ),
-    quantizeComponentValue(
-      left.bounds.min.y,
-      geometryToleranceMm,
-    )-
-    quantizeComponentValue(
-      right.bounds.min.y,
-      geometryToleranceMm,
-    ),
-    quantizeComponentValue(
-      left.bounds.min.z,
-      geometryToleranceMm,
-    )-
-    quantizeComponentValue(
-      right.bounds.min.z,
-      geometryToleranceMm,
-    ),
-    quantizeComponentValue(
-      left.bounds.max.x,
-      geometryToleranceMm,
-    )-
-    quantizeComponentValue(
-      right.bounds.max.x,
-      geometryToleranceMm,
-    ),
-    quantizeComponentValue(
-      left.bounds.max.y,
-      geometryToleranceMm,
-    )-
-    quantizeComponentValue(
-      right.bounds.max.y,
-      geometryToleranceMm,
-    ),
-    quantizeComponentValue(
-      left.bounds.max.z,
-      geometryToleranceMm,
-    )-
-    quantizeComponentValue(
-      right.bounds.max.z,
-      geometryToleranceMm,
-    ),
-  ];
-
-  for(const comparison of comparisons){
-    if(comparison!==0){
-      return comparison;
-    }
-  }
-
-  return 0;
 }
 
 export interface FragmentBodyIdentity {
@@ -162,38 +69,6 @@ export function buildFragmentBodyIdentity(
   };
 }
 
-export function classifyFragmentVolumes(
-  volumes:readonly number[],
-  minimumVolumeMm3:number,
-):FragmentVolumeClassification {
-  if(
-    !Number.isFinite(minimumVolumeMm3)||
-    minimumVolumeMm3<0||
-    volumes.some(volume=>!Number.isFinite(volume)||volume<0)
-  ){
-    throw new Error("Fragment volume classification inputs are invalid.");
-  }
-
-  const meaningfulVolumes:number[]=[];
-  const discardedVolumes:number[]=[];
-
-  for(const volume of volumes){
-    if(volume>minimumVolumeMm3){
-      meaningfulVolumes.push(volume);
-    }else{
-      discardedVolumes.push(volume);
-    }
-  }
-
-  meaningfulVolumes.sort((a,b)=>b-a);
-  discardedVolumes.sort((a,b)=>b-a);
-
-  return {
-    meaningfulVolumes,
-    discardedVolumes,
-  };
-}
-export function topology(mesh:MoldMeshPayload){const uses=new Map<string,number>();for(let i=0;i<mesh.indices.length;i+=3){const tri=[mesh.indices[i]!,mesh.indices[i+1]!,mesh.indices[i+2]!];for(let e=0;e<3;e+=1){const a=tri[e]!,b=tri[(e+1)%3]!,key=a<b?`${a}:${b}`:`${b}:${a}`;uses.set(key,(uses.get(key)??0)+1);}}return {openEdgeCount:[...uses.values()].filter(n=>n===1).length,nonManifoldEdgeCount:[...uses.values()].filter(n=>n>2).length};}
 function wallDistance(tool:Bounds3,k2:Bounds3){return Math.min(tool.min.x-k2.min.x,k2.max.x-tool.max.x,tool.min.y-k2.min.y,k2.max.y-tool.max.y,tool.min.z-k2.min.z,k2.max.z-tool.max.z);}
 export function validateCavityContainment(input:CavityGenerationInput,tool:CavityToolData){const distance=wallDistance(tool.bounds,input.referenceMoldBlockBounds);const blockers:CavityIssue[]=[];const warnings:CavityIssue[]=[];if(distance<=input.geometryToleranceMm)blockers.push(issue("blocker","cavity_outer_breakthrough","Cavity extends outside or touches the mold outer surface. Increase outer mold clearance."));else if(distance<input.minimumWallMm)warnings.push(issue("warning","cavity_thin_wall",`Conservative outer-wall clearance is ${distance.toFixed(3)} mm.`));return {distance,warnings,blockers};}
 export async function generateCavityBodies(

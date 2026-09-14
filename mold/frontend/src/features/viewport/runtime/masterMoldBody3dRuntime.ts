@@ -83,20 +83,38 @@ export const createMasterMoldBody3dRuntime = (
   /**
    * Article 05: keyed on `geometryIdentity` (the body's own source
    * fingerprint), not shape-derived stats like bounds/triangleCount, which
-   * two genuinely different meshes can share. `id`/`visible`/`stale` are
-   * kept alongside it because they change the render even when the
-   * underlying geometry identity does not (a body being added/removed, or
-   * flipping stale/current on an otherwise-unchanged mesh).
+   * two genuinely different meshes can share. `id`/`stale` are kept
+   * alongside it because they change the render even when the underlying
+   * geometry identity does not (a body being added/removed, or flipping
+   * stale/current on an otherwise-unchanged mesh). `visible` is deliberately
+   * NOT part of the identity: it is presentation state and must reach the
+   * already-built meshes through syncBodyPresentation, never by forcing a
+   * geometry rebuild (Execution 05 Article 02).
    */
   const identityOf = (bodies: readonly MasterMoldRenderableBody[]): string =>
     JSON.stringify(
       bodies.map((body) => ({
         id: body.id,
         geometryIdentity: body.geometryIdentity,
-        visible: body.visible,
         stale: body.stale,
       })),
     );
+
+  const syncBodyPresentation = (bodies: readonly MasterMoldRenderableBody[]) => {
+    if (bodies.length === 0) return;
+    const visibleById = new Map(bodies.map((body) => [body.id, body.visible] as const));
+    let changed = false;
+    group.traverse((descendant) => {
+      if (!(descendant instanceof Mesh)) return;
+      const bodyId = descendant.userData.moldBodyId;
+      if (typeof bodyId !== "string") return;
+      const visible = visibleById.get(bodyId);
+      if (visible === undefined || descendant.visible === visible) return;
+      descendant.visible = visible;
+      changed = true;
+    });
+    if (changed) invalidate();
+  };
 
   const rebuild = (bodies: readonly MasterMoldRenderableBody[]) => {
     clearGeometry();
@@ -136,7 +154,10 @@ export const createMasterMoldBody3dRuntime = (
     object: group,
     setBodies: (bodies) => {
       const nextIdentity = identityOf(bodies);
-      if (nextIdentity === bodyIdentity) return;
+      if (nextIdentity === bodyIdentity) {
+        syncBodyPresentation(bodies);
+        return;
+      }
       bodyIdentity = nextIdentity;
       rebuild(bodies);
     },

@@ -1,16 +1,14 @@
 import ManifoldModule from "manifold-3d";
-import type { MoldMeshPayload } from "../reference-mold-definition/orthogonalMold";
-import type { Bounds3 } from "../split-face/splitFace.contracts";
 import type { CavityQualityMode, CavityToolData, WatertightPartSolid } from "./cavityGeneration.contracts";
+import { boundsFromManifold, getManifoldModule, manifoldFromPayload, payloadFromManifold } from "../geometry/manifold";
 
-type Module=Awaited<ReturnType<typeof ManifoldModule>>;type Solid=InstanceType<Module["Manifold"]>;
-let modulePromise:Promise<Module>|null=null;
-export async function getManifoldModule(){modulePromise??=ManifoldModule().then(module=>{module.setup();return module;});return modulePromise;}
+// Execution 05 Article 04: Manifold/WASM primitives are neutral geometry
+// (`../geometry/manifold`); Cavity keeps only its own clearance/tool policy.
+export { boundsFromManifold, getManifoldModule, manifoldFromPayload, payloadFromManifold };
+
+type Module=Awaited<ReturnType<typeof ManifoldModule>>;
+type Solid=InstanceType<Module["Manifold"]>;
 function assertStatus(solid:Solid,operation:string){const status=solid.status();if(status!=="NoError")throw new Error(`${operation} failed: ${status}.`);}
-export function manifoldFromPayload(module:Module,payload:MoldMeshPayload,tolerance:number){const mesh=new module.Mesh({numProp:3,vertProperties:new Float32Array(payload.positions),triVerts:new Uint32Array(payload.indices),tolerance});mesh.merge();const solid=new module.Manifold(mesh);assertStatus(solid,"Mesh preparation");return solid;}
-import { payloadFromManifold } from "../geometry/manifold";
-export { payloadFromManifold };
-export function boundsFromManifold(solid:Solid):Bounds3{const bounds=solid.boundingBox();return {min:{x:bounds.min[0],y:bounds.min[1],z:bounds.min[2]},max:{x:bounds.max[0],y:bounds.max[1],z:bounds.max[2]}};}
 
 export const DIRECT_CLEARANCE_TRIANGLE_LIMIT=50_000;
 
@@ -138,8 +136,3 @@ export async function createCavityTool(prepared:WatertightPartSolid,clearanceMm:
     source.delete();
   }
 }
-export function createBlankSolid(module:Module,bounds:Bounds3){const size:[number,number,number]=[bounds.max.x-bounds.min.x,bounds.max.y-bounds.min.y,bounds.max.z-bounds.min.z];if(size.some(v=>!Number.isFinite(v)||v<=0))throw new Error("Mold body bounds are invalid.");return module.Manifold.cube(size).translate(bounds.min.x,bounds.min.y,bounds.min.z);}
-
-
-
-

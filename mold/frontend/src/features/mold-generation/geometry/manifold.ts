@@ -88,3 +88,13 @@ export function boundsFromManifold(solid: ManifoldSolid): Bounds3 {
     max: { x: bounds.max[0], y: bounds.max[1], z: bounds.max[2] },
   };
 }
+
+export function createBlankSolid(module: ManifoldModuleInstance, bounds: Bounds3): ManifoldSolid {
+  const size: [number, number, number] = [
+    bounds.max.x - bounds.min.x,
+    bounds.max.y - bounds.min.y,
+    bounds.max.z - bounds.min.z,
+  ];
+  if (size.some(v => !Number.isFinite(v) || v <= 0)) throw new Error("Solid bounds are invalid.");
+  return module.Manifold.cube(size).translate(bounds.min.x, bounds.min.y, bounds.min.z);
+}
