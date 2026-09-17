@@ -1,0 +1,104 @@
+import { useState } from "react";
+
+import toolbarStyles from "../shared/MoldToolbar.module.css";
+import { useMasterMoldStore } from "./masterMold.store";
+import { MASTER_MOLD_SCHEMA_VERSION } from "./masterMold.contracts";
+
+/**
+ * Execution 06 Article 15: the Master Mold pieces browser.
+ *
+ * Lists the generated Working Mold pieces and their Master Tooling pieces
+ * with hide/show toggles and per-set isolation, so a user can inspect one
+ * Master Tooling Set at a time. Renderable only when a generation exists.
+ */
+export function MasterMoldPiecesBrowser() {
+  const sets = useMasterMoldStore((s) => s.sets);
+  const plan = useMasterMoldStore((s) => s.plan);
+  const pieceVisibility = useMasterMoldStore((s) => s.pieceVisibility);
+  const togglePieceVisibility = useMasterMoldStore((s) => s.togglePieceVisibility);
+  const isolateToolingSet = useMasterMoldStore((s) => s.isolateToolingSet);
+  const showAllPieces = useMasterMoldStore((s) => s.showAllPieces);
+  const [open, setOpen] = useState(false);
+
+  if (sets.length === 0) return null;
+
+  const workingMoldPieceCount = plan?.moldPieces.length ?? 0;
+
+  return (
+    <div aria-label="Master Mold pieces" className={toolbarStyles.flyoutWithBanner}>
+      <button
+        aria-expanded={open}
+        aria-label="Master Mold pieces"
+        className={toolbarStyles.iconButton}
+        onClick={() => setOpen((value) => !value)}
+        title="Master Mold pieces"
+        type="button"
+      >
+        <svg aria-hidden="true" height="16" viewBox="0 0 16 16" width="16">
+          <path
+            d="M2 4h12M2 8h12M2 12h12"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeWidth="1.5"
+          />
+          <circle cx="5" cy="4" r="1.4" fill="currentColor" />
+          <circle cx="11" cy="8" r="1.4" fill="currentColor" />
+          <circle cx="6" cy="12" r="1.4" fill="currentColor" />
+        </svg>
+      </button>
+      {open && (
+        <div
+          aria-label="Master Mold pieces list"
+          className={toolbarStyles.reopenBlockedBanner}
+          role="group"
+          style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 260 }}
+        >
+          <div style={{ display: "flex", gap: 8, justifyContent: "space-between" }}>
+            <strong>
+              Working mold: {workingMoldPieceCount} part{workingMoldPieceCount === 1 ? "" : "s"}
+            </strong>
+            <button aria-label="Show all Master Mold pieces" onClick={showAllPieces} type="button">
+              Show all
+            </button>
+          </div>
+          {sets.map((entry) => (
+            <fieldset key={entry.moldPartId} style={{ border: "1px solid currentColor", margin: 0, padding: 4 }}>
+              <legend style={{ fontSize: "0.85em" }}>
+                {entry.moldPartName}
+                {entry.set !== null && entry.set.assembly.pieces.length > 0 && (
+                  <button
+                    aria-label={`Isolate ${entry.moldPartName} tooling`}
+                    onClick={() => isolateToolingSet(entry.moldPartId)}
+                    style={{ marginLeft: 6 }}
+                    type="button"
+                  >
+                    Isolate
+                  </button>
+                )}
+              </legend>
+              {(entry.set?.assembly.pieces ?? []).map((piece) => (
+                <label key={piece.pieceId} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <input
+                    aria-label={`Show ${piece.name}`}
+                    checked={pieceVisibility[piece.pieceId] !== false}
+                    onChange={() => togglePieceVisibility(piece.pieceId)}
+                    type="checkbox"
+                  />
+                  <span data-master-mold-piece-visible={pieceVisibility[piece.pieceId] !== false}>
+                    {piece.name}
+                  </span>
+                </label>
+              ))}
+              {entry.status === "blocked" && (
+                <span style={{ fontSize: "0.85em" }} data-status="blocked">
+                  {entry.failureMessage ?? "tooling could not be generated"}
+                </span>
+              )}
+            </fieldset>
+          ))}
+          <span style={{ fontSize: "0.75em" }}>schema v{MASTER_MOLD_SCHEMA_VERSION}</span>
+        </div>
+      )}
+    </div>
+  );
+}

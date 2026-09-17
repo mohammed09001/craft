@@ -5,10 +5,20 @@ import {
   runMasterMoldGenerationInWorker as defaultRunMasterMoldGenerationInWorker,
 } from "./masterMoldGeneration.workerClient";
 import { DEFAULT_MASTER_MOLD_BOTTOM_MM, DEFAULT_MASTER_MOLD_WALL_MM } from "./masterMold.contracts";
-import type { MasterMoldOverallStatus, MasterMoldParameters, MasterMoldRequest, MasterMoldSourceDocumentIdentity, MasterToolingSetState } from "./masterMold.contracts";
-import { overallStatusOfSets } from "./masterMold.contracts";
-import type { MasterMoldProjectSnapshot, MasterToolingSet } from "./engine/contracts";
-import { castTargetInputVersion } from "./engine/castTargetIdentity";
+import type {
+  MasterMoldOverallStatus,
+  MasterMoldParameters,
+  MasterMoldRequest,
+  MasterMoldResult,
+  MasterMoldSeedIdentity,
+  MasterMoldSummary,
+  MasterToolingSetState,
+} from "./masterMold.contracts";
+import type { MasterMoldResultPlan } from "./masterMold.contracts";
+import { overallStatusOfSets, summarizeGeneration } from "./masterMold.contracts";
+import type { MasterMoldProgressStage } from "./engine/contracts";
+import type { MasterMoldSeedSnapshot } from "./seed/masterMoldSeed";
+import { masterSeedStalenessIdentity } from "./seed/masterMoldSeed";
 
 export interface MasterMoldStoreDeps {
   readonly runMasterMoldGenerationInWorker: typeof defaultRunMasterMoldGenerationInWorker;
@@ -21,7 +31,7 @@ const defaultDeps: MasterMoldStoreDeps = {
 };
 
 export interface MasterMoldGenerateRequest {
-  readonly snapshot: MasterMoldProjectSnapshot;
+  readonly seed: MasterMoldSeedSnapshot;
 }
 
 export interface MasterMoldState {
@@ -29,28 +39,37 @@ export interface MasterMoldState {
   readonly parameters: MasterMoldParameters;
   readonly generationVersion: number;
   readonly sets: readonly MasterToolingSetState[];
-  readonly progress: number;
+  /** Master-owned automatic Working Mold Plan (Article 14 owned state). */
+  readonly plan: MasterMoldResultPlan | null;
+  /** Named-stage progress of the in-flight generation (Article 13.5); null while idle. */
+  readonly progressStage: MasterMoldProgressStage | null;
+  /** Post-generation summary for the UI (Article 15). */
+  readonly summary: MasterMoldSummary | null;
+  /** Piece visibility presentation state (Article 15): defaults to visible. */
+  readonly pieceVisibility: Readonly<Record<string, boolean>>;
   readonly lastError: string | null;
-  /** The project document snapshot `sets` was generated against, or null before the first generation (Article 12). */
-  readonly sourceDocumentIdentity: MasterMoldSourceDocumentIdentity | null;
-  generate(request: MasterMoldGenerateRequest, documentIdentity?: MasterMoldSourceDocumentIdentity): Promise<boolean>;
+  /** The seed identity `sets` was generated against, or null before the first generation (Article 14). */
+  readonly seedIdentity: MasterMoldSeedIdentity | null;
+  generate(request: MasterMoldGenerateRequest): Promise<boolean>;
   setParameters(partial: Partial<Pick<MasterMoldParameters, "wallThicknessMm" | "bottomThicknessMm">>): void;
   reset(): void;
   /**
-   * Article 12's invalidation seam: called reactively whenever the upstream
-   * project document changes identity, so a stale result is flagged the
-   * moment its source changes rather than only being discovered on the next
-   * Generate click. A no-op before any generation, or when the given
-   * identity still matches what `sets` was built from.
+   * Article 14's invalidation seam: called reactively whenever the live seed
+   * identity changes (source geometry, profile, build volume, preferences),
+   * so a stale result is flagged the moment its inputs change rather than
+   * only being discovered on the next Generate click. Create Cavity state
+   * and Split Face definitions are deliberately NOT inputs.
    */
-  markMasterMoldStale(documentIdentity: MasterMoldSourceDocumentIdentity): void;
-  /** Marks only the named mold parts stale, leaving unaffected siblings reusable (Article 13). */
-  invalidateMasterMoldParts(partIds: readonly string[]): void;
-  /** A snapshot-assembly or worker-side failure surfaces through status/lastError like any other production state. */
+  markMasterMoldStale(seedIdentity: MasterMoldSeedIdentity): void;
+  /** A seed-assembly or worker-side failure surfaces through status/lastError like any other production state. */
   reportGenerationFailure(message: string): void;
+  togglePieceVisibility(pieceId: string): void;
+  /** Isolates one Master Tooling Set: its pieces visible, everything else hidden (Article 15). */
+  isolateToolingSet(moldPartId: string): void;
+  showAllPieces(): void;
 }
 
-/** Reused sets must shed any prior `stale` overlay -- a fresh generate() re-validates against the live snapshot inputs, so its result is truthfully current/blocked again. */
+/** Reused sets must shed any prior `stale` overlay -- a fresh generate() re-validates against the live seed inputs, so its result is truthfully current/blocked again. */
 function reviveEntry(entry: MasterToolingSetState): MasterToolingSetState {
   if (entry.status !== "stale") return entry;
   return { ...entry, status: entry.set !== null ? "current" : "blocked" };
@@ -63,10 +82,9 @@ const initialParameters: MasterMoldParameters = {
 };
 
 /**
- * Execution 05 Articles 12/13: the Master Mold store owns one Master tooling
- * set per committed mold part. Regeneration is incremental -- a part whose
- * cast-target input signature is unchanged is reused, never recomputed --
- * and a failure on one part never discards a valid sibling.
+ * Execution 06 Article 14: the Master Mold store owns the autonomous
+ * pipeline's lifecycle. Its staleness inputs are Master-specific (seed
+ * identity); it never reads Split Face or Create Cavity state.
  */
 export function createMasterMoldStoreCreator(deps: MasterMoldStoreDeps = defaultDeps) {
   const { runMasterMoldGenerationInWorker, cancelActiveMasterMoldGeneration } = deps;
@@ -76,9 +94,12 @@ export function createMasterMoldStoreCreator(deps: MasterMoldStoreDeps = default
     parameters: initialParameters,
     generationVersion: 0,
     sets: [],
-    progress: 0,
+    plan: null,
+    progressStage: null,
+    summary: null,
+    pieceVisibility: {},
     lastError: null,
-    sourceDocumentIdentity: null,
+    seedIdentity: null,
 
     setParameters: (partial) => {
       set((state) => ({ ...state, parameters: { ...state.parameters, ...partial } }));
@@ -89,105 +110,109 @@ export function createMasterMoldStoreCreator(deps: MasterMoldStoreDeps = default
       set({
         status: "unavailable",
         parameters: get().parameters,
-        // Article 12: bump generationVersion even though there is no new
-        // generation -- an in-flight generate() call captured the PRIOR
-        // version and only trusts its own result while
-        // get().generationVersion still matches it.
+        // Bump generationVersion even though there is no new generation --
+        // an in-flight generate() captured the PRIOR version and only
+        // trusts its own result while get().generationVersion still matches.
         generationVersion: get().generationVersion + 1,
         sets: [],
-        progress: 0,
+        plan: null,
+        progressStage: null,
+        summary: null,
+        pieceVisibility: {},
         lastError: null,
-        sourceDocumentIdentity: null,
+        seedIdentity: null,
       });
     },
 
-    markMasterMoldStale: (documentIdentity) => {
+    markMasterMoldStale: (seedIdentity) => {
       const state = get();
-      if (state.sourceDocumentIdentity === null) return;
-      if (
-        state.sourceDocumentIdentity.revision === documentIdentity.revision &&
-        state.sourceDocumentIdentity.fingerprint === documentIdentity.fingerprint
-      ) {
-        return;
-      }
+      if (state.seedIdentity === null) return;
+      if (state.seedIdentity.identity === seedIdentity.identity) return;
 
       set((s) => ({
         ...s,
-        // Same generationVersion bump rationale as reset(): an in-flight
-        // generate() must never overwrite this stale marking once it settles.
         generationVersion: s.generationVersion + 1,
         status: "stale",
         sets: s.sets.map((entry) => (entry.status === "stale" ? entry : { ...entry, status: "stale" as const })),
       }));
     },
 
-    invalidateMasterMoldParts: (partIds) => {
-      const ids = new Set(partIds);
+    reportGenerationFailure: (message) => {
+      set((s) => ({ ...s, status: "error", lastError: message, progressStage: null }));
+    },
+
+    togglePieceVisibility: (pieceId) => {
+      set((s) => ({
+        ...s,
+        pieceVisibility: { ...s.pieceVisibility, [pieceId]: s.pieceVisibility[pieceId] === false },
+      }));
+    },
+
+    isolateToolingSet: (moldPartId) => {
       set((s) => {
-        if (s.sets.length === 0 || ids.size === 0) return s;
-        const sets = s.sets.map((entry) =>
-          ids.has(entry.moldPartId) && entry.status === "current" ? { ...entry, status: "stale" as const } : entry,
-        );
-        return { ...s, sets, status: overallStatusOfSets(sets), generationVersion: s.generationVersion + 1 };
+        const visibility: Record<string, boolean> = {};
+        for (const entry of s.sets) {
+          for (const piece of entry.set?.assembly.pieces ?? []) {
+            visibility[piece.pieceId] = entry.moldPartId === moldPartId;
+          }
+        }
+        return { ...s, pieceVisibility: visibility };
       });
     },
 
-    reportGenerationFailure: (message) => {
-      set((s) => ({ ...s, status: "error", lastError: message }));
+    showAllPieces: () => {
+      set((s) => ({ ...s, pieceVisibility: {} }));
     },
 
-    generate: async (request, documentIdentity) => {
+    generate: async (request) => {
       const before = get();
       const generationVersion = before.generationVersion + 1;
-      const snapshot = request.snapshot;
+      const seed = request.seed;
+      const identity: MasterMoldSeedIdentity = {
+        identity: masterSeedStalenessIdentity(seed),
+        sourceProjectRevision: seed.sourceProjectRevision,
+      };
       const priorEntries = before.sets.filter((entry) => entry.set !== null);
 
-      // Article 13 full-reuse fast path: every committed part has a set
-      // whose cast-target input signature is provably unchanged -- revive in
-      // place without touching the Worker at all.
-      const allReusable =
-        snapshot.committedMoldParts.length > 0 &&
-        snapshot.committedMoldParts.length === priorEntries.length &&
-        snapshot.committedMoldParts.every((part) => {
-          const entry = priorEntries.find((candidate) => candidate.moldPartId === part.id);
-          return entry !== undefined && entry.sourceSignature === castTargetInputVersion(snapshot, part);
-        });
-
-      if (allReusable) {
+      // Full-reuse fast path: the seed identity is provably unchanged, so
+      // the deterministic pipeline would reproduce the same result.
+      if (
+        before.seedIdentity !== null &&
+        before.seedIdentity.identity === identity.identity &&
+        before.sets.length > 0
+      ) {
         set({
-          status: overallStatusOfSets(priorEntries.map(reviveEntry)),
+          status: overallStatusOfSets(before.sets.map(reviveEntry)),
           generationVersion,
-          sets: priorEntries.map(reviveEntry),
-          progress: 1,
+          sets: before.sets.map(reviveEntry),
+          progressStage: null,
           lastError: null,
-          sourceDocumentIdentity: documentIdentity ?? before.sourceDocumentIdentity,
+          seedIdentity: identity,
         });
         return true;
       }
 
-      set((state) => ({ ...state, status: "generating", generationVersion, progress: 0, lastError: null }));
+      set((state) => ({ ...state, status: "generating", generationVersion, progressStage: null, lastError: null }));
 
       try {
-        const priorSets = priorEntries.map((entry) => entry.set!) as MasterToolingSet[];
+        const priorSets = priorEntries.map((entry) => entry.set!) as MasterMoldRequest["priorSets"];
         const workerRequest: MasterMoldRequest = {
           operationId: `master-mold:${generationVersion}`,
           generationVersion,
-          snapshot,
+          seed,
           priorSets,
         };
-        const result = await runMasterMoldGenerationInWorker(
-          workerRequest,
-          { onProgress: (completed, total) => set((state) => (state.generationVersion === generationVersion ? { ...state, progress: total === 0 ? 1 : completed / total } : state)) },
-        );
+        const result: MasterMoldResult = await runMasterMoldGenerationInWorker(workerRequest, {
+          onStage: (stage) => set((state) => (state.generationVersion === generationVersion ? { ...state, progressStage: stage } : state)),
+        });
 
         if (get().generationVersion !== generationVersion) {
-          // A newer generate() call superseded this one -- never overwrite it (Article 12).
+          // A newer generate() call superseded this one -- never overwrite it.
           return false;
         }
 
-        // Merge with prior state where both the source signature and the
-        // produced content are unchanged, so untouched siblings keep their
-        // object identity (and their non-stale status where truthful).
+        // Merge with prior state where the produced content is unchanged, so
+        // untouched pieces keep their object identity.
         const sets = result.sets.map((entry) => {
           const prior = before.sets.find((candidate) => candidate.moldPartId === entry.moldPartId);
           if (
@@ -208,9 +233,11 @@ export function createMasterMoldStoreCreator(deps: MasterMoldStoreDeps = default
           status: overallStatusOfSets(sets),
           generationVersion,
           sets,
-          progress: 1,
+          plan: result.plan,
+          progressStage: null,
+          summary: summarizeGeneration(sets, result.workingMoldPieceCount, result.warningCount),
           lastError: null,
-          sourceDocumentIdentity: documentIdentity ?? before.sourceDocumentIdentity,
+          seedIdentity: identity,
         });
         return true;
       } catch (error) {
@@ -218,7 +245,12 @@ export function createMasterMoldStoreCreator(deps: MasterMoldStoreDeps = default
           return false;
         }
 
-        set((state) => ({ ...state, status: "error", lastError: error instanceof Error ? error.message : "Master Mold generation failed." }));
+        set((state) => ({
+          ...state,
+          status: "error",
+          lastError: error instanceof Error ? error.message : "Master Mold generation failed.",
+          progressStage: null,
+        }));
         return false;
       }
     },

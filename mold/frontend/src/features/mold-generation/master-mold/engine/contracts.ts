@@ -4,6 +4,7 @@ import type { MoldMeshPayload } from "../../reference-mold-definition/orthogonal
 import type { ReferenceMoldDefinition } from "../../reference-mold-definition";
 import type { SprueProfileDesignResult } from "../../sprue-generation";
 import type { MasterMoldDirection } from "../masterMold.contracts";
+import type { AutoWorkingMoldPlan } from "../planning/masterMoldPlanning.contracts";
 
 /**
  * Execution 05 Article 05: the Master Mold Engine's own contracts.
@@ -106,9 +107,13 @@ export interface MasterCastingProcessProfile {
   readonly maximumToolingPieceCount: number;
   /** Vent policy: the engine never drills vent holes through functional surfaces automatically. */
   readonly ventRequirementPolicy: "none" | "user-managed";
+  /** Execution 06 Article 12: bounded working-mold piece-count cap (the optimizer searches 2..N within this limit). */
+  readonly maximumWorkingMoldPieceCount: number;
+  /** Execution 06 Article 12: whether a structured sacrificial/flexible-tooling fallback recommendation is permitted when rigid reusable tooling cannot release a rigid cast target. */
+  readonly sacrificialToolingPermitted: boolean;
 }
 
-/** Execution 05 Article 11: geometric-defaults-only profile; no material numbers invented. */
+/** Execution 05 Article 11 / Execution 06 Article 12: geometric-defaults-only profile; no material numbers invented. */
 export const GENERIC_RIGID_CAST_PROFILE: MasterCastingProcessProfile = {
   profileId: "genericRigidCast",
   flexibleCastTarget: false,
@@ -118,6 +123,8 @@ export const GENERIC_RIGID_CAST_PROFILE: MasterCastingProcessProfile = {
   releaseClearanceMm: null,
   maximumToolingPieceCount: 4,
   ventRequirementPolicy: "user-managed",
+  maximumWorkingMoldPieceCount: 4,
+  sacrificialToolingPermitted: true,
 };
 
 /** The exact physical Final Mold Part one Master tooling set must cast (Execution 05 Article 06). */
@@ -185,6 +192,11 @@ export interface MasterPartingSurface {
   readonly coordinateMm: number;
 }
 
+/** Pull direction for tooling pieces: an axis id, or the working-mold piece's own assigned (possibly oblique) release direction. */
+export type { MasterMoldDirection };
+
+export type MasterToolingPull = MasterMoldDirection | "+assigned" | "-assigned";
+
 /** One printable tooling piece (Execution 05 Article 10: a real solid, not a conceptual region). */
 export interface MasterToolingPiece {
   readonly pieceId: string;
@@ -196,7 +208,9 @@ export interface MasterToolingPiece {
   readonly watertight: boolean;
   readonly manifold: boolean;
   /** Release direction this piece moves along during disassembly. */
-  readonly releaseDirection: MasterMoldDirection;
+  readonly releaseDirection: MasterToolingPull;
+  /** Exact unit pull vector when the release direction is the working-mold assignment (oblique; Execution 06 Article 09). */
+  readonly directionVector?: { readonly x: number; readonly y: number; readonly z: number };
   readonly regions: readonly string[];
   /** Master tooling-only alignment features carried by this piece (never Final Mold Registration). */
   readonly toolingRegistrationFeatureIds: readonly string[];
@@ -214,7 +228,9 @@ export interface MasterToolingRegistrationFeature {
 export interface MasterReleaseStep {
   readonly stepIndex: number;
   readonly pieceId: string;
-  readonly direction: MasterMoldDirection;
+  readonly direction: MasterToolingPull;
+  /** Exact unit pull vector for non-axis pulls (Execution 06). */
+  readonly directionVector?: { readonly x: number; readonly y: number; readonly z: number };
   readonly clearanceDistanceMm: number;
   /** True when the exact Manifold translation sweep found no collision against the cast target and remaining pieces. */
   readonly collisionVerified: boolean;
@@ -267,9 +283,51 @@ export interface MasterMoldFailure {
   readonly message: string;
 }
 
+/** Execution 06: named engine stages for progress reporting (Article 13.5). */
+export type MasterMoldProgressStageName =
+  | "analyzing_geometry"
+  | "building_accessibility"
+  | "optimizing_working_mold"
+  | "constructing_working_mold"
+  | "planning_master_tooling"
+  | "verifying_release"
+  | "finalizing";
+
+export const MASTER_MOLD_PROGRESS_STAGES: readonly MasterMoldProgressStageName[] = [
+  "analyzing_geometry",
+  "building_accessibility",
+  "optimizing_working_mold",
+  "constructing_working_mold",
+  "planning_master_tooling",
+  "verifying_release",
+  "finalizing",
+];
+
+export interface MasterMoldProgressStage {
+  readonly stage: MasterMoldProgressStageName;
+  readonly stageIndex: number;
+  readonly stageCount: number;
+  readonly detail: string | null;
+  readonly elapsedMs: number;
+}
+
+/** Execution 06 Article 13.4: observable budget accounting (the engine reports when it reaches a planning budget). */
+export interface MasterMoldBudgetReport {
+  workingMoldConstructionAttempts: number;
+  toolingExactPlanAttempts: number;
+  readonly limitsExceeded: string[];
+}
+
+/**
+ * Execution 06: the autonomous engine's answer for one seed: the
+ * Master-owned automatic Working Mold Plan plus one Master tooling set per
+ * working-mold piece, with structured failures -- never fake geometry.
+ */
 export interface MasterMoldEngineResult {
-  readonly snapshotId: string;
+  readonly seedId: string;
+  readonly plan: AutoWorkingMoldPlan | null;
   readonly toolingSets: readonly MasterToolingSet[];
   readonly failures: readonly MasterMoldFailure[];
+  readonly budget: MasterMoldBudgetReport;
   readonly elapsedMs: number;
 }

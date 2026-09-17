@@ -57,7 +57,9 @@ test("runs the real Master Mold Engine through the production Worker path in Chr
 
   expect(result.error, `Master Mold probe reported an error: ${result.error}`).toBeNull();
   expect(result.ok).toBe(true);
-  expect(result.setCount).toBe(1);
+  // Execution 06: the 10mm cube plans the minimum TWO-piece working mold,
+  // each piece cased with a verified one-piece printable case.
+  expect(result.setCount).toBe(2);
   expect(result.releaseMode).toBe("one-piece");
   expect(result.pieceCount).toBe(1);
   expect(result.pourFace).not.toBeNull();
@@ -115,7 +117,10 @@ test("drives the real Master Mold production stores from committed project truth
 
   expect(result.error, `Master Mold realistic workflow probe reported an error: ${result.error}`).toBeNull();
   expect(result.ok).toBe(true);
-  expect(result.setCount).toBe(1);
+  // Execution 06: generated straight from the imported part (no committed
+  // cutting state) -- the autonomous plan is the two-piece working mold,
+  // each piece tooled with a verified one-piece case.
+  expect(result.setCount).toBe(2);
   expect(result.status).toBe("current");
   expect(result.releaseMode).toBe("one-piece");
   expect(result.pieceCount).toBe(1);

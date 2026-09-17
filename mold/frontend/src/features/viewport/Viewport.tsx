@@ -318,9 +318,10 @@ export function Viewport({ onStatusChange }: ViewportProps) {
   // Execution 05 Article 14: each Master tooling PIECE renders as its own
   // body, driven by the engine's tooling sets.
   const masterMoldBodyResults = useMasterMoldStore((state) => state.sets);
+  const masterMoldPieceVisibility = useMasterMoldStore((state) => state.pieceVisibility);
   const masterMoldBodies = useMemo<readonly MasterMoldRenderableBody[]>(
-    () => selectRenderableMasterMoldBodies(masterMoldBodyResults),
-    [masterMoldBodyResults],
+    () => selectRenderableMasterMoldBodies(masterMoldBodyResults, masterMoldPieceVisibility),
+    [masterMoldBodyResults, masterMoldPieceVisibility],
   );
 
   const splitWorkflow = useSplitFaceStore((state) => state.workflow);

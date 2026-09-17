@@ -2,132 +2,101 @@ import { useEffect, useId, useMemo, useState } from "react";
 
 import { MasterMoldIcon } from "../shared/MoldToolbarIcons";
 import toolbarStyles from "../shared/MoldToolbar.module.css";
-import { useSplitFaceStore } from "../split-face/splitFace.store";
+import { useCuttingWorkflowStore } from "../cutting-workflow";
 import { usePrinterBuildVolumeStore } from "@/features/viewport/printerBuildVolume.store";
 import { useMasterMoldStore } from "./masterMold.store";
-import { buildMasterMoldProjectSnapshot } from "./masterMoldSnapshot";
-import { castTargetInputVersion } from "./engine/castTargetIdentity";
-import type { MasterSourcePartMesh } from "./engine/contracts";
+import { buildMasterMoldSeedSnapshot, DEFAULT_MASTER_MOLD_PLANNING_PREFERENCES, masterSeedStalenessIdentity, type MasterSeedGeometryInput } from "./seed/masterMoldSeed";
+import { GENERIC_RIGID_CAST_PROFILE } from "./engine/contracts";
+import type { MasterMoldProgressStageName } from "./engine/contracts";
 
 /**
- * Master Mold's toolbar entry -- an independent peer to Create Cavity
- * (Execution 05 Articles 05/12). Assembles the authoritative project
- * snapshot from project truth (committed mold stock, canonical part, Sprue /
- * Registration intents, printer volume) and drives the Master Mold Engine
- * through the store. It never calls, reads, waits for, or synthesizes
- * Create Cavity's own generation.
+ * Execution 06 Article 01: Master Mold's toolbar entry -- a direct,
+ * autonomous peer to Create Cavity. The button is enabled as soon as a valid
+ * model is imported; it never requires Cut by Face, Segmentation, a committed
+ * mold definition, cutting planes, or Create Cavity. On click it assembles
+ * the Master-owned seed snapshot from the canonical imported part and neutral
+ * project context and drives the autonomous engine through the store.
+ *
+ * Store boundary (Article 01): this component never reads or mutates
+ * `splitFace.definition`, cutting planes, segmentation drafts, or Cavity
+ * state. The only Split Face-domain signal it consumes is the boolean
+ * "a cutting session is open", used for the deterministic conflict policy
+ * (Master Mold is disabled with a clear reason until the session closes --
+ * it never reads uncommitted draft geometry).
  */
+
+/** User-facing progress labels (Article 15); internal stage names stay in the engine contract. */
+const PROGRESS_LABELS: Readonly<Record<MasterMoldProgressStageName, string>> = {
+  analyzing_geometry: "Analyzing part…",
+  building_accessibility: "Finding release regions…",
+  optimizing_working_mold: "Choosing mold-piece count…",
+  constructing_working_mold: "Building working mold…",
+  planning_master_tooling: "Planning Master cases…",
+  verifying_release: "Verifying release…",
+  finalizing: "Finalizing…",
+};
+
+/** Master-owned structural input -- deliberately not the Cavity domain's canonical-geometry type (Article 16). */
+export interface MasterMoldSourceGeometryInput {
+  readonly modelId: string;
+  readonly positions: readonly number[];
+  readonly indices: readonly number[];
+  readonly transform: readonly number[];
+  readonly localBounds: { readonly min: { readonly x: number; readonly y: number; readonly z: number }; readonly max: { readonly x: number; readonly y: number; readonly z: number } };
+  readonly geometryVersion: string;
+  readonly sourceSignature: string;
+}
+
 export function MasterMoldAction({
-  sourcePartMesh,
+  sourcePartGeometry,
 }: {
-  readonly sourcePartMesh?: MasterSourcePartMesh | null;
+  readonly sourcePartGeometry?: MasterMoldSourceGeometryInput | null;
 }) {
-  const workflow = useSplitFaceStore((s) => s.workflow);
-  const definition = useSplitFaceStore((s) => s.definition);
-  const cuttingPlanes = useSplitFaceStore((s) => s.cuttingPlanes);
-  const sprueDefinitions = useSplitFaceStore((s) => s.sprueDefinitions);
-  const moldDocument = useSplitFaceStore((s) => s.document);
-  const lastCommittedResult = useSplitFaceStore((s) => s.lastCommittedResult);
-  const evaluationPhase = useSplitFaceStore((s) => s.evaluation.phase);
-  const segmentationRegenerationPending = useSplitFaceStore((s) => s.segmentationRegenerationCount > 0);
+  const isSessionOpen = useCuttingWorkflowStore((s) => s.state.kind === "sessionOpen");
   const printerBuildVolume = usePrinterBuildVolumeStore((s) => s.dimensions);
 
   const generate = useMasterMoldStore((s) => s.generate);
   const markMasterMoldStale = useMasterMoldStore((s) => s.markMasterMoldStale);
-  const invalidateMasterMoldParts = useMasterMoldStore((s) => s.invalidateMasterMoldParts);
   const resetMasterMold = useMasterMoldStore((s) => s.reset);
   const reportGenerationFailure = useMasterMoldStore((s) => s.reportGenerationFailure);
   const status = useMasterMoldStore((s) => s.status);
   const sets = useMasterMoldStore((s) => s.sets);
+  const progressStage = useMasterMoldStore((s) => s.progressStage);
+  const summary = useMasterMoldStore((s) => s.summary);
   const workerError = useMasterMoldStore((s) => s.lastError);
+  const seedIdentity = useMasterMoldStore((s) => s.seedIdentity);
 
   const [generating, setGenerating] = useState(false);
   const bannerId = useId();
 
-  // The snapshot is derived, deterministic project truth -- rebuilt whenever
-  // any of its authoritative inputs change (Article 12).
-  const snapshot = useMemo(
-    () =>
-      definition === null || sourcePartMesh === undefined || sourcePartMesh === null
-        ? null
-        : buildMasterMoldProjectSnapshot({
-            sourcePartMesh,
-            definition,
-            cuttingPlanes,
-            sprueDefinitions,
-            printerBuildVolume,
-            projectRevision: moldDocument.revision,
-            projectFingerprint: moldDocument.fingerprint,
-          }),
-    [sourcePartMesh, definition, cuttingPlanes, sprueDefinitions, printerBuildVolume, moldDocument.revision, moldDocument.fingerprint],
-  );
+  // Live staleness identity over Master-relevant inputs only (Article 14):
+  // source geometry signature (positions + transform), build volume,
+  // process profile, and preferences. Create Cavity state is not an input.
+  const liveIdentity = useMemo(() => {
+    if (sourcePartGeometry === undefined || sourcePartGeometry === null) return null;
+    return masterSeedStalenessIdentity({
+      sourceGeometryVersion: sourcePartGeometry.sourceSignature,
+      printerBuildVolume,
+      processProfile: GENERIC_RIGID_CAST_PROFILE,
+      userPreferences: DEFAULT_MASTER_MOLD_PLANNING_PREFERENCES,
+    });
+  }, [sourcePartGeometry, printerBuildVolume]);
 
-  // Propagate staleness the moment the authoritative project inputs change
-  // identity -- never wait for the next Generate click to discover it
-  // (Article 12). Granular per part: a set whose cast-target input
-  // signature (committed stock, source part, Sprue/Registration intents,
-  // process profile) is unchanged stays current -- an unaffected sibling
-  // must not flicker to stale for an edit that never reached it (Article
-  // 13). Sprue intents are project-global, so a Sprue edit refreshes every
-  // part's input signature (whole-collection invalidation for Sprues).
-  //
-  // Deliberately skipped while `evaluation.phase === "evaluating"`:
-  // document.revision bumps synchronously the instant an edit is accepted,
-  // well before the async Worker evaluation resolves and the committed
-  // result catches up. Waiting for the evaluation to settle means the
-  // committed state is authoritative one way or another by the time this
-  // runs.
+  // Propagate staleness the moment Master-relevant inputs change identity
+  // (Article 14). A generation in flight is never disturbed.
   useEffect(() => {
-    if (evaluationPhase === "evaluating") return;
-    if (snapshot === null) return;
+    if (liveIdentity === null || seedIdentity === null) return;
+    if (status === "generating") return;
+    if (liveIdentity === seedIdentity.identity) return;
+    markMasterMoldStale({ identity: liveIdentity, sourceProjectRevision: String(sourcePartGeometry?.sourceSignature ?? "") });
+  }, [liveIdentity, seedIdentity, status, markMasterMoldStale, sourcePartGeometry]);
 
-    const documentIdentity = { revision: moldDocument.revision, fingerprint: moldDocument.fingerprint };
-    const store = useMasterMoldStore.getState();
-    if (store.sourceDocumentIdentity === null || store.sets.length === 0) return;
-
-    const committedMatchesDocument =
-      lastCommittedResult !== null &&
-      lastCommittedResult.sourceRevision === moldDocument.revision &&
-      lastCommittedResult.sourceFingerprint === moldDocument.fingerprint;
-
-    const changedPartIds = snapshot.committedMoldParts
-      .filter((part) => {
-        const entry = store.sets.find((candidate) => candidate.moldPartId === part.id);
-        return entry === undefined || entry.sourceSignature !== castTargetInputVersion(snapshot, part);
-      })
-      .map((part) => part.id);
-
-    // A brand-new required part (never seen by Master Mold before) has no
-    // set to diff against -- a coarser whole-collection invalidation applies
-    // (Article 13).
-    const hasNewPart = snapshot.committedMoldParts.some((part) => !store.sets.some((entry) => entry.moldPartId === part.id));
-    if (hasNewPart || !committedMatchesDocument) {
-      markMasterMoldStale(documentIdentity);
-      return;
-    }
-
-    if (changedPartIds.length > 0) invalidateMasterMoldParts(changedPartIds);
-  }, [markMasterMoldStale, invalidateMasterMoldParts, moldDocument.revision, moldDocument.fingerprint, lastCommittedResult, evaluationPhase, snapshot]);
-
-  // `definition` becomes null exactly when there is no longer a committed
-  // mold-part basis to speak of at all -- model replacement, orientation
-  // change, a Cut by Face edit (toggleFace/removeSplitFace), or clearing
-  // every cutting plane all null it in the same update as the edit itself.
-  // That is a stronger invalidation than `stale`: old Master Mold part IDs
-  // cannot even be looked up against whatever gets committed next, so this
-  // fully resets rather than flags. Deliberately NOT keyed on `workflow`
-  // alone -- merely opening/reopening the Constructed Cutting Plan session
-  // (or Cancelling out of it without editing anything) leaves `definition`
-  // untouched, and must not destroy a valid Master Mold result.
+  // No imported geometry means nothing to plan from at all: fully reset.
   useEffect(() => {
-    if (definition === null) {
+    if (sourcePartGeometry === null || sourcePartGeometry === undefined) {
       resetMasterMold();
     }
-  }, [definition, resetMasterMold]);
-
-  if (workflow !== "partsReady") {
-    return null;
-  }
+  }, [sourcePartGeometry, resetMasterMold]);
 
   const generatingPending = status === "generating" || generating;
   const complete = status === "current";
@@ -139,59 +108,83 @@ export function MasterMoldAction({
     .filter((message): message is string => message !== null);
   const lastError = workerError ?? (blockedMessages.length > 0 ? blockedMessages[0]! : null);
 
-  // Multi-part partial failure must be communicated (which part failed)
-  // without ever discarding or hiding an already-valid sibling -- the valid
-  // sets keep rendering; this only adds the message.
+  // Multi-piece partial failure must be communicated (which piece failed)
+  // without ever discarding or hiding an already-valid sibling.
   const partialFailure = blocked && blockedMessages.length > 0 && blockedMessages.length < sets.length;
   const partialFailureMessage = partialFailure
-    ? `${blockedMessages.length} of ${sets.length} Master Mold part(s) could not be generated; the rest remain valid. ${blockedMessages[0]}`
+    ? `${blockedMessages.length} of ${sets.length} working mold part(s) could not be tooled; the rest remain valid. ${blockedMessages[0]}`
     : null;
 
-  const staleMessage = stale ? "Master Mold needs regeneration: the mold parts changed since it was generated." : null;
+  const staleMessage = stale ? "Master Mold needs regeneration: the part or printer context changed since it was generated." : null;
   const bannerMessage = lastError !== null ? (partialFailureMessage ?? lastError) : staleMessage;
   const bannerRole = lastError !== null ? "alert" : "status";
 
+  const progressLabel = progressStage !== null ? PROGRESS_LABELS[progressStage.stage] : null;
+
+  const summaryMessage = useMemo(() => {
+    if (summary === null || !complete) return null;
+    if (!summary.allReleasesVerified) return null;
+    const lines = [
+      `Working mold: ${summary.workingMoldPieceCount} part${summary.workingMoldPieceCount === 1 ? "" : "s"}`,
+      `Master tooling: ${summary.masterToolingPieceCount} printable piece${summary.masterToolingPieceCount === 1 ? "" : "s"}`,
+      `${summary.onePieceCases} one-piece case${summary.onePieceCases === 1 ? "" : "s"}, ${summary.multiPieceCases} multi-panel`,
+      summary.warningCount > 0 ? `${summary.warningCount} recommendation${summary.warningCount === 1 ? "" : "s"}` : "All release sequences verified",
+    ];
+    return lines.join(" · ");
+  }, [summary, complete]);
+
   const handleClick = async () => {
-    if (snapshot === null || generatingPending || segmentationRegenerationPending) {
+    if (sourcePartGeometry === null || sourcePartGeometry === undefined || generatingPending || isSessionOpen) {
       return;
     }
 
     setGenerating(true);
 
     try {
-      await generate({ snapshot }, { revision: moldDocument.revision, fingerprint: moldDocument.fingerprint });
+      const seed = buildMasterMoldSeedSnapshot({
+        sourcePartGeometry: sourcePartGeometry as MasterSeedGeometryInput,
+        printerBuildVolume,
+        projectRevision: sourcePartGeometry.sourceSignature,
+      });
+      await generate({ seed });
     } catch (error) {
-      reportGenerationFailure(error instanceof Error ? error.message : "Master Mold could not generate tooling from the project snapshot.");
+      reportGenerationFailure(error instanceof Error ? error.message : "Master Mold could not generate tooling from the imported part.");
     } finally {
       setGenerating(false);
     }
   };
 
+  if (sourcePartGeometry === null || sourcePartGeometry === undefined) {
+    return null;
+  }
+
   return (
     <span className={toolbarStyles.flyoutWithBanner}>
       <button
-        aria-describedby={bannerMessage !== null ? bannerId : undefined}
+        aria-describedby={bannerMessage !== null || progressLabel !== null ? bannerId : undefined}
         aria-label="Master Mold"
         aria-pressed={complete}
         className={`${toolbarStyles.iconButton} ${complete ? toolbarStyles.primaryButton : ""}`}
-        disabled={generatingPending || segmentationRegenerationPending || snapshot === null}
+        disabled={generatingPending || isSessionOpen}
         onClick={() => void handleClick()}
         title={
           generatingPending
-            ? "Generating Master Mold…"
-            : blocked && lastError !== null
-              ? `Master Mold: ${lastError}`
-              : stale
-                ? "Master Mold: needs regeneration (mold parts changed)"
-                : "Master Mold"
+            ? (progressLabel ?? "Generating Master Mold…")
+            : isSessionOpen
+              ? "Master Mold is unavailable while a cutting session is open."
+              : blocked && lastError !== null
+                ? `Master Mold: ${lastError}`
+                : stale
+                  ? "Master Mold: needs regeneration (the part or printer context changed)"
+                  : "Master Mold"
         }
         type="button"
       >
         <MasterMoldIcon />
       </button>
-      {bannerMessage !== null && (
-        <div className={toolbarStyles.reopenBlockedBanner} id={bannerId} role={bannerRole}>
-          {bannerMessage}
+      {(progressLabel !== null || summaryMessage !== null || bannerMessage !== null) && (
+        <div className={toolbarStyles.reopenBlockedBanner} id={bannerId} role={bannerMessage !== null ? bannerRole : "status"}>
+          {progressLabel ?? summaryMessage ?? bannerMessage}
         </div>
       )}
     </span>

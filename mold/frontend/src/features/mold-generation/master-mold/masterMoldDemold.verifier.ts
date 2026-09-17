@@ -8,6 +8,11 @@ export interface DemoldVerificationResult {
   readonly firstCollisionDistanceMm: number | null;
 }
 
+/** Optional sweep resolution (Execution 06 Article 13.4: planner-internal sweeps run a cheaper bounded resolution than final proof sweeps). */
+export interface DemoldSweepOptions {
+  readonly coarseSampleCount?: number;
+}
+
 /**
  * Article 02 Strategy A: coarse sample count for the initial sweep. Fixed
  * rather than scaled by tolerance/clearance so cost stays bounded regardless
@@ -49,8 +54,28 @@ export function verifyDemoldTranslation<S extends DemoldSolid>(
   clearanceDistanceMm: number,
   toleranceMm: number,
   volumeToleranceMm3: number,
+  options: DemoldSweepOptions = {},
 ): DemoldVerificationResult {
   const [dx, dy, dz] = DIRECTION_VECTORS[direction];
+  return verifyDemoldTranslationByVector(toolSolid, targetSolid, [dx, dy, dz], clearanceDistanceMm, toleranceMm, volumeToleranceMm3, options);
+}
+
+/**
+ * Execution 06: vector-based variant for geometry-derived (possibly
+ * non-axis-aligned) release directions. Identical semantics to the
+ * direction-typed entry point above.
+ */
+export function verifyDemoldTranslationByVector<S extends DemoldSolid>(
+  toolSolid: S,
+  targetSolid: S,
+  direction: readonly [number, number, number],
+  clearanceDistanceMm: number,
+  toleranceMm: number,
+  volumeToleranceMm3: number,
+  options: DemoldSweepOptions = {},
+): DemoldVerificationResult {
+  const [dx, dy, dz] = direction;
+  const coarseSampleCount = options.coarseSampleCount ?? COARSE_SAMPLE_COUNT;
 
   const overlapVolumeAt = (distanceMm: number): number => {
     const translated = targetSolid.translate(dx * distanceMm, dy * distanceMm, dz * distanceMm);
@@ -70,7 +95,7 @@ export function verifyDemoldTranslation<S extends DemoldSolid>(
 
   const startDistanceMm = Math.max(toleranceMm * 2, 1e-6);
   const safeClearanceMm = Math.max(clearanceDistanceMm, startDistanceMm);
-  const stepMm = Math.max((safeClearanceMm - startDistanceMm) / COARSE_SAMPLE_COUNT, toleranceMm);
+  const stepMm = Math.max((safeClearanceMm - startDistanceMm) / coarseSampleCount, toleranceMm);
 
   let previousClearDistanceMm = startDistanceMm;
   let firstCollisionDistanceMm: number | null = null;

@@ -1,18 +1,19 @@
 import type { MasterMoldRequest, MasterMoldResult } from "./masterMold.contracts";
 import type { MasterMoldWorkerFailure, MasterMoldWorkerRequest, MasterMoldWorkerResponse } from "./masterMoldGeneration.worker.contracts";
+import type { MasterMoldProgressStage } from "./engine/contracts";
 
 type MasterMoldWorkerLike = {
   onmessage: ((event: MessageEvent<MasterMoldWorkerResponse>) => void) | null;
   onerror: ((event: ErrorEvent) => void) | null;
   onmessageerror: ((event: MessageEvent<unknown>) => void) | null;
-  postMessage: (message: MasterMoldWorkerRequest) => void;
+  postMessage: (message: MasterMoldWorkerRequest, transfer?: Transferable[]) => void;
   terminate: () => void;
 };
 
 export type MasterMoldWorkerFactory = () => MasterMoldWorkerLike;
 
 export interface MasterMoldWorkerRunOptions {
-  readonly onProgress?: (completed: number, total: number) => void;
+  readonly onStage?: (stage: MasterMoldProgressStage) => void;
   readonly signal?: AbortSignal;
 }
 
@@ -27,9 +28,40 @@ export class MasterMoldWorkerError extends Error {
 }
 
 const createBrowserWorker: MasterMoldWorkerFactory = () =>
-  new Worker(new URL("./masterMoldGeneration.worker.ts", import.meta.url), { type: "module" });
+  new Worker(new URL("./masterMoldGeneration.worker.ts", import.meta.url), { type: "module" }) as unknown as MasterMoldWorkerLike;
 
 export const DEFAULT_MASTER_MOLD_WORKER_TIMEOUT_MS = 180_000;
+
+/**
+ * Execution 06 Article 13.1: the Worker request geometry travels as typed
+ * arrays whose buffers are TRANSFERRED (zero-copy), never structured-cloned
+ * number[] graphs. The main thread keeps its own canonical arrays; these
+ * copies are built for the Worker and handed over with ownership.
+ */
+export function buildWorkerSeedPayload(request: MasterMoldRequest): {
+  payload: Extract<MasterMoldWorkerRequest, { type: "generate" }>["seed"];
+  transfer: Transferable[];
+} {
+  const seed = request.seed;
+  const positions = new Float32Array(seed.sourceMesh.positions);
+  const indices = new Uint32Array(seed.sourceMesh.indices);
+  return {
+    payload: {
+      seedId: seed.seedId,
+      sourceModelId: seed.sourceModelId,
+      sourceGeometryVersion: seed.sourceGeometryVersion,
+      positions,
+      indices,
+      bounds: seed.sourceBounds,
+      sourceTransform: seed.sourceTransform,
+      printerBuildVolume: seed.printerBuildVolume,
+      processProfile: seed.processProfile,
+      userPreferences: seed.userPreferences,
+      sourceProjectRevision: seed.sourceProjectRevision,
+    },
+    transfer: [positions.buffer, indices.buffer],
+  };
+}
 
 export function createMasterMoldWorkerRunner(
   createWorker: MasterMoldWorkerFactory = createBrowserWorker,
@@ -51,6 +83,7 @@ export function createMasterMoldWorkerRunner(
 
     const worker = createWorker();
     const requestId = `${request.operationId}:${request.generationVersion}`;
+    const { payload, transfer } = buildWorkerSeedPayload(request);
 
     return new Promise((resolve, reject) => {
       let settled = false;
@@ -101,7 +134,7 @@ export function createMasterMoldWorkerRunner(
         if (response.requestId !== requestId) return;
 
         if (response.type === "progress") {
-          options.onProgress?.(response.completed, response.total);
+          options.onStage?.(response.stage);
           return;
         }
 
@@ -118,7 +151,7 @@ export function createMasterMoldWorkerRunner(
       worker.onmessageerror = () =>
         finish(() => reject(new MasterMoldWorkerError({ code: "master_mold_worker_message_error", message: "Master Mold Worker returned an unreadable response." })));
 
-      worker.postMessage({ type: "generate", requestId, request });
+      worker.postMessage({ type: "generate", requestId, operationId: request.operationId, generationVersion: request.generationVersion, seed: payload, priorSets: request.priorSets }, transfer);
     });
   };
 

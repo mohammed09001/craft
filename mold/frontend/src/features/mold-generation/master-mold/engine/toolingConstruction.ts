@@ -10,8 +10,10 @@ import {
 } from "../../geometry/manifold";
 import { buildGeometryTolerancePolicy, type GeometryTolerancePolicy } from "../../geometry/geometryTolerance";
 import { meshTopology } from "../../geometry/meshTopology";
+import { cylinderPrismPayload, directionIdToVector } from "../../geometry/meshPrimitives";
+import { verifyDemoldTranslation } from "../masterMoldDemold.verifier";
 import { axisOf, isPositive, masterStockBoundsFor } from "../masterMoldDirection.analyzer";
-import type { MasterCastTarget, MasterMoldProjectSnapshot, MasterToolingPiece, MasterToolingRegistrationFeature } from "./contracts";
+import type { MasterCastTarget, MasterCastingProcessProfile, MasterMoldDirection, MasterMoldProjectSnapshot, MasterToolingPiece, MasterToolingPull, MasterToolingRegistrationFeature } from "./contracts";
 
 /**
  * Execution 05 Article 10: Master Tooling Piece Construction.
@@ -42,15 +44,23 @@ export interface MasterToolingParameters {
   readonly pourOpeningMarginMm: number;
   readonly partingFlangeWidthMm: number;
   readonly geometryToleranceMm: number;
+  /** Profile-driven printable panel cap per tooling set (Execution 06 Article 09/12). */
+  readonly maxToolingPieces: number;
 }
 
 export function toolingParametersFromSnapshot(snapshot: MasterMoldProjectSnapshot): MasterToolingParameters {
+  return toolingParametersFromProfile(snapshot.processProfile);
+}
+
+/** Execution 06: profile-driven parameters without requiring the legacy project snapshot. */
+export function toolingParametersFromProfile(profile: MasterCastingProcessProfile): MasterToolingParameters {
   return {
-    caseWallThicknessMm: Math.max(snapshot.processProfile.minimumToolingWallMm, 3),
+    caseWallThicknessMm: Math.max(profile.minimumToolingWallMm, 3),
     caseBaseThicknessMm: 3,
     pourOpeningMarginMm: 2,
     partingFlangeWidthMm: 0,
-    geometryToleranceMm: snapshot.processProfile.releaseClearanceMm ?? 1e-3,
+    geometryToleranceMm: profile.releaseClearanceMm ?? 1e-3,
+    maxToolingPieces: profile.maximumToolingPieceCount,
   };
 }
 
@@ -60,11 +70,11 @@ export function toolingTolerancePolicy(caseBounds: Bounds3): GeometryTolerancePo
 }
 
 /** Bounds of the one-piece-flush case envelope around `targetBounds` opening along `pourFace`. */
-export function caseEnvelopeFor(targetBounds: Bounds3, pourFace: MasterToolingPiece["releaseDirection"], wallMm: number, baseMm: number): Bounds3 {
+export function caseEnvelopeFor(targetBounds: Bounds3, pourFace: MasterMoldDirection, wallMm: number, baseMm: number): Bounds3 {
   return masterStockBoundsFor(targetBounds, pourFace, wallMm, baseMm);
 }
 
-function extensionBoxBounds(bounds: Bounds3, direction: MasterToolingPiece["releaseDirection"], extensionMm: number): Bounds3 {
+function extensionBoxBounds(bounds: Bounds3, direction: MasterMoldDirection, extensionMm: number): Bounds3 {
   const axis = axisOf(direction);
   const min = { ...bounds.min };
   const max = { ...bounds.max };
@@ -80,12 +90,12 @@ function extensionBoxBounds(bounds: Bounds3, direction: MasterToolingPiece["rele
 
 export interface ConstructPieceInput {
   readonly castTarget: MasterCastTarget;
-  readonly pourFace: MasterToolingPiece["releaseDirection"];
+  readonly pourFace: MasterMoldDirection;
   /**
    * Optional planar split: pieces are the case clipped to the half-space on
    * `splitSide` of the plane.
    */
-  readonly split?: { readonly axis: MasterToolingPiece["releaseDirection"]; readonly coordinateMm: number; readonly side: "positive" | "negative" };
+  readonly split?: { readonly axis: MasterMoldDirection; readonly coordinateMm: number; readonly side: "positive" | "negative" };
   /**
    * The part-negative tool mesh (the functional core shape). With a split,
    * `coreMode` assigns the core volume between the pieces (Priyadarshi–Gupta
@@ -140,13 +150,18 @@ export async function constructCasePiece(input: ConstructPieceInput): Promise<Co
   try {
     extendedTarget = targetSolid.add(extensionSolid);
 
-    // Core handling (split pieces only): remove this piece's unassigned core
-    // volume together with the target in ONE Boolean (coincident-face
-    // double-subtracts are degenerate), then anchor the assigned core
-    // portion onto this piece as a single add.
+    // Core handling (split pieces only). Execution 06 Article 09: the
+    // default "split" mode subtracts ONLY this side's half of the target
+    // (+extension) so the two cavities tile the negative directly --
+    // legacy sibling-fill plugs mechanically lock over blind-hole bosses
+    // and are no longer produced. The "full-negative"/"full-positive"
+    // modes anchor the ENTIRE core volume onto one side for cavities whose
+    // portion would otherwise be unanchored by the parting plane.
     let removal: ManifoldSolid = extendedTarget;
     let removalOwned = false;
-    if (coreSolid !== null && input.split !== undefined) {
+    let plainRemoval = true;
+    if (coreSolid !== null && input.split !== undefined && input.coreMode !== "split") {
+      plainRemoval = false;
       const side = input.split.side;
       const ownClip = halfSpaceBoundsFor(caseBounds, input.split.axis, input.split.coordinateMm, side);
       const otherClip = halfSpaceBoundsFor(caseBounds, input.split.axis, input.split.coordinateMm, side === "positive" ? "negative" : "positive");
@@ -158,16 +173,11 @@ export async function constructCasePiece(input: ConstructPieceInput): Promise<Co
         const ownsWholeCore =
           (input.coreMode === "full-negative" && side === "negative") ||
           (input.coreMode === "full-positive" && side === "positive");
-        const keepsOwnCore = input.coreMode === "split";
-        if (!coreOwnSide.isEmpty() && !keepsOwnCore) {
+        if (!coreOwnSide.isEmpty()) {
           const unioned = removal.add(coreOwnSide);
-          if (removalOwned) removal.delete();
+          removal.delete();
           removal = unioned;
           removalOwned = true;
-        }
-        if (!coreOtherSide.isEmpty() && keepsOwnCore) {
-          withCoreAdded = coreOtherSide;
-          coreOtherSide = null;
         }
         if (ownsWholeCore) {
           coreWhole = coreSolid.asOriginal();
@@ -183,6 +193,18 @@ export async function constructCasePiece(input: ConstructPieceInput): Promise<Co
       } finally {
         ownBox.delete();
         otherBox.delete();
+      }
+    }
+    if (plainRemoval && input.split !== undefined) {
+      const ownClip = halfSpaceBoundsFor(caseBounds, input.split.axis, input.split.coordinateMm, input.split.side);
+      const ownBox = createBlankSolid(module, ownClip);
+      try {
+        const clipped = extendedTarget.intersect(ownBox);
+        extendedTarget.delete();
+        extendedTarget = clipped;
+        removal = extendedTarget;
+      } finally {
+        ownBox.delete();
       }
     }
 
@@ -249,7 +271,7 @@ function removesAllCore(mode: CoreAssignmentMode, side: "positive" | "negative")
   );
 }
 
-function halfSpaceBoundsFor(caseBounds: Bounds3, axis: MasterToolingPiece["releaseDirection"], coordinateMm: number, side: "positive" | "negative"): Bounds3 {
+function halfSpaceBoundsFor(caseBounds: Bounds3, axis: MasterMoldDirection, coordinateMm: number, side: "positive" | "negative"): Bounds3 {
   const axisName = axisOf(axis);
   const min: { x: number; y: number; z: number } = { ...caseBounds.min };
   const max: { x: number; y: number; z: number } = { ...caseBounds.max };
@@ -296,7 +318,7 @@ function clipToHalfSpace(module: Awaited<ReturnType<typeof getManifoldModule>>, 
 export async function validateAssembledNegative(
   pieceSolids: readonly ManifoldSolid[],
   castTarget: MasterCastTarget,
-  pourFace: MasterToolingPiece["releaseDirection"],
+  pourFace: MasterMoldDirection,
   parameters: MasterToolingParameters,
 ): Promise<{ readonly overlapVolumeMm3: number; readonly residualVoidVolumeMm3: number }> {
   const module = await getManifoldModule();
@@ -338,34 +360,38 @@ export async function validateAssembledNegative(
 }
 
 /**
- * Master Tooling Registration (Execution 05 Article 10): tooling-only
- * alignment pins between split pieces, placed on the parting plane away from
- * the cast target. Mirrored male/female pairing with deterministic IDs.
- * V1 pins run perpendicular to the parting plane, which requires the parting
- * plane to be perpendicular to Z (the cylinder primitive's axis); other
- * parting orientations are reported, never silently skipped.
+ * Master Tooling Registration (Execution 05 Article 10, connected by
+ * Execution 06 Article 10): tooling-only alignment pins between split
+ * pieces, placed on the parting plane away from the cast target. Mirrored
+ * male/female pairing with deterministic IDs. Pins are constructed as
+ * explicit prism payloads oriented along the split axis, so any parting
+ * orientation is supported (the previous Z-only limitation is gone); an
+ * interface is skipped only with an explicit reason, never silently.
  */
-export async function buildToolingRegistrationFeatures(
+export interface ToolingPinPlacement {
+  readonly feature: MasterToolingRegistrationFeature;
+  readonly payload: MoldMeshPayload;
+}
+
+export function planToolingRegistrationPinPlacements(
   castTarget: MasterCastTarget,
-  pourFace: MasterToolingPiece["releaseDirection"],
+  pourFace: MasterMoldDirection,
   split: NonNullable<ConstructPieceInput["split"]>,
   parameters: MasterToolingParameters,
-): Promise<{ readonly features: readonly MasterToolingRegistrationFeature[]; readonly solids: readonly ManifoldSolid[]; readonly reason: string | null }> {
-  const module = await getManifoldModule();
-  if (axisOf(split.axis) !== "z") {
-    return { features: [], solids: [], reason: `tooling pins not yet supported for ${split.axis} parting planes` };
-  }
+  functionalBounds?: { readonly min: { readonly x: number; readonly y: number; readonly z: number }; readonly max: { readonly x: number; readonly y: number; readonly z: number } },
+): { readonly placements: readonly ToolingPinPlacement[]; readonly reason: string | null } {
   const caseBounds = caseEnvelopeFor(castTarget.bounds, pourFace, parameters.caseWallThicknessMm, parameters.caseBaseThicknessMm);
   const radius = Math.min(TOOLING_CONSTRUCTION_LIMITS.registrationPinRadiusMm, parameters.caseWallThicknessMm / 2);
   if (radius < 1) {
-    return { features: [], solids: [], reason: "wall too thin for tooling alignment pins" };
+    return { placements: [], reason: "wall too thin for tooling alignment pins" };
   }
 
-  const splitAxis = axisOf(split.axis);
-  const sideAxes = (["x", "y", "z"] as const).filter((axis) => axis !== splitAxis);
+  const pinAxis = directionIdToVector(split.axis);
+  const splitAxisName = axisOf(split.axis);
+  const sideAxes = (["x", "y", "z"] as const).filter((axis) => axis !== splitAxisName);
   const pinCenters = [0, 1].map((index) => {
     const point = { x: 0, y: 0, z: 0 };
-    point[splitAxis] = split.coordinateMm;
+    point[splitAxisName] = split.coordinateMm;
     const insetBase = sideAxes.map((axis) => caseBounds.min[axis] + (caseBounds.max[axis] - caseBounds.min[axis]) * TOOLING_CONSTRUCTION_LIMITS.registrationPinCornerInsetFraction);
     const insetTop = sideAxes.map((axis) => caseBounds.max[axis] - (caseBounds.max[axis] - caseBounds.min[axis]) * TOOLING_CONSTRUCTION_LIMITS.registrationPinCornerInsetFraction);
     point[sideAxes[0]!] = index === 0 ? insetBase[0]! : insetTop[0]!;
@@ -373,8 +399,10 @@ export async function buildToolingRegistrationFeatures(
     return point as { x: number; y: number; z: number };
   });
 
-  // Pins must clear the cast target's footprint on the parting plane.
-  const targetBounds = castTarget.bounds;
+  // Pins must clear the FUNCTIONAL part footprint (the source-part cavity),
+  // not the piece's whole bounding box -- the piece extends far beyond the
+  // functional region into its own walls (Execution 06 Article 10).
+  const targetBounds = functionalBounds ?? castTarget.bounds;
   const pinClearOfTarget = pinCenters.every((center) => {
     const distance = Math.hypot(
       Math.max(targetBounds.min.x - center.x, 0, center.x - targetBounds.max.x),
@@ -384,26 +412,138 @@ export async function buildToolingRegistrationFeatures(
     return distance > radius + parameters.geometryToleranceMm;
   });
   if (!pinClearOfTarget) {
-    return { features: [], solids: [], reason: "no interference-safe pin placement on the parting plane" };
+    return { placements: [], reason: "no interference-safe pin placement on the parting plane" };
   }
 
-  const features: MasterToolingRegistrationFeature[] = [];
-  const solids: ManifoldSolid[] = [];
   const pinHeightMm = parameters.caseWallThicknessMm * 2;
-  for (const [index, center] of pinCenters.entries()) {
-    // Manifold cylinders run 0..height along Z; center the pin on the
-    // parting plane so it protrudes equally into both piece halves.
-    const male = module.Manifold.cylinder(pinHeightMm, radius, radius, TOOLING_CONSTRUCTION_LIMITS.registrationPinSegments)
-      .translate(center.x, center.y, center.z - pinHeightMm / 2);
-    solids.push(male);
-    features.push({
+  const placements: ToolingPinPlacement[] = pinCenters.map((center, index) => ({
+    feature: {
       featureId: `tooling-pin-${split.axis}-${index}`,
       kind: "pin",
-      malePieceId: split.side === "negative" ? "piece-negative-side" : "piece-positive-side",
-      femalePieceId: split.side === "negative" ? "piece-positive-side" : "piece-negative-side",
-    });
+      malePieceId: "piece-positive-side",
+      femalePieceId: "piece-negative-side",
+    },
+    payload: cylinderPrismPayload(pinAxis, center, radius, pinHeightMm, TOOLING_CONSTRUCTION_LIMITS.registrationPinSegments),
+  }));
+  return { placements, reason: null };
+}
+
+export interface RegisteredPiecePair {
+  readonly positivePiece: ConstructedPiece;
+  readonly negativePiece: ConstructedPiece;
+  readonly features: readonly MasterToolingRegistrationFeature[];
+  readonly reason: string | null;
+}
+
+function copyConstructed(piece: ConstructedPiece): ConstructedPiece {
+  return { ...piece, solid: piece.solid.asOriginal() };
+}
+
+/**
+ * Applies the planned registration pins to the verified piece pair: male
+ * pins are unioned into the positive-side piece, matching sockets are
+ * subtracted from the negative-side piece, and the positive piece's release
+ * sweep is re-verified against the socketed sibling (the pins retract along
+ * the release axis, but the proof is re-run, not assumed).
+ *
+ * Ownership: the inputs are never mutated or released; the returned pair is
+ * ALWAYS freshly created and the caller owns/releases exactly the returned
+ * solids.
+ */
+export async function applyToolingRegistration(input: {
+  readonly castTarget: MasterCastTarget;
+  readonly pourFace: MasterMoldDirection;
+  readonly split: NonNullable<ConstructPieceInput["split"]>;
+  readonly parameters: MasterToolingParameters;
+  readonly positivePiece: ConstructedPiece;
+  readonly negativePiece: ConstructedPiece;
+  readonly functionalBounds?: { readonly min: { readonly x: number; readonly y: number; readonly z: number }; readonly max: { readonly x: number; readonly y: number; readonly z: number } };
+}): Promise<RegisteredPiecePair> {
+  const { placements, reason } = planToolingRegistrationPinPlacements(input.castTarget, input.pourFace, input.split, input.parameters, input.functionalBounds);
+  if (placements.length === 0 || reason !== null) {
+    return {
+      positivePiece: copyConstructed(input.positivePiece),
+      negativePiece: copyConstructed(input.negativePiece),
+      features: [],
+      reason: reason ?? "no registration placements generated",
+    };
   }
-  return { features, solids, reason: null };
+
+  const module = await getManifoldModule();
+  const caseBounds = caseEnvelopeFor(input.castTarget.bounds, input.pourFace, input.parameters.caseWallThicknessMm, input.parameters.caseBaseThicknessMm);
+  const policy = toolingTolerancePolicy(caseBounds);
+  const volumeTolerance = Math.max(policy.affectedVolumeToleranceMm3, input.castTarget.volumeMm3 * 1e-3);
+  const sweepClearanceMm =
+    (input.castTarget.bounds.max[axisOf(input.split.axis)] - input.castTarget.bounds.min[axisOf(input.split.axis)]) *
+      TOOLING_CONSTRUCTION_LIMITS.demoldClearanceSafetyFactor +
+    input.parameters.caseWallThicknessMm * 2;
+
+  let positiveSolid: ManifoldSolid = input.positivePiece.solid.asOriginal();
+  let negativeSolid: ManifoldSolid = input.negativePiece.solid.asOriginal();
+  try {
+    for (const placement of placements) {
+      const pinSolid = manifoldFromPayload(module, placement.payload, policy.booleanToleranceMm);
+      try {
+        const withPin = positiveSolid.add(pinSolid);
+        positiveSolid.delete();
+        positiveSolid = withPin;
+        const withSocket = negativeSolid.subtract(pinSolid);
+        negativeSolid.delete();
+        negativeSolid = withSocket;
+      } finally {
+        pinSolid.delete();
+      }
+    }
+
+    // Re-verify the positive piece's release now that it carries pins.
+    const sweep = verifyDemoldTranslation(negativeSolid, positiveSolid, input.split.axis, sweepClearanceMm, policy.surfaceToleranceMm, volumeTolerance);
+    if (!sweep.removable) {
+      return {
+        positivePiece: constructedFromSolid(positiveSolid),
+        negativePiece: constructedFromSolid(negativeSolid),
+        features: [],
+        reason: "registered pieces failed the re-verified release sweep",
+      };
+    }
+
+    const positiveMesh = payloadFromManifold(positiveSolid);
+    const negativeMesh = payloadFromManifold(negativeSolid);
+    return {
+      positivePiece: {
+        mesh: positiveMesh,
+        bounds: boundsFromManifold(positiveSolid),
+        volumeMm3: positiveSolid.volume(),
+        triangleCount: positiveMesh.indices.length / 3,
+        solid: positiveSolid.asOriginal(),
+      },
+      negativePiece: {
+        mesh: negativeMesh,
+        bounds: boundsFromManifold(negativeSolid),
+        volumeMm3: negativeSolid.volume(),
+        triangleCount: negativeMesh.indices.length / 3,
+        solid: negativeSolid.asOriginal(),
+      },
+      features: placements.map((placement) => placement.feature),
+      reason: null,
+    };
+  } finally {
+    // The asOriginal() copies handed to the caller keep the underlying
+    // geometry alive; these working solids are always released here.
+    positiveSolid.delete();
+    negativeSolid.delete();
+  }
+}
+
+/** Builds a ConstructedPiece from an owned solid, exporting fresh mesh metadata. */
+function constructedFromSolid(solid: ManifoldSolid): ConstructedPiece {
+  const mesh = payloadFromManifold(solid);
+  return {
+    mesh,
+    bounds: boundsFromManifold(solid),
+    volumeMm3: solid.volume(),
+    triangleCount: mesh.indices.length / 3,
+    solid: solid.asOriginal(),
+  };
 }
 
 /** Printer build-volume check (Execution 05 Article 10). */
@@ -422,8 +562,10 @@ export function pieceFromConstructed(
   pieceId: string,
   name: string,
   constructed: ConstructedPiece,
-  releaseDirection: MasterToolingPiece["releaseDirection"],
+  releaseDirection: MasterToolingPull,
   regions: readonly string[],
+  toolingRegistrationFeatureIds: readonly string[] = [],
+  directionVector?: { readonly x: number; readonly y: number; readonly z: number },
 ): MasterToolingPiece {
   const topology = meshTopology(constructed.mesh);
   return {
@@ -436,8 +578,9 @@ export function pieceFromConstructed(
     watertight: topology.openEdgeCount === 0,
     manifold: topology.openEdgeCount === 0 && topology.nonManifoldEdgeCount === 0,
     releaseDirection,
+    ...(directionVector === undefined ? {} : { directionVector }),
     regions,
-    toolingRegistrationFeatureIds: [],
+    toolingRegistrationFeatureIds,
     fitsBuildVolume: true,
   };
 }

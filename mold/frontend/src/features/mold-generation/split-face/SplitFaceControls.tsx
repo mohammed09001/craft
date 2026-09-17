@@ -11,6 +11,7 @@ import { CavityAction } from "../cavity-generation/CavityAction";
 import type { CanonicalPartGeometry } from "../cavity-generation/cavityGeneration.contracts";
 import { useCuttingWorkflowStore } from "../cutting-workflow";
 import { MasterMoldAction } from "../master-mold/MasterMoldAction";
+import { MasterMoldPiecesBrowser } from "../master-mold/MasterMoldPiecesBrowser";
 import {
   ConstructIcon,
   EraserIcon,
@@ -248,7 +249,8 @@ export function SplitFaceControls({
         </div>
 
         <CavityAction sourcePartMesh={canonicalPartGeometry} />
-        <MasterMoldAction sourcePartMesh={canonicalPartGeometry ?? null} />
+        <MasterMoldAction sourcePartGeometry={canonicalPartGeometry ?? null} />
+        <MasterMoldPiecesBrowser />
 
         <span
           aria-hidden="true"

@@ -1,4 +1,5 @@
 import { evaluateMasterMoldGeneration } from "./masterMoldGeneration.evaluate";
+import type { MasterMoldSeedSnapshot } from "./seed/masterMoldSeed";
 import type { MasterMoldWorkerFailure, MasterMoldWorkerRequest, MasterMoldWorkerResponse } from "./masterMoldGeneration.worker.contracts";
 
 type MasterMoldWorkerScope = {
@@ -14,15 +15,46 @@ const failure = (error: unknown): MasterMoldWorkerFailure => ({
   message: error instanceof Error ? error.message : "Master Mold generation failed.",
 });
 
+/** Rehydrates the full seed snapshot contract from the compact transferred payload. */
+function seedFromPayload(payload: Extract<MasterMoldWorkerRequest, { type: "generate" }>["seed"]): MasterMoldSeedSnapshot {
+  return {
+    schemaVersion: 1,
+    seedId: payload.seedId,
+    sourceModelId: payload.sourceModelId,
+    sourceGeometryVersion: payload.sourceGeometryVersion,
+    sourceMesh: {
+      modelId: payload.sourceModelId,
+      positions: Array.from(payload.positions),
+      indices: Array.from(payload.indices),
+      bounds: payload.bounds,
+      geometryVersion: payload.sourceGeometryVersion,
+    },
+    sourceTransform: payload.sourceTransform,
+    sourceBounds: payload.bounds,
+    printerBuildVolume: payload.printerBuildVolume,
+    processProfile: payload.processProfile,
+    userPreferences: payload.userPreferences,
+    sourceProjectRevision: payload.sourceProjectRevision,
+  };
+}
+
 async function processMasterMoldRequest(request: Extract<MasterMoldWorkerRequest, { type: "generate" }>): Promise<void> {
   const controller = new AbortController();
   controllers.set(request.requestId, controller);
 
   try {
-    const result = await evaluateMasterMoldGeneration(request.request, {
-      signal: controller.signal,
-      onProgress: (completed, total) => workerScope.postMessage({ type: "progress", requestId: request.requestId, completed, total }),
-    });
+    const result = await evaluateMasterMoldGeneration(
+      {
+        operationId: request.operationId,
+        generationVersion: request.generationVersion,
+        seed: seedFromPayload(request.seed),
+        priorSets: request.priorSets,
+      },
+      {
+        signal: controller.signal,
+        onStage: (stage) => workerScope.postMessage({ type: "progress", requestId: request.requestId, stage }),
+      },
+    );
     workerScope.postMessage({ type: "success", requestId: request.requestId, result });
   } catch (error) {
     workerScope.postMessage({ type: "failure", requestId: request.requestId, failure: failure(error) });

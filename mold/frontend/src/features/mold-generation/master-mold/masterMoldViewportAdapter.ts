@@ -26,9 +26,14 @@ export interface MasterMoldRenderableBody extends MoldBodyData {
  * stale ones as a clearly ghosted holdover instead of erasing them --
  * dropping a set from the viewport entirely is exactly the "Master Mold
  * disappears when it becomes stale" regression.
+ *
+ * Execution 06 Article 15: piece visibility comes from the store's
+ * presentation state (default visible); the runtime syncs visibility without
+ * rebuilding geometry.
  */
 export function selectRenderableMasterMoldBodies(
   sets: readonly MasterToolingSetState[],
+  pieceVisibility: Readonly<Record<string, boolean>> = {},
 ): readonly MasterMoldRenderableBody[] {
   return sets
     .filter((entry) => (entry.status === "current" || entry.status === "stale") && entry.set !== null)
@@ -37,7 +42,7 @@ export function selectRenderableMasterMoldBodies(
       return set.assembly.pieces.map((piece) => ({
         id: piece.pieceId,
         name: piece.name,
-        visible: true,
+        visible: pieceVisibility[piece.pieceId] !== false,
         bounds: piece.bounds,
         triangleCount: piece.triangleCount,
         volumeMm3: piece.volumeMm3,

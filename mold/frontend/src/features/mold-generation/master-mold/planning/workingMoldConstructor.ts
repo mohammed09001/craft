@@ -1,0 +1,487 @@
+import type { Bounds3 } from "../../split-face/splitFace.contracts";
+import type { MoldMeshPayload } from "../../reference-mold-definition/orthogonalMold";
+import {
+  boundsFromManifold,
+  createBlankSolid,
+  getManifoldModule,
+  manifoldFromPayload,
+  payloadFromManifold,
+  type ManifoldSolid,
+} from "../../geometry/manifold";
+import { buildGeometryTolerancePolicy } from "../../geometry/geometryTolerance";
+import { meshTopology } from "../../geometry/meshTopology";
+import { hashStableValues, meshGeometryVersion } from "../../geometry/geometryFingerprint";
+import { cylinderPrismPayload } from "../../geometry/meshPrimitives";
+import { verifyDemoldTranslationByVector } from "../masterMoldDemold.verifier";
+import type {
+  PlanningVector3,
+  WorkingMoldPieceTarget,
+  WorkingMoldReleaseStep,
+  WorkingMoldRegistrationFeature,
+  WorkingMoldRegistrationPlan,
+} from "./masterMoldPlanning.contracts";
+import { workingMoldEnvelopeWallMm, inflatedBounds } from "./masterMoldPlanning.contracts";
+
+/**
+ * Execution 06 Article 08: virtual Working Mold construction.
+ *
+ *   Working Mold Envelope − Source Part Negative = Gross Working Mold
+ *
+ * The gross mold is partitioned by the selected ordered half-space prisms
+ * into piece regions; the part negative is carved from each region. Every
+ * piece must exactly verify: single connected watertight solid, collision-
+ * free translation release against the part and the remaining assembled
+ * pieces, and an assembled negative that reproduces the part cavity exactly.
+ * This is the late exact-CSG stage: planning has already reduced candidates.
+ */
+
+/** Sweep safety margin over the envelope extent along the release direction. */
+const RELEASE_SWEEP_SAFETY_FACTOR = 1.1;
+const REGISTRATION_PIN_SEGMENTS = 16;
+const REGISTRATION_PIN_RADIUS_MM = 2.5;
+/** Pin-center offsets from the interface center, as envelope-span fractions. */
+const REGISTRATION_PIN_INSET_FRACTIONS = [-0.3, 0, 0.3] as const;
+
+export interface PlannedPieceRegion {
+  /** Unit release direction of this piece. */
+  readonly releaseDirection: PlanningVector3;
+  /** Parting plane (unit direction + offset): piece occupies dot(p,d) >= offset minus earlier pieces. null for the catch-all remainder. */
+  readonly plane: { readonly direction: PlanningVector3; readonly offsetMm: number } | null;
+}
+
+export interface WorkingMoldConstructionInput {
+  readonly sourceMesh: { readonly positions: readonly number[]; readonly indices: readonly number[] };
+  readonly sourceBounds: Bounds3;
+  readonly releaseClearanceMm: number;
+  readonly minimumToolingWallMm: number;
+  readonly pieces: readonly PlannedPieceRegion[];
+}
+
+export interface WorkingMoldConstructionOutput {
+  readonly pieces: readonly WorkingMoldPieceTarget[];
+  readonly releaseSequence: readonly WorkingMoldReleaseStep[];
+  readonly registrationPlan: WorkingMoldRegistrationPlan;
+}
+
+export interface OrthonormalBasis {
+  readonly u: PlanningVector3;
+  readonly v: PlanningVector3;
+  readonly w: PlanningVector3;
+}
+
+/** Deterministic right-handed orthonormal basis with w as the given unit direction. */
+export function basisAround(w: PlanningVector3): OrthonormalBasis {
+  const reference = Math.abs(w.x) < 0.9 ? { x: 1, y: 0, z: 0 } : { x: 0, y: 1, z: 0 };
+  const u = {
+    x: reference.y * w.z - reference.z * w.y,
+    y: reference.z * w.x - reference.x * w.z,
+    z: reference.x * w.y - reference.y * w.x,
+  };
+  const uLength = Math.hypot(u.x, u.y, u.z);
+  u.x /= uLength;
+  u.y /= uLength;
+  u.z /= uLength;
+  const v = {
+    x: w.y * u.z - w.z * u.y,
+    y: w.z * u.x - w.x * u.z,
+    z: w.x * u.y - w.y * u.x,
+  };
+  return { u, v, w };
+}
+
+/**
+ * Explicit hexahedron payload for the half-space { p : dot(p, w) >= offset },
+ * expanded well past `bounds` so intersecting with the envelope is exact.
+ * Corner layout matches the repository's standard box indexing.
+ */
+export function halfSpacePrismPayload(
+  direction: PlanningVector3,
+  offsetMm: number,
+  bounds: Bounds3,
+): MoldMeshPayload {
+  const { u, v, w } = basisAround(direction);
+  const diagonal = Math.hypot(
+    bounds.max.x - bounds.min.x,
+    bounds.max.y - bounds.min.y,
+    bounds.max.z - bounds.min.z,
+  );
+  const radius = diagonal * 0.75 + 1;
+  const depth = diagonal * 1.5 + 2;
+  const center = {
+    x: (bounds.min.x + bounds.max.x) / 2,
+    y: (bounds.min.y + bounds.max.y) / 2,
+    z: (bounds.min.z + bounds.max.z) / 2,
+  };
+  const along = w.x * center.x + w.y * center.y + w.z * center.z;
+  const faceCenter = {
+    x: center.x + w.x * (offsetMm - along),
+    y: center.y + w.y * (offsetMm - along),
+    z: center.z + w.z * (offsetMm - along),
+  };
+  const corner = (iu: number, iv: number, iw: number): number[] => [
+    faceCenter.x + u.x * radius * iu + v.x * radius * iv + w.x * depth * iw,
+    faceCenter.y + u.y * radius * iu + v.y * radius * iv + w.y * depth * iw,
+    faceCenter.z + u.z * radius * iu + v.z * radius * iv + w.z * depth * iw,
+  ];
+  const positions = [
+    ...corner(-1, -1, 0), ...corner(1, -1, 0), ...corner(1, 1, 0), ...corner(-1, 1, 0),
+    ...corner(-1, -1, 1), ...corner(1, -1, 1), ...corner(1, 1, 1), ...corner(-1, 1, 1),
+  ];
+  const indices = [
+    0, 2, 1, 0, 3, 2,
+    4, 5, 6, 4, 6, 7,
+    0, 1, 5, 0, 5, 4,
+    3, 7, 6, 3, 6, 2,
+    0, 4, 7, 0, 7, 3,
+    1, 2, 6, 1, 6, 5,
+  ];
+  return { positions, indices };
+}
+
+/** Explicit n-gon prism payload (registration pin) along `direction`, centered on `center` spanning ±length/2. */
+function cylinderPayload(direction: PlanningVector3, center: PlanningVector3, radiusMm: number, lengthMm: number): MoldMeshPayload {
+  return cylinderPrismPayload(direction, center, radiusMm, lengthMm, REGISTRATION_PIN_SEGMENTS);
+}
+
+function sweepClearance(bounds: Bounds3, direction: PlanningVector3): number {
+  const extent =
+    Math.abs(direction.x) * (bounds.max.x - bounds.min.x) +
+    Math.abs(direction.y) * (bounds.max.y - bounds.min.y) +
+    Math.abs(direction.z) * (bounds.max.z - bounds.min.z);
+  return extent * RELEASE_SWEEP_SAFETY_FACTOR + 1;
+}
+
+interface RegistrationPlacement {
+  readonly pieceIndex: number;
+  readonly siblingIndex: number;
+  readonly center: PlanningVector3;
+  readonly direction: PlanningVector3;
+}
+
+/**
+ * Candidate pin placements on each prism interface. Strict region rule: a
+ * pin for piece i is placed only where the point lies behind every OTHER
+ * plane by more than the pin radius, so the whole pin disk lives inside
+ * piece i (whose region is its own half-space minus earlier planes) on one
+ * side and inside the catch-all piece on the other side. The pin must also
+ * clear the part footprint and fit inside the envelope along its axis.
+ */
+function candidatePlacements(
+  input: WorkingMoldConstructionInput,
+  envelopeBounds: Bounds3,
+  radiusMm: number,
+  clearanceMm: number,
+  pinHeightMm: number,
+): RegistrationPlacement[] {
+  const placements: RegistrationPlacement[] = [];
+  const margin = radiusMm * 1.5;
+  const catchAllIndex = input.pieces.length - 1;
+  for (let pieceIndex = 0; pieceIndex < input.pieces.length; pieceIndex += 1) {
+    const plane = input.pieces[pieceIndex]!.plane;
+    if (plane === null) continue;
+    const { u, v, w } = basisAround(plane.direction);
+    const center = {
+      x: (envelopeBounds.min.x + envelopeBounds.max.x) / 2,
+      y: (envelopeBounds.min.y + envelopeBounds.max.y) / 2,
+      z: (envelopeBounds.min.z + envelopeBounds.max.z) / 2,
+    };
+    const along = w.x * center.x + w.y * center.y + w.z * center.z;
+    const faceCenter = {
+      x: center.x + w.x * (plane.offsetMm - along),
+      y: center.y + w.y * (plane.offsetMm - along),
+      z: center.z + w.z * (plane.offsetMm - along),
+    };
+    const spanU =
+      Math.abs(u.x) * (envelopeBounds.max.x - envelopeBounds.min.x) +
+      Math.abs(u.y) * (envelopeBounds.max.y - envelopeBounds.min.y) +
+      Math.abs(u.z) * (envelopeBounds.max.z - envelopeBounds.min.z);
+    const spanV =
+      Math.abs(v.x) * (envelopeBounds.max.x - envelopeBounds.min.x) +
+      Math.abs(v.y) * (envelopeBounds.max.y - envelopeBounds.min.y) +
+      Math.abs(v.z) * (envelopeBounds.max.z - envelopeBounds.min.z);
+
+    for (const insetU of REGISTRATION_PIN_INSET_FRACTIONS) {
+      for (const insetV of REGISTRATION_PIN_INSET_FRACTIONS) {
+        const point = {
+          x: faceCenter.x + u.x * spanU * insetU + v.x * spanV * insetV,
+          y: faceCenter.y + u.y * spanU * insetU + v.y * spanV * insetV,
+          z: faceCenter.z + u.z * spanU * insetU + v.z * spanV * insetV,
+        };
+        // Behind every other plane by more than the pin radius: the pin disk
+        // stays wholly inside piece i and wholly inside the catch-all.
+        let withinRegions = true;
+        for (let k = 0; k < input.pieces.length && withinRegions; k += 1) {
+          if (k === pieceIndex) continue;
+          const other = input.pieces[k]!.plane;
+          if (other === null) continue;
+          const otherAlong = other.direction.x * point.x + other.direction.y * point.y + other.direction.z * point.z;
+          if (otherAlong >= other.offsetMm - margin) withinRegions = false;
+        }
+        if (!withinRegions) continue;
+
+        // The pin must fit inside the envelope along its own axis.
+        const reach = pinHeightMm / 2;
+        const lowEnd = {
+          x: point.x - plane.direction.x * reach,
+          y: point.y - plane.direction.y * reach,
+          z: point.z - plane.direction.z * reach,
+        };
+        const highEnd = {
+          x: point.x + plane.direction.x * reach,
+          y: point.y + plane.direction.y * reach,
+          z: point.z + plane.direction.z * reach,
+        };
+        const insideEnvelope = [lowEnd, highEnd].every((end) =>
+          end.x >= envelopeBounds.min.x + margin &&
+          end.x <= envelopeBounds.max.x - margin &&
+          end.y >= envelopeBounds.min.y + margin &&
+          end.y <= envelopeBounds.max.y - margin &&
+          end.z >= envelopeBounds.min.z + margin &&
+          end.z <= envelopeBounds.max.z - margin,
+        );
+        if (!insideEnvelope) continue;
+
+        const distanceToPart = Math.hypot(
+          Math.max(input.sourceBounds.min.x - point.x, 0, point.x - input.sourceBounds.max.x),
+          Math.max(input.sourceBounds.min.y - point.y, 0, point.y - input.sourceBounds.max.y),
+          Math.max(input.sourceBounds.min.z - point.z, 0, point.z - input.sourceBounds.max.z),
+        );
+        if (distanceToPart <= radiusMm + clearanceMm) continue;
+        placements.push({ pieceIndex, siblingIndex: catchAllIndex, center: point, direction: plane.direction });
+      }
+    }
+  }
+  return placements;
+}
+
+/**
+ * Places alignment pins across safe planar interfaces; records an explicit
+ * reason when none can be placed (Article 10: never a silent empty plan).
+ * Manifold solids are immutable: mutated pieces are reassigned with their
+ * predecessors released.
+ */
+async function placeWorkingMoldRegistration(
+  module: Awaited<ReturnType<typeof getManifoldModule>>,
+  input: WorkingMoldConstructionInput,
+  envelopeBounds: Bounds3,
+  policy: ReturnType<typeof buildGeometryTolerancePolicy>,
+  carved: ManifoldSolid[],
+): Promise<WorkingMoldRegistrationPlan> {
+  const features: WorkingMoldRegistrationFeature[] = [];
+  const radius = Math.min(REGISTRATION_PIN_RADIUS_MM, input.minimumToolingWallMm);
+  if (radius < 1) {
+    return { features, reason: "walls too thin for working-mold alignment pins" };
+  }
+  const pinHeightMm = radius * 4;
+  const placements = candidatePlacements(input, envelopeBounds, radius, policy.surfaceToleranceMm, pinHeightMm);
+
+  const perPiecePlaced = new Map<number, number>();
+  for (const placement of placements) {
+    const placed = perPiecePlaced.get(placement.pieceIndex) ?? 0;
+    if (placed >= 2) continue;
+    const male = cylinderPayload(placement.direction, placement.center, radius, pinHeightMm);
+    const maleSolid = manifoldFromPayload(module, male, policy.booleanToleranceMm);
+    try {
+      const withPin = carved[placement.pieceIndex]!.add(maleSolid);
+      carved[placement.pieceIndex]!.delete();
+      carved[placement.pieceIndex] = withPin;
+      const withSocket = carved[placement.siblingIndex]!.subtract(maleSolid);
+      carved[placement.siblingIndex]!.delete();
+      carved[placement.siblingIndex] = withSocket;
+    } finally {
+      maleSolid.delete();
+    }
+    features.push({
+      featureId: `wm-pin-${placement.pieceIndex}-${placed}`,
+      interfaceId: `wm-interface-plane-${placement.pieceIndex}`,
+      kind: "pin",
+      malePieceIndex: placement.pieceIndex,
+      femalePieceIndex: placement.siblingIndex,
+      position: placement.center,
+      direction: placement.direction,
+    });
+    perPiecePlaced.set(placement.pieceIndex, placed + 1);
+  }
+
+  const prismPieces = input.pieces.filter((piece) => piece.plane !== null).length;
+  for (let pieceIndex = 0; pieceIndex < prismPieces; pieceIndex += 1) {
+    if (!features.some((feature) => feature.malePieceIndex === pieceIndex)) {
+      return {
+        features,
+        reason: `no interference-safe working-mold pin placement on interface ${pieceIndex}`,
+      };
+    }
+  }
+  if (features.length === 0) {
+    return { features, reason: "no planar working-mold interface available for pins" };
+  }
+  return { features, reason: null };
+}
+
+export async function constructWorkingMold(input: WorkingMoldConstructionInput): Promise<WorkingMoldConstructionOutput> {
+  const module = await getManifoldModule();
+  const wallMm = workingMoldEnvelopeWallMm(input.sourceBounds, input.minimumToolingWallMm);
+  const envelopeBounds = inflatedBounds(input.sourceBounds, wallMm);
+  const policy = buildGeometryTolerancePolicy(envelopeBounds, 0);
+  const volumeTolerance = Math.max(policy.affectedVolumeToleranceMm3, 1e-3);
+
+  const partSolid = manifoldFromPayload(module, { positions: [...input.sourceMesh.positions], indices: [...input.sourceMesh.indices] }, policy.booleanToleranceMm);
+  let negativeTool: ManifoldSolid = partSolid;
+  let clearanceSphere: ManifoldSolid | null = null;
+  if (input.releaseClearanceMm > 0) {
+    clearanceSphere = module.Manifold.sphere(input.releaseClearanceMm, 16);
+    negativeTool = partSolid.minkowskiSum(clearanceSphere);
+  }
+
+  const pieceSolids: ManifoldSolid[] = [];
+  const carved: ManifoldSolid[] = [];
+  let remainder: ManifoldSolid | null = null;
+  try {
+    remainder = createBlankSolid(module, envelopeBounds);
+    for (let index = 0; index < input.pieces.length; index += 1) {
+      const plane = input.pieces[index]!.plane;
+      if (plane === null) {
+        pieceSolids.push(remainder);
+        remainder = null;
+        break;
+      }
+      const prismSolid = manifoldFromPayload(module, halfSpacePrismPayload(plane.direction, plane.offsetMm, envelopeBounds), policy.booleanToleranceMm);
+      try {
+        const region = remainder.intersect(prismSolid);
+        const nextRemainder = remainder.subtract(prismSolid);
+        remainder.delete();
+        remainder = nextRemainder;
+        pieceSolids.push(region);
+      } finally {
+        prismSolid.delete();
+      }
+    }
+
+    if (pieceSolids.length !== input.pieces.length) {
+      throw new Error("working mold partition did not produce one region per planned piece.");
+    }
+
+    // Carve the part negative out of every region; everything downstream
+    // (release verification, assembly validation, registration, export)
+    // operates on the carved working-mold pieces.
+    for (const region of pieceSolids) {
+      carved.push(region.subtract(negativeTool));
+    }
+
+    // Release verification in reverse assignment order (innermost region
+    // first): each carved piece sweeps against the part AND the remaining
+    // assembled siblings.
+    const releaseSequence: WorkingMoldReleaseStep[] = [];
+    const remaining = new Set<number>(carved.keys());
+    for (const pieceIndex of [...carved.keys()].reverse()) {
+      const direction = input.pieces[pieceIndex]!.releaseDirection;
+      const clearance = sweepClearance(envelopeBounds, direction);
+      const directionTuple = [direction.x, direction.y, direction.z] as const;
+      let remainingUnion: ManifoldSolid | null = null;
+      try {
+        for (const siblingIndex of remaining) {
+          if (siblingIndex === pieceIndex) continue;
+          const sibling = carved[siblingIndex]!;
+          remainingUnion = remainingUnion === null ? sibling.asOriginal() : remainingUnion.add(sibling);
+        }
+        const vsPart = verifyDemoldTranslationByVector(partSolid, carved[pieceIndex]!, directionTuple, clearance, policy.surfaceToleranceMm, volumeTolerance);
+        const vsSiblings = remainingUnion === null
+          ? { removable: true }
+          : verifyDemoldTranslationByVector(remainingUnion, carved[pieceIndex]!, directionTuple, clearance, policy.surfaceToleranceMm, volumeTolerance);
+        if (!vsPart.removable || !vsSiblings.removable) {
+          throw new Error(`working mold piece ${pieceIndex + 1} cannot release along its planned direction.`);
+        }
+        remaining.delete(pieceIndex);
+        releaseSequence.push({
+          stepIndex: releaseSequence.length,
+          pieceIndex,
+          direction,
+          clearanceDistanceMm: clearance,
+          collisionVerified: true,
+        });
+      } finally {
+        remainingUnion?.delete();
+      }
+    }
+
+    // Assembled-negative invariant on the carved pieces: union(pieces) ∩ part
+    // ≈ 0 and envelope − union(pieces) − part ≈ 0.
+    let assembled: ManifoldSolid | null = null;
+    let overlap: ManifoldSolid | null = null;
+    try {
+      for (const piece of carved) {
+        assembled = assembled === null ? piece.asOriginal() : assembled.add(piece);
+      }
+      overlap = assembled!.intersect(partSolid);
+      if (overlap.volume() > volumeTolerance) {
+        throw new Error("assembled working mold intersects the source part.");
+      }
+      const envelopeVolume =
+        (envelopeBounds.max.x - envelopeBounds.min.x) *
+        (envelopeBounds.max.y - envelopeBounds.min.y) *
+        (envelopeBounds.max.z - envelopeBounds.min.z);
+      const complement = envelopeVolume - assembled!.volume() - partSolid.volume();
+      if (Math.abs(complement) > Math.max(volumeTolerance, partSolid.volume() * 1e-3)) {
+        throw new Error("assembled working mold does not tile its envelope.");
+      }
+    } finally {
+      overlap?.delete();
+      assembled?.delete();
+    }
+
+    const registrationPlan = await placeWorkingMoldRegistration(module, input, envelopeBounds, policy, carved);
+
+    const targets: WorkingMoldPieceTarget[] = [];
+    for (let index = 0; index < carved.length; index += 1) {
+      const solid = carved[index]!;
+      const status = solid.status();
+      if (status !== "NoError" || solid.isEmpty()) {
+        throw new Error(`working mold piece ${index + 1} construction failed.`);
+      }
+      const components = solid.decompose();
+      const componentCount = components.length;
+      for (const component of components) component.delete();
+      if (componentCount > 1) {
+        throw new Error(`working mold piece ${index + 1} is not a single connected solid.`);
+      }
+      const mesh = payloadFromManifold(solid);
+      const topology = meshTopology(mesh);
+      if (topology.openEdgeCount > 0 || topology.nonManifoldEdgeCount > 0) {
+        throw new Error(`working mold piece ${index + 1} is not a closed manifold.`);
+      }
+      const bounds = boundsFromManifold(solid);
+      const direction = input.pieces[index]!.releaseDirection;
+      const releaseStep = releaseSequence.find((step) => step.pieceIndex === index)!;
+      const geometryVersion = `working-mold-piece:${hashStableValues({
+        mesh: meshGeometryVersion({ id: `piece-${index + 1}`, mesh, bounds }),
+        source: input.sourceMesh,
+        direction,
+        releaseOrder: releaseStep.stepIndex,
+      })}`;
+      targets.push({
+        pieceId: `wm-piece-${index + 1}`,
+        name: `Working Mold ${index + 1}`,
+        mesh,
+        bounds,
+        volumeMm3: solid.volume(),
+        geometryVersion,
+        assignedDirection: direction,
+        directionId: `piece-${index + 1}`,
+        releaseOrder: releaseStep.stepIndex,
+        interfaceIds: [],
+        triangleCount: mesh.indices.length / 3,
+        watertight: topology.openEdgeCount === 0,
+        manifold: topology.openEdgeCount === 0 && topology.nonManifoldEdgeCount === 0,
+      });
+    }
+
+    return { pieces: targets, releaseSequence, registrationPlan };
+  } finally {
+    for (const solid of pieceSolids) solid.delete();
+    for (const solid of carved) solid.delete();
+    if (negativeTool !== partSolid) negativeTool.delete();
+    clearanceSphere?.delete();
+    remainder?.delete();
+    partSolid.delete();
+  }
+}

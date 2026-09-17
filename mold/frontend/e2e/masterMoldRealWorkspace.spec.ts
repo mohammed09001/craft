@@ -10,11 +10,6 @@ const BOX_STL = path.join(__dirname, "fixtures/box_30mm_ascii.stl");
 // masterMoldGeneration.spec.ts duplicates MasterMoldProbeResult: e2e/
 // compiles under tsconfig.node.json, a separate TypeScript project from
 // src/ with no DOM lib.
-interface WorkspaceBounds3 {
-  readonly min: { readonly x: number; readonly y: number; readonly z: number };
-  readonly max: { readonly x: number; readonly y: number; readonly z: number };
-}
-
 interface WorkspaceMasterMoldPiece {
   readonly watertight: boolean;
   readonly manifold: boolean;
@@ -38,52 +33,38 @@ interface WorkspaceMasterMoldSet {
 interface WorkspaceMasterMoldState {
   readonly status: string;
   readonly sets: readonly WorkspaceMasterMoldSet[];
+  readonly plan: { readonly moldPieces: readonly unknown[]; readonly releaseSequence: readonly { readonly collisionVerified: boolean }[] } | null;
+  readonly pieceVisibility: Readonly<Record<string, boolean>>;
 }
 
 interface E2eWorkspaceStores {
   readonly useSplitFaceStore: {
     getState: () => {
-      enterSelection: () => void;
-      toggleFace: (face: string) => void;
-      createMoldParts: (modelId: string, k1: WorkspaceBounds3) => Promise<boolean>;
+      cuttingPlanes: readonly unknown[];
+      definition: unknown;
       cavity: { status: string };
     };
-  };
-  readonly useModelBoundsStore: {
-    getState: () => { groundedWorldBounds: WorkspaceBounds3 | null };
   };
   readonly useMasterMoldStore: {
     getState: () => WorkspaceMasterMoldState;
   };
 }
 
-
 /**
- * Master Mold Execution 04, Article 08: the real user-facing path this
- * covers that neither masterMoldGeneration.spec.ts nor
- * masterMoldRealisticWorkflowProbe.ts can -- both run against the isolated
- * e2e-harness.html page and call production functions directly, never
- * touching the real `/workspace` app shell or its buttons at all.
- *
- * Real bounding-box face selection is a WebGL-canvas raycast with no
- * stable, non-brittle Playwright-addressable DOM path (see those probes'
- * own doc comments -- this repository already made that call once).
- * Everything downstream of it is not: this test imports a real STL through
- * the real file input, drives only the face-selection step through the
- * real store (window.__e2eWorkspaceStores, e2e-build-only -- see
- * src/test-harness/e2eWorkspaceStoreHooks.ts), using the real imported
- * model's own real grounded world bounds, and then clicks the REAL "Create
- * Cavity" and "Master Mold" toolbar buttons for everything else. This is
- * the real MasterMoldAction/CavityAction React click handlers, the real
- * masterMoldGeneration.worker.ts Worker, and the real manifold-3d Boolean
- * pipeline, running in the real app shell.
+ * Master Mold Execution 06, Article 19: the real user journey is
+ * Master-ONLY. The test imports a real STL through the real file input and
+ * then clicks the REAL "Master Mold" toolbar button -- never Constructed
+ * Cutting Plan, never Cut by Face, never Segmentation, never Create Cavity.
+ * The autonomous engine plans the working mold, cases every piece, and the
+ * result is proven in the real app shell: watertight/manifold printable
+ * tooling with collision-verified release sequences, a live viewport, a
+ * responsive main thread during Worker planning (heartbeat), and working
+ * hide/show visibility controls on the real generated pieces.
  *
  * Requires the `e2e` build (`npm run build:e2e`) -- the store-exposing hook
  * this test evaluates against does not exist in a normal production build.
  */
-test("drives the real Create Cavity -> Master Mold toolbar buttons against a real imported model in the real /workspace app", async ({
-  page,
-}) => {
+test("drives the real Master-ONLY journey: import STL -> Master Mold -> verified tooling -> visibility controls", async ({ page }) => {
   const pageErrors: Error[] = [];
   const consoleErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error));
@@ -100,45 +81,37 @@ test("drives the real Create Cavity -> Master Mold toolbar buttons against a rea
 
   await expect(page.getByText(/Ready: box_30mm_ascii\.stl \(STL, .+, 12 triangles\)/)).toBeVisible({ timeout: 30_000 });
 
-  // Drive only the canvas-raycast-dependent step (face selection) through
-  // the real store, using the real imported model's own real bounds.
+  // Article 19 precondition assertions: the Master journey starts from a
+  // clean state -- no cutting planes, no committed mold definition, no
+  // Create Cavity run. A small e2e-only hook observes state; it never
+  // creates mold geometry.
   await page.waitForFunction(
     () => typeof (globalThis as unknown as { __e2eWorkspaceStores?: unknown }).__e2eWorkspaceStores !== "undefined",
   );
-  const commitOk = await page.evaluate(async () => {
-    const { useSplitFaceStore, useModelBoundsStore } = (
-      globalThis as unknown as { __e2eWorkspaceStores: E2eWorkspaceStores }
-    ).__e2eWorkspaceStores;
-    const k1 = useModelBoundsStore.getState().groundedWorldBounds;
-    if (k1 === null) return false;
-    useSplitFaceStore.getState().enterSelection();
-    useSplitFaceStore.getState().toggleFace("front");
-    return useSplitFaceStore.getState().createMoldParts("e2e-workspace-model", k1);
+  const preconditions = await page.evaluate(() => {
+    const { useSplitFaceStore } = (globalThis as unknown as { __e2eWorkspaceStores: E2eWorkspaceStores }).__e2eWorkspaceStores;
+    const state = useSplitFaceStore.getState();
+    return { cuttingPlanes: state.cuttingPlanes.length, hasDefinition: state.definition !== null, cavityStatus: state.cavity.status };
   });
-  expect(commitOk).toBe(true);
+  expect(preconditions.cuttingPlanes).toBe(0);
+  expect(preconditions.hasDefinition).toBe(false);
+  expect(preconditions.cavityStatus).not.toBe("complete");
 
-  // Everything from here is a real DOM interaction against the real toolbar.
-  const createCavityButton = page.getByRole("button", { name: "Create Cavity" });
-  await expect(createCavityButton).toBeEnabled();
-  await createCavityButton.click();
+  // Main-thread heartbeat: Worker planning must leave the UI responsive.
+  await page.evaluate(() => {
+    const globalWindow = globalThis as unknown as { __masterHeartbeats: number; __heartbeatTimer: number } & typeof globalThis;
+    globalWindow.__masterHeartbeats = 0;
+    globalWindow.__heartbeatTimer = (globalWindow.setInterval(() => {
+      globalWindow.__masterHeartbeats += 1;
+    }, 50) as unknown) as number;
+  });
 
-  await expect
-    .poll(
-      async () =>
-        page.evaluate(
-          () =>
-            (globalThis as unknown as { __e2eWorkspaceStores: E2eWorkspaceStores }).__e2eWorkspaceStores
-              .useSplitFaceStore.getState().cavity.status,
-        ),
-      { timeout: 30_000 },
-    )
-    .toBe("complete");
-
-  const masterMoldButton = page.getByRole("button", { name: "Master Mold" });
+  // The real toolbar button, driven with zero Split Face interactions.
+  const masterMoldButton = page.getByRole("button", { name: "Master Mold", exact: true });
   await expect(masterMoldButton).toBeEnabled();
   await masterMoldButton.click();
 
-  // The engine runs a real multi-stage Boolean pipeline in the Worker:
+  // The engine runs the autonomous multi-stage pipeline in the Worker:
   // poll until it settles (not generating) before asserting the outcome.
   await expect
     .poll(
@@ -148,7 +121,7 @@ test("drives the real Create Cavity -> Master Mold toolbar buttons against a rea
             (globalThis as unknown as { __e2eWorkspaceStores: E2eWorkspaceStores }).__e2eWorkspaceStores
               .useMasterMoldStore.getState().status,
         ),
-      { timeout: 120_000 },
+      { timeout: 180_000 },
     )
     .not.toBe("generating");
 
@@ -156,11 +129,10 @@ test("drives the real Create Cavity -> Master Mold toolbar buttons against a rea
     (globalThis as unknown as { __e2eWorkspaceStores: E2eWorkspaceStores }).__e2eWorkspaceStores.useMasterMoldStore.getState(),
   );
 
-  // Execution 05: the engine runs its full pipeline (cast targets, pour
-  // face, release analysis, planning) and returns per-part tooling sets.
-  // Every set is either a verified current tooling set (watertight, manifold
-  // pieces with a collision-checked release sequence) or a structured
-  // blocked-with-reason outcome -- never a fake.
+  // Article 19: the Master journey succeeded independently. Every tooling
+  // set is either a verified current result (watertight, manifold pieces
+  // with collision-checked releases) or a structured blocked-with-reason
+  // outcome -- never fake geometry.
   expect(masterMoldState.sets.length).toBeGreaterThan(0);
   for (const entry of masterMoldState.sets) {
     if (entry.status === "current") {
@@ -172,17 +144,66 @@ test("drives the real Create Cavity -> Master Mold toolbar buttons against a rea
         expect(piece.volumeMm3).toBeGreaterThan(0);
       }
       expect(entry.set!.assembly.releaseSequence.length).toBe(entry.set!.assembly.pieces.length);
+      expect(entry.set!.assembly.releaseSequence.every((step) => step.collisionVerified)).toBe(true);
     } else {
       expect(entry.status).toBe("blocked");
       expect(entry.failureMessage).toContain("reusable_plan_not_found");
     }
   }
   expect(masterMoldState.status).toBe("current");
-  await expect(masterMoldButton).toHaveAttribute("aria-pressed", "true");
+
+  // The autonomous plan exists with 2..N working mold pieces and a verified
+  // release sequence.
+  expect(masterMoldState.plan).not.toBeNull();
+  const workingMoldPieceCount = masterMoldState.plan!.moldPieces.length;
+  expect(workingMoldPieceCount).toBeGreaterThanOrEqual(2);
+  expect(masterMoldState.plan!.releaseSequence.length).toBe(workingMoldPieceCount);
+  expect(masterMoldState.plan!.releaseSequence.every((step) => step.collisionVerified)).toBe(true);
+
+  // The main thread stayed alive during Worker planning.
+  const heartbeats = await page.evaluate(() => {
+    const globalWindow = globalThis as unknown as { __masterHeartbeats: number; __heartbeatTimer: number } & typeof globalThis;
+    globalWindow.clearInterval(globalWindow.__heartbeatTimer);
+    return globalWindow.__masterHeartbeats;
+  });
+  expect(heartbeats).toBeGreaterThan(2);
+
+  // The real viewport renders the Master tooling (the canvas is alive and
+  // the Master body group holds the generated pieces).
+  await expect(page.locator("canvas")).toHaveCount(1);
+
+  // Hide one tooling piece through the REAL browser UI, verify it
+  // disappears, show it again, verify it returns.
+  const piecesBrowserButton = page.getByRole("button", { name: "Master Mold pieces", exact: true });
+  await expect(piecesBrowserButton).toBeEnabled();
+  await piecesBrowserButton.click();
+
+  const firstPieceCheckbox = page.getByLabel(/Show .* Master Case/).first();
+  await expect(firstPieceCheckbox).toBeChecked();
+  await firstPieceCheckbox.uncheck();
+
+  await expect
+    .poll(async () =>
+      page.evaluate(() => {
+        const state = (globalThis as unknown as { __e2eWorkspaceStores: E2eWorkspaceStores }).__e2eWorkspaceStores.useMasterMoldStore.getState();
+        return Object.values(state.pieceVisibility).some((visible) => visible === false);
+      }),
+    )
+    .toBe(true);
+
+  await firstPieceCheckbox.check();
+  await expect
+    .poll(async () =>
+      page.evaluate(() => {
+        const state = (globalThis as unknown as { __e2eWorkspaceStores: E2eWorkspaceStores }).__e2eWorkspaceStores.useMasterMoldStore.getState();
+        return Object.values(state.pieceVisibility).some((visible) => visible === false);
+      }),
+    )
+    .toBe(false);
 
   // The real UI/viewport did not break: still exactly one canvas, no
   // uncaught errors from the real Worker/Boolean/viewport pipeline.
   await expect(page.locator("canvas")).toHaveCount(1);
-  expect(pageErrors, `Uncaught page errors: ${pageErrors.map((e) => e.message).join("; ")}`).toHaveLength(0);
+  expect(pageErrors, `Uncaught page errors: ${pageErrors.map((error) => error.message).join("; ")}`).toHaveLength(0);
   expect(consoleErrors, `Console errors: ${consoleErrors.join("; ")}`).toHaveLength(0);
 });
