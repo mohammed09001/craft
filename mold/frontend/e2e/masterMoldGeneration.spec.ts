@@ -74,6 +74,27 @@ test("runs the real Master Mold Engine through the production Worker path in Chr
   ).toHaveLength(0);
 });
 
+test("keeps Chromium responsive during a high-poly Master Mold Worker run", async ({ page }) => {
+  await page.goto("/e2e-harness.html");
+  await page.waitForFunction(() => typeof (globalThis as { __masterMoldHighPolyProbe?: unknown }).__masterMoldHighPolyProbe === "function");
+  await page.evaluate(() => {
+    const target = globalThis as { __highPolyHeartbeats?: number; __highPolyTimer?: number } & typeof globalThis;
+    target.__highPolyHeartbeats = 0;
+    target.__highPolyTimer = (globalThis.setInterval(() => { target.__highPolyHeartbeats = (target.__highPolyHeartbeats ?? 0) + 1; }, 50) as unknown) as number;
+  });
+  const result = await page.evaluate(() => (globalThis as unknown as { __masterMoldHighPolyProbe: () => Promise<MasterMoldProbeResult> }).__masterMoldHighPolyProbe());
+  const heartbeats = await page.evaluate(() => {
+    const target = globalThis as { __highPolyHeartbeats: number; __highPolyTimer: number } & typeof globalThis;
+    globalThis.clearInterval(target.__highPolyTimer);
+    return target.__highPolyHeartbeats;
+  });
+  expect(result.error, `High-poly probe reported an error: ${result.error}`).toBeNull();
+  expect(result.ok).toBe(true);
+  expect(result.watertight).toBe(true);
+  expect(result.manifold).toBe(true);
+  expect(heartbeats).toBeGreaterThan(2);
+});
+
 // Mirrors MasterMoldRealisticWorkflowResult in
 // src/test-harness/masterMoldRealisticWorkflowProbe.ts.
 interface MasterMoldRealisticWorkflowResult {

@@ -38,11 +38,11 @@ function makeSet(moldPartId: string, fingerprint = "fp-1"): MasterToolingSet {
     moldPartName: `Working Mold ${moldPartId}`,
     castTargetVersion: "ctv-1",
     sourceSignature: "sig-1",
-    pourFaceDecision: { selected: "+Z", castingOrientation: "+Z", score: 0, candidates: [], fillabilityWarnings: [] },
+    pourFaceDecision: { selected: "+Z", castingOrientation: "+Z", score: 0, candidates: [], fillabilityWarnings: [], ventPlan: { status: "clear", features: [], unresolvedRecommendations: [] } },
     accessibility: { directions: [], onePieceReleaseFeasible: true },
     releaseMode: "one-piece",
     partingSurfaces: [],
-    assembly: { pieces: [], registrationFeatures: [], releaseSequence: [] },
+    assembly: { pieces: [], registrationFeatures: [], coreMode: "split", releaseSequence: [] },
     warnings: [],
     fingerprint,
   };
@@ -65,7 +65,7 @@ function makeResult(sets: MasterToolingSet[], overrides: Record<string, unknown>
     plan: null,
     workingMoldPieceCount: 2,
     warningCount: 0,
-    budget: { workingMoldConstructionAttempts: 1, toolingExactPlanAttempts: 2, limitsExceeded: [] },
+    budget: { candidateDirectionCount: 0, planningPatchCount: 0, workingMoldPlanCandidateCount: 0, workingMoldConstructionAttempts: 1, pourFaceAnalysisAttempts: 0, ventAnalysisAttempts: 0, toolingOnePieceAttempts: 0, toolingMultiPieceAttempts: 0, toolingExactPlanAttempts: 2, releaseVerificationAttempts: 0, limitsExceeded: [] },
     seedId: "seed-1",
     ...overrides,
   };

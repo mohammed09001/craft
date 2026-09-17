@@ -62,6 +62,28 @@ async function buildDeterministicRequest(): Promise<MasterMoldRequest> {
   return { operationId: "e2e-master-mold-probe", generationVersion: 1, seed, priorSets: [] };
 }
 
+async function buildHighPolyRequest(): Promise<MasterMoldRequest> {
+  const module = await getManifoldModule();
+  const partSolid = module.Manifold.sphere(15, 64);
+  const partMesh = payloadFromManifold(partSolid);
+  const partBounds = boundsFromManifold(partSolid);
+  partSolid.delete();
+  const seed = buildMasterMoldSeedSnapshot({
+    sourcePartGeometry: {
+      modelId: "e2e-high-poly-model",
+      positions: partMesh.positions,
+      indices: partMesh.indices,
+      transform: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+      localBounds: partBounds,
+      geometryVersion: "e2e-high-poly:1",
+      sourceSignature: "e2e-high-poly-sig:1",
+    },
+    printerBuildVolume: null,
+    projectRevision: "e2e-high-poly-rev",
+  });
+  return { operationId: "e2e-master-mold-high-poly", generationVersion: 1, seed, priorSets: [] };
+}
+
 async function runMasterMoldProbe(): Promise<MasterMoldProbeResult> {
   try {
     const request = await buildDeterministicRequest();
@@ -95,10 +117,28 @@ async function runMasterMoldProbe(): Promise<MasterMoldProbeResult> {
   }
 }
 
+async function runHighPolyProbe(): Promise<MasterMoldProbeResult> {
+  try {
+    const result: MasterMoldResult = await runMasterMoldGenerationInWorker(await buildHighPolyRequest());
+    const set = result.sets[0]?.set ?? null;
+    const piece = set?.assembly.pieces[0] ?? null;
+    return {
+      ok: true, error: null, setCount: result.sets.length,
+      releaseMode: set?.releaseMode ?? null, pieceCount: set?.assembly.pieces.length ?? null,
+      pourFace: set?.pourFaceDecision.selected ?? null, pieceVolumeMm3: piece?.volumeMm3 ?? null,
+      watertight: piece?.watertight ?? null, manifold: piece?.manifold ?? null,
+    };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error), setCount: null, releaseMode: null, pieceCount: null, pourFace: null, pieceVolumeMm3: null, watertight: null, manifold: null };
+  }
+}
+
 declare global {
   interface Window {
     __masterMoldProbe: () => Promise<MasterMoldProbeResult>;
+    __masterMoldHighPolyProbe: () => Promise<MasterMoldProbeResult>;
   }
 }
 
 window.__masterMoldProbe = runMasterMoldProbe;
+window.__masterMoldHighPolyProbe = runHighPolyProbe;

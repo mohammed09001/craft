@@ -32,7 +32,7 @@ vi.mock("./masterMoldGeneration.workerClient", () => ({
       plan: null,
       workingMoldPieceCount: 1,
       warningCount: 0,
-      budget: { workingMoldConstructionAttempts: 1, toolingExactPlanAttempts: 1, limitsExceeded: [] },
+      budget: { candidateDirectionCount: 0, planningPatchCount: 0, workingMoldPlanCandidateCount: 0, workingMoldConstructionAttempts: 1, pourFaceAnalysisAttempts: 0, ventAnalysisAttempts: 0, toolingOnePieceAttempts: 0, toolingMultiPieceAttempts: 0, toolingExactPlanAttempts: 1, releaseVerificationAttempts: 0, limitsExceeded: [] },
       seedId: "seed",
     }),
   ),

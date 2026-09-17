@@ -31,11 +31,12 @@ import type {
 import { MASTER_MOLD_PROGRESS_STAGES } from "./contracts";
 import { planPourFace } from "./pourFace";
 import { analyzeSurfaceAccessibility } from "./releaseAnalysis";
-import { planMultiPieceTooling } from "./multiPiecePlanner";
+import { planLocalizedRemovableCore, planMultiPieceTooling } from "./multiPiecePlanner";
 import {
   caseEnvelopeFor,
   constructCasePiece,
   pieceFromConstructed,
+  safeVentPathsFor,
   toolingParametersFromProfile,
   toolingTolerancePolicy,
   validateAssembledNegative,
@@ -117,7 +118,19 @@ export async function runMasterMoldEngine(
   const started = Date.now();
   const failures: MasterMoldFailure[] = [];
   const warnings: PlanningWarning[] = [];
-  const budget: MasterMoldBudgetReport = { workingMoldConstructionAttempts: 0, toolingExactPlanAttempts: 0, limitsExceeded: [] };
+  const budget: MasterMoldBudgetReport = {
+    candidateDirectionCount: 0,
+    planningPatchCount: 0,
+    workingMoldPlanCandidateCount: 0,
+    workingMoldConstructionAttempts: 0,
+    pourFaceAnalysisAttempts: 0,
+    ventAnalysisAttempts: 0,
+    toolingOnePieceAttempts: 0,
+    toolingMultiPieceAttempts: 0,
+    toolingExactPlanAttempts: 0,
+    releaseVerificationAttempts: 0,
+    limitsExceeded: [],
+  };
   const emit = (stage: MasterMoldProgressStageName, detail: string | null) => {
     hooks.onStage?.({
       stage,
@@ -141,9 +154,11 @@ export async function runMasterMoldEngine(
       bounds: seed.sourceBounds,
       sourceGeometryVersion: seed.sourceGeometryVersion,
     });
+    budget.planningPatchCount = planningMesh.patches.length;
     throwIfCancelled(hooks);
     emit("building_accessibility", `${planningMesh.patches.length} patches`);
     const directions = generateCandidateDirections(planningMesh, seed.sourceMesh.positions);
+    budget.candidateDirectionCount = directions.length;
     let analysis = analyzeDirectionAccessibility(seed.sourceMesh, planningMesh, directions);
     const pruned = pruneDirections(analysis.directions, analysis, planningMesh, MASTER_PLANNER_LIMITS.maxCandidateDirections);
     analysis = pruned.analysis;
@@ -169,6 +184,7 @@ export async function runMasterMoldEngine(
     analysis,
     maxWorkingMoldPieces: maxPieces,
   });
+  budget.workingMoldPlanCandidateCount = decomposition?.finalists.length ?? 0;
   if (decomposition === null) {
     return {
       seedId: seed.seedId,
@@ -190,6 +206,7 @@ export async function runMasterMoldEngine(
   // Stage C: exact construction of the shortlisted decomposition.
   emit("constructing_working_mold", `${decomposition.candidate.pieceCount} pieces`);
   let construction = null;
+  let constructionFinalist: (typeof decomposition.finalists)[number] | null = null;
   let constructionError: Error | null = null;
   for (const finalist of decomposition.finalists) {
     throwIfCancelled(hooks);
@@ -210,6 +227,7 @@ export async function runMasterMoldEngine(
               },
         })),
       });
+      constructionFinalist = finalist;
       break;
     } catch (error) {
       constructionError = error instanceof Error ? error : new Error(String(error));
@@ -293,7 +311,7 @@ export async function runMasterMoldEngine(
   const plan: AutoWorkingMoldPlan = {
     sourceGeometryVersion: seed.sourceGeometryVersion,
     moldPieces: pieceTargets,
-    partingInterfaces: decomposition.finalists[0]?.interfaces ?? [],
+    partingInterfaces: constructionFinalist?.interfaces ?? decomposition.finalists[0]?.interfaces ?? [],
     releaseSequence: construction.releaseSequence,
     registrationPlan: construction.registrationPlan,
     warnings,
@@ -371,7 +389,10 @@ async function buildToolingSetForWorkingMoldPiece(
     geometryToleranceMm: parameters.geometryToleranceMm,
     userOverride: null,
   });
+  budget.pourFaceAnalysisAttempts += 1;
+  budget.ventAnalysisAttempts += pourFaceDecision.candidates.filter((candidate) => candidate.valid).length;
   warnings.push(...pourFaceDecision.fillabilityWarnings);
+  warnings.push(...pourFaceDecision.ventPlan.unresolvedRecommendations.map((recommendation) => recommendation.message));
   if (pourFaceDecision.selected === null) {
     throw new Error("no valid pour face: every candidate was rejected by hard constraints.");
   }
@@ -395,6 +416,7 @@ async function buildToolingSetForWorkingMoldPiece(
       return { ...attempt.set, warnings: [...warnings, ...attempt.set.warnings] };
     }
     lastFailure = attempt.rejection;
+    if (attempt.rejection.includes("budget")) recordLimit(budget, "tooling_exact_plan");
   }
 
   if (!seed.processProfile.sacrificialToolingPermitted) {
@@ -417,10 +439,14 @@ async function attemptCaseForPourFace(
   const parameters = context.parameters;
   const warnings: string[] = [];
 
-  const onePiece = await attemptOnePiece(castTarget, pourFace, parameters);
-  let releaseMode: MasterToolingSet["releaseMode"];
-  let pieces: readonly MasterToolingPiece[];
-  let releaseSequence: MasterToolingSet["assembly"]["releaseSequence"];
+  budget.toolingOnePieceAttempts += 1;
+  budget.releaseVerificationAttempts += 1;
+  const onePiece = await attemptOnePiece(castTarget, pourFace, parameters, pourFaceDecision.ventPlan.unresolvedRecommendations);
+  let releaseMode: MasterToolingSet["releaseMode"] = "multi-piece";
+  let pieces: readonly MasterToolingPiece[] = [];
+  let releaseSequence: MasterToolingSet["assembly"]["releaseSequence"] = [];
+  let coreMode: MasterToolingSet["assembly"]["coreMode"] = "split";
+  let ventFeatures: MasterToolingSet["pourFaceDecision"]["ventPlan"]["features"] = [];
   let registrationFeatures: MasterToolingSet["assembly"]["registrationFeatures"] = [];
   let partingSurfaces: MasterToolingSet["partingSurfaces"] = [];
 
@@ -428,15 +454,19 @@ async function attemptCaseForPourFace(
     releaseMode = "one-piece";
     pieces = onePiece.pieces;
     releaseSequence = onePiece.releaseSequence;
+    ventFeatures = onePiece.ventFeatures;
     const buildVolume = context.buildVolume;
     if (buildVolume !== null && !pieces.every((piece) => fitsBuildVolumeFor(piece, buildVolume))) {
       warnings.push("one-piece case exceeds the printer build volume; multi-piece partition attempted.");
-      const multi = await planMultiPieceTooling(castTarget, pourFace, parameters, negativeTool.mesh, assignedDirection, negativeTool.bounds, context.buildVolume ?? undefined);
+      budget.toolingMultiPieceAttempts += 1;
+      const multi = await planMultiPieceTooling(castTarget, pourFace, parameters, negativeTool.mesh, assignedDirection, negativeTool.bounds, context.buildVolume ?? undefined, pourFaceDecision.ventPlan.unresolvedRecommendations);
       budget.toolingExactPlanAttempts += 1;
       if (multi.plan !== null && multi.plan.pieces.every((piece) => fitsBuildVolumeFor(piece, buildVolume))) {
         releaseMode = "multi-piece";
         pieces = multi.plan.pieces;
         releaseSequence = multi.plan.releaseSequence;
+        coreMode = multi.plan.coreMode;
+        ventFeatures = multi.plan.ventFeatures;
         registrationFeatures = multi.plan.registrationFeatures;
         partingSurfaces = [multi.plan.partingSurface];
         if (multi.plan.registrationNote !== null) warnings.push(multi.plan.registrationNote);
@@ -446,7 +476,39 @@ async function attemptCaseForPourFace(
     }
   } else {
     // One-piece failure is planning evidence, never product failure.
-    const multi = await planMultiPieceTooling(castTarget, pourFace, parameters, negativeTool.mesh, assignedDirection, negativeTool.bounds, context.buildVolume ?? undefined);
+    let localizedPlanAccepted = false;
+    // Dense meshes already consume the exact-search budget and are not a
+    // reliable signal for a localized lock. Keep the local-core primitive
+    // available for bounded, feature-scale targets without adding a second
+    // expensive search to the high-poly responsiveness path.
+    if (negativeTool.mesh !== null && parameters.maxToolingPieces >= 2 && castTarget.mesh.indices.length / 3 <= 2000) {
+      const localized = await planLocalizedRemovableCore(
+        castTarget,
+        pourFace,
+        parameters,
+        negativeTool.mesh,
+        assignedDirection,
+        context.buildVolume ?? undefined,
+        pourFaceDecision.ventPlan.unresolvedRecommendations,
+      );
+      budget.toolingExactPlanAttempts += 1;
+      if (localized.plan !== null) {
+        localizedPlanAccepted = true;
+        releaseMode = "multi-piece";
+        pieces = localized.plan.pieces;
+        releaseSequence = localized.plan.releaseSequence;
+        coreMode = localized.plan.coreMode;
+        ventFeatures = localized.plan.ventFeatures;
+        registrationFeatures = localized.plan.registrationFeatures;
+        partingSurfaces = [localized.plan.partingSurface];
+        warnings.push(localized.plan.registrationNote ?? "localized removable core selected after one-piece release failure.");
+      }
+    }
+    if (localizedPlanAccepted) {
+      // A localized core is a complete, independently verified tooling plan.
+    } else {
+    budget.toolingMultiPieceAttempts += 1;
+    const multi = await planMultiPieceTooling(castTarget, pourFace, parameters, negativeTool.mesh, assignedDirection, negativeTool.bounds, context.buildVolume ?? undefined, pourFaceDecision.ventPlan.unresolvedRecommendations);
     budget.toolingExactPlanAttempts += 1;
     if (multi.plan === null) {
       return { set: null, rejection: `${pourFace}: ${multi.rejectionReason ?? "unverified"}` };
@@ -458,9 +520,12 @@ async function attemptCaseForPourFace(
     releaseMode = "multi-piece";
     pieces = multi.plan.pieces;
     releaseSequence = multi.plan.releaseSequence;
+    coreMode = multi.plan.coreMode;
+    ventFeatures = multi.plan.ventFeatures;
     registrationFeatures = multi.plan.registrationFeatures;
     partingSurfaces = [multi.plan.partingSurface];
     if (multi.plan.registrationNote !== null) warnings.push(multi.plan.registrationNote);
+    }
   }
 
   const fingerprint = hashStableValues({
@@ -479,11 +544,22 @@ async function attemptCaseForPourFace(
       moldPartName: castTarget.moldPartName,
       castTargetVersion: castTarget.geometryVersion,
       sourceSignature: toolingSetInputSignature(seed, castTarget.moldPartId, castTarget.geometryVersion),
-      pourFaceDecision: { ...pourFaceDecision, selected: pourFace },
+      pourFaceDecision: {
+        ...pourFaceDecision,
+        selected: pourFace,
+        ventPlan: {
+          ...pourFaceDecision.ventPlan,
+          features: ventFeatures,
+          unresolvedRecommendations: pourFaceDecision.ventPlan.unresolvedRecommendations.filter(
+            (recommendation) => !ventFeatures.some((feature) => feature.featureId === recommendation.recommendationId),
+          ),
+          status: ventFeatures.length === pourFaceDecision.ventPlan.unresolvedRecommendations.length ? "clear" : "user-review",
+        },
+      },
       accessibility,
       releaseMode,
       partingSurfaces,
-      assembly: { pieces, registrationFeatures, releaseSequence },
+      assembly: { pieces, registrationFeatures, coreMode, releaseSequence },
       warnings,
       fingerprint: `master-tooling-set:${fingerprint}`,
     },
@@ -497,6 +573,10 @@ function fitsBuildVolumeFor(piece: MasterToolingPiece, buildVolume: { readonly x
     piece.bounds.max.y - piece.bounds.min.y <= buildVolume.y &&
     piece.bounds.max.z - piece.bounds.min.z <= buildVolume.z
   );
+}
+
+function recordLimit(budget: MasterMoldBudgetReport, limit: string): void {
+  if (!budget.limitsExceeded.includes(limit)) budget.limitsExceeded.push(limit);
 }
 
 function sacrificialOutcome(
@@ -516,7 +596,7 @@ function sacrificialOutcome(
     accessibility,
     releaseMode: "sacrificial-recommended",
     partingSurfaces: [],
-    assembly: { pieces: [], registrationFeatures: [], releaseSequence: [] },
+    assembly: { pieces: [], registrationFeatures: [], coreMode: "split", releaseSequence: [] },
     warnings: [...warnings, `reusable_plan_not_found → sacrificial_release_recommended: ${reason}`],
     fingerprint: `master-tooling-set:sacrificial:${castTarget.geometryVersion}`,
   };
@@ -527,7 +607,8 @@ async function attemptOnePiece(
   castTarget: MasterCastTarget,
   pourFace: MasterMoldDirection,
   parameters: ReturnType<typeof toolingParametersFromProfile>,
-): Promise<{ readonly pieces: readonly MasterToolingPiece[]; readonly releaseSequence: MasterToolingSet["assembly"]["releaseSequence"] } | null> {
+  recommendations: MasterToolingSet["pourFaceDecision"]["ventPlan"]["unresolvedRecommendations"],
+): Promise<{ readonly pieces: readonly MasterToolingPiece[]; readonly releaseSequence: MasterToolingSet["assembly"]["releaseSequence"]; readonly ventFeatures: MasterToolingSet["pourFaceDecision"]["ventPlan"]["features"] } | null> {
   const module = await getManifoldModule();
   const caseBounds = caseEnvelopeFor(castTarget.bounds, pourFace, parameters.caseWallThicknessMm, parameters.caseBaseThicknessMm);
   const policy = toolingTolerancePolicy(caseBounds);
@@ -535,11 +616,12 @@ async function attemptOnePiece(
   const axis = axisOf(pourFace);
   const sweepClearanceMm =
     (caseBounds.max[axis] - caseBounds.min[axis]) * TOOLING_ONE_PIECE_SWEEP_SAFETY_FACTOR;
+  const ventFeatures = safeVentPathsFor(castTarget.bounds, caseBounds, castTarget.bounds, recommendations, parameters.caseWallThicknessMm);
 
   const targetSolid = manifoldFromPayload(module, castTarget.mesh, policy.booleanToleranceMm);
   let constructed;
   try {
-    constructed = await constructCasePiece({ castTarget, pourFace, parameters, coreToolMesh: null, coreMode: "split" });
+    constructed = await constructCasePiece({ castTarget, pourFace, parameters, coreToolMesh: null, coreMode: "split", ventPaths: ventFeatures });
   } catch {
     targetSolid.delete();
     return null;
@@ -556,6 +638,7 @@ async function attemptOnePiece(
     const piece = pieceFromConstructed("piece-1", `${castTarget.moldPartName} Master Case`, constructed, releaseDirection, ["one-piece"]);
     return {
       pieces: [piece],
+      ventFeatures,
       releaseSequence: [
         { stepIndex: 0, pieceId: piece.pieceId, direction: releaseDirection, clearanceDistanceMm: sweepClearanceMm, collisionVerified: true },
       ],

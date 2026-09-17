@@ -95,7 +95,7 @@ function applyTransformToPositions(
   return world;
 }
 
-function worldBoundsFromLocal(localBounds: Bounds3, transform: readonly number[]): Bounds3 {
+export function worldBoundsFromLocal(localBounds: Bounds3, transform: readonly number[]): Bounds3 {
   let minX = Infinity;
   let minY = Infinity;
   let minZ = Infinity;
@@ -120,6 +120,15 @@ function worldBoundsFromLocal(localBounds: Bounds3, transform: readonly number[]
   return { min: { x: minX, y: minY, z: minZ }, max: { x: maxX, y: maxY, z: maxZ } };
 }
 
+export function masterSourceGeometryVersion(input: {
+  readonly geometryVersion: string;
+  readonly localBounds: Bounds3;
+  readonly transform: readonly number[];
+}): string {
+  const bounds = worldBoundsFromLocal(input.localBounds, input.transform);
+  return `master-seed-mesh:${hashStableValues({ local: input.geometryVersion, transform: input.transform, bounds })}`;
+}
+
 /**
  * Assembles the seed snapshot from authoritative imported-part truth only.
  * Fails fast on non-finite/empty geometry -- the engine's later stages assume
@@ -141,7 +150,11 @@ export function buildMasterMoldSeedSnapshot(input: MasterMoldSeedInput): MasterM
   const userPreferences = input.userPreferences ?? DEFAULT_MASTER_MOLD_PLANNING_PREFERENCES;
   const positions = applyTransformToPositions(geometry.positions, geometry.transform);
   const bounds = worldBoundsFromLocal(geometry.localBounds, geometry.transform);
-  const sourceGeometryVersion = `master-seed-mesh:${hashStableValues({ local: geometry.geometryVersion, transform: geometry.transform, bounds })}`;
+  const sourceGeometryVersion = masterSourceGeometryVersion({
+    geometryVersion: geometry.geometryVersion,
+    localBounds: geometry.localBounds,
+    transform: geometry.transform,
+  });
 
   const seedId = hashStableValues({
     schemaVersion: MASTER_MOLD_SEED_SCHEMA_VERSION,

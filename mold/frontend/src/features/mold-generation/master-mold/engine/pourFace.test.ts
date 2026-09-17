@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { MasterCastTarget } from "./contracts";
 import { candidateDirections, detectSealedHighPockets, planPourFace } from "./pourFace";
+import { safeVentPathsFor } from "./toolingConstruction";
 
 function boxTarget(bounds: MasterCastTarget["bounds"], withTunnel = false): MasterCastTarget {
   const { min, max } = bounds;
@@ -56,6 +57,8 @@ describe("Pour-Face Planner (Execution 05 Article 07)", () => {
     expect(a.selected).not.toBeNull();
     expect(a.selected).toBe(b.selected);
     expect(a.candidates.every((candidate) => candidate.valid === (candidate.rejectionReason === null))).toBe(true);
+    expect(a.ventPlan.status).toBe("clear");
+    expect(a.ventPlan.unresolvedRecommendations).toEqual([]);
   });
 
   it("rejects a pour face that cuts through functional cavity geometry", () => {
@@ -89,5 +92,22 @@ describe("Pour-Face Planner (Execution 05 Article 07)", () => {
   it("reports no obvious sealed pockets for a plain convex target", () => {
     const target = boxTarget(unitBounds);
     expect(detectSealedHighPockets(target, "+Z")).toBe(0);
+  });
+
+  it("creates only outward vent candidates from a protected boundary", () => {
+    const target = { min: { x: 0, y: 0, z: 0 }, max: { x: 40, y: 40, z: 40 } };
+    const paths = safeVentPathsFor(
+      target,
+      { min: { x: -3, y: -3, z: -3 }, max: { x: 43, y: 43, z: 43 } },
+      target,
+      [
+        { recommendationId: "boundary", pocketPosition: { x: 20, y: 20, z: 40 } },
+        { recommendationId: "interior", pocketPosition: { x: 20, y: 20, z: 20 } },
+      ],
+      3,
+    );
+    expect(paths).toHaveLength(1);
+    expect(paths[0]!.start.z).toBe(40);
+    expect(paths[0]!.end.z).toBeGreaterThan(paths[0]!.start.z);
   });
 });

@@ -50,6 +50,11 @@ interface E2eWorkspaceStores {
   };
 }
 
+interface MasterViewportObservation {
+  readonly groupPresent: boolean;
+  readonly meshCount: number;
+}
+
 /**
  * Master Mold Execution 06, Article 19: the real user journey is
  * Master-ONLY. The test imports a real STL through the real file input and
@@ -147,10 +152,17 @@ test("drives the real Master-ONLY journey: import STL -> Master Mold -> verified
       expect(entry.set!.assembly.releaseSequence.every((step) => step.collisionVerified)).toBe(true);
     } else {
       expect(entry.status).toBe("blocked");
-      expect(entry.failureMessage).toContain("reusable_plan_not_found");
+      expect(entry.failureMessage).toMatch(/reusable_plan_not_found|working-mold plan survived exact verification/);
     }
   }
   expect(masterMoldState.status).toBe("current");
+
+  const viewportObservation = await page.evaluate<MasterViewportObservation | null>(() =>
+    (globalThis as unknown as { __e2eMasterMoldViewport?: MasterViewportObservation }).__e2eMasterMoldViewport ?? null,
+  );
+  expect(viewportObservation).not.toBeNull();
+  expect(viewportObservation!.groupPresent).toBe(true);
+  expect(viewportObservation!.meshCount).toBeGreaterThan(0);
 
   // The autonomous plan exists with 2..N working mold pieces and a verified
   // release sequence.

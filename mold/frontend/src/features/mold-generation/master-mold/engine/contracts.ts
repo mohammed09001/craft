@@ -157,6 +157,31 @@ export interface MasterPourFaceDecision {
   readonly score: number;
   readonly candidates: readonly MasterPourFaceCandidate[];
   readonly fillabilityWarnings: readonly string[];
+  /** Structured vent result: geometry is emitted only when a safe path is proven. */
+  readonly ventPlan: MasterVentPlan;
+}
+
+export interface MasterVentRecommendation {
+  readonly recommendationId: string;
+  readonly kind: "vent_required_user_review";
+  readonly target: "cast-target";
+  readonly pocketIndex: number;
+  readonly pocketPosition: { readonly x: number; readonly y: number; readonly z: number };
+  readonly message: string;
+}
+
+export interface MasterVentFeature {
+  readonly featureId: string;
+  readonly kind: "vent";
+  readonly start: { readonly x: number; readonly y: number; readonly z: number };
+  readonly end: { readonly x: number; readonly y: number; readonly z: number };
+  readonly radiusMm: number;
+}
+
+export interface MasterVentPlan {
+  readonly status: "clear" | "user-review";
+  readonly features: readonly MasterVentFeature[];
+  readonly unresolvedRecommendations: readonly MasterVentRecommendation[];
 }
 
 /** A direction from which a tooling surface region can move away from the cast target without crossing it (Execution 05 Article 08). */
@@ -239,6 +264,8 @@ export interface MasterReleaseStep {
 export interface MasterToolingAssembly {
   readonly pieces: readonly MasterToolingPiece[];
   readonly registrationFeatures: readonly MasterToolingRegistrationFeature[];
+  /** Core construction provenance for split tooling. */
+  readonly coreMode: "split" | "full-negative" | "full-positive" | "localized-removable-core";
   readonly releaseSequence: readonly MasterReleaseStep[];
 }
 
@@ -313,8 +340,16 @@ export interface MasterMoldProgressStage {
 
 /** Execution 06 Article 13.4: observable budget accounting (the engine reports when it reaches a planning budget). */
 export interface MasterMoldBudgetReport {
+  candidateDirectionCount: number;
+  planningPatchCount: number;
+  workingMoldPlanCandidateCount: number;
   workingMoldConstructionAttempts: number;
+  pourFaceAnalysisAttempts: number;
+  ventAnalysisAttempts: number;
+  toolingOnePieceAttempts: number;
+  toolingMultiPieceAttempts: number;
   toolingExactPlanAttempts: number;
+  releaseVerificationAttempts: number;
   readonly limitsExceeded: string[];
 }
 

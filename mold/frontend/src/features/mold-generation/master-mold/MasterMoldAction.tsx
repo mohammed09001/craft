@@ -5,7 +5,7 @@ import toolbarStyles from "../shared/MoldToolbar.module.css";
 import { useCuttingWorkflowStore } from "../cutting-workflow";
 import { usePrinterBuildVolumeStore } from "@/features/viewport/printerBuildVolume.store";
 import { useMasterMoldStore } from "./masterMold.store";
-import { buildMasterMoldSeedSnapshot, DEFAULT_MASTER_MOLD_PLANNING_PREFERENCES, masterSeedStalenessIdentity, type MasterSeedGeometryInput } from "./seed/masterMoldSeed";
+import { buildMasterMoldSeedSnapshot, DEFAULT_MASTER_MOLD_PLANNING_PREFERENCES, masterSeedStalenessIdentity, masterSourceGeometryVersion, type MasterSeedGeometryInput } from "./seed/masterMoldSeed";
 import { GENERIC_RIGID_CAST_PROFILE } from "./engine/contracts";
 import type { MasterMoldProgressStageName } from "./engine/contracts";
 
@@ -75,7 +75,11 @@ export function MasterMoldAction({
   const liveIdentity = useMemo(() => {
     if (sourcePartGeometry === undefined || sourcePartGeometry === null) return null;
     return masterSeedStalenessIdentity({
-      sourceGeometryVersion: sourcePartGeometry.sourceSignature,
+      sourceGeometryVersion: masterSourceGeometryVersion({
+        geometryVersion: sourcePartGeometry.geometryVersion,
+        localBounds: sourcePartGeometry.localBounds,
+        transform: sourcePartGeometry.transform,
+      }),
       printerBuildVolume,
       processProfile: GENERIC_RIGID_CAST_PROFILE,
       userPreferences: DEFAULT_MASTER_MOLD_PLANNING_PREFERENCES,

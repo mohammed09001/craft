@@ -3,13 +3,15 @@ import type { MasterMoldDirection } from "../masterMold.contracts";
 import { axisOf, DIRECTION_VECTORS } from "../masterMoldDirection.analyzer";
 import { MASTER_MOLD_DIRECTIONS } from "../masterMold.contracts";
 import { getManifoldModule, manifoldFromPayload, boundsFromManifold, createBlankSolid, payloadFromManifold, type ManifoldSolid } from "../../geometry/manifold";
+import { meshTopology } from "../../geometry/meshTopology";
 import type { GeometryTolerancePolicy } from "../../geometry/geometryTolerance";
 import type { MoldMeshPayload } from "../../reference-mold-definition/orthogonalMold";
-import type { MasterCastTarget, MasterPartingSurface, MasterReleaseStep, MasterToolingPiece, MasterToolingPull, MasterToolingRegistrationFeature } from "./contracts";
+import type { MasterCastTarget, MasterPartingSurface, MasterReleaseStep, MasterToolingPiece, MasterToolingPull, MasterToolingRegistrationFeature, MasterVentFeature, MasterVentRecommendation } from "./contracts";
 import {
   applyToolingRegistration,
   constructCasePiece,
   pieceFromConstructed,
+  safeVentPathsFor,
   TOOLING_CONSTRUCTION_LIMITS,
   toolingTolerancePolicy,
   type CoreAssignmentMode,
@@ -67,8 +69,12 @@ export const PLAN_COST_WEIGHTS = {
 export interface MultiPiecePlan {
   readonly pieces: readonly MasterToolingPiece[];
   readonly partingSurface: MasterPartingSurface;
+  /** Core construction provenance: identifies which side owns a removable core volume. */
+  readonly coreMode: CoreAssignmentMode;
   readonly releaseSequence: readonly MasterReleaseStep[];
   readonly registrationFeatures: readonly MasterToolingRegistrationFeature[];
+  /** Vent paths that survived final panel construction and release proof. */
+  readonly ventFeatures: readonly MasterVentFeature[];
   /** Non-null when the panel count exceeded what automatic registration can safely align (Article 10: explicit, never silent). */
   readonly registrationNote: string | null;
   readonly cost: number;
@@ -77,6 +83,127 @@ export interface MultiPiecePlan {
 export interface MultiPiecePlanAttempt {
   readonly plan: MultiPiecePlan | null;
   readonly rejectionReason: string | null;
+}
+
+/**
+ * Attempts a localized removable insert before escalating a locked target to
+ * a global panel decomposition. The insert is a real target sub-solid: the
+ * case keeps the complete cavity, the insert is removed first, and both
+ * motions are checked against the final Manifold solids.
+ */
+export async function planLocalizedRemovableCore(
+  castTarget: MasterCastTarget,
+  pourFace: MasterMoldDirection,
+  parameters: MasterToolingParameters,
+  coreToolMesh: MoldMeshPayload,
+  assignedDirection?: { readonly x: number; readonly y: number; readonly z: number },
+  buildVolume?: { readonly x: number; readonly y: number; readonly z: number },
+  ventRecommendations: readonly MasterVentRecommendation[] = [],
+): Promise<MultiPiecePlanAttempt> {
+  const module = await getManifoldModule();
+  const policy = toolingTolerancePolicy(caseEnvelopeFor(castTarget.bounds, pourFace, parameters.caseWallThicknessMm, parameters.caseBaseThicknessMm));
+  const target = manifoldFromPayload(module, castTarget.mesh, policy.booleanToleranceMm);
+  let shell: Awaited<ReturnType<typeof constructCasePiece>> | null = null;
+  try {
+    const caseBounds = caseEnvelopeFor(castTarget.bounds, pourFace, parameters.caseWallThicknessMm, parameters.caseBaseThicknessMm);
+    const ventFeatures = safeVentPathsFor(castTarget.bounds, caseBounds, castTarget.bounds, ventRecommendations, parameters.caseWallThicknessMm);
+    try {
+      shell = await constructCasePiece({ castTarget, pourFace, parameters, coreToolMesh: null, coreMode: "split", ventPaths: ventFeatures });
+    } catch {
+      return { plan: null, rejectionReason: "localized_core_case_construction_failed" };
+    }
+    const volumeTolerance = Math.max(policy.affectedVolumeToleranceMm3, castTarget.volumeMm3 * 1e-3);
+    const span = {
+      x: castTarget.bounds.max.x - castTarget.bounds.min.x,
+      y: castTarget.bounds.max.y - castTarget.bounds.min.y,
+      z: castTarget.bounds.max.z - castTarget.bounds.min.z,
+    };
+    // A removable core is a bounded fallback, not a second exhaustive
+    // planner. Feature-derived levels are already ordered by relevance; keep
+    // only the first few and the most promising pull vectors.
+    const pullCandidates = (['+X', '+Y', '+Z'] as const).flatMap((axis) => pullCandidatesFor(axis, assignedDirection)).slice(0, 6);
+    for (const split of candidateSplits(castTarget, coreToolMesh).slice(0, 4)) {
+      const axis = axisOf(split.axis);
+      const localMin = { ...castTarget.bounds.min };
+      const localMax = { ...castTarget.bounds.max };
+      const axisWidth = span[axis] * 0.35;
+      const transverseAxes = (["x", "y", "z"] as const).filter((candidate) => candidate !== axis);
+      localMin[axis] = Math.max(castTarget.bounds.min[axis], split.coordinateMm - axisWidth / 2);
+      localMax[axis] = Math.min(castTarget.bounds.max[axis], split.coordinateMm + axisWidth / 2);
+      for (const transverse of transverseAxes) {
+        const width = span[transverse] * 0.6;
+        const midpoint = (castTarget.bounds.min[transverse] + castTarget.bounds.max[transverse]) / 2;
+        localMin[transverse] = midpoint - width / 2;
+        localMax[transverse] = midpoint + width / 2;
+      }
+      const region = createBlankSolid(module, { min: localMin, max: localMax });
+      let core: ManifoldSolid | null = null;
+      let remaining: ManifoldSolid | null = null;
+      try {
+        core = target.intersect(region);
+        const coreVolume = core.volume();
+        if (core.isEmpty() || coreVolume <= volumeTolerance || coreVolume >= castTarget.volumeMm3 * 0.45) continue;
+        remaining = target.subtract(core);
+        for (const pull of pullCandidates) {
+          const coreProof = verifyDemoldTranslationByVector(shell.solid, core, pull.vector, span[axis] * 1.25 + parameters.caseWallThicknessMm * 2, policy.surfaceToleranceMm, volumeTolerance, { coarseSampleCount: 12 });
+          if (!coreProof.removable) continue;
+          const shellProof = verifyDemoldTranslationByVector(shell.solid, remaining, pull.vector, span[axis] * 1.25 + parameters.caseWallThicknessMm * 2, policy.surfaceToleranceMm, volumeTolerance, { coarseSampleCount: 12 });
+          if (!shellProof.removable) continue;
+          const contact = shell.solid.intersect(core);
+          try {
+            if (contact.volume() > volumeTolerance) continue;
+          } finally {
+            contact.delete();
+          }
+          const coreMesh = payloadFromManifold(core);
+          const coreBounds = boundsFromManifold(core);
+          const coreTopology = meshTopology(coreMesh);
+          const corePiece: MasterToolingPiece = {
+            pieceId: "piece-localized-removable-core",
+            name: `${castTarget.moldPartName} Localized Removable Core`,
+            mesh: coreMesh,
+            bounds: coreBounds,
+            volumeMm3: coreVolume,
+            triangleCount: coreMesh.indices.length / 3,
+            watertight: coreTopology.openEdgeCount === 0,
+            manifold: coreTopology.openEdgeCount === 0 && coreTopology.nonManifoldEdgeCount === 0,
+            releaseDirection: pull.pull,
+            ...(pull.oblique ? { directionVector: { x: pull.vector[0], y: pull.vector[1], z: pull.vector[2] } } : {}),
+            regions: ["localized-removable-core"],
+            toolingRegistrationFeatureIds: [],
+            fitsBuildVolume: buildVolume === undefined || (coreBounds.max.x - coreBounds.min.x <= buildVolume.x && coreBounds.max.y - coreBounds.min.y <= buildVolume.y && coreBounds.max.z - coreBounds.min.z <= buildVolume.z),
+          };
+          const shellPiece = pieceFromConstructed("piece-case-shell", `${castTarget.moldPartName} Case Shell`, shell, pull.pull, ["case-shell"], [], pull.oblique ? { x: pull.vector[0], y: pull.vector[1], z: pull.vector[2] } : undefined);
+          if (!corePiece.fitsBuildVolume || (buildVolume !== undefined && !shellPiece.fitsBuildVolume)) continue;
+          const clearance = span[axis] * 1.25 + parameters.caseWallThicknessMm * 2;
+          return {
+            plan: {
+              pieces: [corePiece, shellPiece],
+              partingSurface: { kind: "planar", axis: split.axis, coordinateMm: split.coordinateMm },
+              coreMode: "localized-removable-core",
+              releaseSequence: [
+                { stepIndex: 0, pieceId: corePiece.pieceId, direction: pull.pull, ...(pull.oblique ? { directionVector: { x: pull.vector[0], y: pull.vector[1], z: pull.vector[2] } } : {}), clearanceDistanceMm: clearance, collisionVerified: true },
+                { stepIndex: 1, pieceId: shellPiece.pieceId, direction: pull.pull, ...(pull.oblique ? { directionVector: { x: pull.vector[0], y: pull.vector[1], z: pull.vector[2] } } : {}), clearanceDistanceMm: clearance, collisionVerified: true },
+              ],
+              registrationFeatures: [],
+              ventFeatures,
+              registrationNote: "localized removable core is removed before the case shell; no panel interface alignment is required.",
+              cost: 0,
+            },
+            rejectionReason: null,
+          };
+        }
+      } finally {
+        remaining?.delete();
+        core?.delete();
+        region.delete();
+      }
+    }
+    return { plan: null, rejectionReason: "no_localized_core_release_sequence_verified" };
+  } finally {
+    shell?.solid.delete();
+    target.delete();
+  }
 }
 
 interface CandidateSplit {
@@ -135,7 +262,7 @@ export function flipDirection(direction: MasterMoldDirection): MasterMoldDirecti
   return MASTER_MOLD_DIRECTIONS[index ^ 1]!;
 }
 
-interface CaseChunk {
+export interface CaseChunk {
   readonly solid: ManifoldSolid;
   readonly bounds: ReturnType<typeof boundsFromManifold>;
   readonly volumeMm3: number;
@@ -233,7 +360,7 @@ async function bisectChunk(module: Awaited<ReturnType<typeof getManifoldModule>>
   return results.length >= 2 ? results : null;
 }
 
-interface SequencedChunk {
+export interface SequencedChunk {
   readonly chunk: CaseChunk;
   readonly pull: PullCandidate;
 }
@@ -365,6 +492,7 @@ export async function attemptRecursiveSplit(
   assignedDirection?: { readonly x: number; readonly y: number; readonly z: number },
   functionalBounds?: { readonly min: { readonly x: number; readonly y: number; readonly z: number }; readonly max: { readonly x: number; readonly y: number; readonly z: number } },
   buildVolume?: { readonly x: number; readonly y: number; readonly z: number },
+  ventRecommendations: readonly MasterVentRecommendation[] = [],
 ): Promise<MultiPiecePlanAttempt> {
   const module = await getManifoldModule();
   const policy = toolingTolerancePolicy(caseEnvelopeFor(castTarget.bounds, pourFace, parameters.caseWallThicknessMm, parameters.caseBaseThicknessMm));
@@ -374,11 +502,13 @@ export async function attemptRecursiveSplit(
   const budget: ChunkBudget = { sweeps: 0 };
   const plannerSweepOptions = { coarseSampleCount: MULTI_PIECE_PLANNER_LIMITS.plannerSweepSamples };
   const pullCandidates = pullCandidatesFor(split.axis, assignedDirection);
+  const caseBounds = caseEnvelopeFor(castTarget.bounds, pourFace, parameters.caseWallThicknessMm, parameters.caseBaseThicknessMm);
+  const ventFeatures = safeVentPathsFor(castTarget.bounds, caseBounds, castTarget.bounds, ventRecommendations, parameters.caseWallThicknessMm);
 
   const targetSolid = manifoldFromPayload(module, castTarget.mesh, policy.booleanToleranceMm);
   let positivePiece;
   try {
-    positivePiece = await constructCasePiece({ castTarget, pourFace, parameters, split: { axis: split.axis, coordinateMm: split.coordinateMm, side: "positive" }, coreToolMesh, coreMode });
+    positivePiece = await constructCasePiece({ castTarget, pourFace, parameters, split: { axis: split.axis, coordinateMm: split.coordinateMm, side: "positive" }, coreToolMesh, coreMode, ventPaths: ventFeatures });
   } catch {
     targetSolid.delete();
     return { plan: null, rejectionReason: "positive_piece_construction_failed" };
@@ -386,7 +516,7 @@ export async function attemptRecursiveSplit(
 
   let negativePiece;
   try {
-    negativePiece = await constructCasePiece({ castTarget, pourFace, parameters, split: { axis: split.axis, coordinateMm: split.coordinateMm, side: "negative" }, coreToolMesh, coreMode });
+    negativePiece = await constructCasePiece({ castTarget, pourFace, parameters, split: { axis: split.axis, coordinateMm: split.coordinateMm, side: "negative" }, coreToolMesh, coreMode, ventPaths: ventFeatures });
   } catch {
     positivePiece.solid.delete();
     targetSolid.delete();
@@ -465,7 +595,6 @@ export async function attemptRecursiveSplit(
     try {
       overlap = assembled.intersect(target);
       const overlapVolumeMm3 = overlap.volume();
-      const caseBounds = caseEnvelopeFor(castTarget.bounds, pourFace, parameters.caseWallThicknessMm, parameters.caseBaseThicknessMm);
       const envelopeVolume =
         (caseBounds.max.x - caseBounds.min.x) *
         (caseBounds.max.y - caseBounds.min.y) *
@@ -537,7 +666,16 @@ export async function attemptRecursiveSplit(
       for (const chunk of registeredChunks) chunk.solid.delete();
     }
   } else {
-    registrationNote = `${sequence.length}-panel tooling requires user-managed alignment; automatic pins cover single planar pairs only.`;
+    const registration = await registerMultiPanelInterfaces(
+      module,
+      castTarget,
+      sequence,
+      parameters,
+      policy,
+      volumeTolerance,
+      sweepClearanceMm,
+    );
+    registrationFeatures = registration.features;
     pieces = sequence.map((entry, index) =>
       pieceFromConstructed(`piece-panel-${index + 1}`, `${castTarget.moldPartName} Tooling Panel ${index + 1}`, {
         mesh: payloadFromManifold(entry.chunk.solid),
@@ -545,8 +683,14 @@ export async function attemptRecursiveSplit(
         volumeMm3: entry.chunk.volumeMm3,
         triangleCount: 0,
         solid: entry.chunk.solid.asOriginal(),
-      }, entry.pull.pull, [`${split.axis}`], [], entry.pull.oblique ? { x: entry.pull.vector[0], y: entry.pull.vector[1], z: entry.pull.vector[2] } : undefined),
+      }, entry.pull.pull, [`${split.axis}`], registrationFeatures.filter((feature) => feature.malePieceId === `piece-panel-${index + 1}`).map((feature) => feature.featureId), entry.pull.oblique ? { x: entry.pull.vector[0], y: entry.pull.vector[1], z: entry.pull.vector[2] } : undefined),
     );
+    const interfaces = touchingPanelPairs(pieces);
+    const registeredInterfaces = new Set(registrationFeatures.map((feature) => `${feature.malePieceId.replace("piece-panel-", "panel-")}:${feature.femalePieceId.replace("piece-panel-", "panel-")}`));
+    const uncovered = interfaces.filter((pair) => !registeredInterfaces.has(pair));
+    registrationNote = uncovered.length === 0 && registrationFeatures.length > 0
+      ? null
+      : `automatic alignment registration remains unresolved on interfaces ${(uncovered.length > 0 ? uncovered : interfaces).join(", ")}; ${registration.failureReason ?? "user-managed alignment is required until each pair's release corridor is proven."}.`;
   }
 
   for (const chunk of chunks) chunk.solid.delete();
@@ -581,13 +725,179 @@ export async function attemptRecursiveSplit(
     plan: {
       pieces,
       partingSurface: { kind: "planar", axis: split.axis, coordinateMm: split.coordinateMm },
+      coreMode,
       releaseSequence,
       registrationFeatures,
+      ventFeatures,
       registrationNote,
       cost,
     },
     rejectionReason: null,
   };
+}
+
+function touchingPanelPairs(pieces: readonly MasterToolingPiece[]): string[] {
+  const toleranceMm = 1e-3;
+  const pairs: string[] = [];
+  const axes = ["x", "y", "z"] as const;
+  for (let i = 0; i < pieces.length; i += 1) {
+    for (let j = i + 1; j < pieces.length; j += 1) {
+      const a = pieces[i]!.bounds;
+      const b = pieces[j]!.bounds;
+      const touching = axes.some((axis) =>
+        Math.abs(a.max[axis] - b.min[axis]) <= toleranceMm || Math.abs(b.max[axis] - a.min[axis]) <= toleranceMm,
+      );
+      const overlapOnOtherAxes = axes.every((axis) => {
+        if (Math.abs(a.max[axis] - b.min[axis]) <= toleranceMm || Math.abs(b.max[axis] - a.min[axis]) <= toleranceMm) return true;
+        return Math.min(a.max[axis], b.max[axis]) - Math.max(a.min[axis], b.min[axis]) > toleranceMm;
+      });
+      if (touching && overlapOnOtherAxes) pairs.push(`panel-${i + 1}:panel-${j + 1}`);
+    }
+  }
+  return pairs;
+}
+
+interface PanelInterfaceCandidate {
+  readonly first: number;
+  readonly second: number;
+  readonly axis: "x" | "y" | "z";
+  readonly inset: number;
+}
+
+function panelInterfaceCandidates(sequence: readonly SequencedChunk[]): PanelInterfaceCandidate[] {
+  const candidates: PanelInterfaceCandidate[] = [];
+  const axes = ["x", "y", "z"] as const;
+  for (let first = 0; first < sequence.length; first += 1) {
+    for (let second = first + 1; second < sequence.length; second += 1) {
+      const a = sequence[first]!.chunk.bounds;
+      const b = sequence[second]!.chunk.bounds;
+      for (const axis of axes) {
+        const touching = Math.abs(a.max[axis] - b.min[axis]) <= 1e-3 || Math.abs(b.max[axis] - a.min[axis]) <= 1e-3;
+        const others = axes.filter((candidate) => candidate !== axis);
+        const overlap = others.every((other) => Math.min(a.max[other], b.max[other]) - Math.max(a.min[other], b.min[other]) > 1e-3);
+        if (touching && overlap) {
+          for (const inset of [0.1, 0.9]) {
+            candidates.push({ first, second, axis, inset });
+          }
+          break;
+        }
+      }
+    }
+  }
+  return candidates;
+}
+
+export async function registerMultiPanelInterfaces(
+  module: Awaited<ReturnType<typeof getManifoldModule>>,
+  castTarget: MasterCastTarget,
+  sequence: SequencedChunk[],
+  parameters: MasterToolingParameters,
+  policy: GeometryTolerancePolicy,
+  volumeTolerance: number,
+  sweepClearanceMm: number,
+): Promise<{ readonly features: MasterToolingRegistrationFeature[]; readonly failureReason: string | null }> {
+  // Start at the smallest profile-safe cylindrical key. Larger keys are more
+  // likely to enter a release corridor or thin the case wall; this solver is
+  // allowed to succeed only when the final geometry proves the feature safe.
+  const radiusMm = Math.min(TOOLING_CONSTRUCTION_LIMITS.registrationPinRadiusMm, parameters.caseWallThicknessMm / 2, 0.1);
+  if (radiusMm < 0.1) return { features: [], failureReason: "registration key is below the minimum printable radius." };
+  const targetSolid = manifoldFromPayload(module, castTarget.mesh, policy.booleanToleranceMm);
+  const features: MasterToolingRegistrationFeature[] = [];
+  let failureReason: string | null = null;
+  try {
+    for (const candidate of panelInterfaceCandidates(sequence)) {
+      if (features.some((feature) => feature.malePieceId === `piece-panel-${candidate.first + 1}` && feature.femalePieceId === `piece-panel-${candidate.second + 1}`)) continue;
+      const first = sequence[candidate.first]!.chunk;
+      const second = sequence[candidate.second]!.chunk;
+      const overlapMin = {
+        x: Math.max(first.bounds.min.x, second.bounds.min.x),
+        y: Math.max(first.bounds.min.y, second.bounds.min.y),
+        z: Math.max(first.bounds.min.z, second.bounds.min.z),
+      };
+      const overlapMax = {
+        x: Math.min(first.bounds.max.x, second.bounds.max.x),
+        y: Math.min(first.bounds.max.y, second.bounds.max.y),
+        z: Math.min(first.bounds.max.z, second.bounds.max.z),
+      };
+      const center = {
+        x: overlapMin.x + (overlapMax.x - overlapMin.x) * candidate.inset,
+        y: overlapMin.y + (overlapMax.y - overlapMin.y) * candidate.inset,
+        z: overlapMin.z + (overlapMax.z - overlapMin.z) * candidate.inset,
+      };
+      // Registration belongs on the printable case/flange, not in the
+      // functional cavity. When the overlap sample lands inside the target,
+      // move it deterministically to the corresponding outer corner of the
+      // panel envelope while retaining the interface coordinate below.
+      const transverseAxes = (["x", "y", "z"] as const).filter((axis) => axis !== candidate.axis);
+      for (const axis of transverseAxes) {
+        const insideTarget = center[axis] > castTarget.bounds.min[axis] + radiusMm && center[axis] < castTarget.bounds.max[axis] - radiusMm;
+        if (insideTarget) {
+          const outerMin = Math.min(first.bounds.min[axis], second.bounds.min[axis]) + radiusMm;
+          const outerMax = Math.max(first.bounds.max[axis], second.bounds.max[axis]) - radiusMm;
+          center[axis] = candidate.inset < 0.5 ? outerMin : outerMax;
+        }
+      }
+      const firstOnMinSide = Math.abs(first.bounds.max[candidate.axis] - second.bounds.min[candidate.axis]) <= 1e-3;
+      const interfaceCoordinate = firstOnMinSide
+        ? (first.bounds.max[candidate.axis] + second.bounds.min[candidate.axis]) / 2
+        : (second.bounds.max[candidate.axis] + first.bounds.min[candidate.axis]) / 2;
+      const direction = { x: 0, y: 0, z: 0 };
+      direction[candidate.axis] = firstOnMinSide ? 1 : -1;
+      // A spherical key has no preferred sliding axis, so it remains
+      // releasable when adjacent panels have oblique or differing pull
+      // vectors. Its center is on the interface, giving the male panel a
+      // genuine hemispherical overlap and the female panel an exact socket.
+      center[candidate.axis] = interfaceCoordinate - direction[candidate.axis] * radiusMm / 2;
+      const pinSphere = module.Manifold.sphere(radiusMm, TOOLING_CONSTRUCTION_LIMITS.registrationPinSegments);
+      const pin = pinSphere.translate(center.x, center.y, center.z);
+      pinSphere.delete();
+      const beforeFirst = first.solid.asOriginal();
+      const beforeSecond = second.solid.asOriginal();
+      try {
+        const newFirst = first.solid.add(pin);
+        const newSecond = second.solid.subtract(pin);
+        first.solid.delete();
+        second.solid.delete();
+        (first as { solid: ManifoldSolid; bounds: ReturnType<typeof boundsFromManifold>; volumeMm3: number }).solid = newFirst;
+        (second as { solid: ManifoldSolid; bounds: ReturnType<typeof boundsFromManifold>; volumeMm3: number }).solid = newSecond;
+        (first as { bounds: ReturnType<typeof boundsFromManifold>; volumeMm3: number }).bounds = boundsFromManifold(newFirst);
+        (second as { bounds: ReturnType<typeof boundsFromManifold>; volumeMm3: number }).bounds = boundsFromManifold(newSecond);
+        (first as { volumeMm3: number }).volumeMm3 = newFirst.volume();
+        (second as { volumeMm3: number }).volumeMm3 = newSecond.volume();
+
+        let verified = true;
+        for (let entryIndex = 0; entryIndex < sequence.length && verified; entryIndex += 1) {
+          const entry = sequence[entryIndex]!;
+          const targetProof = verifyDemoldTranslationByVector(targetSolid, entry.chunk.solid, entry.pull.vector, sweepClearanceMm, policy.surfaceToleranceMm, volumeTolerance);
+          if (!targetProof.removable) { failureReason ??= `panel-${entryIndex + 1} intersects the cast target at ${targetProof.firstCollisionDistanceMm?.toFixed(3) ?? "unknown"} mm`; verified = false; break; }
+          for (let siblingIndex = entryIndex + 1; siblingIndex < sequence.length; siblingIndex += 1) {
+            const siblingProof = verifyDemoldTranslationByVector(sequence[siblingIndex]!.chunk.solid, entry.chunk.solid, entry.pull.vector, sweepClearanceMm, policy.surfaceToleranceMm, volumeTolerance);
+            if (!siblingProof.removable) { failureReason ??= `panel-${entryIndex + 1} collides with panel-${siblingIndex + 1} at ${siblingProof.firstCollisionDistanceMm?.toFixed(3) ?? "unknown"} mm`; verified = false; break; }
+          }
+        }
+        if (!verified) {
+          first.solid.delete(); second.solid.delete();
+          (first as { solid: ManifoldSolid }).solid = beforeFirst;
+          (second as { solid: ManifoldSolid }).solid = beforeSecond;
+          continue;
+        }
+        features.push({
+          featureId: `multi-panel-pin-${candidate.first}-${candidate.second}-${candidate.inset}`,
+          kind: "pin",
+          malePieceId: `piece-panel-${candidate.first + 1}`,
+          femalePieceId: `piece-panel-${candidate.second + 1}`,
+        });
+      } finally {
+        pin.delete();
+        if (first.solid !== beforeFirst && second.solid !== beforeSecond) {
+          beforeFirst.delete(); beforeSecond.delete();
+        }
+      }
+    }
+  } finally {
+    targetSolid.delete();
+  }
+  return { features, failureReason };
 }
 
 /**
@@ -606,6 +916,7 @@ export async function planMultiPieceTooling(
   assignedDirection?: { readonly x: number; readonly y: number; readonly z: number },
   functionalBounds?: { readonly min: { readonly x: number; readonly y: number; readonly z: number }; readonly max: { readonly x: number; readonly y: number; readonly z: number } },
   buildVolume?: { readonly x: number; readonly y: number; readonly z: number },
+  ventRecommendations: readonly MasterVentRecommendation[] = [],
 ): Promise<MultiPiecePlanAttempt> {
   let lastRejection: string | null = null;
   const maxPieces = Math.min(parameters.maxToolingPieces, MULTI_PIECE_PLANNER_LIMITS.absoluteMaxToolingPieces);
@@ -619,13 +930,16 @@ export async function planMultiPieceTooling(
       }
       axisAttempts += 1;
       const modes: CoreAssignmentMode[] = coreToolMesh === null ? ["split"] : [...MULTI_PIECE_PLANNER_LIMITS.coreModes];
-      const attempt = await attemptRecursiveSplit(castTarget, pourFace, split, parameters, coreToolMesh, modes[0]!, maxPieces, assignedDirection, functionalBounds, buildVolume);
-      if (attempt.plan !== null) {
-        return attempt;
+      for (const mode of modes) {
+        const attempt = await attemptRecursiveSplit(castTarget, pourFace, split, parameters, coreToolMesh, mode, maxPieces, assignedDirection, functionalBounds, buildVolume, ventRecommendations);
+        if (attempt.plan !== null) {
+          return attempt;
+        }
+        lastRejection = attempt.rejectionReason;
       }
-      lastRejection = attempt.rejectionReason;
       // A construction failure is evidence about the split plane, not about
-      // deeper partitions: try the next split for this axis.
+      // deeper partitions: try the next split for this axis. Core modes are
+      // bounded alternatives for the same candidate, not new split attempts.
     }
   }
 

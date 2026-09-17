@@ -7,6 +7,13 @@ import { applyMoldBodyMeshAppearance, createMoldBodyMesh } from "@/features/view
 import { resolveCadTheme } from "@/features/viewport/runtime/viewportVisualTheme";
 import type { ViewportPalette } from "@/features/viewport/viewport.contracts";
 
+declare global {
+  interface Window {
+    /** E2E-only observation of the actual Three.js Master group; never used by production UI. */
+    __e2eMasterMoldViewport?: { readonly groupPresent: boolean; readonly meshCount: number };
+  }
+}
+
 /**
  * Article 02: a stale Master Mold body must read as a ghosted holdover, not
  * a manufacturable result -- deliberately much more transparent than the
@@ -59,6 +66,14 @@ export const createMasterMoldBody3dRuntime = (
   let bodyIdentity: string | null = null;
   const featureEdges = createFeatureEdgeOverlay();
 
+  const publishE2eObservation = () => {
+    if (typeof window === "undefined" || import.meta.env.MODE !== "e2e") return;
+    window.__e2eMasterMoldViewport = {
+      groupPresent: group.parent !== null,
+      meshCount: group.children.filter((child) => child instanceof Mesh).length,
+    };
+  };
+
   const disposeMaterials = (material: Material | Material[]) => {
     (Array.isArray(material) ? material : [material]).forEach((entry) => entry.dispose());
   };
@@ -78,6 +93,7 @@ export const createMasterMoldBody3dRuntime = (
       });
       child.removeFromParent();
     }
+    publishE2eObservation();
   };
 
   /**
@@ -137,6 +153,7 @@ export const createMasterMoldBody3dRuntime = (
 
     featureEdges.updateFromMoldMeshes(moldMeshes);
     group.add(featureEdges.group);
+    publishE2eObservation();
     invalidate();
   };
 

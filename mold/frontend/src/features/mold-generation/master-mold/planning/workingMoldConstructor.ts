@@ -158,6 +158,60 @@ interface RegistrationPlacement {
   readonly direction: PlanningVector3;
 }
 
+function verifyWorkingMoldRelease(
+  input: WorkingMoldConstructionInput,
+  envelopeBounds: Bounds3,
+  policy: ReturnType<typeof buildGeometryTolerancePolicy>,
+  volumeTolerance: number,
+  partSolid: ManifoldSolid,
+  carved: readonly ManifoldSolid[],
+): WorkingMoldReleaseStep[] {
+  const releaseSequence: WorkingMoldReleaseStep[] = [];
+  const remaining = new Set<number>(carved.keys());
+  for (const pieceIndex of [...carved.keys()].reverse()) {
+      const direction = input.pieces[pieceIndex]!.releaseDirection;
+      const clearance = sweepClearance(envelopeBounds, direction);
+      const planeDirection = input.pieces[pieceIndex]!.plane?.direction ?? null;
+      const candidateDirections = [
+        direction,
+        ...(planeDirection === null ? [] : [planeDirection, { x: -planeDirection.x, y: -planeDirection.y, z: -planeDirection.z }]),
+        { x: -direction.x, y: -direction.y, z: -direction.z },
+      ];
+      let remainingUnion: ManifoldSolid | null = null;
+      try {
+      for (const siblingIndex of remaining) {
+        if (siblingIndex === pieceIndex) continue;
+        const sibling = carved[siblingIndex]!;
+        remainingUnion = remainingUnion === null ? sibling.asOriginal() : remainingUnion.add(sibling);
+      }
+      const verifies = (candidate: readonly [number, number, number]): boolean => {
+        const vsPart = verifyDemoldTranslationByVector(partSolid, carved[pieceIndex]!, candidate, clearance, policy.surfaceToleranceMm, volumeTolerance);
+        const vsSiblings = remainingUnion === null
+          ? { removable: true }
+          : verifyDemoldTranslationByVector(remainingUnion, carved[pieceIndex]!, candidate, clearance, policy.surfaceToleranceMm, volumeTolerance);
+        return vsPart.removable && vsSiblings.removable;
+      };
+      const verifiedDirection = candidateDirections.find((candidate) =>
+        verifies([candidate.x, candidate.y, candidate.z]),
+      ) ?? null;
+      if (verifiedDirection === null) {
+        throw new Error(`working mold piece ${pieceIndex + 1} cannot release along either polarity of its final registered direction.`);
+      }
+      remaining.delete(pieceIndex);
+      releaseSequence.push({
+        stepIndex: releaseSequence.length,
+        pieceIndex,
+        direction: verifiedDirection,
+        clearanceDistanceMm: clearance,
+        collisionVerified: true,
+      });
+    } finally {
+      remainingUnion?.delete();
+    }
+  }
+  return releaseSequence;
+}
+
 /**
  * Candidate pin placements on each prism interface. Strict region rule: a
  * pin for piece i is placed only where the point lies behind every OTHER
@@ -265,20 +319,27 @@ async function placeWorkingMoldRegistration(
   input: WorkingMoldConstructionInput,
   envelopeBounds: Bounds3,
   policy: ReturnType<typeof buildGeometryTolerancePolicy>,
+  volumeTolerance: number,
+  partSolid: ManifoldSolid,
   carved: ManifoldSolid[],
 ): Promise<WorkingMoldRegistrationPlan> {
   const features: WorkingMoldRegistrationFeature[] = [];
+  const originals = carved.map((solid) => solid.asOriginal());
   const radius = Math.min(REGISTRATION_PIN_RADIUS_MM, input.minimumToolingWallMm);
   if (radius < 1) {
+    for (const original of originals) original.delete();
     return { features, reason: "walls too thin for working-mold alignment pins" };
   }
-  const pinHeightMm = radius * 4;
+  // Keep engagement local to the interface. A full-span pin can cross a
+  // neighbouring release corridor even when its centre is interference-safe.
+  const pinHeightMm = radius * 2;
   const placements = candidatePlacements(input, envelopeBounds, radius, policy.surfaceToleranceMm, pinHeightMm);
 
   const perPiecePlaced = new Map<number, number>();
   for (const placement of placements) {
     const placed = perPiecePlaced.get(placement.pieceIndex) ?? 0;
     if (placed >= 2) continue;
+    const beforePlacement = carved.map((solid) => solid.asOriginal());
     const male = cylinderPayload(placement.direction, placement.center, radius, pinHeightMm);
     const maleSolid = manifoldFromPayload(module, male, policy.booleanToleranceMm);
     try {
@@ -288,9 +349,17 @@ async function placeWorkingMoldRegistration(
       const withSocket = carved[placement.siblingIndex]!.subtract(maleSolid);
       carved[placement.siblingIndex]!.delete();
       carved[placement.siblingIndex] = withSocket;
+      try {
+        verifyWorkingMoldRelease(input, envelopeBounds, policy, volumeTolerance, partSolid, carved);
+      } catch {
+        for (const solid of carved) solid.delete();
+        carved.splice(0, carved.length, ...beforePlacement);
+        continue;
+      }
     } finally {
       maleSolid.delete();
     }
+    for (const solid of beforePlacement) solid.delete();
     features.push({
       featureId: `wm-pin-${placement.pieceIndex}-${placed}`,
       interfaceId: `wm-interface-plane-${placement.pieceIndex}`,
@@ -306,6 +375,7 @@ async function placeWorkingMoldRegistration(
   const prismPieces = input.pieces.filter((piece) => piece.plane !== null).length;
   for (let pieceIndex = 0; pieceIndex < prismPieces; pieceIndex += 1) {
     if (!features.some((feature) => feature.malePieceIndex === pieceIndex)) {
+      for (const original of originals) original.delete();
       return {
         features,
         reason: `no interference-safe working-mold pin placement on interface ${pieceIndex}`,
@@ -313,8 +383,21 @@ async function placeWorkingMoldRegistration(
     }
   }
   if (features.length === 0) {
+    for (const original of originals) original.delete();
     return { features, reason: "no planar working-mold interface available for pins" };
   }
+
+  try {
+    verifyWorkingMoldRelease(input, envelopeBounds, policy, volumeTolerance, partSolid, carved);
+  } catch (error) {
+    for (const solid of carved) solid.delete();
+    carved.splice(0, carved.length, ...originals);
+    return {
+      features: [],
+      reason: `automatic alignment features rejected by final release verification: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+  for (const original of originals) original.delete();
   return { features, reason: null };
 }
 
@@ -368,44 +451,18 @@ export async function constructWorkingMold(input: WorkingMoldConstructionInput):
       carved.push(region.subtract(negativeTool));
     }
 
-    // Release verification in reverse assignment order (innermost region
-    // first): each carved piece sweeps against the part AND the remaining
-    // assembled siblings.
-    const releaseSequence: WorkingMoldReleaseStep[] = [];
-    const remaining = new Set<number>(carved.keys());
-    for (const pieceIndex of [...carved.keys()].reverse()) {
-      const direction = input.pieces[pieceIndex]!.releaseDirection;
-      const clearance = sweepClearance(envelopeBounds, direction);
-      const directionTuple = [direction.x, direction.y, direction.z] as const;
-      let remainingUnion: ManifoldSolid | null = null;
-      try {
-        for (const siblingIndex of remaining) {
-          if (siblingIndex === pieceIndex) continue;
-          const sibling = carved[siblingIndex]!;
-          remainingUnion = remainingUnion === null ? sibling.asOriginal() : remainingUnion.add(sibling);
-        }
-        const vsPart = verifyDemoldTranslationByVector(partSolid, carved[pieceIndex]!, directionTuple, clearance, policy.surfaceToleranceMm, volumeTolerance);
-        const vsSiblings = remainingUnion === null
-          ? { removable: true }
-          : verifyDemoldTranslationByVector(remainingUnion, carved[pieceIndex]!, directionTuple, clearance, policy.surfaceToleranceMm, volumeTolerance);
-        if (!vsPart.removable || !vsSiblings.removable) {
-          throw new Error(`working mold piece ${pieceIndex + 1} cannot release along its planned direction.`);
-        }
-        remaining.delete(pieceIndex);
-        releaseSequence.push({
-          stepIndex: releaseSequence.length,
-          pieceIndex,
-          direction,
-          clearanceDistanceMm: clearance,
-          collisionVerified: true,
-        });
-      } finally {
-        remainingUnion?.delete();
-      }
-    }
+    // Registration mutates the carved solids. It must happen before any
+    // release or assembly proof so those proofs describe the geometry that
+    // will actually be emitted to the rest of the product.
+    const registrationPlan = await placeWorkingMoldRegistration(module, input, envelopeBounds, policy, volumeTolerance, partSolid, carved);
 
-    // Assembled-negative invariant on the carved pieces: union(pieces) ∩ part
-    // ≈ 0 and envelope − union(pieces) − part ≈ 0.
+    // Release verification in reverse assignment order (innermost region
+    // first): each FINAL registered piece sweeps against the part AND the
+    // remaining assembled siblings.
+    const releaseSequence = verifyWorkingMoldRelease(input, envelopeBounds, policy, volumeTolerance, partSolid, carved);
+
+    // Assembled-negative invariant on the FINAL registered pieces: union(pieces)
+    // ∩ part ≈ 0 and envelope − union(pieces) − part ≈ 0.
     let assembled: ManifoldSolid | null = null;
     let overlap: ManifoldSolid | null = null;
     try {
@@ -414,7 +471,7 @@ export async function constructWorkingMold(input: WorkingMoldConstructionInput):
       }
       overlap = assembled!.intersect(partSolid);
       if (overlap.volume() > volumeTolerance) {
-        throw new Error("assembled working mold intersects the source part.");
+        throw new Error("assembled registered working mold intersects the source part.");
       }
       const envelopeVolume =
         (envelopeBounds.max.x - envelopeBounds.min.x) *
@@ -422,14 +479,12 @@ export async function constructWorkingMold(input: WorkingMoldConstructionInput):
         (envelopeBounds.max.z - envelopeBounds.min.z);
       const complement = envelopeVolume - assembled!.volume() - partSolid.volume();
       if (Math.abs(complement) > Math.max(volumeTolerance, partSolid.volume() * 1e-3)) {
-        throw new Error("assembled working mold does not tile its envelope.");
+        throw new Error("assembled registered working mold does not tile its envelope.");
       }
     } finally {
       overlap?.delete();
       assembled?.delete();
     }
-
-    const registrationPlan = await placeWorkingMoldRegistration(module, input, envelopeBounds, policy, carved);
 
     const targets: WorkingMoldPieceTarget[] = [];
     for (let index = 0; index < carved.length; index += 1) {

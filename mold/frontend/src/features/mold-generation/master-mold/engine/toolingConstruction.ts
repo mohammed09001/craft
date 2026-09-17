@@ -13,7 +13,7 @@ import { meshTopology } from "../../geometry/meshTopology";
 import { cylinderPrismPayload, directionIdToVector } from "../../geometry/meshPrimitives";
 import { verifyDemoldTranslation } from "../masterMoldDemold.verifier";
 import { axisOf, isPositive, masterStockBoundsFor } from "../masterMoldDirection.analyzer";
-import type { MasterCastTarget, MasterCastingProcessProfile, MasterMoldDirection, MasterMoldProjectSnapshot, MasterToolingPiece, MasterToolingPull, MasterToolingRegistrationFeature } from "./contracts";
+import type { MasterCastTarget, MasterCastingProcessProfile, MasterMoldDirection, MasterMoldProjectSnapshot, MasterToolingPiece, MasterToolingPull, MasterToolingRegistrationFeature, MasterVentFeature } from "./contracts";
 
 /**
  * Execution 05 Article 10: Master Tooling Piece Construction.
@@ -107,10 +107,47 @@ export interface ConstructPieceInput {
    */
   readonly coreToolMesh: MoldMeshPayload | null;
   readonly coreMode: CoreAssignmentMode;
+  readonly ventPaths?: readonly MasterVentFeature[];
   readonly parameters: MasterToolingParameters;
 }
 
-export type CoreAssignmentMode = "split" | "full-negative" | "full-positive";
+export type CoreAssignmentMode = "split" | "full-negative" | "full-positive" | "localized-removable-core";
+
+/**
+ * Conservative vent-path candidate generation. A path is returned only when
+ * the pocket is on the protected target AABB boundary and the route travels
+ * strictly outward to the case envelope. The caller still owns final CSG and
+ * release verification; interior/ambiguous pockets remain user review.
+ */
+export function safeVentPathsFor(
+  targetBounds: Bounds3,
+  caseBounds: Bounds3,
+  protectedBounds: Bounds3,
+  recommendations: readonly { readonly recommendationId: string; readonly pocketPosition: { readonly x: number; readonly y: number; readonly z: number } }[],
+  wallThicknessMm: number,
+): MasterVentFeature[] {
+  const tolerance = Math.max(1e-3, wallThicknessMm * 0.05);
+  const radiusMm = Math.max(0.25, Math.min(wallThicknessMm * 0.2, 1));
+  const faces = [
+    { axis: "x" as const, side: "min" as const }, { axis: "x" as const, side: "max" as const },
+    { axis: "y" as const, side: "min" as const }, { axis: "y" as const, side: "max" as const },
+    { axis: "z" as const, side: "min" as const }, { axis: "z" as const, side: "max" as const },
+  ];
+  const paths: MasterVentFeature[] = [];
+  for (const recommendation of recommendations) {
+    const point = recommendation.pocketPosition;
+    const withinTarget = (["x", "y", "z"] as const).every((axis) => point[axis] >= targetBounds.min[axis] - tolerance && point[axis] <= targetBounds.max[axis] + tolerance);
+    if (!withinTarget) continue;
+    const face = faces.find(({ axis, side }) => Math.abs(point[axis] - (side === "min" ? protectedBounds.min[axis] : protectedBounds.max[axis])) <= tolerance);
+    if (face === undefined) continue;
+    const outward = face.side === "min" ? -1 : 1;
+    const end = { x: point.x, y: point.y, z: point.z };
+    end[face.axis] = face.side === "min" ? caseBounds.min[face.axis] + radiusMm : caseBounds.max[face.axis] - radiusMm;
+    if ((end[face.axis] - point[face.axis]) * outward <= radiusMm * 2) continue;
+    paths.push({ featureId: recommendation.recommendationId, kind: "vent", start: point, end, radiusMm });
+  }
+  return paths;
+}
 
 export interface ConstructedPiece {
   readonly mesh: MoldMeshPayload;
@@ -210,6 +247,33 @@ export async function constructCasePiece(input: ConstructPieceInput): Promise<Co
 
     void_ = pieceSide.subtract(removal);
     if (removalOwned) removal.delete();
+
+    // Vent subtraction is deliberately applied before topology and release
+    // validation. A candidate is conservative at planning time, but the
+    // final case geometry remains the source of truth for every proof.
+    for (const vent of input.ventPaths ?? []) {
+      const dx = vent.end.x - vent.start.x;
+      const dy = vent.end.y - vent.start.y;
+      const dz = vent.end.z - vent.start.z;
+      const length = Math.hypot(dx, dy, dz);
+      if (length <= 1e-6 || void_ === null) continue;
+      const ventSolid = manifoldFromPayload(
+        module,
+        cylinderPrismPayload({ x: dx / length, y: dy / length, z: dz / length }, {
+          x: (vent.start.x + vent.end.x) / 2,
+          y: (vent.start.y + vent.end.y) / 2,
+          z: (vent.start.z + vent.end.z) / 2,
+        }, vent.radiusMm, length, TOOLING_CONSTRUCTION_LIMITS.registrationPinSegments),
+        policy.booleanToleranceMm,
+      );
+      try {
+        const next = void_.subtract(ventSolid);
+        void_.delete();
+        void_ = next;
+      } finally {
+        ventSolid.delete();
+      }
+    }
 
     if (withCoreAdded !== null) {
       if (withCoreAdded.isEmpty()) {

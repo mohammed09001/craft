@@ -11,6 +11,11 @@ import {
 } from "../planning/masterMoldGoldenFixtures";
 import { GENERIC_RIGID_CAST_PROFILE, type MasterToolingSet } from "./contracts";
 import { runMasterMoldEngine } from "./masterMoldEngine";
+import { planLocalizedRemovableCore } from "./multiPiecePlanner";
+import { registerMultiPanelInterfaces, type SequencedChunk } from "./multiPiecePlanner";
+import { toolingParametersFromProfile } from "./toolingConstruction";
+import { getManifoldModule, createBlankSolid, boundsFromManifold, payloadFromManifold } from "../../geometry/manifold";
+import { toolingTolerancePolicy } from "./toolingConstruction";
 import { DEFAULT_MASTER_MOLD_PLANNING_PREFERENCES } from "../seed/masterMoldSeed";
 
 // Execution 06 Article 17: golden geometry acceptance. Every case runs the
@@ -52,6 +57,7 @@ describe("Master Mold Engine golden cases (Execution 06 Article 17)", () => {
     for (const set of result.toolingSets) expectVerifiedTooling(set);
     expect(result.plan!.releaseSequence.length).toBe(2);
     expect(result.plan!.releaseSequence.every((step) => step.collisionVerified)).toBe(true);
+    expect(result.plan!.registrationPlan.features.length).toBeGreaterThan(0);
     for (const piece of result.plan!.moldPieces) {
       expect(piece.watertight).toBe(true);
       expect(piece.manifold).toBe(true);
@@ -110,9 +116,9 @@ describe("Master Mold Engine golden cases (Execution 06 Article 17)", () => {
   });
 
   it("Golden E: a working-mold piece with an internal undercut rejects its one-piece master case and gets a verified multi-panel case", { timeout: ENGINE_TIMEOUT }, async () => {
-    // Golden B's fixture already produces working-mold pieces containing
-    // blind-hole undercuts; its tooling sets must answer accordingly.
-    const fixture = await buildThreeHoleCubeFixture();
+    // The rotated blind-hole fixture contains a local undercut whose
+    // tooling must be decomposed independently from the Working Mold.
+    const fixture = await buildObliqueHoleCubeFixture();
     const result = await runMasterMoldEngine(seedFromFixture(fixture));
     expect(result.failures).toEqual([]);
 
@@ -133,6 +139,7 @@ describe("Master Mold Engine golden cases (Execution 06 Article 17)", () => {
         }
       }
       expectVerifiedTooling(set);
+      expect(["split", "full-negative", "full-positive"]).toContain(set.assembly.coreMode);
     }
     // At least one set must also prove the one-piece case genuinely fails
     // for an undercut piece (the multi-panel answer is not a style choice).
@@ -160,7 +167,7 @@ describe("Master Mold Engine golden cases (Execution 06 Article 17)", () => {
       for (const piece of set.assembly.pieces) {
         expect(piece.bounds.max.x - piece.bounds.min.x).toBeLessThanOrEqual(27);
         expect(piece.bounds.max.y - piece.bounds.min.y).toBeLessThanOrEqual(27);
-        expect(piece.bounds.max.z - piece.bounds.min.z).toBeLessThanOrEqual(27);
+        expect(piece.bounds.max.z - piece.bounds.min.z).toBeLessThanOrEqual(18);
       }
     }
     // Two-panel splits carry real automatic alignment pins (Article 10).
@@ -236,6 +243,60 @@ describe("Master Mold Engine golden cases (Execution 06 Article 17)", () => {
     });
     await expect(run).rejects.toMatchObject({ code: "cancelled" });
   });
+
+  it("Article 08: accepts a separately verified localized removable core when geometry permits it", { timeout: ENGINE_TIMEOUT }, async () => {
+    const fixture = await buildSimpleBoxFixture();
+    const plan = await planLocalizedRemovableCore(
+      {
+        moldPartId: "core-target",
+        moldPartName: "Core Target",
+        mesh: fixture.mesh,
+        bounds: fixture.bounds,
+        volumeMm3: 1000,
+        geometryVersion: "core-target-v1",
+        featureIntents: { sprueIntentVersion: null, registrationPolicyVersion: null },
+        warnings: [],
+      },
+      "+Z",
+      toolingParametersFromProfile(GENERIC_RIGID_CAST_PROFILE),
+      fixture.mesh,
+    );
+    expect(plan.rejectionReason).toBeNull();
+    expect(plan.plan?.coreMode).toBe("localized-removable-core");
+    expect(plan.plan?.pieces.map((piece) => piece.regions[0])).toEqual(["localized-removable-core", "case-shell"]);
+    expect(plan.plan?.releaseSequence).toHaveLength(2);
+    expect(plan.plan?.releaseSequence.every((step) => step.collisionVerified)).toBe(true);
+  });
+
+  it("Article 10: automatically registers a feasible 3-panel chain with real CSG keys", { timeout: ENGINE_TIMEOUT }, async () => {
+    const module = await getManifoldModule();
+    const solids = [
+      createBlankSolid(module, { min: { x: 0, y: 0, z: 0 }, max: { x: 2, y: 4, z: 4 } }),
+      createBlankSolid(module, { min: { x: 4, y: 0, z: 0 }, max: { x: 6, y: 4, z: 4 } }),
+      createBlankSolid(module, { min: { x: 2, y: 0, z: 0 }, max: { x: 4, y: 4, z: 4 } }),
+    ];
+    const sequence: SequencedChunk[] = solids.map((solid, index) => ({
+      chunk: { solid, bounds: boundsFromManifold(solid), volumeMm3: solid.volume() },
+      pull: { pull: index === 0 ? "-X" : "+X", vector: index === 0 ? [-1, 0, 0] as const : [1, 0, 0] as const, oblique: false },
+    }));
+    const targetSolid = module.Manifold.cube([2, 2, 2], true).translate(21, 21, 21);
+    const castTarget = {
+      moldPartId: "three-panel-target",
+      moldPartName: "Three Panel Target",
+      mesh: payloadFromManifold(targetSolid),
+      bounds: { min: { x: 20, y: 20, z: 20 }, max: { x: 22, y: 22, z: 22 } },
+      volumeMm3: 8,
+      geometryVersion: "three-panel-target-v1",
+      featureIntents: { sprueIntentVersion: null, registrationPolicyVersion: null },
+      warnings: [],
+    };
+    const policy = toolingTolerancePolicy({ min: { x: -3, y: -3, z: -3 }, max: { x: 9, y: 7, z: 7 } });
+    const registration = await registerMultiPanelInterfaces(module, castTarget, sequence, toolingParametersFromProfile(GENERIC_RIGID_CAST_PROFILE), policy, 1e-3, 10);
+    expect(registration.features.length).toBeGreaterThan(0);
+    expect(registration.failureReason).toBeNull();
+    targetSolid.delete();
+  });
+
 
   it("planning cache: a repeated seed with a different build volume reuses the accessibility map (Article 13.7)", { timeout: ENGINE_TIMEOUT }, async () => {
     const fixture = await buildSimpleBoxFixture();

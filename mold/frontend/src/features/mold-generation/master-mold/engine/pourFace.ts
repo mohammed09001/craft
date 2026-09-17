@@ -94,7 +94,7 @@ export function candidateDirections(castTarget: MasterCastTarget, userOverride: 
  * Bounded deterministic sampling; produces a structured warning (never an
  * invented vent hole).
  */
-export function detectSealedHighPockets(castTarget: MasterCastTarget, upDirection: MasterMoldDirection): number {
+function sealedHighPocketSamples(castTarget: MasterCastTarget, upDirection: MasterMoldDirection): { readonly x: number; readonly y: number; readonly z: number }[] {
   const [ux, uy, uz] = DIRECTION_VECTORS[upDirection];
   const up = new Vector3(ux, uy, uz);
   const horizontal: Vector3[] = uz !== 0
@@ -103,7 +103,7 @@ export function detectSealedHighPockets(castTarget: MasterCastTarget, upDirectio
   const axis = uz !== 0 ? "z" : uy !== 0 ? "y" : "x";
   const seatingPlane = isPositive(upDirection) ? castTarget.bounds.min[axis] : castTarget.bounds.max[axis];
 
-  let sealedSamples = 0;
+  const samples: { readonly x: number; readonly y: number; readonly z: number }[] = [];
   let sampled = 0;
   let geometry: ReturnType<typeof buildMeshGeometry> | null = null;
 
@@ -141,13 +141,19 @@ export function detectSealedHighPockets(castTarget: MasterCastTarget, upDirectio
       if (countUniqueForwardIntersections(bvh, probe, up) < 2) continue;
       // (b) any horizontal escape path (no further target crossing)?
       const escaped = horizontal.some((direction) => countUniqueForwardIntersections(bvh, probe.clone(), direction) === 0);
-      if (!escaped) sealedSamples += 1;
+      if (!escaped) {
+        samples.push({ x: centroid.x, y: centroid.y, z: centroid.z });
+      }
     }
   } finally {
     geometry?.dispose();
   }
 
-  return sealedSamples;
+  return samples;
+}
+
+export function detectSealedHighPockets(castTarget: MasterCastTarget, upDirection: MasterMoldDirection): number {
+  return sealedHighPocketSamples(castTarget, upDirection).length;
 }
 
 export function planPourFace(input: PourFacePlanInput): MasterPourFaceDecision {
@@ -195,12 +201,14 @@ export function planPourFace(input: PourFacePlanInput): MasterPourFaceDecision {
   const validWorking = working.filter((candidate) => candidate.valid);
 
   const fillabilityWarnings: string[] = [];
+  const sealedPocketSamplesByDirection = new Map<MasterMoldDirection, readonly { readonly x: number; readonly y: number; readonly z: number }[]>();
   for (const candidate of validWorking) {
-    const sealedPockets = detectSealedHighPockets(castTarget, candidate.direction);
-    if (sealedPockets > 0) {
-      candidate.score += POUR_FACE_WEIGHTS.trappedAirPocket * sealedPockets;
+    const sealedPockets = sealedHighPocketSamples(castTarget, candidate.direction);
+    sealedPocketSamplesByDirection.set(candidate.direction, sealedPockets);
+    if (sealedPockets.length > 0) {
+      candidate.score += POUR_FACE_WEIGHTS.trappedAirPocket * sealedPockets.length;
       fillabilityWarnings.push(
-        `Pour face ${candidate.direction}: ${sealedPockets} sealed high pocket${sealedPockets === 1 ? "" : "s"} detected in casting orientation. Provide a user-managed vent; the engine will not drill vents through functional surfaces.`,
+        `Pour face ${candidate.direction}: ${sealedPockets.length} sealed high pocket${sealedPockets.length === 1 ? "" : "s"} detected in casting orientation. Provide a user-managed vent; the engine will not drill vents through functional surfaces.`,
       );
     }
   }
@@ -208,6 +216,7 @@ export function planPourFace(input: PourFacePlanInput): MasterPourFaceDecision {
   validWorking.sort((a, b) => a.score - b.score || a.direction.localeCompare(b.direction));
   const best = validWorking[0] ?? null;
   const selected = best?.direction ?? null;
+  const selectedSealedPockets = selected === null ? [] : sealedPocketSamplesByDirection.get(selected) ?? [];
   const scoreByDirection = new Map(working.map((candidate) => [candidate.direction, candidate.score] as const));
   return {
     selected,
@@ -215,5 +224,17 @@ export function planPourFace(input: PourFacePlanInput): MasterPourFaceDecision {
     score: best?.score ?? Number.POSITIVE_INFINITY,
     candidates: working.map((candidate) => ({ ...candidate, score: scoreByDirection.get(candidate.direction)! })),
     fillabilityWarnings,
+    ventPlan: {
+      status: selectedSealedPockets.length > 0 ? "user-review" : "clear",
+      features: [],
+      unresolvedRecommendations: selectedSealedPockets.map((position, index) => ({
+        recommendationId: `vent-review-${castTarget.moldPartId}-${selected ?? "unselected"}-${index + 1}`,
+        kind: "vent_required_user_review" as const,
+        target: "cast-target" as const,
+        pocketIndex: index + 1,
+        pocketPosition: position,
+        message: `Sealed high pocket ${index + 1} requires a user-managed vent path review; no automatic vent was generated.`,
+      })),
+    },
   };
 }

@@ -320,6 +320,8 @@ export function planWorkingMoldDecomposition(input: WorkingMoldPlannerInput): Wo
     return result;
   };
 
+  let preferredPlan: { readonly candidate: DecompositionCandidate; readonly finalists: readonly WorkingMoldDecompositionFinalist[] } | null = null;
+
   for (let pieceCount = 2; pieceCount <= maxPieces; pieceCount += 1) {
     const prismCount = pieceCount - 1;
 
@@ -396,12 +398,21 @@ export function planWorkingMoldDecomposition(input: WorkingMoldPlannerInput): Wo
         patchAssignment: Array.from(entry.assignment),
         interfaces: extractPartingInterfaces(planningMesh, entry.assignment, entry.candidate.pieces),
       }));
-    return {
-      candidate: selected.candidate,
-      finalists,
-      rejectedPieceCounts,
-    };
+    if (preferredPlan !== null) {
+      return {
+        candidate: preferredPlan.candidate,
+        finalists: [...preferredPlan.finalists, ...finalists],
+        rejectedPieceCounts,
+      };
+    }
+    if (pieceCount === 2 && maxPieces > 2) {
+      // Keep searching for a higher-count fallback. Exact verification may
+      // reject every finalist at the preferred minimum count.
+      preferredPlan = { candidate: selected.candidate, finalists };
+      continue;
+    }
+    return { candidate: selected.candidate, finalists, rejectedPieceCounts };
   }
 
-  return null;
+  return preferredPlan === null ? null : { ...preferredPlan, rejectedPieceCounts };
 }
