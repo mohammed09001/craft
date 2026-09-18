@@ -1,5 +1,5 @@
 import { runMasterMoldEngine } from "./engine/masterMoldEngine";
-import type { MasterMoldSeedSnapshot } from "./seed/masterMoldSeed";
+import { worldMeshFromSnapshot, type MasterMoldSeedSnapshot } from "./seed/masterMoldSeed";
 import type { MasterToolingSetState } from "./masterMold.contracts";
 import type { MasterMoldRequest, MasterMoldResult } from "./masterMold.contracts";
 
@@ -27,7 +27,10 @@ export async function evaluateMasterMoldGeneration(
     throw cancelledError();
   }
 
-  const engineResult = await runMasterMoldEngine(request.seed, request.priorSets, {
+  // Worker-less fallback: this context IS the generation context, so the
+  // heavy world transform runs here -- the seed travels with local typed
+  // geometry plus its transform (Execution 07 LOOP 02).
+  const engineResult = await runMasterMoldEngine(worldMeshFromSnapshot(request.seed), request.priorSets, {
     onStage: (stage) => options.onStage?.(stage),
     ...(options.signal === undefined ? {} : { signal: options.signal }),
   });

@@ -14,7 +14,10 @@ import { MASTER_PLANNER_LIMITS } from "../planning/masterMoldPlanning.contracts"
 import { buildPlanningMesh } from "../planning/planningMesh";
 import { generateCandidateDirections } from "../planning/candidateDirections";
 import { analyzeDirectionAccessibility, pruneDirections } from "../planning/accessibility";
-import { planWorkingMoldDecomposition } from "../planning/workingMoldPlanner";
+import {
+  createWorkingMoldPieceCountSearch,
+  type WorkingMoldDecompositionFinalist,
+} from "../planning/workingMoldPlanner";
 import { constructWorkingMold } from "../planning/workingMoldConstructor";
 import type { MasterMoldDirection } from "../masterMold.contracts";
 import type {
@@ -172,68 +175,67 @@ export async function runMasterMoldEngine(
   const { planningMesh, analysis } = entry;
   throwIfCancelled(hooks);
 
-  // Stage B: piece-count optimization (cheap set-cover search).
+  // Stage B/C: piece-count optimization driven by exact verification
+  // (Execution 07 LOOP 01). Plan count N, exact-verify its bounded finalists,
+  // and escalate to N+1 only when every finalist fails exact construction;
+  // planning and exact rejection evidence is preserved per count.
   emit("optimizing_working_mold", "searching mold-piece count");
   const maxPieces = Math.min(
     seed.processProfile.maximumWorkingMoldPieceCount,
     seed.userPreferences.preferredMaximumWorkingMoldPieces ?? seed.processProfile.maximumWorkingMoldPieceCount,
     MASTER_PLANNER_LIMITS.absoluteMaxWorkingMoldPieces,
   );
-  const decomposition = planWorkingMoldDecomposition({
-    planningMesh,
-    analysis,
-    maxWorkingMoldPieces: maxPieces,
-  });
-  budget.workingMoldPlanCandidateCount = decomposition?.finalists.length ?? 0;
-  if (decomposition === null) {
-    return {
-      seedId: seed.seedId,
-      plan: null,
-      toolingSets: [],
-      failures: [
-        {
-          moldPartId: "working-mold",
-          reason: "no_release_plan",
-          message: `no feasible working-mold decomposition within ${maxPieces} pieces; the part may require flexible/sacrificial tooling.`,
-        },
-      ],
-      elapsedMs: Date.now() - started,
-      budget,
-    };
-  }
-  throwIfCancelled(hooks);
-
-  // Stage C: exact construction of the shortlisted decomposition.
-  emit("constructing_working_mold", `${decomposition.candidate.pieceCount} pieces`);
-  let construction = null;
-  let constructionFinalist: (typeof decomposition.finalists)[number] | null = null;
+  const rejectedPieceCounts: { pieceCount: number; reason: string }[] = [];
+  const pieceCountSearch = createWorkingMoldPieceCountSearch({ planningMesh, analysis, maxWorkingMoldPieces: maxPieces });
+  let construction: Awaited<ReturnType<typeof constructWorkingMold>> | null = null;
+  let constructionFinalist: WorkingMoldDecompositionFinalist | null = null;
   let constructionError: Error | null = null;
-  for (const finalist of decomposition.finalists) {
+
+  for (;;) {
+    const step = pieceCountSearch.next();
+    if (step === null) break;
     throwIfCancelled(hooks);
-    budget.workingMoldConstructionAttempts += 1;
-    try {
-      construction = await constructWorkingMold({
-        sourceMesh: seed.sourceMesh,
-        sourceBounds: seed.sourceBounds,
-        releaseClearanceMm: seed.processProfile.releaseClearanceMm ?? 0,
-        minimumToolingWallMm: seed.processProfile.minimumToolingWallMm,
-        pieces: finalist.candidate.pieces.map((piece) => ({
-          releaseDirection: piece.releaseDirection,
-          plane: piece.prism === null
-            ? null
-            : {
-                direction: analysis.directions[piece.prism.directionIndex]!.vector,
-                offsetMm: piece.prism.offsetMm,
-              },
-        })),
-      });
-      constructionFinalist = finalist;
-      break;
-    } catch (error) {
-      constructionError = error instanceof Error ? error : new Error(String(error));
+    if (step.rejectionReason !== null) {
+      rejectedPieceCounts.push({ pieceCount: step.pieceCount, reason: step.rejectionReason });
+      continue;
     }
+    budget.workingMoldPlanCandidateCount += step.finalists.length;
+    emit("constructing_working_mold", `${step.pieceCount} pieces`);
+    let countError: Error | null = null;
+    for (const finalist of step.finalists) {
+      throwIfCancelled(hooks);
+      budget.workingMoldConstructionAttempts += 1;
+      try {
+        construction = await constructWorkingMold({
+          sourceMesh: seed.sourceMesh,
+          sourceBounds: seed.sourceBounds,
+          releaseClearanceMm: seed.processProfile.releaseClearanceMm ?? 0,
+          minimumToolingWallMm: seed.processProfile.minimumToolingWallMm,
+          pieces: finalist.candidate.pieces.map((piece) => ({
+            releaseDirection: piece.releaseDirection,
+            plane: piece.prism === null
+              ? null
+              : {
+                  direction: analysis.directions[piece.prism.directionIndex]!.vector,
+                  offsetMm: piece.prism.offsetMm,
+                },
+          })),
+        });
+        constructionFinalist = finalist;
+        break;
+      } catch (error) {
+        countError = error instanceof Error ? error : new Error(String(error));
+      }
+    }
+    if (construction !== null) break;
+    constructionError = countError;
+    rejectedPieceCounts.push({
+      pieceCount: step.pieceCount,
+      reason: `all ${step.finalists.length} planning finalist(s) failed exact construction: ${countError?.message ?? "unknown"}`,
+    });
   }
-  if (construction === null) {
+
+  if (construction === null || constructionFinalist === null) {
     return {
       seedId: seed.seedId,
       plan: null,
@@ -242,7 +244,7 @@ export async function runMasterMoldEngine(
         {
           moldPartId: "working-mold",
           reason: "no_release_plan",
-          message: `no ${decomposition.candidate.pieceCount}-piece working-mold plan survived exact verification: ${constructionError?.message ?? "unknown"}`,
+          message: `no working-mold decomposition survived exact verification within ${maxPieces} pieces${constructionError === null ? "" : ` (last exact failure: ${constructionError.message})`}; the part may require flexible/sacrificial tooling.`,
         },
       ],
       elapsedMs: Date.now() - started,
@@ -306,17 +308,19 @@ export async function runMasterMoldEngine(
     }
   }
 
-  // Stage E: the plan contract.
+  // Stage E: the plan contract. Score/interfaces describe the exact-verified
+  // finalist, and the rejection evidence covers planning AND exact failures
+  // across every escalated piece count (Execution 07 LOOP 01).
   emit("verifying_release", `${pieceTargets.length} pieces verified`);
   const plan: AutoWorkingMoldPlan = {
     sourceGeometryVersion: seed.sourceGeometryVersion,
     moldPieces: pieceTargets,
-    partingInterfaces: constructionFinalist?.interfaces ?? decomposition.finalists[0]?.interfaces ?? [],
+    partingInterfaces: constructionFinalist.interfaces,
     releaseSequence: construction.releaseSequence,
     registrationPlan: construction.registrationPlan,
     warnings,
-    score: decomposition.candidate.scoreBreakdown,
-    rejectedPieceCounts: decomposition.rejectedPieceCounts,
+    score: constructionFinalist.candidate.scoreBreakdown,
+    rejectedPieceCounts,
   };
   if (construction.registrationPlan.reason !== null) {
     warnings.push({

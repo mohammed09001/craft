@@ -33,18 +33,21 @@ const createBrowserWorker: MasterMoldWorkerFactory = () =>
 export const DEFAULT_MASTER_MOLD_WORKER_TIMEOUT_MS = 180_000;
 
 /**
- * Execution 06 Article 13.1: the Worker request geometry travels as typed
- * arrays whose buffers are TRANSFERRED (zero-copy), never structured-cloned
- * number[] graphs. The main thread keeps its own canonical arrays; these
- * copies are built for the Worker and handed over with ownership.
+ * Execution 06 Article 13.1 + Execution 07 LOOP 02: the Worker request
+ * geometry travels as the seed's OWN local-space typed arrays whose buffers
+ * are TRANSFERRED (zero-copy) -- no conversion, no world transform, and no
+ * full-array copy on the main thread. The seed snapshot exclusively owns
+ * its buffers (built via Float32Array.from/Uint32Array.from), so transferring
+ * them never detaches an array another consumer still reads. The Worker
+ * applies the world transform (see worldMeshFromSnapshot).
  */
 export function buildWorkerSeedPayload(request: MasterMoldRequest): {
   payload: Extract<MasterMoldWorkerRequest, { type: "generate" }>["seed"];
   transfer: Transferable[];
 } {
   const seed = request.seed;
-  const positions = new Float32Array(seed.sourceMesh.positions);
-  const indices = new Uint32Array(seed.sourceMesh.indices);
+  const positions = seed.sourceMesh.positions;
+  const indices = seed.sourceMesh.indices;
   return {
     payload: {
       seedId: seed.seedId,

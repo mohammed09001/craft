@@ -215,12 +215,19 @@ export interface MasterPartingSurface {
   readonly kind: "planar" | "ruled";
   readonly axis: MasterMoldDirection;
   readonly coordinateMm: number;
+  /**
+   * Exact unit plane normal when the parting plane is oblique to the world
+   * axes (Execution 07 LOOP 04); undefined = axis-aligned plane.
+   */
+  readonly planeNormal?: { readonly x: number; readonly y: number; readonly z: number };
+  /** Where this candidate came from: geometry-derived sources precede the axis/fraction fallback in the search (Execution 07 LOOP 04). */
+  readonly origin?: "target-feature" | "tool-feature" | "build-volume" | "oblique-normal-cluster" | "span-fraction" | "target-face";
 }
 
-/** Pull direction for tooling pieces: an axis id, or the working-mold piece's own assigned (possibly oblique) release direction. */
+/** Pull direction for tooling pieces: an axis id, the working-mold piece's own assigned (possibly oblique) release direction, or the split plane's normal (oblique splits, Execution 07 LOOP 04). */
 export type { MasterMoldDirection };
 
-export type MasterToolingPull = MasterMoldDirection | "+assigned" | "-assigned";
+export type MasterToolingPull = MasterMoldDirection | "+assigned" | "-assigned" | "+plane-normal" | "-plane-normal";
 
 /** One printable tooling piece (Execution 05 Article 10: a real solid, not a conceptual region). */
 export interface MasterToolingPiece {

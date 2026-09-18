@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { buildPlanningMesh } from "./planningMesh";
 import { generateCandidateDirections, principalAxesOfCovariance } from "./candidateDirections";
 import { analyzeDirectionAccessibility, directionPreliminaryScore, pruneDirections } from "./accessibility";
-import { exactPartingThreshold, planWorkingMoldDecomposition } from "./workingMoldPlanner";
-import { MASTER_PLANNER_LIMITS } from "./masterMoldPlanning.contracts";
+import { exactPartingThreshold, extractPartingInterfaces, planWorkingMoldDecomposition } from "./workingMoldPlanner";
+import { MASTER_PLANNER_LIMITS, type PlanningMesh } from "./masterMoldPlanning.contracts";
 import { buildObliqueHoleCubeFixture, buildSimpleBoxFixture, buildThreeHoleCubeFixture, seedFromFixture } from "./masterMoldGoldenFixtures";
 
 /**
@@ -197,5 +197,54 @@ describe("Working mold decomposition (Articles 06/07)", () => {
       const dot = patch.centroid.x * analysis.directions[plusZ]!.vector.x + patch.centroid.y * analysis.directions[plusZ]!.vector.y + patch.centroid.z * analysis.directions[plusZ]!.vector.z;
       expect(dot).toBeGreaterThanOrEqual(threshold!);
     }
+  });
+});
+
+describe("Parting interface truth (Execution 07 LOOP 03)", () => {
+  function twoPatchMesh(normalA: { x: number; y: number; z: number }, normalB: { x: number; y: number; z: number }): PlanningMesh {
+    return {
+      patches: [
+        { patchIndex: 0, centroid: { x: 0, y: 0, z: 0 }, normal: normalA, areaMm2: 1, sourceTriangle: 0 },
+        { patchIndex: 1, centroid: { x: 2, y: 0, z: 0 }, normal: normalB, areaMm2: 1, sourceTriangle: 1 },
+      ],
+      adjacency: [[1], [0]],
+      totalAreaMm2: 2,
+      bounds: { min: { x: -1, y: -1, z: -1 }, max: { x: 3, y: 1, z: 1 } },
+      sourceGeometryVersion: "loop03",
+      vertexCount: 4,
+      triangleCount: 2,
+    };
+  }
+  const pieces = [
+    { releaseDirection: { x: 0, y: 0, z: 1 }, directionId: "a", prism: null },
+    { releaseDirection: { x: 0, y: 1, z: 0 }, directionId: "b", prism: null },
+  ];
+
+  it("classifies a seam through face interiors as region-adjacency even when no patch centroid equals the midpoint", () => {
+    // Normals PARALLEL to piece A's release direction: this seam cuts through
+    // a face interior. The previous implementation searched for a patch whose
+    // centroid equaled the edge midpoint; the lookup missed (no such patch)
+    // and the miss was counted as silhouette evidence.
+    const mesh = twoPatchMesh({ x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: 1 });
+    const interfaces = extractPartingInterfaces(mesh, [0, 1], pieces);
+    expect(interfaces).toHaveLength(1);
+    expect(interfaces[0]!.kind).toBe("region-adjacency");
+  });
+
+  it("classifies a true silhouette seam from the adjacent patch normals and both release directions", () => {
+    // Normals perpendicular to BOTH release directions: the seam lies on the
+    // natural silhouette where both pieces slide.
+    const mesh = twoPatchMesh({ x: 1, y: 0, z: 0 }, { x: 1, y: 0, z: 0 });
+    const interfaces = extractPartingInterfaces(mesh, [0, 1], pieces);
+    expect(interfaces).toHaveLength(1);
+    expect(interfaces[0]!.kind).toBe("silhouette");
+    expect(interfaces[0]!.samplePoints).toHaveLength(1);
+  });
+
+  it("keeps per-edge truth: one interior-cut edge makes the whole interface region-adjacency", () => {
+    const mesh = twoPatchMesh({ x: 1, y: 0, z: 0 }, { x: 0, y: 0, z: 1 });
+    const interfaces = extractPartingInterfaces(mesh, [0, 1], pieces);
+    expect(interfaces).toHaveLength(1);
+    expect(interfaces[0]!.kind).toBe("region-adjacency");
   });
 });

@@ -135,6 +135,13 @@ function evaluateFinalized(
   const pieceCount = prisms.length + 1;
   let unassignable = 0;
   let slidingWallAreaMm2 = 0;
+  // Execution 07 LOOP 03 pre-CSG accessibility-gain gate: patches the
+  // catch-all direction cannot see are the ONLY ones the prisms can rescue.
+  let catchAllInvisible = 0;
+  const catchAllVisible = analysis.perDirection[catchAllDirectionIndex]!.visible;
+  for (const patch of planningMesh.patches) {
+    if (catchAllVisible[patch.patchIndex] !== 1) catchAllInvisible += 1;
+  }
 
   for (const patch of planningMesh.patches) {
     let pieceIndex = -1;
@@ -158,6 +165,11 @@ function evaluateFinalized(
     const direction = analysis.directions[directionIndex]!.vector;
     if (Math.abs(dot(patch.normal, direction)) < SLIDING_WALL_COSINE) slidingWallAreaMm2 += patch.areaMm2;
   }
+
+  // A split is useless when it rescues nothing: every patch is visible along
+  // the catch-all alone, so the prisms add interfaces without accessibility
+  // gain. Rejected here, before any exact CSG.
+  const feasible = unassignable === 0 && catchAllInvisible > 0;
 
   // Parting-line quality: seam adjacency edges and whether they sit on a
   // natural silhouette (patch normal near-perpendicular to the releasing
@@ -217,7 +229,7 @@ function evaluateFinalized(
     candidate: {
       pieceCount,
       pieces,
-      feasible: unassignable === 0,
+      feasible,
       unassignablePatchCount: unassignable,
       score: scoreBreakdown.total,
       scoreBreakdown,
@@ -233,64 +245,98 @@ function interfaceLabel(a: number, b: number): string {
  * Extracts parting interfaces from the selected assignment: for every pair of
  * adjacent pieces, sample the shared boundary midpoints on the source
  * surface (silhouette-style parting curves, Article 07).
+ *
+ * Execution 07 LOOP 03: silhouette truth is decided per adjacency EDGE from
+ * the edge's own patch A/B provenance -- the two actual patch normals against
+ * BOTH pieces' release directions -- at interface creation time. The stored
+ * midpoint sample is geometry only; no later lookup ever re-derives
+ * classification (the previous centroid-equals-midpoint search counted
+ * lookup misses as silhouette evidence).
  */
 export function extractPartingInterfaces(
   planningMesh: PlanningMesh,
   assignment: Int32Array | readonly number[],
   pieces: DecompositionCandidate["pieces"],
 ): WorkingMoldPartingInterface[] {
-  const samplesByPair = new Map<string, { pieceA: number; pieceB: number; points: PlanningVector3[] }>();
+  const samplesByPair = new Map<string, { pieceA: number; pieceB: number; points: PlanningVector3[]; silhouetteEdgeCount: number }>();
   for (const patch of planningMesh.patches) {
     for (const neighbor of planningMesh.adjacency[patch.patchIndex] ?? []) {
       if (neighbor <= patch.patchIndex) continue;
       const pieceA = assignment[patch.patchIndex]!;
       const pieceB = assignment[neighbor]!;
       if (pieceA === pieceB) continue;
+      const other = planningMesh.patches[neighbor]!;
+      const directionA = pieces[pieceA]!.releaseDirection;
+      const directionB = pieces[pieceB]!.releaseDirection;
+      // The edge sits on a natural silhouette when both of its patches slide
+      // along both pieces' pull directions (normals near-perpendicular to
+      // both); otherwise the parting cuts through a face interior.
+      const slidesBoth = (normal: PlanningVector3) =>
+        Math.abs(dot(normal, directionA)) < SEAM_INTERIOR_COSINE && Math.abs(dot(normal, directionB)) < SEAM_INTERIOR_COSINE;
+      const edgeIsSilhouette = slidesBoth(patch.normal) && slidesBoth(other.normal);
+
       const key = interfaceLabel(pieceA, pieceB);
       let entry = samplesByPair.get(key);
       if (entry === undefined) {
-        entry = { pieceA, pieceB, points: [] };
+        entry = { pieceA, pieceB, points: [], silhouetteEdgeCount: 0 };
         samplesByPair.set(key, entry);
       }
       if (entry.points.length >= 64) continue;
+      if (edgeIsSilhouette) entry.silhouetteEdgeCount += 1;
       const a = patch.centroid;
-      const b = planningMesh.patches[neighbor]!.centroid;
+      const b = other.centroid;
       entry.points.push({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 });
     }
   }
   return [...samplesByPair.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([interfaceId, entry]) => {
-      const direction = pieces[entry.pieceA]!.releaseDirection;
-      const silhouette = entry.points.every((point) => {
-        const patch = planningMesh.patches.find((candidate) => Math.hypot(candidate.centroid.x - point.x, candidate.centroid.y - point.y, candidate.centroid.z - point.z) < 1e-6);
-        return patch === undefined || Math.abs(dot(patch.normal, direction)) < SEAM_INTERIOR_COSINE;
-      });
-      return {
-        interfaceId,
-        pieceAIndex: entry.pieceA,
-        pieceBIndex: entry.pieceB,
-        samplePoints: entry.points,
-        kind: silhouette ? ("silhouette" as const) : ("region-adjacency" as const),
-      };
-    });
+    .map(([interfaceId, entry]) => ({
+      interfaceId,
+      pieceAIndex: entry.pieceA,
+      pieceBIndex: entry.pieceB,
+      samplePoints: entry.points,
+      kind: entry.silhouetteEdgeCount === entry.points.length ? ("silhouette" as const) : ("region-adjacency" as const),
+    }));
 }
 
 /**
- * Bounded beam search over prism sequences; ascending piece count with
- * explicit rejection evidence (Article 06 product policy).
+ * One per-count result of the incremental piece-count search: bounded
+ * planning finalists for exact verification, or an explicit rejection
+ * reason when the count produced none.
  */
-export function planWorkingMoldDecomposition(input: WorkingMoldPlannerInput): WorkingMoldDecompositionPlan | null {
+export interface WorkingMoldPieceCountStep {
+  readonly pieceCount: number;
+  readonly finalists: readonly WorkingMoldDecompositionFinalist[];
+  /** null exactly when finalists is non-empty. */
+  readonly rejectionReason: string | null;
+}
+
+export interface WorkingMoldPieceCountSearch {
+  /** Advances the beam to the next piece count (2 upward); null once counts are exhausted. */
+  next(): WorkingMoldPieceCountStep | null;
+}
+
+/**
+ * Incremental bounded beam search over prism sequences (Article 06 product
+ * policy, Execution 07 LOOP 01): each next() call advances exactly one piece
+ * count and hands back that count's planning finalists or its rejection
+ * evidence. The exact-verification driver decides when to stop, so an exact
+ * failure at N escalates to N+1 instead of terminating at the first
+ * planning-feasible count.
+ */
+export function createWorkingMoldPieceCountSearch(input: WorkingMoldPlannerInput): WorkingMoldPieceCountSearch {
   const { planningMesh, analysis } = input;
-  if (analysis.directions.length === 0 || planningMesh.patches.length === 0) return null;
+  if (analysis.directions.length === 0 || planningMesh.patches.length === 0) {
+    return { next: () => null };
+  }
 
   const maxPieces = Math.max(
     2,
     Math.min(input.maxWorkingMoldPieces, MASTER_PLANNER_LIMITS.absoluteMaxWorkingMoldPieces),
   );
-  const rejectedPieceCounts: { pieceCount: number; reason: string }[] = [];
 
   // Depth-1 prefixes: single prisms over the kept directions.
+  let pieceCount = 2;
   let beam: BeamPrefix[] = [];
   const evaluated = new Set<string>();
   const prefixKey = (prisms: { directionIndex: number; offsetMm: number }[]) => prisms.map((p) => `${p.directionIndex}@${p.offsetMm}`).join("|");
@@ -320,98 +366,124 @@ export function planWorkingMoldDecomposition(input: WorkingMoldPlannerInput): Wo
     return result;
   };
 
-  let preferredPlan: { readonly candidate: DecompositionCandidate; readonly finalists: readonly WorkingMoldDecompositionFinalist[] } | null = null;
+  return {
+    next(): WorkingMoldPieceCountStep | null {
+      if (pieceCount > maxPieces) return null;
+      const currentCount = pieceCount;
+      pieceCount += 1;
+      const prismCount = currentCount - 1;
 
-  for (let pieceCount = 2; pieceCount <= maxPieces; pieceCount += 1) {
-    const prismCount = pieceCount - 1;
-
-    if (prismCount === 1) {
-      beam = [];
-      for (const prism of extensionsOf([])) {
-        const key = prefixKey([prism]);
-        if (evaluated.has(key)) continue;
-        evaluated.add(key);
-        const evaluation = evaluatePrefix(planningMesh, analysis, [prism]);
-        beam.push({ prisms: [prism], unassignable: evaluation.unassignable, score: evaluation.unassignable });
-      }
-      // Promote the most-feasible prefixes into the finalize shortlist
-      // regardless of candidate-direction insertion order (oblique
-      // geometry-derived directions must compete with world axes).
-      beam.sort((a, b) => a.unassignable - b.unassignable || a.score - b.score);
-    } else {
-      const nextBeam: BeamPrefix[] = [];
-      const extensions = extensionsOf(beam[0]?.prisms ?? []);
-      for (const prefix of beam) {
-        for (const extension of extensions) {
-          if (prefix.prisms.some((existing) => existing.directionIndex === extension.directionIndex)) continue;
-          const prisms = [...prefix.prisms, extension];
-          const key = prefixKey(prisms);
+      if (prismCount === 1) {
+        beam = [];
+        for (const prism of extensionsOf([])) {
+          const key = prefixKey([prism]);
           if (evaluated.has(key)) continue;
           evaluated.add(key);
-          const evaluation = evaluatePrefix(planningMesh, analysis, prisms);
-          nextBeam.push({ prisms, unassignable: evaluation.unassignable, score: evaluation.unassignable + prisms.length * 0.01 });
+          const evaluation = evaluatePrefix(planningMesh, analysis, [prism]);
+          beam.push({ prisms: [prism], unassignable: evaluation.unassignable, score: evaluation.unassignable });
+        }
+        // Promote the most-feasible prefixes into the finalize shortlist
+        // regardless of candidate-direction insertion order (oblique
+        // geometry-derived directions must compete with world axes).
+        beam.sort((a, b) => a.unassignable - b.unassignable || a.score - b.score);
+      } else {
+        const nextBeam: BeamPrefix[] = [];
+        const extensions = extensionsOf(beam[0]?.prisms ?? []);
+        for (const prefix of beam) {
+          for (const extension of extensions) {
+            if (prefix.prisms.some((existing) => existing.directionIndex === extension.directionIndex)) continue;
+            const prisms = [...prefix.prisms, extension];
+            const key = prefixKey(prisms);
+            if (evaluated.has(key)) continue;
+            evaluated.add(key);
+            const evaluation = evaluatePrefix(planningMesh, analysis, prisms);
+            nextBeam.push({ prisms, unassignable: evaluation.unassignable, score: evaluation.unassignable + prisms.length * 0.01 });
+          }
+        }
+        nextBeam.sort((a, b) => a.unassignable - b.unassignable || a.score - b.score);
+        beam = nextBeam.slice(0, BEAM_WIDTH);
+      }
+
+      if (beam.length === 0) {
+        return { pieceCount: currentCount, finalists: [], rejectionReason: "no_prism_prefix_survived_the_search_budget" };
+      }
+
+      // Finalize: attach a catch-all release direction to each surviving prefix.
+      const finalized: { candidate: DecompositionCandidate; assignment: Int32Array; prisms: { directionIndex: number; offsetMm: number }[]; catchAllDirectionIndex: number }[] = [];
+      for (const prefix of beam.slice(0, MASTER_PLANNER_LIMITS.maxExactPlansPerPieceCount * 4)) {
+        for (let catchIndex = 0; catchIndex < analysis.directions.length; catchIndex += 1) {
+          const result = evaluateFinalized(planningMesh, analysis, prefix.prisms, catchIndex);
+          finalized.push({ ...result, prisms: prefix.prisms, catchAllDirectionIndex: catchIndex });
         }
       }
-      nextBeam.sort((a, b) => a.unassignable - b.unassignable || a.score - b.score);
-      beam = nextBeam.slice(0, BEAM_WIDTH);
-    }
 
-    if (beam.length === 0) {
-      rejectedPieceCounts.push({ pieceCount, reason: "no_prism_prefix_survived_the_search_budget" });
-      continue;
-    }
+      const feasible = finalized
+        .filter((entry) => entry.candidate.feasible)
+        .sort(
+          (a, b) =>
+            a.candidate.scoreBreakdown.slidingWallAreaMm2 - b.candidate.scoreBreakdown.slidingWallAreaMm2 ||
+            a.candidate.scoreBreakdown.seamCrossingCount - b.candidate.scoreBreakdown.seamCrossingCount ||
+            a.candidate.score - b.candidate.score,
+        );
 
-    // Finalize: attach a catch-all release direction to each surviving prefix.
-    const finalized: { candidate: DecompositionCandidate; assignment: Int32Array; prisms: { directionIndex: number; offsetMm: number }[]; catchAllDirectionIndex: number }[] = [];
-    for (const prefix of beam.slice(0, MASTER_PLANNER_LIMITS.maxExactPlansPerPieceCount * 4)) {
-      for (let catchIndex = 0; catchIndex < analysis.directions.length; catchIndex += 1) {
-        const result = evaluateFinalized(planningMesh, analysis, prefix.prisms, catchIndex);
-        finalized.push({ ...result, prisms: prefix.prisms, catchAllDirectionIndex: catchIndex });
+      if (feasible.length === 0) {
+        const best = finalized.sort((a, b) => a.candidate.unassignablePatchCount - b.candidate.unassignablePatchCount)[0];
+        return {
+          pieceCount: currentCount,
+          finalists: [],
+          rejectionReason: best === undefined
+            ? "no_decomposition_candidate_generated"
+            : best.candidate.unassignablePatchCount === 0
+              ? "split_added_no_accessibility (the prisms did not improve on the catch-all release)"
+              : `no_feasible_release_assignment (best left ${best.candidate.unassignablePatchCount} inaccessible patch group(s))`,
+        };
       }
-    }
 
-    const feasible = finalized
-      .filter((entry) => entry.candidate.feasible)
-      .sort(
-        (a, b) =>
-          a.candidate.scoreBreakdown.slidingWallAreaMm2 - b.candidate.scoreBreakdown.slidingWallAreaMm2 ||
-          a.candidate.scoreBreakdown.seamCrossingCount - b.candidate.scoreBreakdown.seamCrossingCount ||
-          a.candidate.score - b.candidate.score,
-      );
+      const finalists = feasible
+        .slice(0, MASTER_PLANNER_LIMITS.maxExactPlansPerPieceCount)
+        .map((entry) => ({
+          candidate: entry.candidate,
+          patchAssignment: Array.from(entry.assignment),
+          interfaces: extractPartingInterfaces(planningMesh, entry.assignment, entry.candidate.pieces),
+        }));
+      return { pieceCount: currentCount, finalists, rejectionReason: null };
+    },
+  };
+}
 
-    if (feasible.length === 0) {
-      const best = finalized.sort((a, b) => a.candidate.unassignablePatchCount - b.candidate.unassignablePatchCount)[0];
-      rejectedPieceCounts.push({
-        pieceCount,
-        reason: best === undefined
-          ? "no_decomposition_candidate_generated"
-          : `no_feasible_release_assignment (best left ${best.candidate.unassignablePatchCount} inaccessible patch group(s))`,
-      });
+/**
+ * Single-shot planning-only view over the incremental search: the first
+ * planning-feasible piece count, with the 2-piece plan kept as the preferred
+ * candidate (and its finalists merged in front) when higher counts remain
+ * allowed. Exact verification escalates per count via
+ * createWorkingMoldPieceCountSearch (Execution 07 LOOP 01).
+ */
+export function planWorkingMoldDecomposition(input: WorkingMoldPlannerInput): WorkingMoldDecompositionPlan | null {
+  const search = createWorkingMoldPieceCountSearch(input);
+  const rejectedPieceCounts: { pieceCount: number; reason: string }[] = [];
+  let preferredPlan: { readonly candidate: DecompositionCandidate; readonly finalists: readonly WorkingMoldDecompositionFinalist[] } | null = null;
+
+  for (;;) {
+    const step = search.next();
+    if (step === null) break;
+    if (step.rejectionReason !== null) {
+      rejectedPieceCounts.push({ pieceCount: step.pieceCount, reason: step.rejectionReason });
       continue;
     }
-
-    const selected = feasible[0]!;
-    const finalists = feasible
-      .slice(0, MASTER_PLANNER_LIMITS.maxExactPlansPerPieceCount)
-      .map((entry) => ({
-        candidate: entry.candidate,
-        patchAssignment: Array.from(entry.assignment),
-        interfaces: extractPartingInterfaces(planningMesh, entry.assignment, entry.candidate.pieces),
-      }));
+    if (preferredPlan === null && step.pieceCount === 2 && input.maxWorkingMoldPieces > 2) {
+      // Keep searching for a higher-count fallback. Exact verification may
+      // reject every finalist at the preferred minimum count.
+      preferredPlan = { candidate: step.finalists[0]!.candidate, finalists: step.finalists };
+      continue;
+    }
     if (preferredPlan !== null) {
       return {
         candidate: preferredPlan.candidate,
-        finalists: [...preferredPlan.finalists, ...finalists],
+        finalists: [...preferredPlan.finalists, ...step.finalists],
         rejectedPieceCounts,
       };
     }
-    if (pieceCount === 2 && maxPieces > 2) {
-      // Keep searching for a higher-count fallback. Exact verification may
-      // reject every finalist at the preferred minimum count.
-      preferredPlan = { candidate: selected.candidate, finalists };
-      continue;
-    }
-    return { candidate: selected.candidate, finalists, rejectedPieceCounts };
+    return { candidate: step.finalists[0]!.candidate, finalists: step.finalists, rejectedPieceCounts };
   }
 
   return preferredPlan === null ? null : { ...preferredPlan, rejectedPieceCounts };

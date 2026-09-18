@@ -15,9 +15,9 @@ import { MASTER_PLANNER_LIMITS } from "./masterMoldPlanning.contracts";
  */
 
 export interface PlanningMeshInput {
-  /** World-space flat x,y,z triplets. */
-  readonly positions: readonly number[];
-  readonly indices: readonly number[];
+  /** World-space flat x,y,z triplets (plain or typed array; Execution 07 LOOP 02). */
+  readonly positions: readonly number[] | Float32Array;
+  readonly indices: readonly number[] | Uint32Array;
   readonly bounds: Bounds3;
   readonly sourceGeometryVersion: string;
 }

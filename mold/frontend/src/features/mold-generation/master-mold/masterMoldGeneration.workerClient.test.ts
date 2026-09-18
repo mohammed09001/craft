@@ -27,8 +27,8 @@ function createRequest(overrides: Partial<MasterMoldRequest> = {}): MasterMoldRe
       sourceGeometryVersion: "geo-1",
       sourceMesh: {
         modelId: "m",
-        positions: [1, 2, 3, 4, 5, 6],
-        indices: [0, 1, 0],
+        positions: new Float32Array([1, 2, 3, 4, 5, 6]),
+        indices: new Uint32Array([0, 1, 0]),
         bounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 1, y: 1, z: 1 } },
         geometryVersion: "geo-1",
       },

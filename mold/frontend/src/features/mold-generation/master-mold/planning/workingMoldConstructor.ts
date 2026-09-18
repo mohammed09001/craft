@@ -50,7 +50,7 @@ export interface PlannedPieceRegion {
 }
 
 export interface WorkingMoldConstructionInput {
-  readonly sourceMesh: { readonly positions: readonly number[]; readonly indices: readonly number[] };
+  readonly sourceMesh: { readonly positions: readonly number[] | Float32Array; readonly indices: readonly number[] | Uint32Array };
   readonly sourceBounds: Bounds3;
   readonly releaseClearanceMm: number;
   readonly minimumToolingWallMm: number;

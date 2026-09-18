@@ -99,8 +99,9 @@ describe("MasterMoldAction (Execution 06 Article 01)", () => {
     render(<MasterMoldAction sourcePartGeometry={canonicalBox()} />);
     await user.click(screen.getByRole("button", { name: "Master Mold" }));
     expect(generateSpy).toHaveBeenCalledTimes(1);
-    const request = generateSpy.mock.calls[0]![0] as { seed: { sourceMesh: { positions: readonly number[] }; sourceTransform: readonly number[] } };
-    // The seed carries the world-space source mesh: transform applied.
+    const request = generateSpy.mock.calls[0]![0] as { seed: { sourceMesh: { positions: Float32Array }; sourceTransform: readonly number[] } };
+    // The seed carries the local-space typed source mesh plus its transform
+    // (Execution 07 LOOP 02: the world transform runs in the Worker).
     expect(request.seed.sourceMesh.positions.length).toBe(24);
     expect(request.seed.sourceTransform).toHaveLength(16);
     generateSpy.mockRestore();

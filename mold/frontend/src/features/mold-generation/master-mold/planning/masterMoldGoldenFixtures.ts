@@ -1,7 +1,7 @@
 import type { Bounds3 } from "../../split-face/splitFace.contracts";
 import type { MoldMeshPayload } from "../../reference-mold-definition/orthogonalMold";
 import { boundsFromManifold, createBlankSolid, getManifoldModule, payloadFromManifold, type ManifoldSolid } from "../../geometry/manifold";
-import { buildMasterMoldSeedSnapshot, type MasterMoldSeedSnapshot } from "../seed/masterMoldSeed";
+import { buildMasterMoldSeedSnapshot, worldMeshFromSnapshot, type MasterMoldSeedSnapshot } from "../seed/masterMoldSeed";
 import { GENERIC_RIGID_CAST_PROFILE } from "../engine/contracts";
 
 /** Builds a Master seed from a fixture with the identity transform (tests). */
@@ -9,7 +9,7 @@ export function seedFromFixture(
   fixture: GoldenFixture,
   overrides: Partial<Parameters<typeof buildMasterMoldSeedSnapshot>[0]> = {},
 ): MasterMoldSeedSnapshot {
-  return buildMasterMoldSeedSnapshot({
+  return worldMeshFromSnapshot(buildMasterMoldSeedSnapshot({
     sourcePartGeometry: {
       modelId: "golden",
       positions: fixture.mesh.positions,
@@ -23,7 +23,7 @@ export function seedFromFixture(
     processProfile: GENERIC_RIGID_CAST_PROFILE,
     projectRevision: "golden-rev",
     ...overrides,
-  });
+  }));
 }
 
 /**

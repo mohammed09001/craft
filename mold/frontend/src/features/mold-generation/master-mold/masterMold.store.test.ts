@@ -17,8 +17,8 @@ function makeSeed(overrides: Partial<MasterMoldSeedSnapshot> = {}): MasterMoldSe
     sourceGeometryVersion: "geo-1",
     sourceMesh: {
       modelId: "m",
-      positions: [0, 0, 0],
-      indices: [0, 0, 0],
+      positions: new Float32Array([0, 0, 0]),
+      indices: new Uint32Array([0, 0, 0]),
       bounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 1, y: 1, z: 1 } },
       geometryVersion: "geo-1",
     },

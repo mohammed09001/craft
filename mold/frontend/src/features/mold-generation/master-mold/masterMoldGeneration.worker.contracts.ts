@@ -9,19 +9,22 @@ export interface MasterMoldWorkerFailure {
 }
 
 /**
- * Execution 06 Article 13.1/13.2: compact Worker seed payload. Geometry
- * travels as typed arrays whose buffers are TRANSFERRED (never
- * structured-cloned), and nothing from the Split Face / Cavity stores rides
- * along -- one canonical source mesh plus compact planning/profile data.
+ * Execution 06 Article 13.1/13.2 + Execution 07 LOOP 02: compact Worker seed
+ * payload. Geometry travels as LOCAL-space typed arrays whose buffers are
+ * TRANSFERRED (never structured-cloned); the Worker applies the world
+ * transform itself, so the heavy pass never runs on the UI thread. Nothing
+ * from the Split Face / Cavity stores rides along.
  */
 export interface MasterMoldWorkerSeedPayload {
   readonly seedId: string;
   readonly sourceModelId: string;
   readonly sourceGeometryVersion: string;
-  /** World-space positions; buffer transferred to the Worker. */
+  /** Local-space positions; buffer transferred to the Worker. */
   readonly positions: Float32Array;
   readonly indices: Uint32Array;
+  /** World-space bounds (cheap: derived from the 8 local-bounds corners). */
   readonly bounds: Bounds3;
+  /** Column-major 4x4 part-from-local transform; applied inside the Worker. */
   readonly sourceTransform: readonly number[];
   readonly printerBuildVolume: { readonly x: number; readonly y: number; readonly z: number } | null;
   readonly processProfile: MasterCastingProcessProfile;

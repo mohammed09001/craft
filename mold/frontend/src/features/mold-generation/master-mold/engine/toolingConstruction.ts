@@ -11,7 +11,8 @@ import {
 import { buildGeometryTolerancePolicy, type GeometryTolerancePolicy } from "../../geometry/geometryTolerance";
 import { meshTopology } from "../../geometry/meshTopology";
 import { cylinderPrismPayload, directionIdToVector } from "../../geometry/meshPrimitives";
-import { verifyDemoldTranslation } from "../masterMoldDemold.verifier";
+import { verifyDemoldTranslationByVector } from "../masterMoldDemold.verifier";
+import { basisAround, halfSpacePrismPayload } from "../planning/workingMoldConstructor";
 import { axisOf, isPositive, masterStockBoundsFor } from "../masterMoldDirection.analyzer";
 import type { MasterCastTarget, MasterCastingProcessProfile, MasterMoldDirection, MasterMoldProjectSnapshot, MasterToolingPiece, MasterToolingPull, MasterToolingRegistrationFeature, MasterVentFeature } from "./contracts";
 
@@ -93,9 +94,18 @@ export interface ConstructPieceInput {
   readonly pourFace: MasterMoldDirection;
   /**
    * Optional planar split: pieces are the case clipped to the half-space on
-   * `splitSide` of the plane.
+   * `splitSide` of the plane. Axis-aligned when `normal` is undefined (the
+   * plane sits at `coordinateMm` along `axis`); otherwise the plane passes
+   * through `point` with unit normal `normal` (Execution 07 LOOP 04: bounded
+   * oblique planar tooling splits).
    */
-  readonly split?: { readonly axis: MasterMoldDirection; readonly coordinateMm: number; readonly side: "positive" | "negative" };
+  readonly split?: {
+    readonly axis: MasterMoldDirection;
+    readonly coordinateMm: number;
+    readonly side: "positive" | "negative";
+    readonly normal?: { readonly x: number; readonly y: number; readonly z: number };
+    readonly point?: { readonly x: number; readonly y: number; readonly z: number };
+  };
   /**
    * The part-negative tool mesh (the functional core shape). With a split,
    * `coreMode` assigns the core volume between the pieces (Priyadarshi–Gupta
@@ -173,7 +183,7 @@ export async function constructCasePiece(input: ConstructPieceInput): Promise<Co
   const caseSolid = createBlankSolid(module, caseBounds);
   // Without a split the piece IS the whole case solid; with a split it is a
   // distinct clipped solid. Delete exactly once in either case.
-  const pieceSide: ManifoldSolid = input.split === undefined ? caseSolid : clipToHalfSpace(module, caseSolid, input.split);
+  const pieceSide: ManifoldSolid = input.split === undefined ? caseSolid : clipToHalfSpace(module, caseSolid, input.split, policy.booleanToleranceMm);
   const targetSolid = manifoldFromPayload(module, castTarget.mesh, policy.booleanToleranceMm);
   const extensionSolid = createBlankSolid(module, extensionBoxBounds(castTarget.bounds, pourFace, extensionMm));
   const coreSolid = input.coreToolMesh === null ? null : manifoldFromPayload(module, input.coreToolMesh, policy.booleanToleranceMm);
@@ -200,10 +210,10 @@ export async function constructCasePiece(input: ConstructPieceInput): Promise<Co
     if (coreSolid !== null && input.split !== undefined && input.coreMode !== "split") {
       plainRemoval = false;
       const side = input.split.side;
-      const ownClip = halfSpaceBoundsFor(caseBounds, input.split.axis, input.split.coordinateMm, side);
-      const otherClip = halfSpaceBoundsFor(caseBounds, input.split.axis, input.split.coordinateMm, side === "positive" ? "negative" : "positive");
-      const ownBox = createBlankSolid(module, ownClip);
-      const otherBox = createBlankSolid(module, otherClip);
+      const ownClip = halfSpaceClipSolid(module, caseBounds, input.split, side, policy.booleanToleranceMm);
+      const otherClip = halfSpaceClipSolid(module, caseBounds, input.split, side === "positive" ? "negative" : "positive", policy.booleanToleranceMm);
+      const ownBox = ownClip;
+      const otherBox = otherClip;
       try {
         coreOwnSide = coreSolid.intersect(ownBox);
         coreOtherSide = coreSolid.intersect(otherBox);
@@ -233,8 +243,7 @@ export async function constructCasePiece(input: ConstructPieceInput): Promise<Co
       }
     }
     if (plainRemoval && input.split !== undefined) {
-      const ownClip = halfSpaceBoundsFor(caseBounds, input.split.axis, input.split.coordinateMm, input.split.side);
-      const ownBox = createBlankSolid(module, ownClip);
+      const ownBox = halfSpaceClipSolid(module, caseBounds, input.split, input.split.side, policy.booleanToleranceMm);
       try {
         const clipped = extendedTarget.intersect(ownBox);
         extendedTarget.delete();
@@ -347,22 +356,36 @@ function halfSpaceBoundsFor(caseBounds: Bounds3, axis: MasterMoldDirection, coor
   return { min, max };
 }
 
-function clipToHalfSpace(module: Awaited<ReturnType<typeof getManifoldModule>>, caseSolid: ManifoldSolid, split: NonNullable<ConstructPieceInput["split"]>): ManifoldSolid {
-  const axis = axisOf(split.axis);
-  const caseBounds = boundsFromManifold(caseSolid);
-  const min: { x: number; y: number; z: number } = { ...caseBounds.min };
-  const max: { x: number; y: number; z: number } = { ...caseBounds.max };
-  const halfBounds: Bounds3 = { min, max };
-  if (split.side === "positive") {
-    min[axis] = split.coordinateMm;
-  } else {
-    max[axis] = split.coordinateMm;
+/**
+ * The half-space on `side` of the split plane as a Manifold solid: an
+ * axis-aligned box for axis splits, an oriented prism (via the shared
+ * half-space payload the working-mold constructor uses) for oblique splits.
+ * One clipping primitive for both, so oblique planar tooling splits reuse the
+ * exact same Boolean path instead of a second engine.
+ */
+function halfSpaceClipSolid(
+  module: Awaited<ReturnType<typeof getManifoldModule>>,
+  caseBounds: Bounds3,
+  split: NonNullable<ConstructPieceInput["split"]>,
+  side: "positive" | "negative",
+  toleranceMm: number,
+): ManifoldSolid {
+  if (split.normal === undefined || split.point === undefined) {
+    return createBlankSolid(module, halfSpaceBoundsFor(caseBounds, split.axis, split.coordinateMm, side));
   }
-  const size = { x: halfBounds.max.x - halfBounds.min.x, y: halfBounds.max.y - halfBounds.min.y, z: halfBounds.max.z - halfBounds.min.z };
-  if (Object.values(size).some((value) => !Number.isFinite(value) || value <= 0)) {
-    throw new Error("Case-piece half-space clip produced a degenerate volume.");
-  }
-  const halfSpace = createBlankSolid(module, halfBounds);
+  const sign = side === "positive" ? 1 : -1;
+  const direction = { x: split.normal.x * sign, y: split.normal.y * sign, z: split.normal.z * sign };
+  const planeOffsetMm = split.normal.x * split.point.x + split.normal.y * split.point.y + split.normal.z * split.point.z;
+  return manifoldFromPayload(module, halfSpacePrismPayload(direction, sign * planeOffsetMm, caseBounds), toleranceMm);
+}
+
+function clipToHalfSpace(
+  module: Awaited<ReturnType<typeof getManifoldModule>>,
+  caseSolid: ManifoldSolid,
+  split: NonNullable<ConstructPieceInput["split"]>,
+  toleranceMm: number,
+): ManifoldSolid {
+  const halfSpace = halfSpaceClipSolid(module, boundsFromManifold(caseSolid), split, split.side, toleranceMm);
   try {
     return caseSolid.intersect(halfSpace);
   } finally {
@@ -450,18 +473,48 @@ export function planToolingRegistrationPinPlacements(
     return { placements: [], reason: "wall too thin for tooling alignment pins" };
   }
 
-  const pinAxis = directionIdToVector(split.axis);
+  const oblique = split.normal !== undefined && split.point !== undefined;
+  const pinAxis = oblique ? split.normal : directionIdToVector(split.axis);
   const splitAxisName = axisOf(split.axis);
   const sideAxes = (["x", "y", "z"] as const).filter((axis) => axis !== splitAxisName);
-  const pinCenters = [0, 1].map((index) => {
-    const point = { x: 0, y: 0, z: 0 };
-    point[splitAxisName] = split.coordinateMm;
-    const insetBase = sideAxes.map((axis) => caseBounds.min[axis] + (caseBounds.max[axis] - caseBounds.min[axis]) * TOOLING_CONSTRUCTION_LIMITS.registrationPinCornerInsetFraction);
-    const insetTop = sideAxes.map((axis) => caseBounds.max[axis] - (caseBounds.max[axis] - caseBounds.min[axis]) * TOOLING_CONSTRUCTION_LIMITS.registrationPinCornerInsetFraction);
-    point[sideAxes[0]!] = index === 0 ? insetBase[0]! : insetTop[0]!;
-    point[sideAxes[1]!] = index === 0 ? insetBase[1]! : insetTop[1]!;
-    return point as { x: number; y: number; z: number };
-  });
+  const pinCenters: { x: number; y: number; z: number }[] = oblique
+    ? (() => {
+        // Oblique split: pins sit on the actual split plane, offset along the
+        // plane's own basis so they bridge the interface at opposite corners.
+        const normal = split.normal!;
+        const planeOffsetMm = normal.x * split.point!.x + normal.y * split.point!.y + normal.z * split.point!.z;
+        const { u, v } = basisAround(normal);
+        const caseCenter = {
+          x: (caseBounds.min.x + caseBounds.max.x) / 2,
+          y: (caseBounds.min.y + caseBounds.max.y) / 2,
+          z: (caseBounds.min.z + caseBounds.max.z) / 2,
+        };
+        const along = normal.x * caseCenter.x + normal.y * caseCenter.y + normal.z * caseCenter.z;
+        const projected = {
+          x: caseCenter.x + normal.x * (planeOffsetMm - along),
+          y: caseCenter.y + normal.y * (planeOffsetMm - along),
+          z: caseCenter.z + normal.z * (planeOffsetMm - along),
+        };
+        const diagonal = Math.hypot(caseBounds.max.x - caseBounds.min.x, caseBounds.max.y - caseBounds.min.y, caseBounds.max.z - caseBounds.min.z);
+        const inset = diagonal * TOOLING_CONSTRUCTION_LIMITS.registrationPinCornerInsetFraction;
+        return [projected, projected].map((point, index) => {
+          const sign = index === 0 ? -1 : 1;
+          return {
+            x: point.x + sign * (u.x + v.x) * inset,
+            y: point.y + sign * (u.y + v.y) * inset,
+            z: point.z + sign * (u.z + v.z) * inset,
+          };
+        });
+      })()
+    : [0, 1].map((index) => {
+        const point = { x: 0, y: 0, z: 0 };
+        point[splitAxisName] = split.coordinateMm;
+        const insetBase = sideAxes.map((axis) => caseBounds.min[axis] + (caseBounds.max[axis] - caseBounds.min[axis]) * TOOLING_CONSTRUCTION_LIMITS.registrationPinCornerInsetFraction);
+        const insetTop = sideAxes.map((axis) => caseBounds.max[axis] - (caseBounds.max[axis] - caseBounds.min[axis]) * TOOLING_CONSTRUCTION_LIMITS.registrationPinCornerInsetFraction);
+        point[sideAxes[0]!] = index === 0 ? insetBase[0]! : insetTop[0]!;
+        point[sideAxes[1]!] = index === 0 ? insetBase[1]! : insetTop[1]!;
+        return point as { x: number; y: number; z: number };
+      });
 
   // Pins must clear the FUNCTIONAL part footprint (the source-part cavity),
   // not the piece's whole bounding box -- the piece extends far beyond the
@@ -559,8 +612,14 @@ export async function applyToolingRegistration(input: {
       }
     }
 
-    // Re-verify the positive piece's release now that it carries pins.
-    const sweep = verifyDemoldTranslation(negativeSolid, positiveSolid, input.split.axis, sweepClearanceMm, policy.surfaceToleranceMm, volumeTolerance);
+    // Re-verify the positive piece's release now that it carries pins. The
+    // sweep runs along the split plane's normal (the registered pair's only
+    // guaranteed free direction), axis or oblique alike.
+    const sweepDirection: readonly [number, number, number] =
+      input.split.normal === undefined
+        ? (({ x, y, z }) => [x, y, z] as const)(directionIdToVector(input.split.axis))
+        : [input.split.normal.x, input.split.normal.y, input.split.normal.z];
+    const sweep = verifyDemoldTranslationByVector(negativeSolid, positiveSolid, sweepDirection, sweepClearanceMm, policy.surfaceToleranceMm, volumeTolerance);
     if (!sweep.removable) {
       return {
         positivePiece: constructedFromSolid(positiveSolid),

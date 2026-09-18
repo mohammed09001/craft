@@ -26,18 +26,20 @@ export const DEFAULT_MASTER_MOLD_PLANNING_PREFERENCES: MasterMoldPlanningPrefere
 };
 
 /**
- * World-space source geometry for one Master Mold run. Positions are the
- * canonical part triangles with the part transform already applied, so every
- * planner and constructor downstream reasons in one world frame.
+ * Source geometry for one Master Mold run. The seed snapshot carries the
+ * LOCAL-space triangles as typed arrays (so the generation Worker can receive
+ * them zero-copy) plus the part transform; `worldMeshFromSnapshot` rehydrates
+ * the world-space mesh in the generation context, so the heavy full-array
+ * transform never runs on the UI thread (Execution 07 LOOP 02).
  */
 export interface MasterSeedSourceMesh {
   readonly modelId: string;
-  /** World-space positions: flat x,y,z triplets. */
-  readonly positions: readonly number[];
-  readonly indices: readonly number[];
+  /** Local-space positions: flat x,y,z triplets (world after rehydration). */
+  readonly positions: Float32Array;
+  readonly indices: Uint32Array;
   /** World-space bounds of the transformed geometry. */
   readonly bounds: Bounds3;
-  /** Content hash over the world-space triangles. */
+  /** Content hash over the source triangles + transform. */
   readonly geometryVersion: string;
 }
 
@@ -60,9 +62,9 @@ export interface MasterMoldSeedSnapshot {
 /** Master-owned structural input for a seed build -- deliberately not the Cavity domain's `CanonicalPartGeometry` type (Article 16). */
 export interface MasterSeedGeometryInput {
   readonly modelId: string;
-  /** Local-space positions: flat x,y,z triplets. */
-  readonly positions: readonly number[];
-  readonly indices: readonly number[];
+  /** Local-space positions: flat x,y,z triplets (plain or typed array). */
+  readonly positions: readonly number[] | Float32Array;
+  readonly indices: readonly number[] | Uint32Array;
   /** Column-major 4x4 part-from-local transform. */
   readonly transform: readonly number[];
   readonly localBounds: Bounds3;
@@ -79,10 +81,10 @@ export interface MasterMoldSeedInput {
 }
 
 function applyTransformToPositions(
-  positions: readonly number[],
+  positions: ArrayLike<number>,
   transform: readonly number[],
-): number[] {
-  const world: number[] = new Array<number>(positions.length);
+): Float32Array {
+  const world = new Float32Array(positions.length);
   for (let index = 0; index < positions.length; index += 3) {
     const x = positions[index]!;
     const y = positions[index + 1]!;
@@ -93,6 +95,34 @@ function applyTransformToPositions(
     world[index + 2] = transform[2]! * x + transform[6]! * y + transform[10]! * z + transform[14]!;
   }
   return world;
+}
+
+const IDENTITY_TRANSFORM = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1] as const;
+
+function transformIsIdentity(transform: readonly number[]): boolean {
+  if (transform.length !== IDENTITY_TRANSFORM.length) return false;
+  for (let index = 0; index < transform.length; index += 1) {
+    if (Math.abs(transform[index]! - IDENTITY_TRANSFORM[index]!) > 1e-12) return false;
+  }
+  return true;
+}
+
+/**
+ * Execution 07 LOOP 02: rehydrates the world-space mesh the engine consumes.
+ * The seed snapshot travels with local-space typed geometry plus its
+ * transform; this runs ONCE in the generation context (the Worker, or the
+ * Worker-less fallback), never on the UI thread. Identity transforms skip
+ * the full-array pass entirely.
+ */
+export function worldMeshFromSnapshot(snapshot: MasterMoldSeedSnapshot): MasterMoldSeedSnapshot {
+  if (transformIsIdentity(snapshot.sourceTransform)) return snapshot;
+  return {
+    ...snapshot,
+    sourceMesh: {
+      ...snapshot.sourceMesh,
+      positions: applyTransformToPositions(snapshot.sourceMesh.positions, snapshot.sourceTransform),
+    },
+  };
 }
 
 export function worldBoundsFromLocal(localBounds: Bounds3, transform: readonly number[]): Bounds3 {
@@ -148,7 +178,12 @@ export function buildMasterMoldSeedSnapshot(input: MasterMoldSeedInput): MasterM
 
   const processProfile = input.processProfile ?? GENERIC_RIGID_CAST_PROFILE;
   const userPreferences = input.userPreferences ?? DEFAULT_MASTER_MOLD_PLANNING_PREFERENCES;
-  const positions = applyTransformToPositions(geometry.positions, geometry.transform);
+  // Execution 07 LOOP 02: one typed conversion pass, no world transform and
+  // no spread copies on the UI thread. The snapshot exclusively owns these
+  // buffers so the Worker client can transfer them zero-copy; the world
+  // transform runs in the generation context (worldMeshFromSnapshot).
+  const positions = Float32Array.from(geometry.positions);
+  const indices = Uint32Array.from(geometry.indices);
   const bounds = worldBoundsFromLocal(geometry.localBounds, geometry.transform);
   const sourceGeometryVersion = masterSourceGeometryVersion({
     geometryVersion: geometry.geometryVersion,
@@ -174,7 +209,7 @@ export function buildMasterMoldSeedSnapshot(input: MasterMoldSeedInput): MasterM
     sourceMesh: {
       modelId: geometry.modelId,
       positions,
-      indices: [...geometry.indices],
+      indices,
       bounds,
       geometryVersion: sourceGeometryVersion,
     },

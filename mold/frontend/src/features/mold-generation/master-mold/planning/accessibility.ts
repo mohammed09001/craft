@@ -55,7 +55,7 @@ function undercutRegionsFor(invisible: ReadonlySet<number>, planningMesh: Planni
 }
 
 export function analyzeDirectionAccessibility(
-  fullMesh: { readonly positions: readonly number[]; readonly indices: readonly number[] },
+  fullMesh: { readonly positions: readonly number[] | Float32Array; readonly indices: readonly number[] | Uint32Array },
   planningMesh: PlanningMesh,
   directions: readonly PlanningCandidateDirection[],
 ): AccessibilityAnalysis {

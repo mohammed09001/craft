@@ -55,6 +55,21 @@ export const MULTI_PIECE_PLANNER_LIMITS = {
   plannerSweepSamples: 8,
   /** Bisection coordinates for a stuck chunk, as fractions of the chunk span along its longest axis. */
   bisectionFractions: [0.5] as const,
+  /**
+   * Execution 07 LOOP 04: bounded oblique planar split candidates derived
+   * from the cast target's dominant oblique normal clusters.
+   */
+  maxObliqueSplitPlanes: 2,
+  /** Total exact construction+verification attempts across all oblique split candidates (core modes count individually). */
+  maxObliqueExactAttempts: 4,
+  /** Triangles sampled (deterministic stride) when deriving oblique normal clusters. */
+  obliqueClusterTriangleSampleCap: 2048,
+  /** Normal-cluster seeds retained while deriving oblique split planes. */
+  maxObliqueClusterSeeds: 8,
+  /** A cluster is oblique only when its normal is at least this far (cosine) from every world axis. */
+  obliqueClusterAxisExclusionCosine: 0.985,
+  /** Cluster-merge angle (degrees) when grouping triangle normals into oblique split seeds. */
+  obliqueClusterMergeAngleDeg: 12,
 } as const;
 
 /** Centralized plan-cost weights (Execution 05 Article 09 "Plan Cost" priority order). Lower = better. */
@@ -179,7 +194,13 @@ export async function planLocalizedRemovableCore(
           return {
             plan: {
               pieces: [corePiece, shellPiece],
-              partingSurface: { kind: "planar", axis: split.axis, coordinateMm: split.coordinateMm },
+              partingSurface: {
+        kind: "planar",
+        axis: split.axis,
+        coordinateMm: split.coordinateMm,
+        ...(split.normal === undefined ? {} : { planeNormal: split.normal }),
+        origin: split.origin,
+      },
               coreMode: "localized-removable-core",
               releaseSequence: [
                 { stepIndex: 0, pieceId: corePiece.pieceId, direction: pull.pull, ...(pull.oblique ? { directionVector: { x: pull.vector[0], y: pull.vector[1], z: pull.vector[2] } } : {}), clearanceDistanceMm: clearance, collisionVerified: true },
@@ -206,39 +227,164 @@ export async function planLocalizedRemovableCore(
   }
 }
 
-interface CandidateSplit {
+/** Where a candidate split plane came from. Geometry-derived sources are searched BEFORE the axis/fraction fallback (Execution 07 LOOP 04). */
+export type SplitOrigin = "target-feature" | "tool-feature" | "build-volume" | "oblique-normal-cluster" | "span-fraction" | "target-face";
+
+export interface CandidateSplit {
+  /** Orientation anchor for pull ordering and sweep-span estimates (nearest world axis to the plane normal). */
   readonly axis: MasterMoldDirection;
   readonly coordinateMm: number;
+  readonly origin: SplitOrigin;
+  /** Unit plane normal; undefined = axis-aligned plane perpendicular to `axis`. */
+  readonly normal?: { readonly x: number; readonly y: number; readonly z: number };
+  /** A point on the plane (required for oblique splits, which are defined by normal + point). */
+  readonly point?: { readonly x: number; readonly y: number; readonly z: number };
 }
 
 /**
- * Bounded deterministic candidate parting planes per axis:
- *   — the cast target's own face planes (where recesses open),
- *   — fixed fractions of the target span,
- *   — the part-negative tool's own vertex levels along the axis (the
- *     recess's internal feature planes — the physically meaningful widest-
- *     section parting positions).
+ * Execution 07 LOOP 04: geometry-driven candidate parting planes, in a fixed
+ * deterministic search order with the axis/fraction set as FALLBACK ONLY:
+ *   1. build-volume-mandated cut positions (where the case span exceeds the
+ *      printer's printable extent along the axis -- hard printer constraints,
+ *      searched first so bounded per-axis attempts cannot be starved by
+ *      families that the printer forbids anyway),
+ *   2. the cast target's own vertex levels along each axis (locked-region
+ *      feature planes — the widest-section partings a mold maker would pick),
+ *   3. the part-negative tool's vertex levels (the recess's internal feature
+ *      planes),
+ *   4. bounded oblique planes through the target's dominant oblique normal
+ *      clusters (undercut-driven partings the axis families cannot express),
+ *   5. fallback: fixed span fractions and the target's own face planes.
  */
-export function candidateSplits(castTarget: MasterCastTarget, coreToolMesh: MoldMeshPayload | null): CandidateSplit[] {
+export function candidateSplits(castTarget: MasterCastTarget, coreToolMesh: MoldMeshPayload | null, buildVolume?: { readonly x: number; readonly y: number; readonly z: number }): CandidateSplit[] {
   const splits: CandidateSplit[] = [];
+  const seen = new Set<string>();
+  const pushAxisAligned = (axis: MasterMoldDirection, coordinateMm: number, origin: SplitOrigin) => {
+    const key = `${axis}:${Math.round(coordinateMm / LEVEL_QUANTUM_MM)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    splits.push({ axis, coordinateMm, origin });
+  };
+  for (const axis of MULTI_PIECE_PLANNER_LIMITS.candidateAxes) {
+    const axisName = axisOf(axis);
+    const min = castTarget.bounds.min[axisName];
+    const max = castTarget.bounds.max[axisName];
+    const span = max - min;
+    // Build-volume-mandated cuts first (hard constraint), then the part's own
+    // feature planes (locked regions), then the tool's.
+    if (buildVolume !== undefined && span > buildVolume[axisName]) {
+      pushAxisAligned(axis, min + buildVolume[axisName], "build-volume");
+      pushAxisAligned(axis, max - buildVolume[axisName], "build-volume");
+    }
+    for (const level of featureLevels(castTarget.mesh, axisName, min, max)) pushAxisAligned(axis, level, "target-feature");
+    if (coreToolMesh !== null) {
+      for (const level of featureLevels(coreToolMesh, axisName, min, max)) pushAxisAligned(axis, level, "tool-feature");
+    }
+  }
+  for (const split of obliqueClusterSplits(castTarget)) splits.push(split);
+  // Axis/fraction fallback ONLY: fixed fractions and face planes come last.
   for (const axis of MULTI_PIECE_PLANNER_LIMITS.candidateAxes) {
     const axisName = axisOf(axis);
     const span = castTarget.bounds.max[axisName] - castTarget.bounds.min[axisName];
-    // Physically meaningful partings first: the part-negative tool's own
-    // vertex levels along the axis (the recess's internal feature planes,
-    // i.e. the widest-section positions a mold maker would choose), then
-    // span fractions, then the target's own face planes.
-    if (coreToolMesh !== null) {
-      const levels = featureLevels(coreToolMesh, axisName, castTarget.bounds.min[axisName], castTarget.bounds.max[axisName]);
-      for (const level of levels) splits.push({ axis, coordinateMm: level });
-    }
     for (const fraction of MULTI_PIECE_PLANNER_LIMITS.splitFractions) {
-      splits.push({ axis, coordinateMm: castTarget.bounds.min[axisName] + span * fraction });
+      pushAxisAligned(axis, castTarget.bounds.min[axisName] + span * fraction, "span-fraction");
     }
-    splits.push({ axis, coordinateMm: castTarget.bounds.min[axisName] });
-    splits.push({ axis, coordinateMm: castTarget.bounds.max[axisName] });
+    pushAxisAligned(axis, castTarget.bounds.min[axisName], "target-face");
+    pushAxisAligned(axis, castTarget.bounds.max[axisName], "target-face");
   }
   return splits;
+}
+
+interface ObliqueSeed {
+  readonly nx: number;
+  readonly ny: number;
+  readonly nz: number;
+  areaMm2: number;
+}
+
+/**
+ * Bounded oblique planar split candidates (Execution 07 LOOP 04): the cast
+ * target's dominant OBLIQUE normal clusters — undercut-driven parting
+ * orientations the axis-aligned families cannot express. The cluster decides
+ * the plane's ORIENTATION; the plane itself passes through the target's
+ * bounds center, so it genuinely cuts the part (a plane through a face's own
+ * centroid would be tangent to the face and never part anything). Normals are
+ * sign-canonicalized so opposite faces of one orientation family merge into a
+ * single candidate. Area-weighted greedy clustering over a deterministic
+ * triangle stride; at most `maxObliqueSplitPlanes` planes.
+ */
+function obliqueClusterSplits(castTarget: MasterCastTarget): CandidateSplit[] {
+  const mesh = castTarget.mesh;
+  const triangleCount = mesh.indices.length / 3;
+  if (triangleCount === 0) return [];
+  const stride = Math.max(1, Math.floor(triangleCount / MULTI_PIECE_PLANNER_LIMITS.obliqueClusterTriangleSampleCap));
+  const exclusionCosine = MULTI_PIECE_PLANNER_LIMITS.obliqueClusterAxisExclusionCosine;
+  const mergeCosine = Math.cos((MULTI_PIECE_PLANNER_LIMITS.obliqueClusterMergeAngleDeg * Math.PI) / 180);
+  const seeds: ObliqueSeed[] = [];
+  for (let triangle = 0; triangle < triangleCount; triangle += stride) {
+    const i0 = mesh.indices[triangle * 3]! * 3;
+    const i1 = mesh.indices[triangle * 3 + 1]! * 3;
+    const i2 = mesh.indices[triangle * 3 + 2]! * 3;
+    const ax = mesh.positions[i1]! - mesh.positions[i0]!;
+    const ay = mesh.positions[i1 + 1]! - mesh.positions[i0 + 1]!;
+    const az = mesh.positions[i1 + 2]! - mesh.positions[i0 + 2]!;
+    const bx = mesh.positions[i2]! - mesh.positions[i0]!;
+    const by = mesh.positions[i2 + 1]! - mesh.positions[i0 + 1]!;
+    const bz = mesh.positions[i2 + 2]! - mesh.positions[i0 + 2]!;
+    let nx = ay * bz - az * by;
+    let ny = az * bx - ax * bz;
+    let nz = ax * by - ay * bx;
+    const length = Math.hypot(nx, ny, nz);
+    if (length < 1e-12) continue;
+    const area = length / 2;
+    nx /= length;
+    ny /= length;
+    nz /= length;
+    // Axis-aligned triangles never seed oblique planes.
+    if (Math.abs(nx) >= exclusionCosine || Math.abs(ny) >= exclusionCosine || Math.abs(nz) >= exclusionCosine) continue;
+    // Sign-canonicalize so a face and its opposite merge into one orientation.
+    const flip = Math.abs(nx) >= Math.abs(ny) && Math.abs(nx) >= Math.abs(nz) ? nx < 0 : Math.abs(ny) >= Math.abs(nz) ? ny < 0 : nz < 0;
+    if (flip) {
+      nx = -nx;
+      ny = -ny;
+      nz = -nz;
+    }
+    const existing = seeds.find((seed) => seed.nx * nx + seed.ny * ny + seed.nz * nz >= mergeCosine);
+    if (existing !== undefined) {
+      existing.areaMm2 += area;
+      continue;
+    }
+    if (seeds.length >= MULTI_PIECE_PLANNER_LIMITS.maxObliqueClusterSeeds) continue;
+    seeds.push({ nx, ny, nz, areaMm2: area });
+  }
+  const anchorOf = (x: number, y: number, z: number): MasterMoldDirection => {
+    const absX = Math.abs(x);
+    const absY = Math.abs(y);
+    const absZ = Math.abs(z);
+    if (absX >= absY && absX >= absZ) return x >= 0 ? "+X" : "-X";
+    if (absY >= absZ) return y >= 0 ? "+Y" : "-Y";
+    return z >= 0 ? "+Z" : "-Z";
+  };
+  const center = {
+    x: (castTarget.bounds.min.x + castTarget.bounds.max.x) / 2,
+    y: (castTarget.bounds.min.y + castTarget.bounds.max.y) / 2,
+    z: (castTarget.bounds.min.z + castTarget.bounds.max.z) / 2,
+  };
+  return seeds
+    .sort((first, second) => second.areaMm2 - first.areaMm2 || first.nx - second.nx || first.ny - second.ny || first.nz - second.nz)
+    .slice(0, MULTI_PIECE_PLANNER_LIMITS.maxObliqueSplitPlanes)
+    .map((seed) => {
+      const normal = { x: seed.nx, y: seed.ny, z: seed.nz };
+      const axis = anchorOf(normal.x, normal.y, normal.z);
+      return {
+        axis,
+        // Informational projection of the plane point onto the anchor axis.
+        coordinateMm: center.x * DIRECTION_VECTORS[axis][0]! + center.y * DIRECTION_VECTORS[axis][1]! + center.z * DIRECTION_VECTORS[axis][2]!,
+        origin: "oblique-normal-cluster" as const,
+        normal,
+        point: center,
+      };
+    });
 }
 
 const LEVEL_QUANTUM_MM = 1e-4;
@@ -285,13 +431,21 @@ interface PullCandidate {
   readonly oblique: boolean;
 }
 
-/** Pull candidates for chunks: axis ids plus, when available, the working-mold piece's own (possibly oblique) assigned release direction. */
-function pullCandidatesFor(splitAxis: MasterMoldDirection, assignedDirection?: { readonly x: number; readonly y: number; readonly z: number }): PullCandidate[] {
+/** Pull candidates for chunks: axis ids plus, when available, the split plane's own normal (oblique splits) and the working-mold piece's own (possibly oblique) assigned release direction. */
+function pullCandidatesFor(
+  splitAxis: MasterMoldDirection,
+  assignedDirection?: { readonly x: number; readonly y: number; readonly z: number },
+  planeNormal?: { readonly x: number; readonly y: number; readonly z: number },
+): PullCandidate[] {
   const candidates: PullCandidate[] = chunkReleaseDirectionOrder(splitAxis).map((direction) => ({
     pull: direction,
     vector: DIRECTION_VECTORS[direction],
     oblique: false,
   }));
+  if (planeNormal !== undefined) {
+    candidates.splice(1, 0, { pull: "-plane-normal", vector: [-planeNormal.x, -planeNormal.y, -planeNormal.z], oblique: true });
+    candidates.splice(1, 0, { pull: "+plane-normal", vector: [planeNormal.x, planeNormal.y, planeNormal.z], oblique: true });
+  }
   if (assignedDirection !== undefined) {
     const length = Math.hypot(assignedDirection.x, assignedDirection.y, assignedDirection.z);
     if (length > 0) {
@@ -501,14 +655,20 @@ export async function attemptRecursiveSplit(
     (castTarget.bounds.max[axisOf(split.axis)] - castTarget.bounds.min[axisOf(split.axis)]) * TOOLING_CONSTRUCTION_LIMITS.demoldClearanceSafetyFactor + parameters.caseWallThicknessMm * 2;
   const budget: ChunkBudget = { sweeps: 0 };
   const plannerSweepOptions = { coarseSampleCount: MULTI_PIECE_PLANNER_LIMITS.plannerSweepSamples };
-  const pullCandidates = pullCandidatesFor(split.axis, assignedDirection);
+  const pullCandidates = pullCandidatesFor(split.axis, assignedDirection, split.normal);
+  const splitDescriptor = {
+    axis: split.axis,
+    coordinateMm: split.coordinateMm,
+    ...(split.normal === undefined ? {} : { normal: split.normal }),
+    ...(split.point === undefined ? {} : { point: split.point }),
+  };
   const caseBounds = caseEnvelopeFor(castTarget.bounds, pourFace, parameters.caseWallThicknessMm, parameters.caseBaseThicknessMm);
   const ventFeatures = safeVentPathsFor(castTarget.bounds, caseBounds, castTarget.bounds, ventRecommendations, parameters.caseWallThicknessMm);
 
   const targetSolid = manifoldFromPayload(module, castTarget.mesh, policy.booleanToleranceMm);
   let positivePiece;
   try {
-    positivePiece = await constructCasePiece({ castTarget, pourFace, parameters, split: { axis: split.axis, coordinateMm: split.coordinateMm, side: "positive" }, coreToolMesh, coreMode, ventPaths: ventFeatures });
+    positivePiece = await constructCasePiece({ castTarget, pourFace, parameters, split: { ...splitDescriptor, side: "positive" }, coreToolMesh, coreMode, ventPaths: ventFeatures });
   } catch {
     targetSolid.delete();
     return { plan: null, rejectionReason: "positive_piece_construction_failed" };
@@ -516,7 +676,7 @@ export async function attemptRecursiveSplit(
 
   let negativePiece;
   try {
-    negativePiece = await constructCasePiece({ castTarget, pourFace, parameters, split: { axis: split.axis, coordinateMm: split.coordinateMm, side: "negative" }, coreToolMesh, coreMode, ventPaths: ventFeatures });
+    negativePiece = await constructCasePiece({ castTarget, pourFace, parameters, split: { ...splitDescriptor, side: "negative" }, coreToolMesh, coreMode, ventPaths: ventFeatures });
   } catch {
     positivePiece.solid.delete();
     targetSolid.delete();
@@ -623,7 +783,7 @@ export async function attemptRecursiveSplit(
     const registered = await applyToolingRegistration({
       castTarget,
       pourFace,
-      split: { axis: split.axis, coordinateMm: split.coordinateMm, side: "positive" },
+      split: { ...splitDescriptor, side: "positive" },
       parameters,
       ...(functionalBounds === undefined ? {} : { functionalBounds }),
       positivePiece: {
@@ -724,7 +884,13 @@ export async function attemptRecursiveSplit(
   return {
     plan: {
       pieces,
-      partingSurface: { kind: "planar", axis: split.axis, coordinateMm: split.coordinateMm },
+      partingSurface: {
+        kind: "planar",
+        axis: split.axis,
+        coordinateMm: split.coordinateMm,
+        ...(split.normal === undefined ? {} : { planeNormal: split.normal }),
+        origin: split.origin,
+      },
       coreMode,
       releaseSequence,
       registrationFeatures,
@@ -901,12 +1067,16 @@ export async function registerMultiPanelInterfaces(
 }
 
 /**
- * Deterministic bounded best-first search over candidate planar partitions:
- * candidates are explored in the fixed deterministic order above and the
- * FIRST fully-verified plan wins (bounded best-first -- Execution 05
- * Article 09 allows a bounded beam of one). Early exit keeps the real
- * Boolean verification bounded; unmanufacturable targets still exhaust the
- * bounded set with structured evidence.
+ * Deterministic bounded best-first search over candidate planar partitions
+ * (Execution 07 LOOP 04): candidates come from `candidateSplits` in its
+ * geometry-driven order — the target's and tool's own feature planes,
+ * build-volume-mandated cuts, and bounded oblique planes from the target's
+ * oblique normal clusters — with the fixed span fractions and face planes
+ * as FALLBACK ONLY. Exact attempts stay bounded per family (`maxExactAttemptsPerAxis`,
+ * `maxObliqueExactAttempts`), and the FIRST fully-verified plan wins
+ * (bounded best-first -- Execution 05 Article 09 allows a bounded beam of
+ * one). Unmanufacturable targets still exhaust the bounded set with
+ * structured evidence.
  */
 export async function planMultiPieceTooling(
   castTarget: MasterCastTarget,
@@ -920,27 +1090,34 @@ export async function planMultiPieceTooling(
 ): Promise<MultiPiecePlanAttempt> {
   let lastRejection: string | null = null;
   const maxPieces = Math.min(parameters.maxToolingPieces, MULTI_PIECE_PLANNER_LIMITS.absoluteMaxToolingPieces);
+  const axisAttemptCount = new Map<MasterMoldDirection, number>();
+  let obliqueAttempts = 0;
 
-  for (const axis of MULTI_PIECE_PLANNER_LIMITS.candidateAxes) {
-    let axisAttempts = 0;
-    const axisSplits = candidateSplits(castTarget, coreToolMesh).filter((split) => split.axis === axis);
-    for (const split of axisSplits) {
-      if (axisAttempts >= MULTI_PIECE_PLANNER_LIMITS.maxExactAttemptsPerAxis) {
-        break;
-      }
-      axisAttempts += 1;
-      const modes: CoreAssignmentMode[] = coreToolMesh === null ? ["split"] : [...MULTI_PIECE_PLANNER_LIMITS.coreModes];
-      for (const mode of modes) {
-        const attempt = await attemptRecursiveSplit(castTarget, pourFace, split, parameters, coreToolMesh, mode, maxPieces, assignedDirection, functionalBounds, buildVolume, ventRecommendations);
-        if (attempt.plan !== null) {
-          return attempt;
-        }
-        lastRejection = attempt.rejectionReason;
-      }
-      // A construction failure is evidence about the split plane, not about
-      // deeper partitions: try the next split for this axis. Core modes are
-      // bounded alternatives for the same candidate, not new split attempts.
+  for (const split of candidateSplits(castTarget, coreToolMesh, buildVolume)) {
+    if (split.normal === undefined) {
+      const used = axisAttemptCount.get(split.axis) ?? 0;
+      if (used >= MULTI_PIECE_PLANNER_LIMITS.maxExactAttemptsPerAxis) continue;
+      axisAttemptCount.set(split.axis, used + 1);
+    } else {
+      // Oblique budget is TOTAL (not per candidate) and exhausting it must
+      // not skip the axis/fraction fallback that follows in the list.
+      if (obliqueAttempts >= MULTI_PIECE_PLANNER_LIMITS.maxObliqueExactAttempts) continue;
     }
+    const modes: CoreAssignmentMode[] = coreToolMesh === null ? ["split"] : [...MULTI_PIECE_PLANNER_LIMITS.coreModes];
+    for (const mode of modes) {
+      if (split.normal !== undefined) {
+        if (obliqueAttempts >= MULTI_PIECE_PLANNER_LIMITS.maxObliqueExactAttempts) break;
+        obliqueAttempts += 1;
+      }
+      const attempt = await attemptRecursiveSplit(castTarget, pourFace, split, parameters, coreToolMesh, mode, maxPieces, assignedDirection, functionalBounds, buildVolume, ventRecommendations);
+      if (attempt.plan !== null) {
+        return attempt;
+      }
+      lastRejection = attempt.rejectionReason;
+    }
+    // A construction failure is evidence about the split plane, not about
+    // deeper partitions: try the next candidate. Core modes are bounded
+    // alternatives for the same candidate, not new split attempts.
   }
 
   return { plan: null, rejectionReason: lastRejection ?? "no_candidate_plan_verified" };

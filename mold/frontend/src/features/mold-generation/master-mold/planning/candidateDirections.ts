@@ -102,7 +102,7 @@ export function principalAxesOfCovariance(covariance: CovarianceMatrix): { x: nu
   return eigen.map((entry) => canonicalDirection(normalize(entry.axis) ?? { x: 1, y: 0, z: 0 }));
 }
 
-function covarianceOfVertices(positions: readonly number[]): CovarianceMatrix {
+function covarianceOfVertices(positions: readonly number[] | Float32Array): CovarianceMatrix {
   let count = 0;
   let sx = 0;
   let sy = 0;
@@ -180,7 +180,7 @@ function deduplicateAndCap(candidates: PlanningCandidateDirection[]): PlanningCa
  * -Z). Polarity-resolved candidates are what the accessibility matrix and
  * the decomposition search consume.
  */
-export function generateCandidateDirections(planningMesh: PlanningMesh, worldPositions: readonly number[]): PlanningCandidateDirection[] {
+export function generateCandidateDirections(planningMesh: PlanningMesh, worldPositions: readonly number[] | Float32Array): PlanningCandidateDirection[] {
   const canonical: PlanningCandidateDirection[] = [];
   const worldAxes: readonly { readonly vector: PlanningCandidateDirection["vector"]; readonly origin: string }[] = [
     { vector: { x: 1, y: 0, z: 0 }, origin: "world+X" },

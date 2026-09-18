@@ -1,5 +1,5 @@
 import { evaluateMasterMoldGeneration } from "./masterMoldGeneration.evaluate";
-import type { MasterMoldSeedSnapshot } from "./seed/masterMoldSeed";
+import { worldMeshFromSnapshot, type MasterMoldSeedSnapshot } from "./seed/masterMoldSeed";
 import type { MasterMoldWorkerFailure, MasterMoldWorkerRequest, MasterMoldWorkerResponse } from "./masterMoldGeneration.worker.contracts";
 
 type MasterMoldWorkerScope = {
@@ -15,17 +15,22 @@ const failure = (error: unknown): MasterMoldWorkerFailure => ({
   message: error instanceof Error ? error.message : "Master Mold generation failed.",
 });
 
-/** Rehydrates the full seed snapshot contract from the compact transferred payload. */
+/**
+ * Rehydrates the full seed snapshot contract from the compact transferred
+ * payload. The transferred typed arrays are consumed directly (no Array.from
+ * copy), and the world transform is applied HERE -- off the UI thread
+ * (Execution 07 LOOP 02).
+ */
 function seedFromPayload(payload: Extract<MasterMoldWorkerRequest, { type: "generate" }>["seed"]): MasterMoldSeedSnapshot {
-  return {
+  return worldMeshFromSnapshot({
     schemaVersion: 1,
     seedId: payload.seedId,
     sourceModelId: payload.sourceModelId,
     sourceGeometryVersion: payload.sourceGeometryVersion,
     sourceMesh: {
       modelId: payload.sourceModelId,
-      positions: Array.from(payload.positions),
-      indices: Array.from(payload.indices),
+      positions: payload.positions,
+      indices: payload.indices,
       bounds: payload.bounds,
       geometryVersion: payload.sourceGeometryVersion,
     },
@@ -35,7 +40,7 @@ function seedFromPayload(payload: Extract<MasterMoldWorkerRequest, { type: "gene
     processProfile: payload.processProfile,
     userPreferences: payload.userPreferences,
     sourceProjectRevision: payload.sourceProjectRevision,
-  };
+  });
 }
 
 async function processMasterMoldRequest(request: Extract<MasterMoldWorkerRequest, { type: "generate" }>): Promise<void> {
