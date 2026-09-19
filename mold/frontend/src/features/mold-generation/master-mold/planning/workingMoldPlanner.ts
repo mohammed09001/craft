@@ -339,7 +339,7 @@ function evaluateFinalized(
   regionGraph: SurfaceRegionGraph,
   prisms: { directionIndex: number; offsetMm: number }[],
   catchAllDirectionIndex: number,
-): { candidate: DecompositionCandidate; assignment: Int32Array } {
+): { candidate: DecompositionCandidate; assignment: Int32Array; unassignableRegionIndexes: ReadonlySet<number> } {
   const pieceCount = prisms.length + 1;
   // Execution 08 LOOP 10: region-consistent ownership (see
   // regionOwnedAssignment) -- a coherent region can no longer be split
@@ -347,6 +347,10 @@ function evaluateFinalized(
   const assignment = regionOwnedAssignment(planningMesh, analysis, regionGraph, prisms, pieceCount - 1, catchAllDirectionIndex);
   let unassignable = 0;
   let slidingWallAreaMm2 = 0;
+  // Execution 08 LOOP 20: WHICH regions the unassignable patches belong to,
+  // not just how many patches -- a precise, per-attempt diagnostic instead
+  // of a raw count with no geometric referent.
+  const unassignableRegionIndexes = new Set<number>();
   // Execution 07 LOOP 03 pre-CSG accessibility-gain gate: patches the
   // catch-all direction cannot see are the ONLY ones the prisms can rescue.
   let catchAllInvisible = 0;
@@ -361,6 +365,8 @@ function evaluateFinalized(
     const visible = analysis.perDirection[directionIndex]!.visible[patch.patchIndex] === 1;
     if (!visible) {
       unassignable += 1;
+      const regionIndex = regionGraph.regionOfPatch[patch.patchIndex];
+      if (regionIndex !== undefined && regionIndex >= 0) unassignableRegionIndexes.add(regionIndex);
       continue;
     }
     const direction = analysis.directions[directionIndex]!.vector;
@@ -427,6 +433,7 @@ function evaluateFinalized(
 
   return {
     assignment,
+    unassignableRegionIndexes,
     candidate: {
       pieceCount,
       pieces,
@@ -642,6 +649,7 @@ export function createWorkingMoldPieceCountSearch(input: WorkingMoldPlannerInput
           planningCandidatesGenerated: 0,
           planningCandidatesFeasible: 0,
           bestUnassignablePatchCount: null,
+          bestUnresolvedRegionCount: null,
           rejectionReason: "no_prism_prefix_survived_the_search_budget",
           candidateDirectionCountUsed: analysis.directions.length,
           combinationDirectionCountUsed,
@@ -655,7 +663,7 @@ export function createWorkingMoldPieceCountSearch(input: WorkingMoldPlannerInput
       }
 
       // Finalize: attach a catch-all release direction to each surviving prefix.
-      const finalized: { candidate: DecompositionCandidate; assignment: Int32Array; prisms: { directionIndex: number; offsetMm: number }[]; catchAllDirectionIndex: number }[] = [];
+      const finalized: { candidate: DecompositionCandidate; assignment: Int32Array; unassignableRegionIndexes: ReadonlySet<number>; prisms: { directionIndex: number; offsetMm: number }[]; catchAllDirectionIndex: number }[] = [];
       for (const prefix of beam.slice(0, MASTER_PLANNER_LIMITS.maxExactPlansPerPieceCount * 4)) {
         for (let catchIndex = 0; catchIndex < analysis.directions.length; catchIndex += 1) {
           const result = evaluateFinalized(planningMesh, analysis, regionGraph, prefix.prisms, catchIndex);
@@ -679,21 +687,26 @@ export function createWorkingMoldPieceCountSearch(input: WorkingMoldPlannerInput
 
       if (feasible.length === 0) {
         const best = finalized.sort((a, b) => a.candidate.unassignablePatchCount - b.candidate.unassignablePatchCount)[0];
+        const bestUnresolvedRegionCount = best === undefined ? null : best.unassignableRegionIndexes.size;
         // Execution 08 LOOP 11: a stronger, more honest rejection when
         // region set-cover PROVES this piece count is directionally
         // achievable -- the failure is this search's prism-ORDERING
         // combinatorics, not a lack of any viable release direction.
         const coverProvesAchievable = regionSetCoverMinimumPieceEstimate !== null && regionSetCoverMinimumPieceEstimate <= currentCount;
+        // Execution 08 LOOP 20: name the unresolved REGION count, not just
+        // the raw patch count -- a precise geometric referent a person (or
+        // a later loop) can act on.
         const baseReason = best === undefined
           ? "no_decomposition_candidate_generated"
           : best.candidate.unassignablePatchCount === 0
             ? "split_added_no_accessibility (the prisms did not improve on the catch-all release)"
-            : `no_feasible_release_assignment (best left ${best.candidate.unassignablePatchCount} inaccessible patch group(s))`;
+            : `no_feasible_release_assignment (best left ${best.candidate.unassignablePatchCount} inaccessible patch(es) across ${bestUnresolvedRegionCount} unresolved region(s))`;
         const diagnostics: WorkingMoldPieceCountDiagnostics = {
           pieceCount: currentCount,
           planningCandidatesGenerated: finalized.length,
           planningCandidatesFeasible: 0,
           bestUnassignablePatchCount,
+          bestUnresolvedRegionCount,
           rejectionReason: coverProvesAchievable
             ? `${baseReason} (region set-cover proves ${regionSetCoverMinimumPieceEstimate} direction(s) can release every region; this search's prism ordering did not find a matching geometric arrangement)`
             : baseReason,
@@ -720,6 +733,7 @@ export function createWorkingMoldPieceCountSearch(input: WorkingMoldPlannerInput
         planningCandidatesGenerated: finalized.length,
         planningCandidatesFeasible: feasible.length,
         bestUnassignablePatchCount,
+        bestUnresolvedRegionCount: bestUnassignablePatchCount === null ? null : 0,
         rejectionReason: null,
         candidateDirectionCountUsed: analysis.directions.length,
         combinationDirectionCountUsed,

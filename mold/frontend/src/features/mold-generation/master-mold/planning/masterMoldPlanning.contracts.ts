@@ -80,6 +80,8 @@ export interface WorkingMoldPieceCountDiagnostics {
   readonly planningCandidatesFeasible: number;
   /** Lowest unassignable-patch count seen across all finalized candidates; null when none were generated. */
   readonly bestUnassignablePatchCount: number | null;
+  /** Execution 08 LOOP 20: distinct LOOP 05 regions the best candidate's unassignable patches belong to -- a precise geometric referent, not just a raw patch count. null when none were generated. */
+  readonly bestUnresolvedRegionCount: number | null;
   /** null exactly when planningCandidatesFeasible > 0. */
   readonly rejectionReason: string | null;
   /** Total candidate release directions available to this search (post-pruning). */
