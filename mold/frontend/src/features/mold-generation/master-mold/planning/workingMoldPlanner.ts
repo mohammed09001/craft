@@ -38,6 +38,8 @@ interface BeamPrefix {
   readonly prisms: { readonly directionIndex: number; readonly offsetMm: number }[];
   readonly unassignable: number;
   readonly score: number;
+  /** Execution 08 LOOP 18: sorted region indexes this prefix leaves entirely in the remainder -- the beam's diversity key. */
+  readonly uncoveredRegionSignature: string;
 }
 
 export interface WorkingMoldDecompositionFinalist {
@@ -284,6 +286,50 @@ function evaluatePrefix(
     if (visibility[patch.patchIndex] !== 1) unassignable += 1;
   }
   return { assignment, unassignable };
+}
+
+/** Sorted, deduplicated region indexes an assignment leaves entirely in the remainder (-1) -- a beam prefix's diversity key (Execution 08 LOOP 18). */
+function uncoveredRegionSignature(assignment: Int32Array, regionGraph: SurfaceRegionGraph): string {
+  const regions = new Set<number>();
+  for (let patchIndex = 0; patchIndex < assignment.length; patchIndex += 1) {
+    if (assignment[patchIndex] !== -1) continue;
+    const regionIndex = regionGraph.regionOfPatch[patchIndex];
+    if (regionIndex !== undefined && regionIndex >= 0) regions.add(regionIndex);
+  }
+  return [...regions].sort((a, b) => a - b).join(",");
+}
+
+/**
+ * Execution 08 LOOP 18: region-aware beam selection. A pure top-N-by-score
+ * slice can collapse the whole beam onto near-identical variations of the
+ * single best-scoring prefix, silently dropping a lower-scored prefix that
+ * is the only one addressing some DIFFERENT unresolved region -- exactly
+ * the failure mode Article 18 describes. Candidates are admitted in score
+ * order, but a candidate whose uncovered-region signature duplicates one
+ * already in the beam is skipped in favor of a still-distinct one; only
+ * once distinct signatures are exhausted does the beam fill remaining
+ * slots by score alone. The beam width itself (`BEAM_WIDTH`) is never
+ * raised -- diversity is a selection policy within the existing bound.
+ */
+function selectDiverseBeam(candidates: readonly BeamPrefix[], width: number): BeamPrefix[] {
+  const ranked = [...candidates].sort((a, b) => a.unassignable - b.unassignable || a.score - b.score);
+  const selected: BeamPrefix[] = [];
+  const seenSignatures = new Set<string>();
+  const leftover: BeamPrefix[] = [];
+  for (const candidate of ranked) {
+    if (selected.length >= width) break;
+    if (seenSignatures.has(candidate.uncoveredRegionSignature)) {
+      leftover.push(candidate);
+      continue;
+    }
+    seenSignatures.add(candidate.uncoveredRegionSignature);
+    selected.push(candidate);
+  }
+  for (const candidate of leftover) {
+    if (selected.length >= width) break;
+    selected.push(candidate);
+  }
+  return selected;
 }
 
 /** Full feasibility+score of a finalized decomposition (prefix + catch-all direction). */
@@ -554,12 +600,18 @@ export function createWorkingMoldPieceCountSearch(input: WorkingMoldPlannerInput
           if (evaluated.has(key)) continue;
           evaluated.add(key);
           const evaluation = evaluatePrefix(planningMesh, analysis, regionGraph, [prism]);
-          beam.push({ prisms: [prism], unassignable: evaluation.unassignable, score: evaluation.unassignable });
+          beam.push({
+            prisms: [prism],
+            unassignable: evaluation.unassignable,
+            score: evaluation.unassignable,
+            uncoveredRegionSignature: uncoveredRegionSignature(evaluation.assignment, regionGraph),
+          });
         }
-        // Promote the most-feasible prefixes into the finalize shortlist
-        // regardless of candidate-direction insertion order (oblique
-        // geometry-derived directions must compete with world axes).
-        beam.sort((a, b) => a.unassignable - b.unassignable || a.score - b.score);
+        // Region-aware diverse selection (LOOP 18), not a plain top-N score
+        // slice: oblique geometry-derived directions must compete with
+        // world axes, AND a prefix addressing a different unresolved region
+        // must not be silently dropped just because its raw score is worse.
+        beam = selectDiverseBeam(beam, BEAM_WIDTH);
       } else {
         const nextBeam: BeamPrefix[] = [];
         const extensions = extensionsOf(beam[0]?.prisms ?? []);
@@ -573,11 +625,15 @@ export function createWorkingMoldPieceCountSearch(input: WorkingMoldPlannerInput
             if (evaluated.has(key)) continue;
             evaluated.add(key);
             const evaluation = evaluatePrefix(planningMesh, analysis, regionGraph, prisms);
-            nextBeam.push({ prisms, unassignable: evaluation.unassignable, score: evaluation.unassignable + prisms.length * 0.01 });
+            nextBeam.push({
+              prisms,
+              unassignable: evaluation.unassignable,
+              score: evaluation.unassignable + prisms.length * 0.01,
+              uncoveredRegionSignature: uncoveredRegionSignature(evaluation.assignment, regionGraph),
+            });
           }
         }
-        nextBeam.sort((a, b) => a.unassignable - b.unassignable || a.score - b.score);
-        beam = nextBeam.slice(0, BEAM_WIDTH);
+        beam = selectDiverseBeam(nextBeam, BEAM_WIDTH);
       }
 
       if (beam.length === 0) {
