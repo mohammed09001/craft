@@ -171,6 +171,36 @@ export async function buildSealedHollowBoxFixture(): Promise<GoldenFixture> {
 }
 
 /**
+ * Execution 08 LOOP 23: a real (never mocked) exact-failure escalation
+ * fixture. A wide overhanging cap sits above a narrow support column
+ * offset to one side (a mushroom/T-shape): every patch individually has
+ * clear per-patch ray visibility along SOME direction (planning reports
+ * every piece count as feasible), but a 2- or 3-piece ordered half-space
+ * split cannot actually translate its pieces apart without the overhang
+ * colliding with the column -- a genuine geometric interference between a
+ * piece's own BULK and the rest of the assembly that per-patch ray-casting
+ * does not capture, only the exact collision sweep does. Verified directly
+ * (masterMoldEngine.test.ts): 2 and 3 pieces both fail real exact
+ * construction, 4 pieces exactly succeeds -- proving the LOOP 01
+ * escalation path with real geometry, not a mocked exact-construction
+ * failure.
+ */
+export async function buildMushroomOverhangFixture(): Promise<GoldenFixture> {
+  const module = await getManifoldModule();
+  const cap = createBlankSolid(module, { min: { x: -6, y: -6, z: 3 }, max: { x: 6, y: 6, z: 6 } });
+  const column = createBlankSolid(module, { min: { x: 1, y: -2, z: -6 }, max: { x: 5, y: 2, z: 3 } });
+  let solid: ManifoldSolid | null = null;
+  try {
+    solid = cap.add(column);
+    return { mesh: payloadFromManifold(solid), bounds: boundsFromManifold(solid) };
+  } finally {
+    cap.delete();
+    column.delete();
+    solid?.delete();
+  }
+}
+
+/**
  * Execution 07 LOOP 07: a box with an internal cavity open through the
  * bottom face. In +Z casting orientation the cavity ceiling is a
  * downward-facing surface with material above and no horizontal escape --
