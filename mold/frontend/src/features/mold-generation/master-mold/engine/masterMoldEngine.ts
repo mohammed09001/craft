@@ -45,7 +45,9 @@ import {
   validateAssembledNegative,
 } from "./toolingConstruction";
 import { verifyDemoldTranslation } from "../masterMoldDemold.verifier";
-import { axisOf } from "../masterMoldDirection.analyzer";
+import { axisOf, DIRECTION_VECTORS } from "../masterMoldDirection.analyzer";
+import type { Bounds3 } from "../../split-face/splitFace.contracts";
+import { deriveLockRegions } from "./lockEvidence";
 
 /**
  * Execution 06: the autonomous Master Mold Engine.
@@ -454,7 +456,7 @@ async function attemptCaseForPourFace(
   let registrationFeatures: MasterToolingSet["assembly"]["registrationFeatures"] = [];
   let partingSurfaces: MasterToolingSet["partingSurfaces"] = [];
 
-  if (onePiece !== null) {
+  if (onePiece.ok) {
     releaseMode = "one-piece";
     pieces = onePiece.pieces;
     releaseSequence = onePiece.releaseSequence;
@@ -481,31 +483,35 @@ async function attemptCaseForPourFace(
   } else {
     // One-piece failure is planning evidence, never product failure.
     let localizedPlanAccepted = false;
-    // Dense meshes already consume the exact-search budget and are not a
-    // reliable signal for a localized lock. Keep the local-core primitive
-    // available for bounded, feature-scale targets without adding a second
-    // expensive search to the high-poly responsiveness path.
-    if (negativeTool.mesh !== null && parameters.maxToolingPieces >= 2 && castTarget.mesh.indices.length / 3 <= 2000) {
-      const localized = await planLocalizedRemovableCore(
-        castTarget,
-        pourFace,
-        parameters,
-        negativeTool.mesh,
-        assignedDirection,
-        context.buildVolume ?? undefined,
-        pourFaceDecision.ventPlan.unresolvedRecommendations,
-      );
-      budget.toolingExactPlanAttempts += 1;
-      if (localized.plan !== null) {
-        localizedPlanAccepted = true;
-        releaseMode = "multi-piece";
-        pieces = localized.plan.pieces;
-        releaseSequence = localized.plan.releaseSequence;
-        coreMode = localized.plan.coreMode;
-        ventFeatures = localized.plan.ventFeatures;
-        registrationFeatures = localized.plan.registrationFeatures;
-        partingSurfaces = [localized.plan.partingSurface];
-        warnings.push(localized.plan.registrationNote ?? "localized removable core selected after one-piece release failure.");
+    // Execution 07 LOOP 06: the localized-core search is lock-driven and
+    // mesh-density independent. Candidate core regions derive from the exact
+    // release-collision region of the failed sweep plus sampled inaccessible
+    // patch clusters; exact CSG runs only on the shortlisted regions. A
+    // dense mesh is never by itself a reason to skip the search.
+    if (parameters.maxToolingPieces >= 2) {
+      const lockEvidence = deriveLockRegions(castTarget, flipOf(pourFace), onePiece.collisionBounds);
+      if (lockEvidence.regions.length > 0) {
+        const localized = await planLocalizedRemovableCore(
+          castTarget,
+          pourFace,
+          parameters,
+          lockEvidence,
+          assignedDirection,
+          context.buildVolume ?? undefined,
+          pourFaceDecision.ventPlan.unresolvedRecommendations,
+        );
+        budget.toolingExactPlanAttempts += 1;
+        if (localized.plan !== null) {
+          localizedPlanAccepted = true;
+          releaseMode = "multi-piece";
+          pieces = localized.plan.pieces;
+          releaseSequence = localized.plan.releaseSequence;
+          coreMode = localized.plan.coreMode;
+          ventFeatures = localized.plan.ventFeatures;
+          registrationFeatures = localized.plan.registrationFeatures;
+          partingSurfaces = [localized.plan.partingSurface];
+          warnings.push(localized.plan.registrationNote ?? "localized removable core selected after one-piece release failure.");
+        }
       }
     }
     if (localizedPlanAccepted) {
@@ -606,13 +612,18 @@ function sacrificialOutcome(
   };
 }
 
+/** One-piece attempt outcome: on release failure the exact collision region is retained as lock evidence (Execution 07 LOOP 06). */
+type OnePieceAttempt =
+  | { readonly ok: true; readonly pieces: readonly MasterToolingPiece[]; readonly releaseSequence: MasterToolingSet["assembly"]["releaseSequence"]; readonly ventFeatures: MasterToolingSet["pourFaceDecision"]["ventPlan"]["features"] }
+  | { readonly ok: false; readonly collisionBounds: Bounds3 | null };
+
 /** Article 09 stage: build the one-piece case and exactly verify release + assembled negative. */
 async function attemptOnePiece(
   castTarget: MasterCastTarget,
   pourFace: MasterMoldDirection,
   parameters: ReturnType<typeof toolingParametersFromProfile>,
   recommendations: MasterToolingSet["pourFaceDecision"]["ventPlan"]["unresolvedRecommendations"],
-): Promise<{ readonly pieces: readonly MasterToolingPiece[]; readonly releaseSequence: MasterToolingSet["assembly"]["releaseSequence"]; readonly ventFeatures: MasterToolingSet["pourFaceDecision"]["ventPlan"]["features"] } | null> {
+): Promise<OnePieceAttempt> {
   const module = await getManifoldModule();
   const caseBounds = caseEnvelopeFor(castTarget.bounds, pourFace, parameters.caseWallThicknessMm, parameters.caseBaseThicknessMm);
   const policy = toolingTolerancePolicy(caseBounds);
@@ -628,19 +639,40 @@ async function attemptOnePiece(
     constructed = await constructCasePiece({ castTarget, pourFace, parameters, coreToolMesh: null, coreMode: "split", ventPaths: ventFeatures });
   } catch {
     targetSolid.delete();
-    return null;
+    return { ok: false, collisionBounds: null };
   }
 
   try {
     const releaseDirection = flipOf(pourFace);
     const sweep = verifyDemoldTranslation(targetSolid, constructed.solid, releaseDirection, sweepClearanceMm, policy.surfaceToleranceMm, volumeTolerance);
-    if (!sweep.removable) return null;
+    if (!sweep.removable) {
+      // Exact lock localization: the overlap between the case and the
+      // translated target at the first colliding distance is WHERE the
+      // release physically jams. This region seeds the localized-core
+      // search (Execution 07 LOOP 06).
+      let collisionBounds: Bounds3 | null = null;
+      if (sweep.firstCollisionDistanceMm !== null) {
+        // The sweep moves the case relative to the target (see call above), so
+        // the jam region is target ∩ case-translated-to-first-contact.
+        const [dx, dy, dz] = DIRECTION_VECTORS[releaseDirection];
+        const translated = constructed.solid.translate(dx * sweep.firstCollisionDistanceMm, dy * sweep.firstCollisionDistanceMm, dz * sweep.firstCollisionDistanceMm);
+        const overlap = targetSolid.intersect(translated);
+        try {
+          if (!overlap.isEmpty()) collisionBounds = boundsFromManifold(overlap);
+        } finally {
+          overlap.delete();
+          translated.delete();
+        }
+      }
+      return { ok: false, collisionBounds };
+    }
 
     const assembled = await validateAssembledNegative([constructed.solid], castTarget, pourFace, parameters);
-    if (assembled.overlapVolumeMm3 > volumeTolerance || assembled.residualVoidVolumeMm3 < -volumeTolerance || assembled.residualVoidVolumeMm3 > castTarget.volumeMm3) return null;
+    if (assembled.overlapVolumeMm3 > volumeTolerance || assembled.residualVoidVolumeMm3 < -volumeTolerance || assembled.residualVoidVolumeMm3 > castTarget.volumeMm3) return { ok: false, collisionBounds: null };
 
     const piece = pieceFromConstructed("piece-1", `${castTarget.moldPartName} Master Case`, constructed, releaseDirection, ["one-piece"]);
     return {
+      ok: true,
       pieces: [piece],
       ventFeatures,
       releaseSequence: [

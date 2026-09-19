@@ -18,6 +18,7 @@ import {
   type MasterToolingParameters,
 } from "./toolingConstruction";
 import { caseEnvelopeFor } from "./toolingConstruction";
+import type { LockEvidence } from "./lockEvidence";
 
 /**
  * Execution 06 Article 09: adaptive Master case planner (1..N panels per
@@ -102,7 +103,10 @@ export interface MultiPiecePlanAttempt {
 
 /**
  * Attempts a localized removable insert before escalating a locked target to
- * a global panel decomposition. The insert is a real target sub-solid: the
+ * a global panel decomposition. Core candidate regions come from lock
+ * evidence (Execution 07 LOOP 06): the exact release-collision region of the
+ * failed one-piece sweep, plus sampled inaccessible patch clusters -- never
+ * from arbitrary span fractions. The insert is a real target sub-solid: the
  * case keeps the complete cavity, the insert is removed first, and both
  * motions are checked against the final Manifold solids.
  */
@@ -110,7 +114,7 @@ export async function planLocalizedRemovableCore(
   castTarget: MasterCastTarget,
   pourFace: MasterMoldDirection,
   parameters: MasterToolingParameters,
-  coreToolMesh: MoldMeshPayload,
+  lockEvidence: LockEvidence,
   assignedDirection?: { readonly x: number; readonly y: number; readonly z: number },
   buildVolume?: { readonly x: number; readonly y: number; readonly z: number },
   ventRecommendations: readonly MasterVentRecommendation[] = [],
@@ -134,35 +138,32 @@ export async function planLocalizedRemovableCore(
       z: castTarget.bounds.max.z - castTarget.bounds.min.z,
     };
     // A removable core is a bounded fallback, not a second exhaustive
-    // planner. Feature-derived levels are already ordered by relevance; keep
-    // only the first few and the most promising pull vectors.
-    const pullCandidates = (['+X', '+Y', '+Z'] as const).flatMap((axis) => pullCandidatesFor(axis, assignedDirection)).slice(0, 6);
-    for (const split of candidateSplits(castTarget, coreToolMesh).slice(0, 4)) {
-      const axis = axisOf(split.axis);
-      const localMin = { ...castTarget.bounds.min };
-      const localMax = { ...castTarget.bounds.max };
-      const axisWidth = span[axis] * 0.35;
-      const transverseAxes = (["x", "y", "z"] as const).filter((candidate) => candidate !== axis);
-      localMin[axis] = Math.max(castTarget.bounds.min[axis], split.coordinateMm - axisWidth / 2);
-      localMax[axis] = Math.min(castTarget.bounds.max[axis], split.coordinateMm + axisWidth / 2);
-      for (const transverse of transverseAxes) {
-        const width = span[transverse] * 0.6;
-        const midpoint = (castTarget.bounds.min[transverse] + castTarget.bounds.max[transverse]) / 2;
-        localMin[transverse] = midpoint - width / 2;
-        localMax[transverse] = midpoint + width / 2;
-      }
-      const region = createBlankSolid(module, { min: localMin, max: localMax });
+    // planner. The evidence pull direction is tried first (it is the pull
+    // that physically jammed), then the regular bounded candidate order.
+    const evidencePulls: PullCandidate[] = [
+      { pull: lockEvidence.pullDirection, vector: DIRECTION_VECTORS[lockEvidence.pullDirection], oblique: false },
+      { pull: flipDirection(lockEvidence.pullDirection), vector: DIRECTION_VECTORS[flipDirection(lockEvidence.pullDirection)], oblique: false },
+    ];
+    const pullCandidates = [
+      ...evidencePulls,
+      ...(['+X', '+Y', '+Z'] as const).flatMap((axis) => pullCandidatesFor(axis, assignedDirection)),
+   ].slice(0, 10);
+    for (const region of lockEvidence.regions) {
+      const partingAxisName = axisOf(lockEvidence.pullDirection);
+      const partingSign = lockEvidence.pullVector[partingAxisName === "x" ? 0 : partingAxisName === "y" ? 1 : 2]! > 0 ? 1 : -1;
       let core: ManifoldSolid | null = null;
       let remaining: ManifoldSolid | null = null;
+      let regionBox: ManifoldSolid | null = null;
       try {
-        core = target.intersect(region);
+        regionBox = createBlankSolid(module, region.bounds);
+        core = target.intersect(regionBox);
         const coreVolume = core.volume();
         if (core.isEmpty() || coreVolume <= volumeTolerance || coreVolume >= castTarget.volumeMm3 * 0.45) continue;
         remaining = target.subtract(core);
         for (const pull of pullCandidates) {
-          const coreProof = verifyDemoldTranslationByVector(shell.solid, core, pull.vector, span[axis] * 1.25 + parameters.caseWallThicknessMm * 2, policy.surfaceToleranceMm, volumeTolerance, { coarseSampleCount: 12 });
+          const coreProof = verifyDemoldTranslationByVector(shell.solid, core, pull.vector, span[partingAxisName] * 1.25 + parameters.caseWallThicknessMm * 2, policy.surfaceToleranceMm, volumeTolerance, { coarseSampleCount: 12 });
           if (!coreProof.removable) continue;
-          const shellProof = verifyDemoldTranslationByVector(shell.solid, remaining, pull.vector, span[axis] * 1.25 + parameters.caseWallThicknessMm * 2, policy.surfaceToleranceMm, volumeTolerance, { coarseSampleCount: 12 });
+          const shellProof = verifyDemoldTranslationByVector(shell.solid, remaining, pull.vector, span[partingAxisName] * 1.25 + parameters.caseWallThicknessMm * 2, policy.surfaceToleranceMm, volumeTolerance, { coarseSampleCount: 12 });
           if (!shellProof.removable) continue;
           const contact = shell.solid.intersect(core);
           try {
@@ -190,16 +191,18 @@ export async function planLocalizedRemovableCore(
           };
           const shellPiece = pieceFromConstructed("piece-case-shell", `${castTarget.moldPartName} Case Shell`, shell, pull.pull, ["case-shell"], [], pull.oblique ? { x: pull.vector[0], y: pull.vector[1], z: pull.vector[2] } : undefined);
           if (!corePiece.fitsBuildVolume || (buildVolume !== undefined && !shellPiece.fitsBuildVolume)) continue;
-          const clearance = span[axis] * 1.25 + parameters.caseWallThicknessMm * 2;
+          const clearance = span[partingAxisName] * 1.25 + parameters.caseWallThicknessMm * 2;
           return {
             plan: {
               pieces: [corePiece, shellPiece],
               partingSurface: {
         kind: "planar",
-        axis: split.axis,
-        coordinateMm: split.coordinateMm,
-        ...(split.normal === undefined ? {} : { planeNormal: split.normal }),
-        origin: split.origin,
+        // The parting plane is the lock face itself: the seed footprint's far
+        // face along the pull, with the normal pointing from the core into
+        // the remaining material.
+        axis: flipDirection(lockEvidence.pullDirection),
+        coordinateMm: partingSign > 0 ? region.seedBounds.min[partingAxisName] : region.seedBounds.max[partingAxisName],
+        origin: "lock-evidence",
       },
               coreMode: "localized-removable-core",
               releaseSequence: [
@@ -208,7 +211,7 @@ export async function planLocalizedRemovableCore(
               ],
               registrationFeatures: [],
               ventFeatures,
-              registrationNote: "localized removable core is removed before the case shell; no panel interface alignment is required.",
+              registrationNote: "localized removable core (lock evidence: " + region.evidence + ") is removed before the case shell; no panel interface alignment is required.",
               cost: 0,
             },
             rejectionReason: null,
@@ -217,7 +220,7 @@ export async function planLocalizedRemovableCore(
       } finally {
         remaining?.delete();
         core?.delete();
-        region.delete();
+        regionBox?.delete();
       }
     }
     return { plan: null, rejectionReason: "no_localized_core_release_sequence_verified" };

@@ -220,8 +220,8 @@ export interface MasterPartingSurface {
    * axes (Execution 07 LOOP 04); undefined = axis-aligned plane.
    */
   readonly planeNormal?: { readonly x: number; readonly y: number; readonly z: number };
-  /** Where this candidate came from: geometry-derived sources precede the axis/fraction fallback in the search (Execution 07 LOOP 04). */
-  readonly origin?: "target-feature" | "tool-feature" | "build-volume" | "oblique-normal-cluster" | "span-fraction" | "target-face";
+  /** Where this candidate came from: geometry-derived sources precede the axis/fraction fallback in the search (Execution 07 LOOP 04). "lock-evidence" marks a localized core's parting face, derived from release-collision or undercut evidence (Execution 07 LOOP 06). */
+  readonly origin?: "target-feature" | "tool-feature" | "build-volume" | "oblique-normal-cluster" | "span-fraction" | "target-face" | "lock-evidence";
 }
 
 /** Pull direction for tooling pieces: an axis id, the working-mold piece's own assigned (possibly oblique) release direction, or the split plane's normal (oblique splits, Execution 07 LOOP 04). */

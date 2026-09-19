@@ -92,7 +92,7 @@ export async function buildSimpleBoxFixture(sideLength = 10): Promise<GoldenFixt
   }
 }
 
-async function buildBlindHoleCube(faces: readonly ("+Z" | "-Z" | "+X" | "-X")[], rotateAboutXDeg = 0): Promise<GoldenFixture> {
+export async function buildBlindHoleCube(faces: readonly ("+Z" | "-Z" | "+X" | "-X")[], rotateAboutXDeg = 0): Promise<GoldenFixture> {
   const module = await getManifoldModule();
   const side = 10;
   let solid = createBlankSolid(module, {
@@ -122,6 +122,11 @@ async function buildBlindHoleCube(faces: readonly ("+Z" | "-Z" | "+X" | "-X")[],
 
 export async function buildThreeHoleCubeFixture(): Promise<GoldenFixture> {
   return buildBlindHoleCube(["+Z", "+X", "-X"]);
+}
+
+/** A single +Z blind hole: one localized lock for the localized-core planner (Execution 07 LOOP 06). */
+export async function buildSingleHoleCubeFixture(): Promise<GoldenFixture> {
+  return buildBlindHoleCube(["+Z"]);
 }
 
 export async function buildFourHoleCubeFixture(): Promise<GoldenFixture> {

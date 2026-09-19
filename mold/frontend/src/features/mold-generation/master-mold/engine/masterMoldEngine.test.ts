@@ -6,12 +6,14 @@ import {
   buildObliqueHoleCubeFixture,
   buildSealedHollowBoxFixture,
   buildSimpleBoxFixture,
+  buildSingleHoleCubeFixture,
   buildThreeHoleCubeFixture,
   seedFromFixture,
 } from "../planning/masterMoldGoldenFixtures";
 import { GENERIC_RIGID_CAST_PROFILE, type MasterToolingSet } from "./contracts";
 import { runMasterMoldEngine } from "./masterMoldEngine";
 import { planLocalizedRemovableCore } from "./multiPiecePlanner";
+import { deriveLockRegions } from "./lockEvidence";
 import { registerMultiPanelInterfaces, type SequencedChunk } from "./multiPiecePlanner";
 import { toolingParametersFromProfile } from "./toolingConstruction";
 import { getManifoldModule, createBlankSolid, boundsFromManifold, payloadFromManifold } from "../../geometry/manifold";
@@ -226,10 +228,11 @@ describe("Master Mold Engine golden cases (Execution 06 Article 17)", () => {
     expect(result.plan!.moldPieces.length).toBe(2);
     // Progress advanced through more than one named stage.
     expect(stages.length).toBeGreaterThan(1);
-    // Exact CSG stayed bounded: a handful of construction attempts, not a
-    // candidate explosion.
+    // Exact CSG stayed bounded: per tooling set at most one-piece +
+    // lock-driven localized core + multi-piece (Execution 07 LOOP 06 added
+    // the lock-driven family to every set's search), never an explosion.
     expect(result.budget.workingMoldConstructionAttempts).toBeLessThanOrEqual(2);
-    expect(result.budget.toolingExactPlanAttempts).toBeLessThanOrEqual(2 * result.toolingSets.length);
+    expect(result.budget.toolingExactPlanAttempts).toBeLessThanOrEqual(3 * result.toolingSets.length);
     for (const set of result.toolingSets) expectVerifiedTooling(set);
   });
 
@@ -244,27 +247,57 @@ describe("Master Mold Engine golden cases (Execution 06 Article 17)", () => {
     await expect(run).rejects.toMatchObject({ code: "cancelled" });
   });
 
-  it("Article 08: accepts a separately verified localized removable core when geometry permits it", { timeout: ENGINE_TIMEOUT }, async () => {
-    const fixture = await buildSimpleBoxFixture();
+  it("Article 08 (LOOP 06): derives a verified localized removable core from lock evidence, not span fractions", { timeout: ENGINE_TIMEOUT }, async () => {
+    // A single +Z blind hole is a real localized lock: the one-piece release
+    // jams at the hole ceiling, and only the trapped column under it needs
+    // to become a removable core.
+    const fixture = await buildSingleHoleCubeFixture();
+    const castTarget = {
+      moldPartId: "core-target",
+      moldPartName: "Core Target",
+      mesh: fixture.mesh,
+      bounds: fixture.bounds,
+      volumeMm3: 10 * 10 * 10 - Math.PI * 1.5 * 1.5 * 3,
+      geometryVersion: "core-target-v1",
+      featureIntents: { sprueIntentVersion: null, registrationPolicyVersion: null },
+      warnings: [],
+    };
+    // Lock evidence exactly as the engine derives it: for this part the
+    // engine pours from -Z, so the failed one-piece pull runs along
+    // flipOf("-Z") = "+Z" and jams at the hole ceiling (z = 2). attemptOnePiece
+    // retains the overlap between the target and the case at the first
+    // colliding sweep distance -- a thin slab at the lock face -- as the
+    // primary lock evidence.
+    const collisionBounds = { min: { x: -1.5, y: -1.5, z: 1.9 }, max: { x: 1.5, y: 1.5, z: 2.0 } };
+    const lockEvidence = deriveLockRegions(castTarget, "+Z", collisionBounds);
+    expect(lockEvidence.regions.length).toBeGreaterThan(0);
+    expect(lockEvidence.regions[0]!.evidence).toBe("release-collision");
     const plan = await planLocalizedRemovableCore(
-      {
-        moldPartId: "core-target",
-        moldPartName: "Core Target",
-        mesh: fixture.mesh,
-        bounds: fixture.bounds,
-        volumeMm3: 1000,
-        geometryVersion: "core-target-v1",
-        featureIntents: { sprueIntentVersion: null, registrationPolicyVersion: null },
-        warnings: [],
-      },
-      "+Z",
+      castTarget,
+      "-Z",
       toolingParametersFromProfile(GENERIC_RIGID_CAST_PROFILE),
-      fixture.mesh,
+      lockEvidence,
     );
     expect(plan.rejectionReason).toBeNull();
     expect(plan.plan?.coreMode).toBe("localized-removable-core");
-    expect(plan.plan?.pieces.map((piece) => piece.regions[0])).toEqual(["localized-removable-core", "case-shell"]);
+    // The core region derives from the lock: the plug around the bore above
+    // the jam face -- localized and centered on the hole axis, not an
+    // arbitrary half of the part.
+    const core = plan.plan?.pieces.find((piece) => piece.pieceId === "piece-localized-removable-core");
+    expect(core).toBeDefined();
+    expect(core!.watertight).toBe(true);
+    expect(core!.bounds.min.x).toBeLessThanOrEqual(0);
+    expect(core!.bounds.max.x).toBeGreaterThanOrEqual(0);
+    expect(core!.bounds.min.y).toBeLessThanOrEqual(0);
+    expect(core!.bounds.max.y).toBeGreaterThanOrEqual(0);
+    expect(core!.bounds.min.z).toBeCloseTo(1.9, 3);
+    expect(core!.bounds.max.z).toBeCloseTo(5, 3);
+    expect(core!.bounds.max.x - core!.bounds.min.x).toBeLessThan(10);
+    expect(core!.volumeMm3).toBeLessThan(castTarget.volumeMm3 * 0.45);
+    // Core and shell release order is verified: core first, shell second.
     expect(plan.plan?.releaseSequence).toHaveLength(2);
+    expect(plan.plan?.releaseSequence[0]!.pieceId).toBe("piece-localized-removable-core");
+    expect(plan.plan?.releaseSequence[1]!.pieceId).toBe("piece-case-shell");
     expect(plan.plan?.releaseSequence.every((step) => step.collisionVerified)).toBe(true);
   });
 
