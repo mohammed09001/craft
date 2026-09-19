@@ -191,6 +191,86 @@ export async function buildOpenCavityCubeFixture(): Promise<GoldenFixture> {
   }
 }
 
+/**
+ * Execution 08 LOOP 02: a minimized, deterministic derivative of the real
+ * failing `Segmentation_Segment_1.stl` (1,576 triangles; 2-, 3- and 4-piece
+ * Working Mold planning all rejected; 0 exact construction attempts).
+ *
+ * The exact STL cannot be committed (not available in this repository), so
+ * the geometric property that produced that failure is reproduced instead:
+ * a smoothly curved, non-axis-aligned free-form body (a union of three
+ * offset spheres -- no flat faces anywhere) at a comparable triangle
+ * density (~1.5-1.7k, inside the medium-mesh stride-2 band, Article 03),
+ * carrying THREE mutually oblique blind pockets whose interiors are visible
+ * ONLY along their own oblique axis. Every other candidate direction (world
+ * axes, PCA axes, normal-cluster seeds) is more than 25 degrees off every
+ * pocket axis, so no other direction can release it.
+ *
+ * This exercises the same structural gap as the real part: the dominant
+ * normal-cluster candidate-direction source (Article 04) is area-greedy and
+ * bounded to 8 seeds; a large smoothly curved free-form surface contributes
+ * a near-continuum of "novel" normals ahead of a pocket's own tiny flat
+ * bottom in area-descending order, so a locked feature's own release
+ * direction can fail to ever become a candidate at all -- not merely fail
+ * accessibility or get pruned. Working Mold planning at maxWorkingMoldPieces
+ * = 4 (the shipped default, GENERIC_RIGID_CAST_PROFILE) then rejects every
+ * piece count with zero exact construction attempts, exactly like the real
+ * part's observed failure.
+ */
+export async function buildFreeFormObliqueLockFixture(): Promise<GoldenFixture> {
+  const module = await getManifoldModule();
+  const mainRadius = 6;
+  const main = module.Manifold.sphere(mainRadius, 48);
+  const lobeA = module.Manifold.sphere(3.2, 28).translate(5.5, -4.5, -3);
+  const lobeB = module.Manifold.sphere(3, 28).translate(-5, 4.5, -2.5);
+  let blob: ManifoldSolid | null = null;
+  try {
+    const mainPlusA = main.add(lobeA);
+    let current = mainPlusA.add(lobeB);
+    mainPlusA.delete();
+
+    // Three mutually oblique lock axes (see module doc comment): each more
+    // than 25 degrees from every world axis and from the other two axes.
+    const lockAxes: readonly { readonly rxDeg: number; readonly ryDeg: number }[] = [
+      { rxDeg: 40, ryDeg: 15 },
+      { rxDeg: -35, ryDeg: 50 },
+      { rxDeg: 20, ryDeg: -60 },
+    ];
+    const holeRadius = 0.8;
+    const outerReachMm = 15; // guaranteed outside the whole blob (max extent ~9.7mm).
+    const tipRadiusMm = 2; // blind end stays well inside the main sphere (radius 6).
+    const heightMm = outerReachMm - tipRadiusMm;
+    for (const axis of lockAxes) {
+      const cylinder = module.Manifold.cylinder(heightMm, holeRadius, holeRadius, 20);
+      // rotate(x,y,z) applied about the fixed global axes in x-y-z order takes
+      // local +Z to (sin(y)cos(x), -sin(x), cos(y)cos(x)); translating the
+      // rotated base out to outerReachMm along that same ray then carves a
+      // hole entering from outside the solid down to a blind tip at radius
+      // tipRadiusMm from center along the ray.
+      const rotated = cylinder.rotate(axis.rxDeg, axis.ryDeg, 0);
+      cylinder.delete();
+      const rad = Math.PI / 180;
+      const rx = axis.rxDeg * rad;
+      const ry = axis.ryDeg * rad;
+      const dir = { x: Math.sin(ry) * Math.cos(rx), y: -Math.sin(rx), z: Math.cos(ry) * Math.cos(rx) };
+      const positioned = rotated.translate(dir.x * outerReachMm, dir.y * outerReachMm, dir.z * outerReachMm);
+      rotated.delete();
+      const next = current.subtract(positioned);
+      positioned.delete();
+      current.delete();
+      current = next;
+    }
+    blob = current;
+
+    return { mesh: payloadFromManifold(blob), bounds: boundsFromManifold(blob) };
+  } finally {
+    main.delete();
+    lobeA.delete();
+    lobeB.delete();
+    blob?.delete();
+  }
+}
+
 /** Dense UV sphere: deterministic high-poly mesh built without the kernel (triangles handed straight to Manifold). */
 export function buildHighPolySphereFixture(rings = 72, sectors = 144, radius = 15): GoldenFixture {
   const positions: number[] = [];
