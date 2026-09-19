@@ -12,6 +12,7 @@ import type {
   PlanningMesh,
   UndercutRegion,
 } from "./masterMoldPlanning.contracts";
+import { buildSurfaceRegionGraph, summarizeRegionAccessibility } from "./surfaceRegions";
 
 /**
  * Execution 06 Article 05: global accessibility is the authority for mold
@@ -203,9 +204,45 @@ export function directionPreliminaryScore(accessibility: DirectionAccessibility,
   );
 }
 
+const REGION_FULL_COVERAGE_FRACTION = 0.999;
+
+/**
+ * Execution 08 LOOP 07: the indexes of "coverage-critical" directions --
+ * ones that are the ONLY candidate fully covering some surface region. A
+ * region covered by exactly one direction has no substitute: dropping that
+ * direction on score alone would make the region permanently unassignable
+ * regardless of piece count, with no way for the search to recover it.
+ */
+function coverageCriticalDirectionIndexes(
+  directions: readonly PlanningCandidateDirection[],
+  analysis: AccessibilityAnalysis,
+  planningMesh: PlanningMesh,
+): ReadonlySet<number> {
+  const regionGraph = buildSurfaceRegionGraph(planningMesh);
+  const critical = new Set<number>();
+  if (regionGraph.regions.length === 0) return critical;
+  const summaries = summarizeRegionAccessibility(regionGraph, planningMesh, analysis);
+  for (const summary of summaries) {
+    let fullCoverageCount = 0;
+    let soleDirectionIndex = -1;
+    for (let d = 0; d < directions.length; d += 1) {
+      const fraction = summary.visibleAreaFractionByDirectionId.get(directions[d]!.directionId) ?? 0;
+      if (fraction >= REGION_FULL_COVERAGE_FRACTION) {
+        fullCoverageCount += 1;
+        soleDirectionIndex = d;
+      }
+    }
+    if (fullCoverageCount === 1) critical.add(soleDirectionIndex);
+  }
+  return critical;
+}
+
 /**
  * Prunes dominated directions: keeps at most `keep` directions ranked by the
- * preliminary score, always retaining the world axes (baseline candidates).
+ * preliminary score, always retaining the world axes (baseline candidates)
+ * PLUS every coverage-critical direction (Execution 08 LOOP 07), regardless
+ * of score and regardless of the `keep` budget -- correctness beats budget
+ * for a direction nothing else can substitute.
  */
 export function pruneDirections(
   directions: readonly PlanningCandidateDirection[],
@@ -218,11 +255,16 @@ export function pruneDirections(
     index,
     score: directionPreliminaryScore(analysis.perDirection[index]!, planningMesh),
   }));
-  const worldAxes = scored.filter((entry) => entry.direction.source === "world-axis");
+  const criticalIndexes = coverageCriticalDirectionIndexes(directions, analysis, planningMesh);
+  const mandatoryIndexSet = new Set<number>(criticalIndexes);
+  for (const entry of scored) if (entry.direction.source === "world-axis") mandatoryIndexSet.add(entry.index);
+
+  const mandatory = scored.filter((entry) => mandatoryIndexSet.has(entry.index));
   const others = scored
-    .filter((entry) => entry.direction.source !== "world-axis")
+    .filter((entry) => !mandatoryIndexSet.has(entry.index))
     .sort((a, b) => a.score - b.score || a.direction.directionId.localeCompare(b.direction.directionId));
-  const kept = [...worldAxes, ...others].slice(0, Math.max(keep, worldAxes.length));
+  const remainingBudget = Math.max(0, Math.max(keep, mandatory.length) - mandatory.length);
+  const kept = [...mandatory, ...others.slice(0, remainingBudget)];
   // Rank the kept directions best-first so the bounded combination budget
   // (top-N used by multi-piece search) contains the strongest candidates,
   // geometry-derived directions included.
