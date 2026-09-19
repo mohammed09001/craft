@@ -9,6 +9,7 @@ import type {
   PlanningMesh,
   PlanningVector3,
   PlanningWarning,
+  WorkingMoldPieceCountDiagnostics,
 } from "../planning/masterMoldPlanning.contracts";
 import { MASTER_PLANNER_LIMITS } from "../planning/masterMoldPlanning.contracts";
 import { buildPlanningMesh } from "../planning/planningMesh";
@@ -188,6 +189,7 @@ export async function runMasterMoldEngine(
     MASTER_PLANNER_LIMITS.absoluteMaxWorkingMoldPieces,
   );
   const rejectedPieceCounts: { pieceCount: number; reason: string }[] = [];
+  const planningDiagnostics: WorkingMoldPieceCountDiagnostics[] = [];
   const pieceCountSearch = createWorkingMoldPieceCountSearch({ planningMesh, analysis, maxWorkingMoldPieces: maxPieces });
   let construction: Awaited<ReturnType<typeof constructWorkingMold>> | null = null;
   let constructionFinalist: WorkingMoldDecompositionFinalist | null = null;
@@ -196,6 +198,7 @@ export async function runMasterMoldEngine(
   for (;;) {
     const step = pieceCountSearch.next();
     if (step === null) break;
+    planningDiagnostics.push(step.diagnostics);
     throwIfCancelled(hooks);
     if (step.rejectionReason !== null) {
       rejectedPieceCounts.push({ pieceCount: step.pieceCount, reason: step.rejectionReason });
@@ -258,6 +261,7 @@ export async function runMasterMoldEngine(
       ],
       elapsedMs: Date.now() - started,
       budget,
+      planningDiagnostics,
     };
   }
   const pieceTargets = construction.pieces;
@@ -348,6 +352,7 @@ export async function runMasterMoldEngine(
     failures,
     elapsedMs: Date.now() - started,
     budget,
+    planningDiagnostics,
   };
 }
 

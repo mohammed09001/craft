@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { buildPlanningMesh } from "./planningMesh";
 import { generateCandidateDirections, principalAxesOfCovariance } from "./candidateDirections";
 import { analyzeDirectionAccessibility, directionPreliminaryScore, pruneDirections } from "./accessibility";
-import { exactPartingThreshold, extractPartingInterfaces, planWorkingMoldDecomposition } from "./workingMoldPlanner";
+import { createWorkingMoldPieceCountSearch, exactPartingThreshold, extractPartingInterfaces, planWorkingMoldDecomposition } from "./workingMoldPlanner";
 import { MASTER_PLANNER_LIMITS, type PlanningMesh } from "./masterMoldPlanning.contracts";
 import { buildObliqueHoleCubeFixture, buildSimpleBoxFixture, buildThreeHoleCubeFixture, seedFromFixture } from "./masterMoldGoldenFixtures";
 
@@ -197,6 +197,40 @@ describe("Working mold decomposition (Articles 06/07)", () => {
       const dot = patch.centroid.x * analysis.directions[plusZ]!.vector.x + patch.centroid.y * analysis.directions[plusZ]!.vector.y + patch.centroid.z * analysis.directions[plusZ]!.vector.z;
       expect(dot).toBeGreaterThanOrEqual(threshold!);
     }
+  });
+});
+
+describe("Planning diagnostics (Execution 08 LOOP 01)", () => {
+  it("reports machine-readable evidence for every piece count the search steps through", async () => {
+    const fixture = await buildThreeHoleCubeFixture();
+    const { planningMesh, analysis } = await planningFor(fixture);
+    const search = createWorkingMoldPieceCountSearch({ planningMesh, analysis, maxWorkingMoldPieces: 4 });
+    const steps = [];
+    for (;;) {
+      const step = search.next();
+      if (step === null) break;
+      steps.push(step);
+    }
+    expect(steps.length).toBeGreaterThan(0);
+    // The 2-piece attempt is known to fail for this fixture (three blind holes need three pulls).
+    const rejected2 = steps.find((step) => step.pieceCount === 2)!;
+    expect(rejected2.rejectionReason).not.toBeNull();
+    expect(rejected2.diagnostics.rejectionReason).toBe(rejected2.rejectionReason);
+    expect(rejected2.diagnostics.planningCandidatesFeasible).toBe(0);
+    expect(rejected2.diagnostics.candidateDirectionCountUsed).toBe(analysis.directions.length);
+    expect(rejected2.diagnostics.bestUnassignablePatchCount).not.toBeNull();
+
+    const accepted3 = steps.find((step) => step.pieceCount === 3)!;
+    expect(accepted3.rejectionReason).toBeNull();
+    expect(accepted3.diagnostics.rejectionReason).toBeNull();
+    expect(accepted3.diagnostics.planningCandidatesFeasible).toBeGreaterThan(0);
+    expect(accepted3.diagnostics.planningCandidatesGenerated).toBeGreaterThanOrEqual(accepted3.diagnostics.planningCandidatesFeasible);
+    expect(accepted3.diagnostics.bestUnassignablePatchCount).toBe(0);
+    expect(accepted3.diagnostics.thresholdCountUsed).toBeGreaterThan(0);
+    expect(accepted3.diagnostics.combinationDirectionCountUsed).toBeGreaterThan(0);
+
+    // Every diagnostic carries the pieceCount it was produced for.
+    for (const step of steps) expect(step.diagnostics.pieceCount).toBe(step.pieceCount);
   });
 });
 

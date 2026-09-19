@@ -4,7 +4,7 @@ import type { MoldMeshPayload } from "../../reference-mold-definition/orthogonal
 import type { ReferenceMoldDefinition } from "../../reference-mold-definition";
 import type { SprueProfileDesignResult } from "../../sprue-generation";
 import type { MasterMoldDirection } from "../masterMold.contracts";
-import type { AutoWorkingMoldPlan } from "../planning/masterMoldPlanning.contracts";
+import type { AutoWorkingMoldPlan, WorkingMoldPieceCountDiagnostics } from "../planning/masterMoldPlanning.contracts";
 
 /**
  * Execution 05 Article 05: the Master Mold Engine's own contracts.
@@ -418,4 +418,6 @@ export interface MasterMoldEngineResult {
   readonly failures: readonly MasterMoldFailure[];
   readonly budget: MasterMoldBudgetReport;
   readonly elapsedMs: number;
+  /** Execution 08 LOOP 01: per-piece-count planning evidence, in search order (2 upward, one entry per count actually stepped through). */
+  readonly planningDiagnostics: readonly WorkingMoldPieceCountDiagnostics[];
 }

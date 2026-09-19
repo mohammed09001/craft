@@ -62,6 +62,32 @@ export interface PlanningMesh {
   readonly triangleCount: number;
 }
 
+/**
+ * Execution 08 LOOP 01: machine-readable per-piece-count planning diagnostic.
+ * One entry exists for every piece count the search actually stepped
+ * through, whether or not it produced finalists, so a real-part failure
+ * ("0 exact construction attempts, 3 piece counts rejected") can be traced
+ * to the exact planning stage that rejected each count -- never collapsed
+ * into one generic final message.
+ */
+export interface WorkingMoldPieceCountDiagnostics {
+  readonly pieceCount: number;
+  /** Finalized (prefix + catch-all direction) candidates evaluated at this count. */
+  readonly planningCandidatesGenerated: number;
+  /** Of those, the ones that passed feasibility (fully assignable + accessibility gain). */
+  readonly planningCandidatesFeasible: number;
+  /** Lowest unassignable-patch count seen across all finalized candidates; null when none were generated. */
+  readonly bestUnassignablePatchCount: number | null;
+  /** null exactly when planningCandidatesFeasible > 0. */
+  readonly rejectionReason: string | null;
+  /** Total candidate release directions available to this search (post-pruning). */
+  readonly candidateDirectionCountUsed: number;
+  /** Directions actually offered to the combination/beam step at this depth (Article 13, maxCombinationDirections). */
+  readonly combinationDirectionCountUsed: number;
+  /** Parting-plane threshold offsets attempted across the directions used at this count. */
+  readonly thresholdCountUsed: number;
+}
+
 /** Connected group of patches a release direction cannot form (Article 05). */
 export interface UndercutRegion {
   readonly regionIndex: number;

@@ -4,6 +4,7 @@ import type {
   PlanningMesh,
   PlanningVector3,
   WorkingMoldPartingInterface,
+  WorkingMoldPieceCountDiagnostics,
   WorkingMoldPlanScore,
 } from "./masterMoldPlanning.contracts";
 import { MASTER_PLANNER_LIMITS } from "./masterMoldPlanning.contracts";
@@ -309,6 +310,8 @@ export interface WorkingMoldPieceCountStep {
   readonly finalists: readonly WorkingMoldDecompositionFinalist[];
   /** null exactly when finalists is non-empty. */
   readonly rejectionReason: string | null;
+  /** Execution 08 LOOP 01: machine-readable evidence for why this count did (or did not) produce finalists. */
+  readonly diagnostics: WorkingMoldPieceCountDiagnostics;
 }
 
 export interface WorkingMoldPieceCountSearch {
@@ -373,9 +376,15 @@ export function createWorkingMoldPieceCountSearch(input: WorkingMoldPlannerInput
       pieceCount += 1;
       const prismCount = currentCount - 1;
 
+      let combinationDirectionCountUsed = analysis.directions.length;
+      let thresholdCountUsed = 0;
+
       if (prismCount === 1) {
         beam = [];
-        for (const prism of extensionsOf([])) {
+        const extensions = extensionsOf([]);
+        combinationDirectionCountUsed = analysis.directions.length;
+        thresholdCountUsed = extensions.length;
+        for (const prism of extensions) {
           const key = prefixKey([prism]);
           if (evaluated.has(key)) continue;
           evaluated.add(key);
@@ -389,6 +398,8 @@ export function createWorkingMoldPieceCountSearch(input: WorkingMoldPlannerInput
       } else {
         const nextBeam: BeamPrefix[] = [];
         const extensions = extensionsOf(beam[0]?.prisms ?? []);
+        combinationDirectionCountUsed = Math.min(analysis.directions.length, MASTER_PLANNER_LIMITS.maxCombinationDirections);
+        thresholdCountUsed = extensions.length;
         for (const prefix of beam) {
           for (const extension of extensions) {
             if (prefix.prisms.some((existing) => existing.directionIndex === extension.directionIndex)) continue;
@@ -405,7 +416,18 @@ export function createWorkingMoldPieceCountSearch(input: WorkingMoldPlannerInput
       }
 
       if (beam.length === 0) {
-        return { pieceCount: currentCount, finalists: [], rejectionReason: "no_prism_prefix_survived_the_search_budget" };
+        const diagnostics: WorkingMoldPieceCountDiagnostics = {
+          pieceCount: currentCount,
+          planningCandidatesGenerated: 0,
+          planningCandidatesFeasible: 0,
+          bestUnassignablePatchCount: null,
+          rejectionReason: "no_prism_prefix_survived_the_search_budget",
+          candidateDirectionCountUsed: analysis.directions.length,
+          combinationDirectionCountUsed,
+          thresholdCountUsed,
+        };
+        logPlanningDiagnostics(diagnostics);
+        return { pieceCount: currentCount, finalists: [], rejectionReason: diagnostics.rejectionReason, diagnostics };
       }
 
       // Finalize: attach a catch-all release direction to each surviving prefix.
@@ -426,17 +448,29 @@ export function createWorkingMoldPieceCountSearch(input: WorkingMoldPlannerInput
             a.candidate.score - b.candidate.score,
         );
 
+      const bestUnassignablePatchCount = finalized.reduce<number | null>(
+        (best, entry) => (best === null ? entry.candidate.unassignablePatchCount : Math.min(best, entry.candidate.unassignablePatchCount)),
+        null,
+      );
+
       if (feasible.length === 0) {
         const best = finalized.sort((a, b) => a.candidate.unassignablePatchCount - b.candidate.unassignablePatchCount)[0];
-        return {
+        const diagnostics: WorkingMoldPieceCountDiagnostics = {
           pieceCount: currentCount,
-          finalists: [],
+          planningCandidatesGenerated: finalized.length,
+          planningCandidatesFeasible: 0,
+          bestUnassignablePatchCount,
           rejectionReason: best === undefined
             ? "no_decomposition_candidate_generated"
             : best.candidate.unassignablePatchCount === 0
               ? "split_added_no_accessibility (the prisms did not improve on the catch-all release)"
               : `no_feasible_release_assignment (best left ${best.candidate.unassignablePatchCount} inaccessible patch group(s))`,
+          candidateDirectionCountUsed: analysis.directions.length,
+          combinationDirectionCountUsed,
+          thresholdCountUsed,
         };
+        logPlanningDiagnostics(diagnostics);
+        return { pieceCount: currentCount, finalists: [], rejectionReason: diagnostics.rejectionReason, diagnostics };
       }
 
       const finalists = feasible
@@ -446,9 +480,26 @@ export function createWorkingMoldPieceCountSearch(input: WorkingMoldPlannerInput
           patchAssignment: Array.from(entry.assignment),
           interfaces: extractPartingInterfaces(planningMesh, entry.assignment, entry.candidate.pieces),
         }));
-      return { pieceCount: currentCount, finalists, rejectionReason: null };
+      const diagnostics: WorkingMoldPieceCountDiagnostics = {
+        pieceCount: currentCount,
+        planningCandidatesGenerated: finalized.length,
+        planningCandidatesFeasible: feasible.length,
+        bestUnassignablePatchCount,
+        rejectionReason: null,
+        candidateDirectionCountUsed: analysis.directions.length,
+        combinationDirectionCountUsed,
+        thresholdCountUsed,
+      };
+      logPlanningDiagnostics(diagnostics);
+      return { pieceCount: currentCount, finalists, rejectionReason: null, diagnostics };
     },
   };
+}
+
+/** Execution 08 LOOP 01: developer-log surface for planning diagnostics (bounded: at most one line per piece count per run). */
+function logPlanningDiagnostics(diagnostics: WorkingMoldPieceCountDiagnostics): void {
+  if (typeof console === "undefined") return;
+  console.debug("[MasterMold planning]", diagnostics);
 }
 
 /**
