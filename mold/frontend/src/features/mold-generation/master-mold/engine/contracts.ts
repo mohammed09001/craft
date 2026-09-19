@@ -312,6 +312,7 @@ export interface MasterToolingSet {
 export type MasterMoldEngineFailureReason =
   | "invalid_snapshot"
   | "invalid_source_geometry"
+  | "invalid_source_mesh"
   | "cast_target_invalid"
   | "no_release_plan"
   | "tooling_construction_failed"
@@ -338,6 +339,7 @@ export function masterMoldFailureFamilyOf(reason: MasterMoldEngineFailureReason)
   switch (reason) {
     case "invalid_snapshot":
     case "invalid_source_geometry":
+    case "invalid_source_mesh":
     case "cast_target_invalid":
       return "invalid-input";
     case "build_volume_exceeded":

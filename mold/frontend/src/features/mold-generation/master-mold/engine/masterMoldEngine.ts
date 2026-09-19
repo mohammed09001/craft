@@ -13,6 +13,7 @@ import type {
 } from "../planning/masterMoldPlanning.contracts";
 import { MASTER_PLANNER_LIMITS } from "../planning/masterMoldPlanning.contracts";
 import { buildPlanningMesh } from "../planning/planningMesh";
+import { runMeshPreflight } from "../planning/meshPreflight";
 import { generateCandidateDirections } from "../planning/candidateDirections";
 import { analyzeDirectionAccessibility, pruneDirections } from "../planning/accessibility";
 import {
@@ -147,6 +148,39 @@ export async function runMasterMoldEngine(
     });
   };
 
+  throwIfCancelled(hooks);
+
+  // Stage 0 (Execution 08 LOOP 03): source mesh preflight. Planning must
+  // never be blamed for a mesh that was never constructible -- an open,
+  // non-manifold, self-intersecting, or otherwise broken source is reported
+  // as its own failure family, before any planning work runs at all.
+  emit("analyzing_geometry", "checking source mesh topology");
+  const preflight = runMeshPreflight(seed.sourceMesh);
+  if (preflight.status === "invalid-for-master-mold") {
+    return {
+      seedId: seed.seedId,
+      plan: null,
+      toolingSets: [],
+      failures: [
+        {
+          moldPartId: "working-mold",
+          reason: "invalid_source_mesh",
+          family: masterMoldFailureFamilyOf("invalid_source_mesh"),
+          message: `the source mesh is not usable as a manufacturing solid: ${preflight.issues.map((issue) => issue.message).join(" ")}`,
+        },
+      ],
+      elapsedMs: Date.now() - started,
+      budget,
+      planningDiagnostics: [],
+    };
+  }
+  if (preflight.status === "repairable-warning") {
+    warnings.push({
+      code: "source_mesh_repairable_warning",
+      message: `source mesh preflight found repairable issues: ${preflight.issues.map((issue) => issue.message).join(" ")}`,
+      pieceIndex: null,
+    });
+  }
   throwIfCancelled(hooks);
 
   // Stage A: planning geometry (cheap, cached).
