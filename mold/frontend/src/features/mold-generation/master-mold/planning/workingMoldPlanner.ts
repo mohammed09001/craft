@@ -181,19 +181,42 @@ export function candidatePartingThresholds(
 }
 
 /**
- * Evaluates one prism prefix: returns per-patch piece assignment (prism
- * pieces in order; patches outside all prisms get -1 = still remainder) and
- * the unassignable count assuming prisms only (no catch-all yet).
+ * Execution 08 LOOP 10: piece ownership is decided by whole MOLDABLE
+ * REGIONS (LOOP 05's region graph), never by an individual patch's raw
+ * spatial position -- a coherent surface feature can no longer be silently
+ * split across two pieces just because a prism plane happens to cut through
+ * its interior (inventing a seam through a face interior instead of a
+ * natural boundary).
+ *
+ * Ownership is an AREA-WEIGHTED MAJORITY VOTE among a region's own member
+ * patches' raw per-patch assignment (the same ordered half-space walk a
+ * patch always used), applied ONLY when it is SAFE: every member patch
+ * must remain visible along the majority piece's own direction. A region
+ * can have real spatial extent -- on a smoothly curved closed body a
+ * cone-capped region can legitimately span a whole polar cap, ~10% of the
+ * surface -- and forcing such a region unconditionally can push thousands
+ * of individually well-assigned patches onto a direction that cannot
+ * actually see them, measurably WORSENING accessibility versus the raw
+ * per-patch rule (caught directly against the high-poly sphere golden
+ * case). When forcing would break any member, that region falls back to
+ * its raw per-patch assignment untouched -- a provable non-regression: this
+ * can only ever match or improve on the old per-patch-only behavior, never
+ * make it worse.
  */
-function evaluatePrefix(
+function regionOwnedAssignment(
   planningMesh: PlanningMesh,
   analysis: AccessibilityAnalysis,
+  regionGraph: SurfaceRegionGraph,
   prisms: { directionIndex: number; offsetMm: number }[],
-): { assignment: Int32Array; unassignable: number } {
-  const assignment = new Int32Array(planningMesh.patches.length).fill(-1);
-  let unassignable = 0;
+  remainderPieceIndex: number,
+  remainderDirectionIndex: number | null,
+): Int32Array {
+  const directionIndexOf = (pieceIndex: number): number | null =>
+    pieceIndex >= 0 && pieceIndex < prisms.length ? prisms[pieceIndex]!.directionIndex : remainderDirectionIndex;
+
+  const rawAssignment = new Int32Array(planningMesh.patches.length);
   for (const patch of planningMesh.patches) {
-    let pieceIndex = -1;
+    let pieceIndex = remainderPieceIndex;
     for (let p = 0; p < prisms.length; p += 1) {
       const prism = prisms[p]!;
       const direction = analysis.directions[prism.directionIndex]!.vector;
@@ -202,8 +225,55 @@ function evaluatePrefix(
         break;
       }
     }
-    assignment[patch.patchIndex] = pieceIndex;
+    rawAssignment[patch.patchIndex] = pieceIndex;
   }
+
+  // null = unsafe to force; that region keeps its raw per-patch assignment.
+  const regionOwner = new Array<number | null>(regionGraph.regions.length).fill(null);
+  for (const region of regionGraph.regions) {
+    const areaByPiece = new Map<number, number>();
+    for (const patchIndex of region.patchIndexes) {
+      const pieceIndex = rawAssignment[patchIndex]!;
+      areaByPiece.set(pieceIndex, (areaByPiece.get(pieceIndex) ?? 0) + planningMesh.patches[patchIndex]!.areaMm2);
+    }
+    let bestPiece = remainderPieceIndex;
+    let bestArea = -1;
+    for (const [pieceIndex, area] of areaByPiece) {
+      // Deterministic tie-break: prefer the lower piece index (earlier prism).
+      if (area > bestArea || (area === bestArea && pieceIndex < bestPiece)) {
+        bestArea = area;
+        bestPiece = pieceIndex;
+      }
+    }
+    const bestDirectionIndex = directionIndexOf(bestPiece);
+    const safe = bestDirectionIndex === null
+      ? true
+      : region.patchIndexes.every((patchIndex) => analysis.perDirection[bestDirectionIndex]!.visible[patchIndex] === 1);
+    if (safe) regionOwner[region.regionIndex] = bestPiece;
+  }
+
+  const assignment = new Int32Array(planningMesh.patches.length);
+  for (let patchIndex = 0; patchIndex < planningMesh.patches.length; patchIndex += 1) {
+    const regionIndex = regionGraph.regionOfPatch[patchIndex] ?? -1;
+    const forced = regionIndex >= 0 ? regionOwner[regionIndex] : null;
+    assignment[patchIndex] = forced ?? rawAssignment[patchIndex]!;
+  }
+  return assignment;
+}
+
+/**
+ * Evaluates one prism prefix: returns per-patch piece assignment (prism
+ * pieces in order; patches outside all prisms get -1 = still remainder) and
+ * the unassignable count assuming prisms only (no catch-all yet).
+ */
+function evaluatePrefix(
+  planningMesh: PlanningMesh,
+  analysis: AccessibilityAnalysis,
+  regionGraph: SurfaceRegionGraph,
+  prisms: { directionIndex: number; offsetMm: number }[],
+): { assignment: Int32Array; unassignable: number } {
+  const assignment = regionOwnedAssignment(planningMesh, analysis, regionGraph, prisms, -1, null);
+  let unassignable = 0;
   // Prism pieces' feasibility can be pre-checked here; the remainder is
   // scored through the catch-all direction at finalization.
   for (const patch of planningMesh.patches) {
@@ -219,12 +289,15 @@ function evaluatePrefix(
 function evaluateFinalized(
   planningMesh: PlanningMesh,
   analysis: AccessibilityAnalysis,
+  regionGraph: SurfaceRegionGraph,
   prisms: { directionIndex: number; offsetMm: number }[],
   catchAllDirectionIndex: number,
 ): { candidate: DecompositionCandidate; assignment: Int32Array } {
-  const patchCount = planningMesh.patches.length;
-  const assignment = new Int32Array(patchCount).fill(-1);
   const pieceCount = prisms.length + 1;
+  // Execution 08 LOOP 10: region-consistent ownership (see
+  // regionOwnedAssignment) -- a coherent region can no longer be split
+  // across pieces by a prism plane cutting through its interior.
+  const assignment = regionOwnedAssignment(planningMesh, analysis, regionGraph, prisms, pieceCount - 1, catchAllDirectionIndex);
   let unassignable = 0;
   let slidingWallAreaMm2 = 0;
   // Execution 07 LOOP 03 pre-CSG accessibility-gain gate: patches the
@@ -236,18 +309,7 @@ function evaluateFinalized(
   }
 
   for (const patch of planningMesh.patches) {
-    let pieceIndex = -1;
-    for (let p = 0; p < prisms.length; p += 1) {
-      const prism = prisms[p]!;
-      const direction = analysis.directions[prism.directionIndex]!.vector;
-      if (dot(patch.centroid, direction) >= prism.offsetMm) {
-        pieceIndex = p;
-        break;
-      }
-    }
-    if (pieceIndex === -1) pieceIndex = pieceCount - 1;
-    assignment[patch.patchIndex] = pieceIndex;
-
+    const pieceIndex = assignment[patch.patchIndex]!;
     const directionIndex = pieceIndex < prisms.length ? prisms[pieceIndex]!.directionIndex : catchAllDirectionIndex;
     const visible = analysis.perDirection[directionIndex]!.visible[patch.patchIndex] === 1;
     if (!visible) {
@@ -483,7 +545,7 @@ export function createWorkingMoldPieceCountSearch(input: WorkingMoldPlannerInput
           const key = prefixKey([prism]);
           if (evaluated.has(key)) continue;
           evaluated.add(key);
-          const evaluation = evaluatePrefix(planningMesh, analysis, [prism]);
+          const evaluation = evaluatePrefix(planningMesh, analysis, regionGraph, [prism]);
           beam.push({ prisms: [prism], unassignable: evaluation.unassignable, score: evaluation.unassignable });
         }
         // Promote the most-feasible prefixes into the finalize shortlist
@@ -502,7 +564,7 @@ export function createWorkingMoldPieceCountSearch(input: WorkingMoldPlannerInput
             const key = prefixKey(prisms);
             if (evaluated.has(key)) continue;
             evaluated.add(key);
-            const evaluation = evaluatePrefix(planningMesh, analysis, prisms);
+            const evaluation = evaluatePrefix(planningMesh, analysis, regionGraph, prisms);
             nextBeam.push({ prisms, unassignable: evaluation.unassignable, score: evaluation.unassignable + prisms.length * 0.01 });
           }
         }
@@ -529,7 +591,7 @@ export function createWorkingMoldPieceCountSearch(input: WorkingMoldPlannerInput
       const finalized: { candidate: DecompositionCandidate; assignment: Int32Array; prisms: { directionIndex: number; offsetMm: number }[]; catchAllDirectionIndex: number }[] = [];
       for (const prefix of beam.slice(0, MASTER_PLANNER_LIMITS.maxExactPlansPerPieceCount * 4)) {
         for (let catchIndex = 0; catchIndex < analysis.directions.length; catchIndex += 1) {
-          const result = evaluateFinalized(planningMesh, analysis, prefix.prisms, catchIndex);
+          const result = evaluateFinalized(planningMesh, analysis, regionGraph, prefix.prisms, catchIndex);
           finalized.push({ ...result, prisms: prefix.prisms, catchAllDirectionIndex: catchIndex });
         }
       }
