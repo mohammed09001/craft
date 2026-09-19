@@ -95,6 +95,39 @@ export interface UndercutRegion {
   readonly areaMm2: number;
 }
 
+/**
+ * Execution 08 LOOP 05: a coherent mold-planning surface region -- a
+ * connected group of planning patches whose normals stay within a bounded
+ * cone of each other (Article 04/05 source material graduates from sparse
+ * triangle incidence to a real region graph). Direction-INDEPENDENT: this
+ * is pure surface topology/geometry, computed once, before any candidate
+ * direction or accessibility pass exists.
+ */
+export interface SurfaceRegion {
+  readonly regionId: string;
+  readonly regionIndex: number;
+  /** Full-resolution source triangle IDs covered by this region's member patches. */
+  readonly sourceTriangleIds: readonly number[];
+  readonly patchIndexes: readonly number[];
+  readonly areaMm2: number;
+  readonly centroid: PlanningVector3;
+  /** Area-weighted mean of member patch normals (unit vector). */
+  readonly averageNormal: PlanningVector3;
+  /** Half-angle (deg) of the cone containing every member patch's normal around `averageNormal` -- a curvature/planarity proxy: near 0 = planar, larger = more curved. */
+  readonly normalConeHalfAngleDeg: number;
+  /** Patch indexes with at least one neighbor outside this region. */
+  readonly boundaryPatchIndexes: readonly number[];
+  readonly adjacentRegionIndexes: readonly number[];
+  /** True when any boundary edge to a neighboring region exceeds the ridge angle threshold (a genuine sharp/ridge feature, not just where clustering happened to stop). */
+  readonly hasSharpBoundary: boolean;
+}
+
+export interface SurfaceRegionGraph {
+  readonly regions: readonly SurfaceRegion[];
+  /** Patch index -> owning region index. */
+  readonly regionOfPatch: readonly number[];
+}
+
 /** Global accessibility of one candidate direction over the planning mesh (Article 05). */
 export interface DirectionAccessibility {
   readonly directionId: string;
@@ -270,6 +303,10 @@ export const MASTER_PLANNER_LIMITS = {
   maxToolingSplitDepth: 2,
   /** Orientation seeds for normal clustering (bounded greedy). */
   maxNormalClusterSeeds: 8,
+  /** Execution 08 LOOP 05: adjacent patches merge into the same surface region while their normals stay within this angle (deg). */
+  surfaceRegionMergeAngleDeg: 20,
+  /** Execution 08 LOOP 05: a boundary between two regions is flagged "sharp" when their average normals differ by at least this angle (deg). */
+  surfaceRegionRidgeAngleDeg: 45,
 } as const;
 
 /** Working Mold envelope policy (Article 08): Master-owned wall around the source part. */
