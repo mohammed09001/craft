@@ -270,7 +270,36 @@ describe("Master Mold store (Execution 06 Article 14)", () => {
 
     store.getState().togglePieceVisibility("tool-1");
     store.getState().isolateToolingSet("wm-piece-1");
-    expect(store.getState().pieceVisibility["tool-1"]).toBe(true);
+    // Isolation keys the composite (set, piece) identity (LOOP 10).
+    expect(store.getState().pieceVisibility["wm-piece-1:tool-1"]).toBe(true);
+  });
+
+  it("Execution 07 LOOP 10: isolating one set never touches another set's same-named piece", async () => {
+    // Engine piece ids are set-local: both sets carry "piece-1".
+    const setA = makeSet("wm-a", "fp-a");
+    const setB = makeSet("wm-b", "fp-b");
+    const toolPiece = (id: string) => ({
+      pieceId: "piece-1",
+      name: `${id} Master Case`,
+      mesh: { positions: [], indices: [] },
+      bounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 1, y: 1, z: 1 } },
+      volumeMm3: 1,
+      triangleCount: 2,
+      watertight: true,
+      manifold: true,
+      releaseDirection: "+Z" as const,
+      regions: [],
+      toolingRegistrationFeatureIds: [],
+      fitsBuildVolume: true,
+    });
+    (setA.assembly as unknown as { pieces: unknown[] }).pieces = [toolPiece("A")];
+    (setB.assembly as unknown as { pieces: unknown[] }).pieces = [toolPiece("B")];
+    const deps = makeDeps(makeResult([setA, setB]));
+    const store = createMasterMoldStoreCreator(deps);
+    await store.getState().generate({ seed: makeSeed() });
+
+    store.getState().isolateToolingSet("wm-a");
+    expect(store.getState().pieceVisibility).toEqual({ "wm-a:piece-1": true, "wm-b:piece-1": false });
   });
 
   it("fingerprint content is Master-owned (never a Cavity-named signature)", () => {

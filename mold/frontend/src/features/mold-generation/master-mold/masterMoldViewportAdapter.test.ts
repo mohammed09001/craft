@@ -63,8 +63,22 @@ describe("selectRenderableMasterMoldBodies (Execution 05 Article 14)", () => {
     ]);
 
     expect(rendered).toHaveLength(3);
-    expect(rendered.map((body) => body.id)).toEqual(["piece-0", "piece-1", "piece-0"]);
+    // Execution 07 LOOP 10: ids key the composite (set, piece) identity --
+    // engine piece ids are set-local, so "piece-0" of set "a" and of set
+    // "c" must stay distinct.
+    expect(rendered.map((body) => body.id)).toEqual(["a:piece-0", "a:piece-1", "c:piece-0"]);
     expect(rendered.every((body) => body.watertight === true)).toBe(true);
+  });
+
+  it("keys each piece's visibility on the composite (set, piece) identity", () => {
+    const rendered = selectRenderableMasterMoldBodies(
+      [entry("a", "current", 2), entry("c", "current", 1)],
+      { "a:piece-0": false },
+    );
+    expect(rendered.find((body) => body.id === "a:piece-0")?.visible).toBe(false);
+    expect(rendered.find((body) => body.id === "a:piece-1")?.visible).toBe(true);
+    // Set "c" has its own "piece-0": hiding set a's must not touch it.
+    expect(rendered.find((body) => body.id === "c:piece-0")?.visible).toBe(true);
   });
 
   it("tags pieces of stale sets as stale and current sets as not stale (Article 02: stale must render as a ghosted holdover, never disappear)", () => {
@@ -80,7 +94,7 @@ describe("selectRenderableMasterMoldBodies (Execution 05 Article 14)", () => {
   it("maps piece provenance to the MoldBodyData shape the viewport renderer expects", () => {
     const [rendered] = selectRenderableMasterMoldBodies([entry("a", "current", 1)]);
     expect(rendered).toMatchObject({
-      id: "piece-0",
+      id: "a:piece-0",
       name: "Tooling Piece 0",
       visible: true,
       triangleCount: 1,

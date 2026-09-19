@@ -113,6 +113,17 @@ export function hasRenderableToolingGeometry(sets: readonly MasterToolingSetStat
   return sets.some((entry) => entry.set !== null && entry.set.assembly.pieces.length > 0);
 }
 
+/**
+ * Execution 07 LOOP 10: engine tooling piece ids are SET-LOCAL
+ * ("piece-panel-1" exists in every multi-panel set), so any state keyed by
+ * the bare piece id -- per-piece visibility, rendered-mesh identity --
+ * collides across sets. Presentation state must key on the composite
+ * (set, piece) identity.
+ */
+export function masterMoldPieceKey(moldPartId: string, pieceId: string): string {
+  return `${moldPartId}:${pieceId}`;
+}
+
 function blockedMessagesOf(sets: readonly MasterToolingSetState[]): string[] {
   return sets
     .filter((entry) => entry.status === "blocked")

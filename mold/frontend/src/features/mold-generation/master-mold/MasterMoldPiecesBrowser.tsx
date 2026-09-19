@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import toolbarStyles from "../shared/MoldToolbar.module.css";
 import { useMasterMoldStore } from "./masterMold.store";
-import { deriveMasterMoldUiState, hasRenderableToolingGeometry, MASTER_MOLD_SCHEMA_VERSION } from "./masterMold.contracts";
+import { deriveMasterMoldUiState, hasRenderableToolingGeometry, masterMoldPieceKey, MASTER_MOLD_SCHEMA_VERSION } from "./masterMold.contracts";
 
 /**
  * Execution 06 Article 15: the Master Mold pieces browser.
@@ -87,19 +87,24 @@ export function MasterMoldPiecesBrowser() {
                   </button>
                 )}
               </legend>
-              {(entry.set?.assembly.pieces ?? []).map((piece) => (
-                <label key={piece.pieceId} style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                  <input
-                    aria-label={`Show ${piece.name}`}
-                    checked={pieceVisibility[piece.pieceId] !== false}
-                    onChange={() => togglePieceVisibility(piece.pieceId)}
-                    type="checkbox"
-                  />
-                  <span data-master-mold-piece-visible={pieceVisibility[piece.pieceId] !== false}>
-                    {piece.name}
-                  </span>
-                </label>
-              ))}
+              {(entry.set?.assembly.pieces ?? []).map((piece) => {
+                // Engine piece ids are set-local: visibility keys the
+                // composite (set, piece) identity (Execution 07 LOOP 10).
+                const pieceKey = masterMoldPieceKey(entry.moldPartId, piece.pieceId);
+                return (
+                  <label key={pieceKey} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <input
+                      aria-label={`Show ${piece.name}`}
+                      checked={pieceVisibility[pieceKey] !== false}
+                      onChange={() => togglePieceVisibility(pieceKey)}
+                      type="checkbox"
+                    />
+                    <span data-master-mold-piece-visible={pieceVisibility[pieceKey] !== false}>
+                      {piece.name}
+                    </span>
+                  </label>
+                );
+              })}
               {entry.status === "blocked" && (
                 <span style={{ fontSize: "0.85em" }} data-status="blocked">
                   {entry.failureMessage ?? "tooling could not be generated"}

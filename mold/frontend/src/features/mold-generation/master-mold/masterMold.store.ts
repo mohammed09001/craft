@@ -15,7 +15,7 @@ import type {
   MasterToolingSetState,
 } from "./masterMold.contracts";
 import type { MasterMoldResultPlan } from "./masterMold.contracts";
-import { overallStatusOfSets, summarizeGeneration } from "./masterMold.contracts";
+import { masterMoldPieceKey, overallStatusOfSets, summarizeGeneration } from "./masterMold.contracts";
 import type { MasterMoldProgressStage } from "./engine/contracts";
 import type { MasterMoldSeedSnapshot } from "./seed/masterMoldSeed";
 import { masterSeedStalenessIdentity } from "./seed/masterMoldSeed";
@@ -55,6 +55,7 @@ export interface MasterMoldState {
   /** Post-generation summary for the UI (Article 15). */
   readonly summary: MasterMoldSummary | null;
   /** Piece visibility presentation state (Article 15): defaults to visible. */
+  /** Piece visibility presentation state (Article 15): defaults to visible. Keys are the composite (set, piece) identity -- engine piece ids are set-local (Execution 07 LOOP 10). */
   readonly pieceVisibility: Readonly<Record<string, boolean>>;
   readonly lastError: string | null;
   /** The seed identity `sets` was generated against, or null before the first generation (Article 14). */
@@ -72,6 +73,7 @@ export interface MasterMoldState {
   markMasterMoldStale(seedIdentity: MasterMoldSeedIdentity): void;
   /** A seed-assembly or worker-side failure surfaces through status/lastError like any other production state. */
   reportGenerationFailure(message: string): void;
+  /** Toggles visibility for the composite (set, piece) key (Execution 07 LOOP 10). */
   togglePieceVisibility(pieceId: string): void;
   /** Isolates one Master Tooling Set: its pieces visible, everything else hidden (Article 15). */
   isolateToolingSet(moldPartId: string): void;
@@ -162,10 +164,13 @@ export function createMasterMoldStoreCreator(deps: MasterMoldStoreDeps = default
 
     isolateToolingSet: (moldPartId) => {
       set((s) => {
+        // Engine piece ids are set-local: visibility keys the composite
+        // (set, piece) identity so isolating one set never touches another
+        // set's same-named panel (Execution 07 LOOP 10).
         const visibility: Record<string, boolean> = {};
         for (const entry of s.sets) {
           for (const piece of entry.set?.assembly.pieces ?? []) {
-            visibility[piece.pieceId] = entry.moldPartId === moldPartId;
+            visibility[masterMoldPieceKey(entry.moldPartId, piece.pieceId)] = entry.moldPartId === moldPartId;
           }
         }
         return { ...s, pieceVisibility: visibility };

@@ -820,7 +820,10 @@ export function pieceFromConstructed(
     mesh: constructed.mesh,
     bounds: constructed.bounds,
     volumeMm3: constructed.volumeMm3,
-    triangleCount: constructed.triangleCount,
+    // Derived from the emitted mesh itself (Execution 07 LOOP 10): some
+    // multi-panel construction paths pass placeholder counts, and a piece's
+    // reported triangle count must always describe the actual geometry.
+    triangleCount: constructed.mesh.indices.length / 3,
     watertight: topology.openEdgeCount === 0,
     manifold: topology.openEdgeCount === 0 && topology.nonManifoldEdgeCount === 0,
     releaseDirection,

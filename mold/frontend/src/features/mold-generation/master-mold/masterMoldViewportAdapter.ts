@@ -1,5 +1,5 @@
 import type { MoldBodyData } from "../reference-mold-definition/orthogonalMold";
-import type { MasterToolingSetState } from "./masterMold.contracts";
+import { masterMoldPieceKey, type MasterToolingSetState } from "./masterMold.contracts";
 
 /**
  * Execution 05 Article 14: a Master Mold tooling piece the viewport may
@@ -40,9 +40,12 @@ export function selectRenderableMasterMoldBodies(
     .flatMap((entry) => {
       const set = entry.set!;
       return set.assembly.pieces.map((piece) => ({
-        id: piece.pieceId,
+        // Engine piece ids are set-local; the rendered-body id (and every
+        // visibility lookup) keys the composite (set, piece) identity so two
+        // sets' "piece-panel-1" never collide (Execution 07 LOOP 10).
+        id: masterMoldPieceKey(entry.moldPartId, piece.pieceId),
         name: piece.name,
-        visible: pieceVisibility[piece.pieceId] !== false,
+        visible: pieceVisibility[masterMoldPieceKey(entry.moldPartId, piece.pieceId)] !== false,
         bounds: piece.bounds,
         triangleCount: piece.triangleCount,
         volumeMm3: piece.volumeMm3,

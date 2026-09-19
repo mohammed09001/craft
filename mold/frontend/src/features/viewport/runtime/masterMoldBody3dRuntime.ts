@@ -10,7 +10,20 @@ import type { ViewportPalette } from "@/features/viewport/viewport.contracts";
 declare global {
   interface Window {
     /** E2E-only observation of the actual Three.js Master group; never used by production UI. */
-    __e2eMasterMoldViewport?: { readonly groupPresent: boolean; readonly meshCount: number };
+    __e2eMasterMoldViewport?: {
+      readonly groupPresent: boolean;
+      readonly meshCount: number;
+      /**
+       * Execution 07 LOOP 10: the actual rendered Master piece ids (the
+       * mesh.userData.moldBodyId of every body mesh in the group), so E2E
+       * can prove the REAL UI controls drive the REAL Three.js meshes.
+       */
+      readonly renderedPieceIds: readonly string[];
+      /** Execution 07 LOOP 10: rendered piece ids whose mesh.visible is currently true. */
+      readonly visiblePieceIds: readonly string[];
+      /** Execution 07 LOOP 10: per rendered piece, the generated-geometry identity it was built from. */
+      readonly geometryIdentityByPieceId: Readonly<Record<string, string>>;
+    };
   }
 }
 
@@ -68,9 +81,19 @@ export const createMasterMoldBody3dRuntime = (
 
   const publishE2eObservation = () => {
     if (typeof window === "undefined" || import.meta.env.MODE !== "e2e") return;
+    const pieceMeshes = group.children.filter(
+      (child): child is Mesh => child instanceof Mesh && typeof child.userData.moldBodyId === "string",
+    );
+    const geometryIdentityByPieceId: Record<string, string> = {};
+    for (const mesh of pieceMeshes) {
+      geometryIdentityByPieceId[mesh.userData.moldBodyId as string] = String(mesh.userData.moldBodyGeometryIdentity ?? "");
+    }
     window.__e2eMasterMoldViewport = {
       groupPresent: group.parent !== null,
       meshCount: group.children.filter((child) => child instanceof Mesh).length,
+      renderedPieceIds: pieceMeshes.map((mesh) => mesh.userData.moldBodyId as string),
+      visiblePieceIds: pieceMeshes.filter((mesh) => mesh.visible).map((mesh) => mesh.userData.moldBodyId as string),
+      geometryIdentityByPieceId,
     };
   };
 
@@ -129,7 +152,10 @@ export const createMasterMoldBody3dRuntime = (
       descendant.visible = visible;
       changed = true;
     });
-    if (changed) invalidate();
+    if (changed) {
+      publishE2eObservation();
+      invalidate();
+    }
   };
 
   const rebuild = (bodies: readonly MasterMoldRenderableBody[]) => {
@@ -146,6 +172,7 @@ export const createMasterMoldBody3dRuntime = (
       const mesh = createMoldBodyMesh({ body, mode: appearanceMode, palette: currentPalette });
       mesh.renderOrder = 8;
       mesh.userData.masterMoldVisualization = true;
+      mesh.userData.moldBodyGeometryIdentity = body.geometryIdentity;
       if (body.stale) applyStaleGhosting(mesh);
       group.add(mesh);
       moldMeshes.push(mesh);
