@@ -1,5 +1,8 @@
 import type { Bounds3 } from "../../split-face/splitFace.contracts";
 import type { MoldMeshPayload } from "../../reference-mold-definition/orthogonalMold";
+import { DoubleSide, Ray, Vector3 } from "three";
+import { MeshBVH } from "three-mesh-bvh";
+import { buildMeshGeometry, RAY_INTERSECTION_EPSILON_MM } from "../../geometry/meshBvh";
 import {
   boundsFromManifold,
   createBlankSolid,
@@ -124,10 +127,47 @@ export interface ConstructPieceInput {
 export type CoreAssignmentMode = "split" | "full-negative" | "full-positive" | "localized-removable-core";
 
 /**
- * Conservative vent-path candidate generation. A path is returned only when
- * the pocket is on the protected target AABB boundary and the route travels
- * strictly outward to the case envelope. The caller still owns final CSG and
- * release verification; interior/ambiguous pockets remain user review.
+ * Execution 07 LOOP 07: exact mesh proof inputs for vent candidates. The
+ * vent route must never re-enter the cast-target solid nor cross the
+ * protected functional surface (the original-part negative); both checks are
+ * exact mesh ray crossings over the candidate segment.
+ */
+export interface VentProofContext {
+  readonly targetMesh: MoldMeshPayload;
+  readonly protectedMesh: MoldMeshPayload | null;
+}
+
+/** Unique forward mesh crossings of the ray along direction from origin, up to maxLength (exclusive). */
+function segmentCrossingCount(bvh: MeshBVH, origin: Vector3, direction: Vector3, maxLengthMm: number): number {
+  const ray = new Ray(origin, direction);
+  const intersections = bvh
+    .raycast(ray, DoubleSide, RAY_INTERSECTION_EPSILON_MM, maxLengthMm)
+    .map((intersection) => intersection.distance)
+    .filter((distance) => Number.isFinite(distance) && distance > RAY_INTERSECTION_EPSILON_MM)
+    .sort((left, right) => left - right);
+  let uniqueCount = 0;
+  let previousDistance = -Infinity;
+  for (const distance of intersections) {
+    if (distance - previousDistance > RAY_INTERSECTION_EPSILON_MM) {
+      uniqueCount += 1;
+      previousDistance = distance;
+    }
+  }
+  return uniqueCount;
+}
+
+/**
+ * Vent-path candidate generation (Execution 07 LOOP 07). Broad phase is
+ * AABB/ray: each pocket tries the six axis channels out to the case
+ * envelope, prefiltered with a ray/AABB slab test. When a VentProofContext
+ * is supplied, the final proof is exact mesh/protected-surface checking --
+ * the channel may not re-enter the cast target or cross the protected
+ * functional surface -- and a proven path is an automatic mesh-verified
+ * vent. Without the context the conservative planning-time AABB check
+ * applies (pocket on the protected boundary, straight outward route) and the
+ * path stays marked as such. Unproven pockets remain user-review
+ * recommendations; the caller owns final CSG and re-verification of the
+ * resulting geometry.
  */
 export function safeVentPathsFor(
   targetBounds: Bounds3,
@@ -135,6 +175,7 @@ export function safeVentPathsFor(
   protectedBounds: Bounds3,
   recommendations: readonly { readonly recommendationId: string; readonly pocketPosition: { readonly x: number; readonly y: number; readonly z: number } }[],
   wallThicknessMm: number,
+  proofContext?: VentProofContext,
 ): MasterVentFeature[] {
   const tolerance = Math.max(1e-3, wallThicknessMm * 0.05);
   const radiusMm = Math.max(0.25, Math.min(wallThicknessMm * 0.2, 1));
@@ -143,19 +184,101 @@ export function safeVentPathsFor(
     { axis: "y" as const, side: "min" as const }, { axis: "y" as const, side: "max" as const },
     { axis: "z" as const, side: "min" as const }, { axis: "z" as const, side: "max" as const },
   ];
+  let targetBvh: MeshBVH | null = null;
+  let protectedBvh: MeshBVH | null = null;
+  let targetGeometry: ReturnType<typeof buildMeshGeometry> | null = null;
+  let protectedGeometry: ReturnType<typeof buildMeshGeometry> | null = null;
+  if (proofContext !== undefined) {
+    try {
+      targetGeometry = buildMeshGeometry(proofContext.targetMesh);
+      targetBvh = new MeshBVH(targetGeometry);
+      if (proofContext.protectedMesh !== null) {
+        protectedGeometry = buildMeshGeometry(proofContext.protectedMesh);
+        protectedBvh = new MeshBVH(protectedGeometry);
+      }
+    } catch {
+      targetBvh = null;
+      protectedBvh = null;
+    }
+  }
+
   const paths: MasterVentFeature[] = [];
   for (const recommendation of recommendations) {
     const point = recommendation.pocketPosition;
     const withinTarget = (["x", "y", "z"] as const).every((axis) => point[axis] >= targetBounds.min[axis] - tolerance && point[axis] <= targetBounds.max[axis] + tolerance);
     if (!withinTarget) continue;
-    const face = faces.find(({ axis, side }) => Math.abs(point[axis] - (side === "min" ? protectedBounds.min[axis] : protectedBounds.max[axis])) <= tolerance);
-    if (face === undefined) continue;
-    const outward = face.side === "min" ? -1 : 1;
-    const end = { x: point.x, y: point.y, z: point.z };
-    end[face.axis] = face.side === "min" ? caseBounds.min[face.axis] + radiusMm : caseBounds.max[face.axis] - radiusMm;
-    if ((end[face.axis] - point[face.axis]) * outward <= radiusMm * 2) continue;
-    paths.push({ featureId: recommendation.recommendationId, kind: "vent", start: point, end, radiusMm });
+    const origin = new Vector3(point.x, point.y, point.z);
+    const candidates: { face: (typeof faces)[number]; end: { x: number; y: number; z: number }; lengthMm: number; boundaryFirst: boolean }[] = [];
+    for (const face of faces) {
+      const outward = face.side === "min" ? -1 : 1;
+      const end = { x: point.x, y: point.y, z: point.z };
+      end[face.axis] = face.side === "min" ? caseBounds.min[face.axis] + radiusMm : caseBounds.max[face.axis] - radiusMm;
+      const lengthMm = (end[face.axis] - point[face.axis]) * outward;
+      if (lengthMm <= radiusMm * 2) continue;
+      // Broad phase: ray/AABB slab test against the target bounds. The
+      // channel must actually leave the target AABB along its length (a
+      // pocket buried along every axis direction cannot vent in a straight
+      // line); the exact mesh proof decides the rest.
+      const direction = new Vector3(
+        face.axis === "x" ? outward : 0,
+        face.axis === "y" ? outward : 0,
+        face.axis === "z" ? outward : 0,
+      );
+      let tExit = Infinity;
+      let slabAdmits = true;
+      for (const axis of ["x", "y", "z"] as const) {
+        const o = origin[axis];
+        const d = direction[axis];
+        if (Math.abs(d) <= 1e-12) {
+          if (o < targetBounds.min[axis] - tolerance || o > targetBounds.max[axis] + tolerance) {
+            slabAdmits = false;
+            break;
+          }
+          continue;
+        }
+        const tNear = (targetBounds.min[axis] - o) / d;
+        const tFar = (targetBounds.max[axis] - o) / d;
+        tExit = Math.min(tExit, Math.max(tNear, tFar));
+      }
+      if (!slabAdmits || !Number.isFinite(tExit) || tExit > lengthMm + tolerance) continue;
+      const boundaryFirst = Math.abs(point[face.axis] - (face.side === "min" ? protectedBounds.min[face.axis] : protectedBounds.max[face.axis])) <= tolerance;
+      candidates.push({ face, end, lengthMm, boundaryFirst });
+    }
+    // Boundary channels first (the historical conservative case), then by
+    // shortest route, both deterministic.
+    candidates.sort((a, b) =>
+      Number(b.boundaryFirst) - Number(a.boundaryFirst) ||
+      a.lengthMm - b.lengthMm ||
+      faces.indexOf(a.face) - faces.indexOf(b.face),
+    );
+    for (const candidate of candidates) {
+      const outward = candidate.face.side === "min" ? -1 : 1;
+      let proof: MasterVentFeature["proof"] = "aabb-conservative";
+      if (targetBvh !== null) {
+        const direction = new Vector3(
+          candidate.face.axis === "x" ? outward : 0,
+          candidate.face.axis === "y" ? outward : 0,
+          candidate.face.axis === "z" ? outward : 0,
+        );
+        const proofOrigin = origin.clone().addScaledVector(direction, 1e-3);
+        const proofLengthMm = candidate.lengthMm - 1e-3;
+        // Final proof: exact mesh crossings. The vent route must not pass
+        // through cast-target material nor through the protected functional
+        // surface anywhere along the channel.
+        if (segmentCrossingCount(targetBvh, proofOrigin, direction, proofLengthMm) !== 0) continue;
+        if (protectedBvh !== null && segmentCrossingCount(protectedBvh, proofOrigin, direction, proofLengthMm) !== 0) continue;
+        proof = "mesh-verified";
+      } else {
+        // Conservative fallback without a mesh proof: only the protected
+        // boundary channel straight outward is admissible.
+        if (!candidate.boundaryFirst) continue;
+      }
+      paths.push({ featureId: recommendation.recommendationId, kind: "vent", start: point, end: candidate.end, radiusMm, proof });
+      break;
+    }
   }
+  targetGeometry?.dispose();
+  protectedGeometry?.dispose();
   return paths;
 }
 

@@ -184,7 +184,7 @@ describe("Manufacturable multi-panel registration (Execution 07 LOOP 05)", () =>
     // A vent run straight down the middle of the x=3 interface patch: every
     // key position on panel 1's interface falls inside the vent corridor.
     // The other interfaces (x=6, x=9) are far from the vent and register.
-    const vents = [{ featureId: "vent-1", kind: "vent" as const, start: { x: 3, y: 0, z: 2 }, end: { x: 3, y: 4, z: 2 }, radiusMm: 1 }];
+    const vents = [{ featureId: "vent-1", kind: "vent" as const, start: { x: 3, y: 0, z: 2 }, end: { x: 3, y: 4, z: 2 }, radiusMm: 1, proof: "mesh-verified" as const }];
     const registration = await registerMultiPanelInterfaces(module, castTarget, "+Z", sequence, vents, parameters, policy, 1e-3, 10);
     expect(registration.features.map((f) => `${f.malePieceId}:${f.femalePieceId}`)).toEqual([
       "piece-panel-2:piece-panel-3",

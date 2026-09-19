@@ -176,6 +176,14 @@ export interface MasterVentFeature {
   readonly start: { readonly x: number; readonly y: number; readonly z: number };
   readonly end: { readonly x: number; readonly y: number; readonly z: number };
   readonly radiusMm: number;
+  /**
+   * How the path was proven safe (Execution 07 LOOP 07): an exact mesh ray
+   * proof against the cast target and the protected functional surface, or
+   * the conservative planning-time AABB check used when no mesh proof was
+   * available. Only mesh-verified paths are automatic; anything else stays a
+   * user-review recommendation.
+   */
+  readonly proof: "mesh-verified" | "aabb-conservative";
 }
 
 export interface MasterVentPlan {

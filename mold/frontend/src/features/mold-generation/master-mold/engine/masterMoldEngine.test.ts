@@ -4,6 +4,7 @@ import {
   buildFourHoleCubeFixture,
   buildHighPolySphereFixture,
   buildObliqueHoleCubeFixture,
+  buildOpenCavityCubeFixture,
   buildSealedHollowBoxFixture,
   buildSimpleBoxFixture,
   buildSingleHoleCubeFixture,
@@ -301,8 +302,38 @@ describe("Master Mold Engine golden cases (Execution 06 Article 17)", () => {
     expect(plan.plan?.releaseSequence.every((step) => step.collisionVerified)).toBe(true);
   });
 
-  it("Article 10: automatically registers a feasible 3-panel chain with real CSG keys", { timeout: ENGINE_TIMEOUT }, async () => {
-    const module = await getManifoldModule();
+  it("Article 09 (LOOP 07): proves automatic vents with the exact mesh and reverifies the vented geometry", { timeout: ENGINE_TIMEOUT }, async () => {
+    // A box with a bottom-opening cavity traps air at the cavity ceiling in
+    // top-pour orientation. The engine must convert the provable pockets
+    // into automatic mesh-verified vent features and re-verify the release
+    // on the vented geometry -- while unprovable pockets stay user-review.
+    const fixture = await buildOpenCavityCubeFixture();
+    const result = await runMasterMoldEngine(seedFromFixture(fixture));
+    expect(result.failures).toEqual([]);
+    expect(result.plan).not.toBeNull();
+    // At least one tooling set answered a trapped pocket with an automatic
+    // mesh-verified vent (never an aabb-conservative guess).
+    const ventedSets = result.toolingSets.filter((set) => set.pourFaceDecision.ventPlan.features.length > 0);
+    expect(ventedSets.length).toBeGreaterThan(0);
+    for (const set of result.toolingSets) {
+      for (const feature of set.pourFaceDecision.ventPlan.features) {
+        expect(feature.proof).toBe("mesh-verified");
+        expect(feature.end.z).toBeLessThan(feature.start.z);
+      }
+      // Every pocket without a proven route stays a user-review
+      // recommendation; resolved ones are removed from the list.
+      expect(
+        set.pourFaceDecision.ventPlan.unresolvedRecommendations.every(
+          (recommendation) => !set.pourFaceDecision.ventPlan.features.some((feature) => feature.featureId === recommendation.recommendationId),
+        ),
+      ).toBe(true);
+      // Gate: the emitted geometry is the vented geometry, and its release
+      // was re-verified AFTER vent subtraction.
+      expectVerifiedTooling(set);
+    }
+  });
+
+  it("Article 10: automatically registers a feasible 3-panel chain with real CSG keys", { timeout: ENGINE_TIMEOUT }, async () => {    const module = await getManifoldModule();
     // Case slab x ∈ [0, 6], split at x=2 (root cut) then the max side at x=4
     // (bisection cut). Sequence is release order: min panel, far panel, middle panel.
     const rootCut = { axis: "+X" as const, coordinateMm: 2 };

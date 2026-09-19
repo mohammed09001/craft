@@ -125,7 +125,7 @@ export async function planLocalizedRemovableCore(
   let shell: Awaited<ReturnType<typeof constructCasePiece>> | null = null;
   try {
     const caseBounds = caseEnvelopeFor(castTarget.bounds, pourFace, parameters.caseWallThicknessMm, parameters.caseBaseThicknessMm);
-    const ventFeatures = safeVentPathsFor(castTarget.bounds, caseBounds, castTarget.bounds, ventRecommendations, parameters.caseWallThicknessMm);
+    const ventFeatures = safeVentPathsFor(castTarget.bounds, caseBounds, castTarget.bounds, ventRecommendations, parameters.caseWallThicknessMm, { targetMesh: castTarget.mesh, protectedMesh: null });
     try {
       shell = await constructCasePiece({ castTarget, pourFace, parameters, coreToolMesh: null, coreMode: "split", ventPaths: ventFeatures });
     } catch {
@@ -701,7 +701,7 @@ export async function attemptRecursiveSplit(
     ...(split.point === undefined ? {} : { point: split.point }),
   };
   const caseBounds = caseEnvelopeFor(castTarget.bounds, pourFace, parameters.caseWallThicknessMm, parameters.caseBaseThicknessMm);
-  const ventFeatures = safeVentPathsFor(castTarget.bounds, caseBounds, castTarget.bounds, ventRecommendations, parameters.caseWallThicknessMm);
+  const ventFeatures = safeVentPathsFor(castTarget.bounds, caseBounds, castTarget.bounds, ventRecommendations, parameters.caseWallThicknessMm, { targetMesh: castTarget.mesh, protectedMesh: null });
 
   const targetSolid = manifoldFromPayload(module, castTarget.mesh, policy.booleanToleranceMm);
   let positivePiece;

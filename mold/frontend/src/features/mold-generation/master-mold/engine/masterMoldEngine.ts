@@ -447,7 +447,7 @@ async function attemptCaseForPourFace(
 
   budget.toolingOnePieceAttempts += 1;
   budget.releaseVerificationAttempts += 1;
-  const onePiece = await attemptOnePiece(castTarget, pourFace, parameters, pourFaceDecision.ventPlan.unresolvedRecommendations);
+  const onePiece = await attemptOnePiece(castTarget, pourFace, parameters, pourFaceDecision.ventPlan.unresolvedRecommendations, negativeTool.mesh);
   let releaseMode: MasterToolingSet["releaseMode"] = "multi-piece";
   let pieces: readonly MasterToolingPiece[] = [];
   let releaseSequence: MasterToolingSet["assembly"]["releaseSequence"] = [];
@@ -623,6 +623,7 @@ async function attemptOnePiece(
   pourFace: MasterMoldDirection,
   parameters: ReturnType<typeof toolingParametersFromProfile>,
   recommendations: MasterToolingSet["pourFaceDecision"]["ventPlan"]["unresolvedRecommendations"],
+  protectedMesh: ReturnType<typeof payloadFromManifold> | null,
 ): Promise<OnePieceAttempt> {
   const module = await getManifoldModule();
   const caseBounds = caseEnvelopeFor(castTarget.bounds, pourFace, parameters.caseWallThicknessMm, parameters.caseBaseThicknessMm);
@@ -631,7 +632,9 @@ async function attemptOnePiece(
   const axis = axisOf(pourFace);
   const sweepClearanceMm =
     (caseBounds.max[axis] - caseBounds.min[axis]) * TOOLING_ONE_PIECE_SWEEP_SAFETY_FACTOR;
-  const ventFeatures = safeVentPathsFor(castTarget.bounds, caseBounds, castTarget.bounds, recommendations, parameters.caseWallThicknessMm);
+  // Execution 07 LOOP 07: vent candidates get the exact mesh/protected-
+  // surface proof; only proven routes become automatic vent features.
+  const ventFeatures = safeVentPathsFor(castTarget.bounds, caseBounds, castTarget.bounds, recommendations, parameters.caseWallThicknessMm, { targetMesh: castTarget.mesh, protectedMesh });
 
   const targetSolid = manifoldFromPayload(module, castTarget.mesh, policy.booleanToleranceMm);
   let constructed;

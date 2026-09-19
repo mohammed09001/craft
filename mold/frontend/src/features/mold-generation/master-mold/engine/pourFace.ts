@@ -16,8 +16,12 @@ import type { MasterCastTarget, MasterPourFaceCandidate, MasterPourFaceDecision 
  * direction. Candidate sources are extensible beyond ±X/±Y/±Z (semantic
  * axes, planar exterior face normals, user override), hard constraints are
  * rejected before scoring, weights are centralized and deterministic, and
- * fillability analysis detects obvious sealed high pockets without ever
- * inventing vent holes.
+ * fillability analysis detects sealed high pockets. Execution 07 LOOP 07:
+ * candidate ranking/provenance is geometry-derived (measured planar face
+ * exposure), pocket samples are grouped into actual air pockets, and provable
+ * pocket vents become automatic mesh-verified features while the rest remain
+ * user-review-only recommendations (the exact conversion happens at tooling
+ * construction via safeVentPathsFor's mesh proof).
  */
 
 /** Centralized, deterministic scoring weights (Execution 05 Article 07 "Scoring"). Lower total = better. */
@@ -42,6 +46,22 @@ export const POUR_FACE_WEIGHTS = {
 const MINIMUM_OPENING_AREA_MM2 = 25;
 /** Bounded deterministic sample count for sealed-pocket ray analysis. */
 const SEALED_POCKET_SAMPLE_LIMIT = 32;
+/** Execution 07 LOOP 07: bounded limits for geometry-derived pour candidates and pocket grouping. */
+export const POUR_FACE_GEOMETRY_LIMITS = {
+  /** Bounded deterministic triangle sample cap for planar-face exposure measurement. */
+  exposureSampleCap: 512,
+  /** A triangle counts toward a direction's planar exposure when its normal aligns this closely with the axis. */
+  planarNormalDot: 0.999,
+  /** Air-pocket clustering grid divisions across the target's largest span. */
+  pocketGridDivisions: 8,
+} as const;
+
+/** A trapped-air pocket: grouped sealed-pocket samples with a stable centroid (Execution 07 LOOP 07). */
+export interface AirPocket {
+  readonly centroid: { readonly x: number; readonly y: number; readonly z: number };
+  readonly sampleCount: number;
+  readonly bounds: Bounds3;
+}
 
 export interface PourFacePlanInput {
   readonly castTarget: MasterCastTarget;
@@ -68,22 +88,79 @@ function negativeReachesFace(negativeBounds: Bounds3, targetBounds: Bounds3, dir
     : negativeBounds.min[axis] <= targetBounds.min[axis] + toleranceMm;
 }
 
-/** Deterministic candidate directions: user override first, then planar face-normal-aligned axes, then all semantic axes. */
+/** Deterministic candidate directions: user override first, then geometry-derived planar-face-normal axes, then remaining semantic axes. */
 export function candidateDirections(castTarget: MasterCastTarget, userOverride: MasterMoldDirection | null): MasterMoldDirection[] {
   const ordered: MasterMoldDirection[] = [];
   if (userOverride !== null) ordered.push(userOverride);
-  // Planar-face-normal candidates and semantic axes coincide in the current
-  // deterministic set; the axes remain the bounded deterministic baseline and
-  // the candidate structure keeps future free-form normals open (Article 07
-  // "Candidate Sources"). Order by descending exposed face area for
-  // determinism beyond the override.
-  const byFaceArea = [...MASTER_MOLD_DIRECTIONS].sort(
-    (a, b) => faceAreaOfBounds(castTarget.bounds, b) - faceAreaOfBounds(castTarget.bounds, a),
+  // Execution 07 LOOP 07: the candidate order is geometry-derived. Planar
+  // exterior face exposure is measured from the mesh (bounded deterministic
+  // sampling) and backs the "planar-face-normal" candidate source; the
+  // semantic axes remain the bounded deterministic baseline for parts
+  // without axis-aligned planar faces (e.g. doubly curved surfaces). The
+  // candidate structure keeps future free-form normals open (Article 07
+  // "Candidate Sources").
+  const exposure = planarFaceExposureByDirection(castTarget);
+  const byGeometry = [...MASTER_MOLD_DIRECTIONS].sort(
+    (a, b) =>
+      exposure[b] - exposure[a] ||
+      faceAreaOfBounds(castTarget.bounds, b) - faceAreaOfBounds(castTarget.bounds, a) ||
+      a.localeCompare(b),
   );
-  for (const direction of byFaceArea) {
+  for (const direction of byGeometry) {
     if (!ordered.includes(direction)) ordered.push(direction);
   }
   return ordered;
+}
+
+/**
+ * Execution 07 LOOP 07: measures, per Master Mold direction, how much
+ * exterior planar face area actually faces that direction. Bounded
+ * deterministic triangle sampling (stride = triCount / cap); a triangle
+ * contributes its area to a direction when its outward normal aligns with
+ * the axis within the planar tolerance. This is what makes the pour
+ * candidates geometry-derived: ranking and provenance come from the mesh,
+ * not from the case envelope.
+ */
+export function planarFaceExposureByDirection(castTarget: MasterCastTarget): Readonly<Record<MasterMoldDirection, number>> {
+  const exposure: Record<MasterMoldDirection, number> = { "+X": 0, "-X": 0, "+Y": 0, "-Y": 0, "+Z": 0, "-Z": 0 };
+  const indices = castTarget.mesh.indices;
+  const positions = castTarget.mesh.positions;
+  const triangleCount = indices.length / 3;
+  const stride = Math.max(1, Math.floor(triangleCount / POUR_FACE_GEOMETRY_LIMITS.exposureSampleCap));
+  for (let triangle = 0; triangle < triangleCount; triangle += stride) {
+    const i0 = indices[triangle * 3]! * 3;
+    const i1 = indices[triangle * 3 + 1]! * 3;
+    const i2 = indices[triangle * 3 + 2]! * 3;
+    const ax = positions[i0]!;
+    const ay = positions[i0 + 1]!;
+    const az = positions[i0 + 2]!;
+    const bx = positions[i1]!;
+    const by = positions[i1 + 1]!;
+    const bz = positions[i1 + 2]!;
+    const cx = positions[i2]!;
+    const cy = positions[i2 + 1]!;
+    const cz = positions[i2 + 2]!;
+    const ux = bx - ax;
+    const uy = by - ay;
+    const uz = bz - az;
+    const vx = cx - ax;
+    const vy = cy - ay;
+    const vz = cz - az;
+    const nx = uy * vz - uz * vy;
+    const ny = uz * vx - ux * vz;
+    const nz = ux * vy - uy * vx;
+    const length = Math.hypot(nx, ny, nz);
+    if (length <= 1e-12) continue;
+    // Twice the triangle area; accumulated consistently so relative
+    // exposure is unchanged.
+    for (const direction of MASTER_MOLD_DIRECTIONS) {
+      const [dx, dy, dz] = DIRECTION_VECTORS[direction];
+      if ((nx * dx + ny * dy + nz * dz) / length >= POUR_FACE_GEOMETRY_LIMITS.planarNormalDot) {
+        exposure[direction] += length / 2;
+      }
+    }
+  }
+  return exposure;
 }
 
 /**
@@ -136,8 +213,12 @@ function sealedHighPocketSamples(castTarget: MasterCastTarget, upDirection: Mast
       // The seating face (global minimum along -up) is not an air trap.
       if (Math.abs(centroid[axis] - seatingPlane) <= 1e-3) continue;
       sampled += 1;
+      // Probe strictly OUTSIDE the surface along its own normal (into the
+      // air pocket). The previous +up nudge cancelled the normal offset on
+      // exactly horizontal ceilings, leaving the ray grazing the surface
+      // and every real pocket undetected (fixed in Execution 07 LOOP 07).
+      const probe = centroid.clone().addScaledVector(normal, 1e-3);
       // (a) material directly above?
-      const probe = centroid.clone().addScaledVector(normal, 1e-3).addScaledVector(up, 1e-3);
       if (countUniqueForwardIntersections(bvh, probe, up) < 2) continue;
       // (b) any horizontal escape path (no further target crossing)?
       const escaped = horizontal.some((direction) => countUniqueForwardIntersections(bvh, probe.clone(), direction) === 0);
@@ -153,11 +234,120 @@ function sealedHighPocketSamples(castTarget: MasterCastTarget, upDirection: Mast
 }
 
 export function detectSealedHighPockets(castTarget: MasterCastTarget, upDirection: MasterMoldDirection): number {
-  return sealedHighPocketSamples(castTarget, upDirection).length;
+  return sealedAirPockets(castTarget, upDirection).length;
+}
+
+/**
+ * Execution 07 LOOP 07: groups raw sealed-pocket samples into actual air
+ * pockets. Samples are grid-clustered (6-connected flood fill over a bounded
+ * grid across the target's largest span) so one physical trap produces one
+ * pocket with a stable centroid -- not one recommendation per sampled
+ * triangle.
+ */
+export function sealedAirPockets(castTarget: MasterCastTarget, upDirection: MasterMoldDirection): readonly AirPocket[] {
+  const samples = sealedHighPocketSamples(castTarget, upDirection);
+  if (samples.length === 0) return [];
+  const span = {
+    x: castTarget.bounds.max.x - castTarget.bounds.min.x,
+    y: castTarget.bounds.max.y - castTarget.bounds.min.y,
+    z: castTarget.bounds.max.z - castTarget.bounds.min.z,
+  };
+  const maxSpan = Math.max(span.x, span.y, span.z);
+  const cellMm = Math.max(1e-3, maxSpan / POUR_FACE_GEOMETRY_LIMITS.pocketGridDivisions);
+  const cellOf = (point: { readonly x: number; readonly y: number; readonly z: number }) => ({
+    x: Math.min(POUR_FACE_GEOMETRY_LIMITS.pocketGridDivisions - 1, Math.max(0, Math.floor((point.x - castTarget.bounds.min.x) / cellMm))),
+    y: Math.min(POUR_FACE_GEOMETRY_LIMITS.pocketGridDivisions - 1, Math.max(0, Math.floor((point.y - castTarget.bounds.min.y) / cellMm))),
+    z: Math.min(POUR_FACE_GEOMETRY_LIMITS.pocketGridDivisions - 1, Math.max(0, Math.floor((point.z - castTarget.bounds.min.z) / cellMm))),
+  });
+  type ClusterCell = { count: number; sumX: number; sumY: number; sumZ: number };
+  const cells = new Map<string, ClusterCell>();
+  for (const point of samples) {
+    const cell = cellOf(point);
+    const key = `${cell.x},${cell.y},${cell.z}`;
+    const existing = cells.get(key) ?? { count: 0, sumX: 0, sumY: 0, sumZ: 0 };
+    existing.count += 1;
+    existing.sumX += point.x;
+    existing.sumY += point.y;
+    existing.sumZ += point.z;
+    cells.set(key, existing);
+  }
+  // Flood fill over occupied cells. Samples are sparse triangle centroids,
+  // so adjacency is 26-connected: a one-cell diagonal gap inside one
+  // physical cavity must not split it into two pockets.
+  const visited = new Set<string>();
+  const pockets: AirPocket[] = [];
+  for (const [key, cell] of cells) {
+    if (visited.has(key)) continue;
+    const component: string[] = [];
+    const queue = [key];
+    visited.add(key);
+    while (queue.length > 0) {
+      const current = queue.pop()!;
+      component.push(current);
+      const parts = current.split(",");
+      const cx = Number(parts[0]);
+      const cy = Number(parts[1]);
+      const cz = Number(parts[2]);
+      for (let dx = -1; dx <= 1; dx += 1) {
+        for (let dy = -1; dy <= 1; dy += 1) {
+          for (let dz = -1; dz <= 1; dz += 1) {
+            if (dx === 0 && dy === 0 && dz === 0) continue;
+            const nextKey = `${cx + dx},${cy + dy},${cz + dz}`;
+            if (cells.has(nextKey) && !visited.has(nextKey)) {
+              visited.add(nextKey);
+              queue.push(nextKey);
+            }
+          }
+        }
+      }
+    }
+    let count = 0;
+    let sumX = 0;
+    let sumY = 0;
+    let sumZ = 0;
+    let minX = Infinity;
+    let minY = Infinity;
+    let minZ = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    let maxZ = -Infinity;
+    for (const memberKey of component) {
+      const member = cells.get(memberKey)!;
+      count += member.count;
+      sumX += member.sumX;
+      sumY += member.sumY;
+      sumZ += member.sumZ;
+      const parts = memberKey.split(",");
+      const mx = Number(parts[0]);
+      const my = Number(parts[1]);
+      const mz = Number(parts[2]);
+      minX = Math.min(minX, castTarget.bounds.min.x + mx * cellMm);
+      minY = Math.min(minY, castTarget.bounds.min.y + my * cellMm);
+      minZ = Math.min(minZ, castTarget.bounds.min.z + mz * cellMm);
+      maxX = Math.max(maxX, castTarget.bounds.min.x + (mx + 1) * cellMm);
+      maxY = Math.max(maxY, castTarget.bounds.min.y + (my + 1) * cellMm);
+      maxZ = Math.max(maxZ, castTarget.bounds.min.z + (mz + 1) * cellMm);
+    }
+    void cell;
+    pockets.push({
+      centroid: { x: sumX / count, y: sumY / count, z: sumZ / count },
+      sampleCount: count,
+      bounds: { min: { x: minX, y: minY, z: minZ }, max: { x: maxX, y: maxY, z: maxZ } },
+    });
+  }
+  // Deterministic pocket order: by descending sample count, then centroid.
+  pockets.sort((a, b) =>
+    b.sampleCount - a.sampleCount ||
+    a.centroid.x - b.centroid.x ||
+    a.centroid.y - b.centroid.y ||
+    a.centroid.z - b.centroid.z,
+  );
+  return pockets;
 }
 
 export function planPourFace(input: PourFacePlanInput): MasterPourFaceDecision {
   const { castTarget, negativeToolBounds, geometryToleranceMm, userOverride } = input;
+  const geometryExposure = planarFaceExposureByDirection(castTarget);
   const candidates: MasterPourFaceCandidate[] = [];
 
   for (const direction of candidateDirections(castTarget, userOverride)) {
@@ -182,8 +372,12 @@ export function planPourFace(input: PourFacePlanInput): MasterPourFaceDecision {
         ? castTarget.bounds.max[axis] - negativeToolBounds.max[axis]
         : negativeToolBounds.min[axis] - castTarget.bounds.min[axis];
       const interferencePenalty = faceTopGap < geometryToleranceMm * 2 ? POUR_FACE_WEIGHTS.functionalInterference : 0;
+      // A measured planar pour face is worth more than a curved envelope
+      // cross-section: prefer directions the mesh actually backs with a
+      // flat opening (Execution 07 LOOP 07).
+      const openingAreaMm2 = Math.max(geometryExposure[direction], exposedOpeningAreaMm2 * 0.5);
       score =
-        POUR_FACE_WEIGHTS.openingArea * -exposedOpeningAreaMm2 +
+        POUR_FACE_WEIGHTS.openingArea * -openingAreaMm2 +
         POUR_FACE_WEIGHTS.castingDepth * castingDepthMm +
         POUR_FACE_WEIGHTS.supportHeight * castingDepthMm +
         interferencePenalty +
@@ -192,7 +386,9 @@ export function planPourFace(input: PourFacePlanInput): MasterPourFaceDecision {
       score = Number.POSITIVE_INFINITY;
     }
 
-    candidates.push({ direction, source: direction === userOverride ? "user-override" : "semantic-axis", exposedOpeningAreaMm2, castingDepthMm, valid, rejectionReason: rejection, score });
+    const source: MasterPourFaceCandidate["source"] =
+      direction === userOverride ? "user-override" : geometryExposure[direction] > 0 ? "planar-face-normal" : "semantic-axis";
+    candidates.push({ direction, source, exposedOpeningAreaMm2, castingDepthMm, valid, rejectionReason: rejection, score });
   }
 
   // Mutable working copies for post-analysis penalties; frozen into the
@@ -201,14 +397,16 @@ export function planPourFace(input: PourFacePlanInput): MasterPourFaceDecision {
   const validWorking = working.filter((candidate) => candidate.valid);
 
   const fillabilityWarnings: string[] = [];
-  const sealedPocketSamplesByDirection = new Map<MasterMoldDirection, readonly { readonly x: number; readonly y: number; readonly z: number }[]>();
+  const airPocketsByDirection = new Map<MasterMoldDirection, readonly AirPocket[]>();
   for (const candidate of validWorking) {
-    const sealedPockets = sealedHighPocketSamples(castTarget, candidate.direction);
-    sealedPocketSamplesByDirection.set(candidate.direction, sealedPockets);
-    if (sealedPockets.length > 0) {
-      candidate.score += POUR_FACE_WEIGHTS.trappedAirPocket * sealedPockets.length;
+    // Execution 07 LOOP 07: samples are grouped into actual air pockets;
+    // scoring, warnings, and recommendations are per pocket.
+    const pockets = sealedAirPockets(castTarget, candidate.direction);
+    airPocketsByDirection.set(candidate.direction, pockets);
+    if (pockets.length > 0) {
+      candidate.score += POUR_FACE_WEIGHTS.trappedAirPocket * pockets.length;
       fillabilityWarnings.push(
-        `Pour face ${candidate.direction}: ${sealedPockets.length} sealed high pocket${sealedPockets.length === 1 ? "" : "s"} detected in casting orientation. Provide a user-managed vent; the engine will not drill vents through functional surfaces.`,
+        `Pour face ${candidate.direction}: ${pockets.length} sealed high pocket${pockets.length === 1 ? "" : "s"} detected in casting orientation. A mesh-verified vent path is generated automatically when one exists; otherwise the pocket requires user-managed venting.`,
       );
     }
   }
@@ -216,7 +414,7 @@ export function planPourFace(input: PourFacePlanInput): MasterPourFaceDecision {
   validWorking.sort((a, b) => a.score - b.score || a.direction.localeCompare(b.direction));
   const best = validWorking[0] ?? null;
   const selected = best?.direction ?? null;
-  const selectedSealedPockets = selected === null ? [] : sealedPocketSamplesByDirection.get(selected) ?? [];
+  const selectedAirPockets = selected === null ? [] : airPocketsByDirection.get(selected) ?? [];
   const scoreByDirection = new Map(working.map((candidate) => [candidate.direction, candidate.score] as const));
   return {
     selected,
@@ -225,15 +423,15 @@ export function planPourFace(input: PourFacePlanInput): MasterPourFaceDecision {
     candidates: working.map((candidate) => ({ ...candidate, score: scoreByDirection.get(candidate.direction)! })),
     fillabilityWarnings,
     ventPlan: {
-      status: selectedSealedPockets.length > 0 ? "user-review" : "clear",
+      status: selectedAirPockets.length > 0 ? "user-review" : "clear",
       features: [],
-      unresolvedRecommendations: selectedSealedPockets.map((position, index) => ({
+      unresolvedRecommendations: selectedAirPockets.map((pocket, index) => ({
         recommendationId: `vent-review-${castTarget.moldPartId}-${selected ?? "unselected"}-${index + 1}`,
         kind: "vent_required_user_review" as const,
         target: "cast-target" as const,
         pocketIndex: index + 1,
-        pocketPosition: position,
-        message: `Sealed high pocket ${index + 1} requires a user-managed vent path review; no automatic vent was generated.`,
+        pocketPosition: pocket.centroid,
+        message: `Sealed high pocket ${index + 1} (${pocket.sampleCount} sample${pocket.sampleCount === 1 ? "" : "s"}) requires a vent path: generated automatically when a mesh-verified route exists, otherwise user review.`,
       })),
     },
   };

@@ -9,6 +9,7 @@ export function seedFromFixture(
   fixture: GoldenFixture,
   overrides: Partial<Parameters<typeof buildMasterMoldSeedSnapshot>[0]> = {},
 ): MasterMoldSeedSnapshot {
+  const signature = goldenMeshSignature(fixture.mesh);
   return worldMeshFromSnapshot(buildMasterMoldSeedSnapshot({
     sourcePartGeometry: {
       modelId: "golden",
@@ -16,14 +17,31 @@ export function seedFromFixture(
       indices: fixture.mesh.indices,
       transform: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
       localBounds: fixture.bounds,
-      geometryVersion: `golden:${fixture.mesh.positions.length}`,
-      sourceSignature: `golden-signature:${fixture.mesh.positions.length}`,
+      geometryVersion: signature,
+      sourceSignature: signature,
     },
     printerBuildVolume: null,
     processProfile: GENERIC_RIGID_CAST_PROFILE,
     projectRevision: "golden-rev",
     ...overrides,
   }));
+}
+
+/**
+ * Content-based fixture identity. Two different fixtures can carry the same
+ * vertex count; an identity derived from sizes alone collides in the
+ * engine's planning caches and serves one fixture's planning result to
+ * another (Execution 07 LOOP 07).
+ */
+function goldenMeshSignature(mesh: GoldenFixture["mesh"]): string {
+  let hash = 2166136261;
+  for (let index = 0; index < mesh.positions.length; index += 1) {
+    hash = Math.imul(hash ^ Math.round(mesh.positions[index]! * 1e6), 16777619) >>> 0;
+  }
+  for (let index = 0; index < mesh.indices.length; index += 1) {
+    hash = Math.imul(hash ^ mesh.indices[index]!, 16777619) >>> 0;
+  }
+  return `golden:${hash.toString(16)}`;
 }
 
 /**
@@ -149,6 +167,27 @@ export async function buildSealedHollowBoxFixture(): Promise<GoldenFixture> {
     outer.delete();
     inner.delete();
     hollow?.delete();
+  }
+}
+
+/**
+ * Execution 07 LOOP 07: a box with an internal cavity open through the
+ * bottom face. In +Z casting orientation the cavity ceiling is a
+ * downward-facing surface with material above and no horizontal escape --
+ * one real sealed high pocket whose air can only escape through a vent.
+ */
+export async function buildOpenCavityCubeFixture(): Promise<GoldenFixture> {
+  const module = await getManifoldModule();
+  const outer = createBlankSolid(module, { min: { x: -5, y: -5, z: -5 }, max: { x: 5, y: 5, z: 5 } });
+  const cavity = createBlankSolid(module, { min: { x: -2, y: -2, z: -5.5 }, max: { x: 2, y: 2, z: 2 } });
+  let cup: ManifoldSolid | null = null;
+  try {
+    cup = outer.subtract(cavity);
+    return { mesh: payloadFromManifold(cup), bounds: boundsFromManifold(cup) };
+  } finally {
+    outer.delete();
+    cavity.delete();
+    cup?.delete();
   }
 }
 
