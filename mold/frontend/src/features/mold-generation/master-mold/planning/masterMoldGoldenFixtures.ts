@@ -192,6 +192,57 @@ export async function buildOpenCavityCubeFixture(): Promise<GoldenFixture> {
 }
 
 /**
+ * Execution 08 LOOP 22 Golden E: a curved organic saddle/lobe -- two offset
+ * spheres close enough to fuse into one smoothly curved body with a
+ * concave saddle-shaped waist between them (no flat faces, no sharp
+ * edges). Exercises curvature-only geometry with a genuine concave zone,
+ * distinct from the LOOP 02 fixture's oblique blind pockets.
+ */
+export async function buildSaddleLobeFixture(): Promise<GoldenFixture> {
+  const module = await getManifoldModule();
+  const lobeA = module.Manifold.sphere(6, 48).translate(-4, 0, 0);
+  const lobeB = module.Manifold.sphere(6, 48).translate(4, 0, 0);
+  let fused: ManifoldSolid | null = null;
+  try {
+    fused = lobeA.add(lobeB);
+    return { mesh: payloadFromManifold(fused), bounds: boundsFromManifold(fused) };
+  } finally {
+    lobeA.delete();
+    lobeB.delete();
+    fused?.delete();
+  }
+}
+
+/**
+ * Execution 08 LOOP 22 Golden G: a partially visible curved region -- a
+ * cylindrical boss on a base plate, standing next to a taller wall that
+ * shadows roughly half of the boss's curved side surface from any single
+ * horizontal direction. No direction sees the whole cylindrical region:
+ * the region must be reached by combining directions or accepted as
+ * partially resolved, unlike a free-standing cylinder (fully visible from
+ * every horizontal direction) or a blind hole (visible from exactly one).
+ */
+export async function buildPartiallyVisibleCurvedFixture(): Promise<GoldenFixture> {
+  const module = await getManifoldModule();
+  const base = createBlankSolid(module, { min: { x: -8, y: -5, z: -3 }, max: { x: 8, y: 5, z: 0 } });
+  const boss = module.Manifold.cylinder(6, 3, 3, 48).translate(-2, 0, 0);
+  const wall = createBlankSolid(module, { min: { x: 2, y: -5, z: -3 }, max: { x: 3.5, y: 5, z: 6 } });
+  let baseWithBoss: ManifoldSolid | null = null;
+  let combined: ManifoldSolid | null = null;
+  try {
+    baseWithBoss = base.add(boss);
+    combined = baseWithBoss.add(wall);
+    return { mesh: payloadFromManifold(combined), bounds: boundsFromManifold(combined) };
+  } finally {
+    base.delete();
+    boss.delete();
+    wall.delete();
+    baseWithBoss?.delete();
+    combined?.delete();
+  }
+}
+
+/**
  * Execution 08 LOOP 02: a minimized, deterministic derivative of the real
  * failing `Segmentation_Segment_1.stl` (1,576 triangles; 2-, 3- and 4-piece
  * Working Mold planning all rejected; 0 exact construction attempts).
