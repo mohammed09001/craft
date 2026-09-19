@@ -289,6 +289,16 @@ export async function runMasterMoldEngine(
     // configured limits -- it is NOT proof that rigid tooling is impossible.
     // The message and the structured failure family both say so.
     const budgetReached = budget.limitsExceeded.length > 0 || rejectedPieceCounts.length > 0;
+    // Execution 08 LOOP 17: "raise the piece-count cap" is only an
+    // actionable recommendation when a cap below the internal safety
+    // ceiling actually exists to raise (a profile or user preference set
+    // one deliberately). In automatic mode (the default: LOOP 16 lets
+    // maxPieces already reach the ceiling), there is no hidden cap left to
+    // raise, and normal failure text must not ask for an unavailable action.
+    const atAutomaticCeiling = maxPieces >= MASTER_PLANNER_LIMITS.absoluteMaxWorkingMoldPieces;
+    const recovery = atAutomaticCeiling
+      ? `automatic escalation already reached the internal safety ceiling of ${maxPieces} piece(s); use flexible/sacrificial tooling for fully enclosed features, or simplify the part`
+      : `raise the piece-count cap (currently ${maxPieces} of a ${MASTER_PLANNER_LIMITS.absoluteMaxWorkingMoldPieces}-piece safety ceiling) in the process profile or preferred piece-count setting, or use flexible/sacrificial tooling for fully enclosed features`;
     return {
       seedId: seed.seedId,
       plan: null,
@@ -299,7 +309,7 @@ export async function runMasterMoldEngine(
           reason: "no_release_plan",
           family: masterMoldFailureFamilyOf("no_release_plan"),
           message: budgetReached
-            ? `the bounded search reached its configured limits (piece-count cap ${maxPieces}, ${budget.workingMoldConstructionAttempts} exact construction attempt(s), ${rejectedPieceCounts.length} piece count(s) rejected) without finding a releasable decomposition${constructionError === null ? "" : ` (last exact failure: ${constructionError.message})`}. This is a search-budget outcome, not proof that rigid tooling is impossible: review the part, raise the piece-count cap, or use flexible/sacrificial tooling for fully enclosed features.`
+            ? `the bounded search reached its configured limits (piece-count cap ${maxPieces}, ${budget.workingMoldConstructionAttempts} exact construction attempt(s), ${rejectedPieceCounts.length} piece count(s) rejected) without finding a releasable decomposition${constructionError === null ? "" : ` (last exact failure: ${constructionError.message})`}. This is a search-budget outcome, not proof that rigid tooling is impossible: review the part, ${recovery}.`
             : `no working-mold decomposition could be planned${constructionError === null ? "" : ` (last exact failure: ${constructionError.message})`}. This is a search-budget outcome, not proof that rigid tooling is impossible; flexible/sacrificial tooling may be required for fully enclosed features.`,
         },
       ],

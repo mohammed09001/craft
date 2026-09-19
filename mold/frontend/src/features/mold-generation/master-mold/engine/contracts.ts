@@ -5,6 +5,7 @@ import type { ReferenceMoldDefinition } from "../../reference-mold-definition";
 import type { SprueProfileDesignResult } from "../../sprue-generation";
 import type { MasterMoldDirection } from "../masterMold.contracts";
 import type { AutoWorkingMoldPlan, WorkingMoldPieceCountDiagnostics } from "../planning/masterMoldPlanning.contracts";
+import { MASTER_PLANNER_LIMITS } from "../planning/masterMoldPlanning.contracts";
 
 /**
  * Execution 05 Article 05: the Master Mold Engine's own contracts.
@@ -107,7 +108,16 @@ export interface MasterCastingProcessProfile {
   readonly maximumToolingPieceCount: number;
   /** Vent policy: the engine never drills vent holes through functional surfaces automatically. */
   readonly ventRequirementPolicy: "none" | "user-managed";
-  /** Execution 06 Article 12: bounded working-mold piece-count cap (the optimizer searches 2..N within this limit). */
+  /**
+   * Execution 06 Article 12 / Execution 08 LOOP 16: bounded working-mold
+   * piece-count cap (the optimizer searches 2..N within this limit). A
+   * profile may set this BELOW the internal safety ceiling
+   * (`MASTER_PLANNER_LIMITS.absoluteMaxWorkingMoldPieces`) for a genuine
+   * process constraint (e.g. a casting process that cannot practically
+   * assemble more than N pieces); the generic default profile does not
+   * have such a constraint and lets automatic escalation reach the full
+   * safety ceiling.
+   */
   readonly maximumWorkingMoldPieceCount: number;
   /** Execution 06 Article 12: whether a structured sacrificial/flexible-tooling fallback recommendation is permitted when rigid reusable tooling cannot release a rigid cast target. */
   readonly sacrificialToolingPermitted: boolean;
@@ -123,7 +133,10 @@ export const GENERIC_RIGID_CAST_PROFILE: MasterCastingProcessProfile = {
   releaseClearanceMm: null,
   maximumToolingPieceCount: 4,
   ventRequirementPolicy: "user-managed",
-  maximumWorkingMoldPieceCount: 4,
+  // Execution 08 LOOP 16: automatic mode default -- no artificial cap below
+  // the internal safety ceiling; the search still escalates one count at a
+  // time and stops as soon as a count actually succeeds (Article 06).
+  maximumWorkingMoldPieceCount: MASTER_PLANNER_LIMITS.absoluteMaxWorkingMoldPieces,
   sacrificialToolingPermitted: true,
 };
 
