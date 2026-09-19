@@ -16,6 +16,7 @@ import { buildPlanningMesh } from "../planning/planningMesh";
 import { runMeshPreflight } from "../planning/meshPreflight";
 import { generateCandidateDirections } from "../planning/candidateDirections";
 import { analyzeDirectionAccessibility, pruneDirections } from "../planning/accessibility";
+import { runAdaptiveDirectionDiscovery } from "../planning/adaptiveDirectionDiscovery";
 import {
   createWorkingMoldPieceCountSearch,
   type WorkingMoldDecompositionFinalist,
@@ -202,7 +203,16 @@ export async function runMasterMoldEngine(
     let analysis = analyzeDirectionAccessibility(seed.sourceMesh, planningMesh, directions);
     const pruned = pruneDirections(analysis.directions, analysis, planningMesh, MASTER_PLANNER_LIMITS.maxCandidateDirections);
     analysis = pruned.analysis;
-    entry = { planningMesh, directions: pruned.directions, analysis };
+    throwIfCancelled(hooks);
+    // Execution 08 LOOP 08: close a genuine candidate-direction gap before
+    // planning ever runs -- a region no direction in the pruned set covers
+    // at all gets new, region-derived candidates instead of silently
+    // staying locked for every piece count.
+    emit("building_accessibility", "checking region coverage");
+    const discovery = runAdaptiveDirectionDiscovery({ planningMesh, sourceMesh: seed.sourceMesh, analysis });
+    analysis = discovery.analysis;
+    budget.candidateDirectionCount = analysis.directions.length;
+    entry = { planningMesh, directions: analysis.directions, analysis };
     if (planningCache.size >= PLANNING_CACHE_MAX_ENTRIES) {
       const oldest = planningCache.keys().next().value;
       if (oldest !== undefined) planningCache.delete(oldest);
