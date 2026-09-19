@@ -332,8 +332,8 @@ function selectDiverseBeam(candidates: readonly BeamPrefix[], width: number): Be
   return selected;
 }
 
-/** Full feasibility+score of a finalized decomposition (prefix + catch-all direction). */
-function evaluateFinalized(
+/** Full feasibility+score of a finalized decomposition (prefix + catch-all direction). Exported for direct testing (Execution 08 LOOP 15). */
+export function evaluateFinalized(
   planningMesh: PlanningMesh,
   analysis: AccessibilityAnalysis,
   regionGraph: SurfaceRegionGraph,
@@ -346,6 +346,14 @@ function evaluateFinalized(
   // across pieces by a prism plane cutting through its interior.
   const assignment = regionOwnedAssignment(planningMesh, analysis, regionGraph, prisms, pieceCount - 1, catchAllDirectionIndex);
   let unassignable = 0;
+  // Execution 08 LOOP 15: a "blocked" classification (LOOP 06: every
+  // scale-aware probe offset agreed) is an unambiguous, hard rejection.
+  // "grazing"/"uncertain" is a planning-level AMBIGUITY, not a proven
+  // block -- exact CSG (Article 41's real final authority) is far better
+  // positioned to resolve it than a cheap ray cast, so it must not by
+  // itself reject the whole decomposition before exact verification ever
+  // runs. Only a hard-blocked patch counts against feasibility.
+  let hardBlockedPatchCount = 0;
   let slidingWallAreaMm2 = 0;
   // Execution 08 LOOP 20: WHICH regions the unassignable patches belong to,
   // not just how many patches -- a precise, per-attempt diagnostic instead
@@ -362,9 +370,12 @@ function evaluateFinalized(
   for (const patch of planningMesh.patches) {
     const pieceIndex = assignment[patch.patchIndex]!;
     const directionIndex = pieceIndex < prisms.length ? prisms[pieceIndex]!.directionIndex : catchAllDirectionIndex;
-    const visible = analysis.perDirection[directionIndex]!.visible[patch.patchIndex] === 1;
+    const perDirection = analysis.perDirection[directionIndex]!;
+    const visible = perDirection.visible[patch.patchIndex] === 1;
     if (!visible) {
       unassignable += 1;
+      const classification = perDirection.classification[patch.patchIndex];
+      if (classification !== "grazing" && classification !== "uncertain") hardBlockedPatchCount += 1;
       const regionIndex = regionGraph.regionOfPatch[patch.patchIndex];
       if (regionIndex !== undefined && regionIndex >= 0) unassignableRegionIndexes.add(regionIndex);
       continue;
@@ -375,8 +386,11 @@ function evaluateFinalized(
 
   // A split is useless when it rescues nothing: every patch is visible along
   // the catch-all alone, so the prisms add interfaces without accessibility
-  // gain. Rejected here, before any exact CSG.
-  const feasible = unassignable === 0 && catchAllInvisible > 0;
+  // gain. Rejected here, before any exact CSG. Execution 08 LOOP 15: only a
+  // HARD-blocked patch disqualifies the split; a grazing/uncertain one is
+  // let through to exact verification instead of rejecting the plan on a
+  // planning-level ambiguity alone.
+  const feasible = hardBlockedPatchCount === 0 && catchAllInvisible > 0;
 
   // Parting-line quality: seam adjacency edges and whether they sit on a
   // natural silhouette (patch normal near-perpendicular to the releasing
