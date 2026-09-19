@@ -218,9 +218,16 @@ export interface WorkingMoldPartingInterface {
   readonly interfaceId: string;
   readonly pieceAIndex: number;
   readonly pieceBIndex: number;
-  /** Sample points along the parting curve on the source surface (silhouette/region boundary). */
+  /**
+   * Points along the parting curve on the source surface (silhouette/region
+   * boundary), in curve ORDER (Execution 08 LOOP 13: nearest-neighbor
+   * chained and simplified -- not the raw, unordered edge-midpoint bag
+   * earlier executions produced).
+   */
   readonly samplePoints: readonly PlanningVector3[];
   readonly kind: "silhouette" | "region-adjacency" | "planar-parting";
+  /** Execution 08 LOOP 13: true when the ordered curve's own non-adjacent segments come within self-crossing tolerance of each other -- a diagnostic flag, not an automatic fix. */
+  readonly selfIntersecting: boolean;
 }
 
 /** One ordered release step of the working mold (Article 08). */

@@ -463,6 +463,107 @@ function interfaceLabel(a: number, b: number): string {
   return `wm-interface-${Math.min(a, b)}-${Math.max(a, b)}`;
 }
 
+function distance(a: PlanningVector3, b: PlanningVector3): number {
+  return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+}
+
+/**
+ * Execution 08 LOOP 13 curve cleanup, step 1 (ordering): the raw sample
+ * points are an unordered edge-midpoint bag, not a curve. Nearest-neighbor
+ * chaining (deterministic start: the lexicographically smallest point)
+ * turns them into an actual ordered polyline -- bounded, since the sample
+ * set itself is already capped (64 points per interface).
+ */
+export function orderPartingCurvePoints(points: readonly PlanningVector3[]): PlanningVector3[] {
+  if (points.length <= 2) return [...points];
+  const remaining = points.map((point, index) => ({ point, index }));
+  remaining.sort((a, b) => a.point.x - b.point.x || a.point.y - b.point.y || a.point.z - b.point.z);
+  const ordered: PlanningVector3[] = [remaining.shift()!.point];
+  while (remaining.length > 0) {
+    const current = ordered[ordered.length - 1]!;
+    let bestIndex = 0;
+    let bestDistance = Infinity;
+    for (let i = 0; i < remaining.length; i += 1) {
+      const d = distance(current, remaining[i]!.point);
+      if (d < bestDistance) {
+        bestDistance = d;
+        bestIndex = i;
+      }
+    }
+    ordered.push(remaining[bestIndex]!.point);
+    remaining.splice(bestIndex, 1);
+  }
+  return ordered;
+}
+
+/**
+ * Execution 08 LOOP 13 curve cleanup, steps 2-3 (small-loop removal +
+ * simplification): drop consecutive near-duplicate points (a degenerate
+ * zero-length loop), then a bounded collinearity pass drops any point that
+ * sits within `toleranceMm` of the segment between its still-kept
+ * neighbors (a straight run does not need every sample point).
+ */
+export function simplifyPartingCurve(points: readonly PlanningVector3[], toleranceMm: number): PlanningVector3[] {
+  const deduped: PlanningVector3[] = [];
+  for (const point of points) {
+    if (deduped.length > 0 && distance(deduped[deduped.length - 1]!, point) <= toleranceMm) continue;
+    deduped.push(point);
+  }
+  if (deduped.length <= 2) return deduped;
+
+  const simplified: PlanningVector3[] = [deduped[0]!];
+  for (let i = 1; i < deduped.length - 1; i += 1) {
+    const previous = simplified[simplified.length - 1]!;
+    const current = deduped[i]!;
+    const next = deduped[i + 1]!;
+    if (distanceFromSegment(current, previous, next) > toleranceMm) simplified.push(current);
+  }
+  simplified.push(deduped[deduped.length - 1]!);
+  return simplified;
+}
+
+/** Perpendicular distance from `point` to the segment [a,b]. */
+function distanceFromSegment(point: PlanningVector3, a: PlanningVector3, b: PlanningVector3): number {
+  const abx = b.x - a.x, aby = b.y - a.y, abz = b.z - a.z;
+  const lengthSq = abx * abx + aby * aby + abz * abz;
+  if (lengthSq < 1e-12) return distance(point, a);
+  const t = Math.max(0, Math.min(1, ((point.x - a.x) * abx + (point.y - a.y) * aby + (point.z - a.z) * abz) / lengthSq));
+  const closest = { x: a.x + abx * t, y: a.y + aby * t, z: a.z + abz * t };
+  return distance(point, closest);
+}
+
+/**
+ * Execution 08 LOOP 13 curve cleanup, step 4 (self-crossing detection): a
+ * bounded pairwise check over the ordered polyline's NON-ADJACENT segments
+ * (adjacent segments always share an endpoint and are not a crossing).
+ * Reports proximity below `toleranceMm` as a crossing -- a real, if
+ * approximate (closest-approach distance, not exact 3D segment
+ * intersection), diagnostic signal rather than none at all.
+ */
+export function detectSelfCrossing(points: readonly PlanningVector3[], toleranceMm: number): boolean {
+  if (points.length < 4) return false;
+  // Open polyline: only non-adjacent segment pairs (j >= i+2) are checked --
+  // adjacent segments always share an endpoint and are never a crossing.
+  for (let i = 0; i < points.length - 1; i += 1) {
+    for (let j = i + 2; j < points.length - 1; j += 1) {
+      if (segmentDistance(points[i]!, points[i + 1]!, points[j]!, points[j + 1]!) <= toleranceMm) return true;
+    }
+  }
+  return false;
+}
+
+/** Minimum distance between two 3D segments [a,b] and [c,d] (closest-approach, not exact intersection). */
+function segmentDistance(a: PlanningVector3, b: PlanningVector3, c: PlanningVector3, d: PlanningVector3): number {
+  const SAMPLES = 8;
+  let best = Infinity;
+  for (let i = 0; i <= SAMPLES; i += 1) {
+    const t = i / SAMPLES;
+    const p = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t };
+    best = Math.min(best, distanceFromSegment(p, c, d));
+  }
+  return best;
+}
+
 /**
  * Extracts parting interfaces from the selected assignment: for every pair of
  * adjacent pieces, sample the shared boundary midpoints on the source
@@ -474,6 +575,11 @@ function interfaceLabel(a: number, b: number): string {
  * midpoint sample is geometry only; no later lookup ever re-derives
  * classification (the previous centroid-equals-midpoint search counted
  * lookup misses as silhouette evidence).
+ *
+ * Execution 08 LOOP 13: the raw per-edge midpoints are then ordered into an
+ * actual curve, simplified, and checked for self-crossing (see
+ * orderPartingCurvePoints/simplifyPartingCurve/detectSelfCrossing) --
+ * "curve" was previously just an unordered sample bag.
  */
 export function extractPartingInterfaces(
   planningMesh: PlanningMesh,
@@ -510,15 +616,27 @@ export function extractPartingInterfaces(
       entry.points.push({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 });
     }
   }
+  const diagonal = Math.hypot(
+    planningMesh.bounds.max.x - planningMesh.bounds.min.x,
+    planningMesh.bounds.max.y - planningMesh.bounds.min.y,
+    planningMesh.bounds.max.z - planningMesh.bounds.min.z,
+  );
+  const curveToleranceMm = Math.max(1e-6, diagonal * 1e-4);
+
   return [...samplesByPair.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([interfaceId, entry]) => ({
-      interfaceId,
-      pieceAIndex: entry.pieceA,
-      pieceBIndex: entry.pieceB,
-      samplePoints: entry.points,
-      kind: entry.silhouetteEdgeCount === entry.points.length ? ("silhouette" as const) : ("region-adjacency" as const),
-    }));
+    .map(([interfaceId, entry]) => {
+      const ordered = orderPartingCurvePoints(entry.points);
+      const simplified = simplifyPartingCurve(ordered, curveToleranceMm);
+      return {
+        interfaceId,
+        pieceAIndex: entry.pieceA,
+        pieceBIndex: entry.pieceB,
+        samplePoints: simplified,
+        kind: entry.silhouetteEdgeCount === entry.points.length ? ("silhouette" as const) : ("region-adjacency" as const),
+        selfIntersecting: detectSelfCrossing(simplified, curveToleranceMm),
+      };
+    });
 }
 
 /**
