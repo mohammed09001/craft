@@ -17,6 +17,8 @@ import { runMeshPreflight } from "../planning/meshPreflight";
 import { generateCandidateDirections } from "../planning/candidateDirections";
 import { analyzeDirectionAccessibility, pruneDirections } from "../planning/accessibility";
 import { runAdaptiveDirectionDiscovery } from "../planning/adaptiveDirectionDiscovery";
+import { buildSurfaceRegionGraph } from "../planning/surfaceRegions";
+import { greedyRegionCover } from "../planning/regionSetCover";
 import {
   createWorkingMoldPieceCountSearch,
   type WorkingMoldDecompositionFinalist,
@@ -27,6 +29,7 @@ import type {
   MasterCastTarget,
   MasterMoldBudgetLineItem,
   MasterMoldBudgetReport,
+  MasterMoldDebugSnapshot,
   MasterMoldEngineResult,
   MasterMoldFailure,
   MasterMoldProgressStage,
@@ -249,6 +252,7 @@ export async function runMasterMoldEngine(
       elapsedMs: Date.now() - started,
       budget,
       planningDiagnostics: [],
+      debugSnapshot: null,
     };
   }
   if (preflight.status === "repairable-warning") {
@@ -369,6 +373,32 @@ export async function runMasterMoldEngine(
     workingMoldConstructionAttempts: budget.workingMoldConstructionAttempts,
   });
 
+  // Execution 08 LOOP 26: one consolidated, inspectable planner snapshot --
+  // everything a person would otherwise open source code to piece together
+  // from several separate result fields, in one place.
+  const debugRegionGraph = buildSurfaceRegionGraph(planningMesh);
+  const debugRegionCover = greedyRegionCover(debugRegionGraph, planningMesh, analysis);
+  const debugSnapshot: MasterMoldDebugSnapshot = {
+    sourceValidity: preflight.status === "valid" ? "valid" : "repairable-warning",
+    regionCount: debugRegionGraph.regions.length,
+    candidateDirectionCount: analysis.directions.length,
+    coverageMatrixSummary: {
+      totalRegions: debugRegionCover.totalRegionCount,
+      uncoveredRegionCount: debugRegionCover.uncoveredRegionIndexes.length,
+      minimumPieceEstimate: debugRegionCover.uncoveredRegionIndexes.length === 0 ? debugRegionCover.steps.length : null,
+    },
+    uncoveredRegionIndexes: debugRegionCover.uncoveredRegionIndexes,
+    pieceCountAttempts: planningDiagnostics.map((diagnostic) => diagnostic.pieceCount),
+    thresholdAttemptsByPieceCount: planningDiagnostics.map((diagnostic) => ({ pieceCount: diagnostic.pieceCount, thresholdCountUsed: diagnostic.thresholdCountUsed })),
+    // Execution 08 LOOP 14 (general, non-half-space parting surfaces) is not
+    // yet implemented: every candidate today is still an ordered half-space
+    // prism, so there is no separate parting-surface candidate search to
+    // report -- honestly 0, not fabricated.
+    partingSurfaceCandidateCount: 0,
+    exactConstructionAttempts: budget.workingMoldConstructionAttempts,
+    selectedPieceCount: constructionFinalist === null ? null : constructionFinalist.candidate.pieceCount,
+  };
+
   if (construction === null || constructionFinalist === null) {
     // Execution 07 LOOP 09: this stop means the bounded search exhausted its
     // configured limits -- it is NOT proof that rigid tooling is impossible.
@@ -414,6 +444,7 @@ export async function runMasterMoldEngine(
       elapsedMs: Date.now() - started,
       budget,
       planningDiagnostics,
+      debugSnapshot,
     };
   }
   const pieceTargets = construction.pieces;
@@ -505,6 +536,7 @@ export async function runMasterMoldEngine(
     elapsedMs: Date.now() - started,
     budget,
     planningDiagnostics,
+    debugSnapshot,
   };
 }
 

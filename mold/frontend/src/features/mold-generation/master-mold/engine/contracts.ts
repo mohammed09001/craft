@@ -446,6 +446,30 @@ export interface MasterMoldBudgetReport {
 }
 
 /**
+ * Execution 08 LOOP 26: one consolidated, inspectable snapshot of planner
+ * behavior -- everything a person would otherwise have to open source code
+ * (or several separate result fields) to piece together, in one place.
+ * Developer/test diagnostics; the normal product UI does not show this
+ * directly (Article 37).
+ */
+export interface MasterMoldDebugSnapshot {
+  readonly sourceValidity: "valid" | "repairable-warning";
+  readonly regionCount: number;
+  readonly candidateDirectionCount: number;
+  readonly coverageMatrixSummary: {
+    readonly totalRegions: number;
+    readonly uncoveredRegionCount: number;
+    readonly minimumPieceEstimate: number | null;
+  };
+  readonly uncoveredRegionIndexes: readonly number[];
+  readonly pieceCountAttempts: readonly number[];
+  readonly thresholdAttemptsByPieceCount: readonly { readonly pieceCount: number; readonly thresholdCountUsed: number }[];
+  readonly partingSurfaceCandidateCount: number;
+  readonly exactConstructionAttempts: number;
+  readonly selectedPieceCount: number | null;
+}
+
+/**
  * Execution 06: the autonomous engine's answer for one seed: the
  * Master-owned automatic Working Mold Plan plus one Master tooling set per
  * working-mold piece, with structured failures -- never fake geometry.
@@ -459,4 +483,6 @@ export interface MasterMoldEngineResult {
   readonly elapsedMs: number;
   /** Execution 08 LOOP 01: per-piece-count planning evidence, in search order (2 upward, one entry per count actually stepped through). */
   readonly planningDiagnostics: readonly WorkingMoldPieceCountDiagnostics[];
+  /** Execution 08 LOOP 26: consolidated planner telemetry; null only for the invalid-source-mesh early return, where planning never ran. */
+  readonly debugSnapshot: MasterMoldDebugSnapshot | null;
 }
