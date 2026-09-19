@@ -142,6 +142,109 @@ describe("Master Mold store (Execution 06 Article 14)", () => {
     expect(store.getState().sets).toHaveLength(0);
   });
 
+  // Execution 07 LOOP 09: the Action skips live staleness propagation while
+  // status === "generating", so the store's commit-time identity check is the
+  // guarantee that source/transform/build-volume races cannot present
+  // obsolete geometry as current.
+  describe("LOOP 09 commit-time identity races", () => {
+    function makeRacingDeps() {
+      let resolveRun: ((value: ReturnType<typeof makeResult>) => void) | null = null;
+      const deps: MasterMoldStoreDeps = {
+        runMasterMoldGenerationInWorker: Object.assign(
+          vi.fn(() => new Promise<ReturnType<typeof makeResult>>((resolve) => { resolveRun = resolve; })),
+          { cancel: vi.fn() },
+        ),
+        cancelActiveMasterMoldGeneration: vi.fn(),
+      };
+      return { deps, resolve: () => resolveRun!(makeResult([makeSet("wm-piece-1")], { generationVersion: 1 })) };
+    }
+
+    it("a source/transform/build-volume change mid-flight commits the verified geometry flagged stale", async () => {
+      const { deps, resolve } = makeRacingDeps();
+      const store = createMasterMoldStoreCreator(deps);
+      let liveIdentity: string | null = masterSeedStalenessIdentity(makeSeed());
+      const pending = store.getState().generate({
+        seed: makeSeed(),
+        liveIdentity: () => liveIdentity,
+      });
+      // The build volume (or transform/source) changes while generating --
+      // the Action's staleness effect deliberately does not fire here.
+      liveIdentity = masterSeedStalenessIdentity(makeSeed({ sourceGeometryVersion: "geo-2" }));
+      resolve();
+      expect(await pending).toBe(true);
+
+      const state = store.getState();
+      expect(state.status).toBe("stale");
+      expect(state.sets.length).toBeGreaterThan(0);
+      expect(state.sets.every((entry) => entry.status === "stale")).toBe(true);
+      // The identity records what the result was generated AGAINST, so the
+      // next generate() can distinguish reuse from regeneration.
+      expect(state.seedIdentity?.identity).toBe(masterSeedStalenessIdentity(makeSeed()));
+    });
+
+    it("an unchanged live identity commits current", async () => {
+      const { deps, resolve } = makeRacingDeps();
+      const store = createMasterMoldStoreCreator(deps);
+      const pending = store.getState().generate({
+        seed: makeSeed(),
+        liveIdentity: () => masterSeedStalenessIdentity(makeSeed()),
+      });
+      resolve();
+      expect(await pending).toBe(true);
+      expect(store.getState().status).toBe("current");
+      expect(store.getState().sets.every((entry) => entry.status === "current")).toBe(true);
+    });
+
+    it("the full-reuse fast path is also guarded by the live identity", async () => {
+      const { deps, resolve } = makeRacingDeps();
+      const store = createMasterMoldStoreCreator(deps);
+      const first = store.getState().generate({ seed: makeSeed() });
+      resolve();
+      await first;
+      const liveIdentity = masterSeedStalenessIdentity(makeSeed({ sourceGeometryVersion: "geo-2" }));
+      await store.getState().generate({ seed: makeSeed(), liveIdentity: () => liveIdentity });
+      expect(deps.runMasterMoldGenerationInWorker).toHaveBeenCalledTimes(1);
+      expect(store.getState().status).toBe("stale");
+      expect(store.getState().sets.every((entry) => entry.status === "stale")).toBe(true);
+    });
+
+    it("a reset mid-flight still discards the result (no resurrection through reset)", async () => {
+      const { deps, resolve } = makeRacingDeps();
+      const store = createMasterMoldStoreCreator(deps);
+      const pending = store.getState().generate({
+        seed: makeSeed(),
+        liveIdentity: () => masterSeedStalenessIdentity(makeSeed()),
+      });
+      store.getState().reset();
+      resolve();
+      expect(await pending).toBe(false);
+      expect(store.getState().status).toBe("unavailable");
+      expect(store.getState().sets).toHaveLength(0);
+      expect(store.getState().seedIdentity).toBeNull();
+    });
+
+    it("a newer generate() mid-flight discards the older result (no resurrection through new generation)", async () => {
+      const resolvers: Array<(value: ReturnType<typeof makeResult>) => void> = [];
+      const deps: MasterMoldStoreDeps = {
+        runMasterMoldGenerationInWorker: Object.assign(
+          vi.fn(() => new Promise<ReturnType<typeof makeResult>>((resolve) => { resolvers.push(resolve); })),
+          { cancel: vi.fn() },
+        ),
+        cancelActiveMasterMoldGeneration: vi.fn(),
+      };
+      const store = createMasterMoldStoreCreator(deps);
+      const staleSeed = makeSeed({ sourceGeometryVersion: "geo-1" });
+      const first = store.getState().generate({ seed: staleSeed });
+      const second = store.getState().generate({ seed: makeSeed({ sourceGeometryVersion: "geo-2" }) });
+      // The OLDER generation resolves last: it must not overwrite the newer one.
+      resolvers[0]!(makeResult([makeSet("wm-piece-old")], { generationVersion: 1 }));
+      resolvers[1]!(makeResult([makeSet("wm-piece-new")], { generationVersion: 2 }));
+      expect(await first).toBe(false);
+      expect(await second).toBe(true);
+      expect(store.getState().sets.map((entry) => entry.moldPartId)).toEqual(["wm-piece-new"]);
+    });
+  });
+
   it("worker failures surface as error state without discarding the store", async () => {
     const deps = makeDeps(new Error("boom"));
     const store = createMasterMoldStoreCreator(deps);

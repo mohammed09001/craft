@@ -52,6 +52,13 @@ export interface MasterToolingSetState {
   /** null when tooling generation failed for this piece (structured failure, not a fake set). */
   readonly set: MasterToolingSet | null;
   readonly failureMessage: string | null;
+  /**
+   * Execution 07 LOOP 09: the structured failure family behind
+   * `failureMessage` -- budget exhaustion must stay distinguishable from
+   * physical impossibility wherever the message is consumed. Present only
+   * on blocked entries produced from an engine failure.
+   */
+  readonly failureFamily?: import("./engine/contracts").MasterMoldFailureFamily;
 }
 
 export interface MasterMoldResult {

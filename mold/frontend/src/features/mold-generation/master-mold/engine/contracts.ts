@@ -319,9 +319,47 @@ export type MasterMoldEngineFailureReason =
   | "boolean_failed"
   | "non_manifold_result";
 
+/**
+ * Execution 07 LOOP 09: structured failure family. The reason codes say WHAT
+ * stopped tooling production; the family says what the stop MEANS, so a
+ * bounded-search stop is never presented to the user as a physical
+ * impossibility. "budget-exhausted" means the configured search limits were
+ * reached (a larger budget may still succeed); "physically-impossible" is
+ * reserved for stops with structural evidence against the current context.
+ */
+export type MasterMoldFailureFamily =
+  | "budget-exhausted"
+  | "physically-impossible"
+  | "invalid-input"
+  | "construction-failed";
+
+/** The family classification of a failure reason; the single mapping, shared by engine and UI. */
+export function masterMoldFailureFamilyOf(reason: MasterMoldEngineFailureReason): MasterMoldFailureFamily {
+  switch (reason) {
+    case "invalid_snapshot":
+    case "invalid_source_geometry":
+    case "cast_target_invalid":
+      return "invalid-input";
+    case "build_volume_exceeded":
+      // The part/tooling cannot fit the selected printer: structurally
+      // impossible in the current context (not a search-budget outcome).
+      return "physically-impossible";
+    case "tooling_construction_failed":
+    case "boolean_failed":
+    case "non_manifold_result":
+      return "construction-failed";
+    case "no_release_plan":
+      // A bounded search that exhausted its piece-count/exact-attempt limits
+      // has NOT proven rigid tooling impossible -- it only reports the
+      // budget it was given (Execution 07 LOOP 09).
+      return "budget-exhausted";
+  }
+}
+
 export interface MasterMoldFailure {
   readonly moldPartId: string;
   readonly reason: MasterMoldEngineFailureReason;
+  readonly family: MasterMoldFailureFamily;
   readonly message: string;
 }
 

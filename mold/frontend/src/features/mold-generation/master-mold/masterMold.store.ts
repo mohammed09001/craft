@@ -32,6 +32,15 @@ const defaultDeps: MasterMoldStoreDeps = {
 
 export interface MasterMoldGenerateRequest {
   readonly seed: MasterMoldSeedSnapshot;
+  /**
+   * Execution 07 LOOP 09: reads the LIVE staleness identity at the moment of
+   * commit. The Action component skips live staleness propagation while
+   * `status === "generating"`, so the commit must be paired with this check:
+   * a source/transform/build-volume change during a generation cannot
+   * present obsolete geometry as current -- the verified result commits
+   * flagged `stale` instead.
+   */
+  readonly liveIdentity?: () => string | null;
 }
 
 export interface MasterMoldState {
@@ -128,6 +137,9 @@ export function createMasterMoldStoreCreator(deps: MasterMoldStoreDeps = default
       const state = get();
       if (state.seedIdentity === null) return;
       if (state.seedIdentity.identity === seedIdentity.identity) return;
+      // Already fully flagged stale: a further identity change adds nothing
+      // (nothing current remains to demote), so keep the version stable.
+      if (state.status === "stale" && state.sets.every((entry) => entry.status === "stale")) return;
 
       set((s) => ({
         ...s,
@@ -181,10 +193,13 @@ export function createMasterMoldStoreCreator(deps: MasterMoldStoreDeps = default
         before.seedIdentity.identity === identity.identity &&
         before.sets.length > 0
       ) {
+        const liveIdentityAtCommit = request.liveIdentity?.() ?? null;
+        const supersededByLiveInputs = liveIdentityAtCommit !== null && liveIdentityAtCommit !== identity.identity;
+        const reused = before.sets.map(reviveEntry);
         set({
-          status: overallStatusOfSets(before.sets.map(reviveEntry)),
+          status: supersededByLiveInputs ? "stale" : overallStatusOfSets(reused),
           generationVersion,
-          sets: before.sets.map(reviveEntry),
+          sets: supersededByLiveInputs ? reused.map((entry) => ({ ...entry, status: "stale" as const })) : reused,
           progressStage: null,
           lastError: null,
           seedIdentity: identity,
@@ -229,10 +244,19 @@ export function createMasterMoldStoreCreator(deps: MasterMoldStoreDeps = default
           return reviveEntry(entry);
         });
 
+        // Execution 07 LOOP 09: guaranteed identity check before commit. The
+        // Action skips staleness propagation while generating, so THIS is the
+        // pairing: if the live identity moved mid-flight, the verified
+        // geometry still commits (final emitted geometry = verified
+        // geometry) but flagged stale -- it can never present as current.
+        const liveIdentityAtCommit = request.liveIdentity?.() ?? null;
+        const supersededByLiveInputs = liveIdentityAtCommit !== null && liveIdentityAtCommit !== identity.identity;
+        const committedSets = supersededByLiveInputs ? sets.map((entry) => ({ ...entry, status: "stale" as const })) : sets;
+
         set({
-          status: overallStatusOfSets(sets),
+          status: supersededByLiveInputs ? "stale" : overallStatusOfSets(sets),
           generationVersion,
-          sets,
+          sets: committedSets,
           plan: result.plan,
           progressStage: null,
           summary: summarizeGeneration(sets, result.workingMoldPieceCount, result.warningCount),

@@ -67,6 +67,9 @@ export async function evaluateMasterMoldGeneration(
       contentVersion: "",
       set: null,
       failureMessage: failure.message,
+      // Execution 07 LOOP 09: the family travels with the message so a
+      // budget-exhausted stop is never mistaken for physical impossibility.
+      failureFamily: failure.family,
     });
   }
 

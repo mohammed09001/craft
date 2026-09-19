@@ -20,6 +20,7 @@ import { toolingParametersFromProfile } from "./toolingConstruction";
 import { getManifoldModule, createBlankSolid, boundsFromManifold, payloadFromManifold } from "../../geometry/manifold";
 import { toolingTolerancePolicy } from "./toolingConstruction";
 import { DEFAULT_MASTER_MOLD_PLANNING_PREFERENCES } from "../seed/masterMoldSeed";
+import { evaluateMasterMoldGeneration } from "../masterMoldGeneration.evaluate";
 
 // Execution 06 Article 17: golden geometry acceptance. Every case runs the
 // full autonomous pipeline straight from the imported-part seed: no cutting
@@ -190,9 +191,28 @@ describe("Master Mold Engine golden cases (Execution 06 Article 17)", () => {
     expect(result.failures.length).toBe(1);
     const failure = result.failures[0]!;
     expect(failure.reason).toBe("no_release_plan");
+    // Execution 07 LOOP 09: budget exhaustion is a search-budget outcome,
+    // never described as physical impossibility.
+    expect(failure.family).toBe("budget-exhausted");
+    expect(failure.message).toContain("search-budget outcome");
     expect(failure.message).toContain("flexible");
     // Evidence: every piece count 2..max was tried and rejected.
     expect(result.plan).toBeNull();
+  });
+
+  it("Execution 07 LOOP 09: the store-level mapping carries the structured failure family", { timeout: ENGINE_TIMEOUT }, async () => {
+    const fixture = await buildSealedHollowBoxFixture();
+    const result = await evaluateMasterMoldGeneration({
+      operationId: "op",
+      generationVersion: 1,
+      seed: seedFromFixture(fixture),
+      priorSets: [],
+    });
+    const blocked = result.sets.find((entry) => entry.status === "blocked");
+    expect(blocked).toBeDefined();
+    expect(blocked!.failureFamily).toBe("budget-exhausted");
+    expect(blocked!.failureMessage).toContain("search-budget outcome");
+    expect(blocked!.failureMessage).toContain("not proof that rigid tooling is impossible");
   });
 
   it("determinism: identical seeds produce identical plan fingerprints and tooling set fingerprints", { timeout: ENGINE_TIMEOUT }, async () => {
@@ -210,9 +230,12 @@ describe("Master Mold Engine golden cases (Execution 06 Article 17)", () => {
     });
     const result = await runMasterMoldEngine(seed);
     // With 4 genuinely required but capped at 3, the outcome is a structured
-    // no-plan failure naming the cap -- never a fake 3-piece plan.
+    // no-plan failure naming the cap -- never a fake 3-piece plan. Execution
+    // 07 LOOP 09: the family says budget-exhausted, not physical impossibility.
     expect(result.plan).toBeNull();
     expect(result.failures[0]!.reason).toBe("no_release_plan");
+    expect(result.failures[0]!.family).toBe("budget-exhausted");
+    expect(result.failures[0]!.message).toContain("not proof that rigid tooling is impossible");
   });
 
   it("Article 18: a high-poly mesh completes through multiple stages under the centralized budgets", { timeout: ENGINE_TIMEOUT }, async () => {

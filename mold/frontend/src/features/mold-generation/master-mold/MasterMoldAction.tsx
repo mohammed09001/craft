@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { MasterMoldIcon } from "../shared/MoldToolbarIcons";
 import toolbarStyles from "../shared/MoldToolbar.module.css";
@@ -88,7 +88,16 @@ export function MasterMoldAction({
   }, [sourcePartGeometry, printerBuildVolume]);
 
   // Propagate staleness the moment Master-relevant inputs change identity
-  // (Article 14). A generation in flight is never disturbed.
+  // (Article 14). While a generation is in flight this propagation is
+  // skipped -- Execution 07 LOOP 09 pairs that skip with the store's
+  // guaranteed commit-time identity check: generate() compares the result's
+  // seed identity against this live identity (read through a ref, so it is
+  // the CURRENT identity at commit time) and flags a mid-flight input
+  // change stale in the same transaction that commits the geometry.
+  const liveIdentityRef = useRef(liveIdentity);
+  useEffect(() => {
+    liveIdentityRef.current = liveIdentity;
+  }, [liveIdentity]);
   useEffect(() => {
     if (liveIdentity === null || seedIdentity === null) return;
     if (status === "generating") return;
@@ -157,7 +166,13 @@ export function MasterMoldAction({
         printerBuildVolume,
         projectRevision: sourcePartGeometry.sourceSignature,
       });
-      await generate({ seed });
+      await generate({
+        seed,
+        // Execution 07 LOOP 09: the store re-reads this at commit time, so a
+        // source/transform/build-volume change during generation cannot
+        // resurrect obsolete geometry as current.
+        liveIdentity: () => liveIdentityRef.current,
+      });
     } catch (error) {
       reportGenerationFailure(error instanceof Error ? error.message : "Master Mold could not generate tooling from the imported part.");
     } finally {

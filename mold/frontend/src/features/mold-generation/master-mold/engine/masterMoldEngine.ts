@@ -31,7 +31,7 @@ import type {
   MasterToolingPiece,
   MasterToolingSet,
 } from "./contracts";
-import { MASTER_MOLD_PROGRESS_STAGES } from "./contracts";
+import { MASTER_MOLD_PROGRESS_STAGES, masterMoldFailureFamilyOf } from "./contracts";
 import { planPourFace } from "./pourFace";
 import { analyzeSurfaceAccessibility } from "./releaseAnalysis";
 import { planLocalizedRemovableCore, planMultiPieceTooling } from "./multiPiecePlanner";
@@ -238,6 +238,10 @@ export async function runMasterMoldEngine(
   }
 
   if (construction === null || constructionFinalist === null) {
+    // Execution 07 LOOP 09: this stop means the bounded search exhausted its
+    // configured limits -- it is NOT proof that rigid tooling is impossible.
+    // The message and the structured failure family both say so.
+    const budgetReached = budget.limitsExceeded.length > 0 || rejectedPieceCounts.length > 0;
     return {
       seedId: seed.seedId,
       plan: null,
@@ -246,7 +250,10 @@ export async function runMasterMoldEngine(
         {
           moldPartId: "working-mold",
           reason: "no_release_plan",
-          message: `no working-mold decomposition survived exact verification within ${maxPieces} pieces${constructionError === null ? "" : ` (last exact failure: ${constructionError.message})`}; the part may require flexible/sacrificial tooling.`,
+          family: masterMoldFailureFamilyOf("no_release_plan"),
+          message: budgetReached
+            ? `the bounded search reached its configured limits (piece-count cap ${maxPieces}, ${budget.workingMoldConstructionAttempts} exact construction attempt(s), ${rejectedPieceCounts.length} piece count(s) rejected) without finding a releasable decomposition${constructionError === null ? "" : ` (last exact failure: ${constructionError.message})`}. This is a search-budget outcome, not proof that rigid tooling is impossible: review the part, raise the piece-count cap, or use flexible/sacrificial tooling for fully enclosed features.`
+            : `no working-mold decomposition could be planned${constructionError === null ? "" : ` (last exact failure: ${constructionError.message})`}. This is a search-budget outcome, not proof that rigid tooling is impossible; flexible/sacrificial tooling may be required for fully enclosed features.`,
         },
       ],
       elapsedMs: Date.now() - started,
@@ -305,6 +312,7 @@ export async function runMasterMoldEngine(
       failures.push({
         moldPartId: piece.pieceId,
         reason: "tooling_construction_failed",
+        family: masterMoldFailureFamilyOf("tooling_construction_failed"),
         message: `${piece.name}: ${error instanceof Error ? error.message : "tooling construction failed."}`,
       });
     }
