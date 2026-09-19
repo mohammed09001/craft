@@ -128,11 +128,16 @@ export interface SurfaceRegionGraph {
   readonly regionOfPatch: readonly number[];
 }
 
+/** Execution 08 LOOP 06: a patch's classification against one direction, from a scale-aware multi-offset probe. */
+export type PatchAccessibilityClass = "clear" | "grazing" | "blocked" | "uncertain";
+
 /** Global accessibility of one candidate direction over the planning mesh (Article 05). */
 export interface DirectionAccessibility {
   readonly directionId: string;
   /** Per-patch visibility: 1 when the patch can see out along this direction. */
   readonly visible: readonly number[];
+  /** Execution 08 LOOP 06: per-patch classification (same index as `visible`), from scale-aware probing at multiple offsets -- distinguishes an unambiguous result from a numerically borderline one. */
+  readonly classification: readonly PatchAccessibilityClass[];
   readonly accessibleAreaMm2: number;
   readonly inaccessibleAreaMm2: number;
   /** Number of disconnected inaccessible zones (undercut regions). */
