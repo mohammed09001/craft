@@ -30,18 +30,20 @@ async function planningFor(fixture: { mesh: { positions: readonly number[]; indi
 }
 
 describe("PlanningMesh (Article 03)", () => {
-  it("samples patches with provenance and bounded count", async () => {
+  it("uses every triangle with real provenance below the full-resolution budget (Execution 08 LOOP 04: no stride sampling)", async () => {
     const fixture = buildHighPolyLocal();
+    const triangleCount = fixture.indices.length / 3;
+    expect(triangleCount).toBeLessThan(MASTER_PLANNER_LIMITS.fullResolutionPlanningTriangleBudget);
     const mesh = buildPlanningMesh({
       positions: fixture.positions,
       indices: fixture.indices,
       bounds: { min: { x: -15, y: -15, z: -15 }, max: { x: 15, y: 15, z: 15 } },
       sourceGeometryVersion: "sphere",
     });
-    expect(mesh.patches.length).toBeLessThanOrEqual(MASTER_PLANNER_LIMITS.maxPlanningPatches);
-    expect(mesh.patches.length).toBeGreaterThan(100);
+    // No reduction below the full-resolution budget: one patch per (non-degenerate) triangle.
+    expect(mesh.patches.length).toBe(triangleCount);
     for (const patch of mesh.patches) {
-      expect(patch.sourceTriangle).toBeLessThan(fixture.indices.length / 3);
+      expect(patch.sourceTriangle).toBeLessThan(triangleCount);
       expect(patch.areaMm2).toBeGreaterThan(0);
     }
     expect(mesh.adjacency.length).toBe(mesh.patches.length);

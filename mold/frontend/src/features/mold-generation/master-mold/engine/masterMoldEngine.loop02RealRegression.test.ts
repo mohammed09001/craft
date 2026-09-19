@@ -17,10 +17,14 @@ import { runMasterMoldEngine } from "./masterMoldEngine";
  * normal-cluster source is dominated by the curved body's own continuum of
  * surface normals. The nearest surviving candidate for that pocket sits
  * ~22 degrees off its true axis -- outside the narrow occlusion cone a
- * radius-0.8mm/height-~4mm blind bore allows -- so exactly one patch group
- * stays permanently unassignable at every piece count up to the profile
- * default cap of 4, and the search reports 0 exact construction attempts:
- * the exact symptom from the real part.
+ * radius-0.8mm/height-~4mm blind bore allows -- so a small patch group stays
+ * permanently unassignable at every piece count up to the profile default
+ * cap of 4, and the search reports 0 exact construction attempts: the exact
+ * symptom from the real part. (LOOP 04's full-resolution sampling fix
+ * changed the exact unassignable-patch count from 1 to 5 -- more of the
+ * pocket's marginal, grazing geometry is now visible to the search instead
+ * of being skipped by stride sampling; the failure class itself is
+ * unchanged, which is the point of this regression.)
  *
  * This test currently documents that failure (pre-fix baseline, LOOP 02's
  * first gate item). It must be strengthened to require exact construction
@@ -48,11 +52,11 @@ describe("Real free-form regression (Execution 08 LOOP 02)", () => {
     for (const diagnostic of result.planningDiagnostics) {
       expect(diagnostic.planningCandidatesFeasible).toBe(0);
       expect(diagnostic.rejectionReason).not.toBeNull();
-      // One patch group is permanently unassignable: not a search-budget
+      // A small patch group is permanently unassignable: not a search-budget
       // artifact that a wider beam or a higher piece-count cap would clear
       // by itself (Article 41: do not raise limits blindly), but a missing
       // candidate direction (LOOP 08's target).
-      expect(diagnostic.bestUnassignablePatchCount).toBe(1);
+      expect(diagnostic.bestUnassignablePatchCount).toBeGreaterThan(0);
     }
   });
 });

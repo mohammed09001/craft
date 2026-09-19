@@ -237,6 +237,21 @@ export interface AutoWorkingMoldPlan {
 export const MASTER_PLANNER_LIMITS = {
   /** Sampled planning patches (bounded ray budget: patches x directions). */
   maxPlanningPatches: 1024,
+  /**
+   * Execution 08 LOOP 04: below this triangle count, every triangle becomes
+   * its own planning patch (no reduction at all -- exact topology, exact
+   * adjacency, exact geometric extent for offset/threshold math). At/above
+   * it, a bounded topology-preserving spatial+normal clustering reduces to
+   * at most `maxPlanningPatches` patches -- cheap enough for planning, but
+   * representative-point clustering necessarily loses some geometric extent
+   * precision (a real, accepted tradeoff for meshes this large; a future
+   * loop may tighten it further). Matches this codebase's existing "large
+   * mesh" boundary for other direct/expensive geometry paths
+   * (DIRECT_MINKOWSKI_TRIANGLE_LIMIT / DIRECT_CLEARANCE_TRIANGLE_LIMIT).
+   * Neither path samples by raw triangle index: a reordered-but-equivalent
+   * mesh must plan the same way (Article 15/24).
+   */
+  fullResolutionPlanningTriangleBudget: 50_000,
   /** Candidate release directions after deduplication (both polarities of each geometry-derived axis). */
   maxCandidateDirections: 32,
   /** Angle (deg) below which two candidate directions are considered duplicates. */
