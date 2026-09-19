@@ -88,6 +88,17 @@ export interface WorkingMoldPieceCountDiagnostics {
   readonly combinationDirectionCountUsed: number;
   /** Parting-plane threshold offsets attempted across the directions used at this count. */
   readonly thresholdCountUsed: number;
+  /**
+   * Execution 08 LOOP 11: the greedy region set-cover estimate -- how many
+   * directions a bounded, real coverage-matrix search needs to release
+   * every moldable region, independent of piece-count budget or geometric
+   * realizability. null when full region coverage is not achievable by any
+   * combination of the current candidate directions at all (see
+   * `regionSetCoverUncoveredRegionCount`).
+   */
+  readonly regionSetCoverMinimumPieceEstimate: number | null;
+  /** Regions no candidate direction can fully release, even given unlimited picks (never silently dropped). */
+  readonly regionSetCoverUncoveredRegionCount: number;
 }
 
 /** Connected group of patches a release direction cannot form (Article 05). */

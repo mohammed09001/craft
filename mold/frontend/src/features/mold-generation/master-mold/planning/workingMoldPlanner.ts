@@ -11,6 +11,7 @@ import type {
 import { MASTER_PLANNER_LIMITS } from "./masterMoldPlanning.contracts";
 import { dot } from "./candidateDirections";
 import { buildSurfaceRegionGraph } from "./surfaceRegions";
+import { greedyRegionCover } from "./regionSetCover";
 
 /**
  * Execution 06 Articles 06/07: the automatic working-mold piece count
@@ -497,6 +498,13 @@ export function createWorkingMoldPieceCountSearch(input: WorkingMoldPlannerInput
   const evaluated = new Set<string>();
   const prefixKey = (prisms: { directionIndex: number; offsetMm: number }[]) => prisms.map((p) => `${p.directionIndex}@${p.offsetMm}`).join("|");
   const regionGraph = buildSurfaceRegionGraph(planningMesh);
+  // Execution 08 LOOP 11: computed once per search (direction-set-dependent,
+  // not piece-count-dependent) -- how many directions a bounded set-cover
+  // needs to release every moldable region, and which regions (if any) no
+  // direction can reach at all.
+  const regionCover = greedyRegionCover(regionGraph, planningMesh, analysis);
+  const regionSetCoverUncoveredRegionCount = regionCover.uncoveredRegionIndexes.length;
+  const regionSetCoverMinimumPieceEstimate = regionSetCoverUncoveredRegionCount === 0 ? regionCover.steps.length : null;
 
   const opposingVisibilityOf = (d: number): readonly number[] => {
     const vector = analysis.directions[d]!.vector;
@@ -582,6 +590,8 @@ export function createWorkingMoldPieceCountSearch(input: WorkingMoldPlannerInput
           candidateDirectionCountUsed: analysis.directions.length,
           combinationDirectionCountUsed,
           thresholdCountUsed,
+          regionSetCoverMinimumPieceEstimate,
+          regionSetCoverUncoveredRegionCount,
         };
         logPlanningDiagnostics(diagnostics);
         return { pieceCount: currentCount, finalists: [], rejectionReason: diagnostics.rejectionReason, diagnostics };
@@ -612,19 +622,29 @@ export function createWorkingMoldPieceCountSearch(input: WorkingMoldPlannerInput
 
       if (feasible.length === 0) {
         const best = finalized.sort((a, b) => a.candidate.unassignablePatchCount - b.candidate.unassignablePatchCount)[0];
+        // Execution 08 LOOP 11: a stronger, more honest rejection when
+        // region set-cover PROVES this piece count is directionally
+        // achievable -- the failure is this search's prism-ORDERING
+        // combinatorics, not a lack of any viable release direction.
+        const coverProvesAchievable = regionSetCoverMinimumPieceEstimate !== null && regionSetCoverMinimumPieceEstimate <= currentCount;
+        const baseReason = best === undefined
+          ? "no_decomposition_candidate_generated"
+          : best.candidate.unassignablePatchCount === 0
+            ? "split_added_no_accessibility (the prisms did not improve on the catch-all release)"
+            : `no_feasible_release_assignment (best left ${best.candidate.unassignablePatchCount} inaccessible patch group(s))`;
         const diagnostics: WorkingMoldPieceCountDiagnostics = {
           pieceCount: currentCount,
           planningCandidatesGenerated: finalized.length,
           planningCandidatesFeasible: 0,
           bestUnassignablePatchCount,
-          rejectionReason: best === undefined
-            ? "no_decomposition_candidate_generated"
-            : best.candidate.unassignablePatchCount === 0
-              ? "split_added_no_accessibility (the prisms did not improve on the catch-all release)"
-              : `no_feasible_release_assignment (best left ${best.candidate.unassignablePatchCount} inaccessible patch group(s))`,
+          rejectionReason: coverProvesAchievable
+            ? `${baseReason} (region set-cover proves ${regionSetCoverMinimumPieceEstimate} direction(s) can release every region; this search's prism ordering did not find a matching geometric arrangement)`
+            : baseReason,
           candidateDirectionCountUsed: analysis.directions.length,
           combinationDirectionCountUsed,
           thresholdCountUsed,
+          regionSetCoverMinimumPieceEstimate,
+          regionSetCoverUncoveredRegionCount,
         };
         logPlanningDiagnostics(diagnostics);
         return { pieceCount: currentCount, finalists: [], rejectionReason: diagnostics.rejectionReason, diagnostics };
@@ -646,6 +666,8 @@ export function createWorkingMoldPieceCountSearch(input: WorkingMoldPlannerInput
         candidateDirectionCountUsed: analysis.directions.length,
         combinationDirectionCountUsed,
         thresholdCountUsed,
+        regionSetCoverMinimumPieceEstimate,
+        regionSetCoverUncoveredRegionCount,
       };
       logPlanningDiagnostics(diagnostics);
       return { pieceCount: currentCount, finalists, rejectionReason: null, diagnostics };
