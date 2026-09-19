@@ -5,6 +5,7 @@ import toolbarStyles from "../shared/MoldToolbar.module.css";
 import { useCuttingWorkflowStore } from "../cutting-workflow";
 import { usePrinterBuildVolumeStore } from "@/features/viewport/printerBuildVolume.store";
 import { useMasterMoldStore } from "./masterMold.store";
+import { deriveMasterMoldUiState } from "./masterMold.contracts";
 import { buildMasterMoldSeedSnapshot, DEFAULT_MASTER_MOLD_PLANNING_PREFERENCES, masterSeedStalenessIdentity, masterSourceGeometryVersion, type MasterSeedGeometryInput } from "./seed/masterMoldSeed";
 import { GENERIC_RIGID_CAST_PROFILE } from "./engine/contracts";
 import type { MasterMoldProgressStageName } from "./engine/contracts";
@@ -103,20 +104,26 @@ export function MasterMoldAction({
   }, [sourcePartGeometry, resetMasterMold]);
 
   const generatingPending = status === "generating" || generating;
-  const complete = status === "current";
-  const stale = status === "stale";
-  const blocked = status === "blocked";
-  const blockedMessages = sets
-    .filter((entry) => entry.status === "blocked")
-    .map((entry) => entry.failureMessage ?? (entry.set !== null ? entry.set.warnings[0] : null) ?? "tooling could not be generated.")
-    .filter((message): message is string => message !== null);
-  const lastError = workerError ?? (blockedMessages.length > 0 ? blockedMessages[0]! : null);
+  // Execution 07 LOOP 08: the UI state comes from the shared derivation --
+  // this component never invents its own partial/blocked semantics.
+  const uiState = useMemo(
+    () => deriveMasterMoldUiState({ status, sets, lastError: workerError }),
+    [status, sets, workerError],
+  );
+  const complete = uiState.kind === "success";
+  const stale = uiState.kind === "stale";
+  const firstBlockedMessage =
+    uiState.kind === "partial-success" || uiState.kind === "blocked"
+      ? uiState.blockedMessages[0] ?? null
+      : null;
+  const lastError = uiState.kind === "error"
+    ? uiState.message ?? "Master Mold generation failed."
+    : firstBlockedMessage;
 
   // Multi-piece partial failure must be communicated (which piece failed)
   // without ever discarding or hiding an already-valid sibling.
-  const partialFailure = blocked && blockedMessages.length > 0 && blockedMessages.length < sets.length;
-  const partialFailureMessage = partialFailure
-    ? `${blockedMessages.length} of ${sets.length} working mold part(s) could not be tooled; the rest remain valid. ${blockedMessages[0]}`
+  const partialFailureMessage = uiState.kind === "partial-success"
+    ? `${uiState.blockedSetCount} of ${uiState.validSetCount + uiState.blockedSetCount} working mold part(s) could not be tooled; the rest remain valid. ${uiState.blockedMessages[0] ?? ""}`
     : null;
 
   const staleMessage = stale ? "Master Mold needs regeneration: the part or printer context changed since it was generated." : null;
@@ -176,7 +183,7 @@ export function MasterMoldAction({
             ? (progressLabel ?? "Generating Master Mold…")
             : isSessionOpen
               ? "Master Mold is unavailable while a cutting session is open."
-              : blocked && lastError !== null
+              : lastError !== null
                 ? `Master Mold: ${lastError}`
                 : stale
                   ? "Master Mold: needs regeneration (the part or printer context changed)"

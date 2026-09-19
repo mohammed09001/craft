@@ -2,30 +2,41 @@ import { useState } from "react";
 
 import toolbarStyles from "../shared/MoldToolbar.module.css";
 import { useMasterMoldStore } from "./masterMold.store";
-import { MASTER_MOLD_SCHEMA_VERSION } from "./masterMold.contracts";
+import { deriveMasterMoldUiState, hasRenderableToolingGeometry, MASTER_MOLD_SCHEMA_VERSION } from "./masterMold.contracts";
 
 /**
  * Execution 06 Article 15: the Master Mold pieces browser.
  *
  * Lists the generated Working Mold pieces and their Master Tooling pieces
  * with hide/show toggles and per-set isolation, so a user can inspect one
- * Master Tooling Set at a time. Renderable only when a generation exists.
+ * Master Tooling Set at a time. Execution 07 LOOP 08: renderable only when
+ * the derived UI state has real tooling geometry to inspect -- a
+ * blocked-only or failed result is never presented as generated geometry,
+ * while a partial success exposes its valid pieces next to the blocked
+ * diagnostics.
  */
 export function MasterMoldPiecesBrowser() {
   const sets = useMasterMoldStore((s) => s.sets);
   const plan = useMasterMoldStore((s) => s.plan);
+  const status = useMasterMoldStore((s) => s.status);
+  const lastError = useMasterMoldStore((s) => s.lastError);
   const pieceVisibility = useMasterMoldStore((s) => s.pieceVisibility);
   const togglePieceVisibility = useMasterMoldStore((s) => s.togglePieceVisibility);
   const isolateToolingSet = useMasterMoldStore((s) => s.isolateToolingSet);
   const showAllPieces = useMasterMoldStore((s) => s.showAllPieces);
   const [open, setOpen] = useState(false);
 
-  if (sets.length === 0) return null;
+  const uiState = deriveMasterMoldUiState({ status, sets, lastError });
+  // The pieces icon exists only when renderable tooling geometry exists.
+  // A blocked-only result (sets present, geometry absent) and a hard error
+  // must not look like generated geometry; a partial success stays
+  // inspectable with its blocked diagnostics inline.
+  if (!hasRenderableToolingGeometry(sets) || uiState.kind === "blocked" || uiState.kind === "error") return null;
 
   const workingMoldPieceCount = plan?.moldPieces.length ?? 0;
 
   return (
-    <div aria-label="Master Mold pieces" className={toolbarStyles.flyoutWithBanner}>
+    <div aria-label="Master Mold pieces" className={toolbarStyles.flyoutWithBanner} data-master-mold-ui-state={uiState.kind}>
       <button
         aria-expanded={open}
         aria-label="Master Mold pieces"
