@@ -25,6 +25,7 @@ import { constructWorkingMold } from "../planning/workingMoldConstructor";
 import type { MasterMoldDirection } from "../masterMold.contracts";
 import type {
   MasterCastTarget,
+  MasterMoldBudgetLineItem,
   MasterMoldBudgetReport,
   MasterMoldEngineResult,
   MasterMoldFailure,
@@ -98,6 +99,8 @@ interface PlanningCacheEntry {
   readonly planningMesh: PlanningMesh;
   readonly directions: readonly PlanningCandidateDirection[];
   readonly analysis: AccessibilityAnalysis;
+  /** Execution 08 LOOP 19: raw candidate-direction count before pruning, retained for budget reporting across cache hits. */
+  readonly rawDirectionCount: number;
 }
 const planningCache = new Map<string, PlanningCacheEntry>();
 const PLANNING_CACHE_MAX_ENTRIES = 4;
@@ -116,6 +119,78 @@ function toolingContextOf(seed: MasterMoldSeedSnapshot): ToolingContext {
     parameters: toolingParametersFromProfile(seed.processProfile),
     buildVolume: seed.printerBuildVolume,
   };
+}
+
+/**
+ * Execution 08 LOOP 19: named search budgets, each with limit/used/pruned/
+ * reason -- so a budget-exhausted failure can say WHICH budget exhausted,
+ * not just that the search failed. Built once after the piece-count
+ * escalation loop completes, from evidence already gathered during it.
+ */
+function buildBudgetDetails(params: {
+  readonly rawDirectionCount: number;
+  readonly finalDirectionCount: number;
+  readonly planningDiagnostics: readonly WorkingMoldPieceCountDiagnostics[];
+  readonly maxPieces: number;
+  readonly workingMoldConstructionAttempts: number;
+}): MasterMoldBudgetLineItem[] {
+  const { rawDirectionCount, finalDirectionCount, planningDiagnostics, maxPieces, workingMoldConstructionAttempts } = params;
+  const maxOf = (select: (diagnostic: WorkingMoldPieceCountDiagnostics) => number): number =>
+    planningDiagnostics.reduce((max, diagnostic) => Math.max(max, select(diagnostic)), 0);
+  const highestPieceCountAttempted = maxOf((diagnostic) => diagnostic.pieceCount);
+  const exactAttemptCapacity = planningDiagnostics.length * MASTER_PLANNER_LIMITS.maxExactPlansPerPieceCount;
+
+  return [
+    {
+      name: "candidate_directions",
+      limit: MASTER_PLANNER_LIMITS.maxCandidateDirections,
+      used: finalDirectionCount,
+      pruned: Math.max(0, rawDirectionCount - finalDirectionCount),
+      reason: `${rawDirectionCount} geometry-derived candidate(s) generated; ${finalDirectionCount} kept after coverage-preserving pruning (LOOP 07) and adaptive discovery (LOOP 08).`,
+    },
+    {
+      name: "combination_directions",
+      limit: MASTER_PLANNER_LIMITS.maxCombinationDirections,
+      used: maxOf((diagnostic) => diagnostic.combinationDirectionCountUsed),
+      pruned: Math.max(0, finalDirectionCount - maxOf((diagnostic) => diagnostic.combinationDirectionCountUsed)),
+      reason: "directions offered to the multi-piece (3+) prism combination search per beam level.",
+    },
+    {
+      name: "parting_thresholds",
+      limit: MASTER_PLANNER_LIMITS.maxPartingThresholdsPerDirection,
+      used: maxOf((diagnostic) => diagnostic.thresholdCountUsed),
+      pruned: 0,
+      reason: "parting-plane offset candidates generated across directions at the widest attempted level (LOOP 09).",
+    },
+    {
+      name: "beam_width",
+      limit: MASTER_PLANNER_LIMITS.beamWidth,
+      used: maxOf((diagnostic) => diagnostic.beamSizeUsed),
+      pruned: 0,
+      reason: "surviving prism-prefix candidates retained per beam level (LOOP 18: diversity-aware selection, not score-only).",
+    },
+    {
+      name: "piece_count",
+      limit: maxPieces,
+      used: highestPieceCountAttempted,
+      pruned: 0,
+      reason: `search escalated one piece count at a time up to ${highestPieceCountAttempted || 0} of a ${maxPieces}-piece cap (LOOP 16: automatic mode default reaches the ${MASTER_PLANNER_LIMITS.absoluteMaxWorkingMoldPieces}-piece safety ceiling).`,
+    },
+    {
+      name: "exact_construction_attempts",
+      limit: exactAttemptCapacity,
+      used: workingMoldConstructionAttempts,
+      pruned: Math.max(0, exactAttemptCapacity - workingMoldConstructionAttempts),
+      reason: `${workingMoldConstructionAttempts} exact-CSG construction attempt(s) across ${planningDiagnostics.length} piece count(s) tried (up to ${MASTER_PLANNER_LIMITS.maxExactPlansPerPieceCount} finalist(s) each). 0 here means planning itself never reached exact construction -- never an exact-CSG engine failure.`,
+    },
+    {
+      name: "parting_surface",
+      limit: 0,
+      used: 0,
+      pruned: 0,
+      reason: "general (non-half-space) parting surface construction is not yet implemented (Execution 08 LOOP 14); every piece is still an ordered half-space prism.",
+    },
+  ];
 }
 
 export async function runMasterMoldEngine(
@@ -138,6 +213,7 @@ export async function runMasterMoldEngine(
     toolingExactPlanAttempts: 0,
     releaseVerificationAttempts: 0,
     limitsExceeded: [],
+    budgetDetails: [],
   };
   const emit = (stage: MasterMoldProgressStageName, detail: string | null) => {
     hooks.onStage?.({
@@ -199,6 +275,7 @@ export async function runMasterMoldEngine(
     throwIfCancelled(hooks);
     emit("building_accessibility", `${planningMesh.patches.length} patches`);
     const directions = generateCandidateDirections(planningMesh, seed.sourceMesh.positions);
+    const rawDirectionCount = directions.length;
     budget.candidateDirectionCount = directions.length;
     let analysis = analyzeDirectionAccessibility(seed.sourceMesh, planningMesh, directions);
     const pruned = pruneDirections(analysis.directions, analysis, planningMesh, MASTER_PLANNER_LIMITS.maxCandidateDirections);
@@ -212,14 +289,14 @@ export async function runMasterMoldEngine(
     const discovery = runAdaptiveDirectionDiscovery({ planningMesh, sourceMesh: seed.sourceMesh, analysis });
     analysis = discovery.analysis;
     budget.candidateDirectionCount = analysis.directions.length;
-    entry = { planningMesh, directions: analysis.directions, analysis };
+    entry = { planningMesh, directions: analysis.directions, analysis, rawDirectionCount };
     if (planningCache.size >= PLANNING_CACHE_MAX_ENTRIES) {
       const oldest = planningCache.keys().next().value;
       if (oldest !== undefined) planningCache.delete(oldest);
     }
     planningCache.set(cacheKey, entry);
   }
-  const { planningMesh, analysis } = entry;
+  const { planningMesh, analysis, rawDirectionCount } = entry;
   throwIfCancelled(hooks);
 
   // Stage B/C: piece-count optimization driven by exact verification
@@ -284,6 +361,14 @@ export async function runMasterMoldEngine(
     });
   }
 
+  budget.budgetDetails = buildBudgetDetails({
+    rawDirectionCount,
+    finalDirectionCount: analysis.directions.length,
+    planningDiagnostics,
+    maxPieces,
+    workingMoldConstructionAttempts: budget.workingMoldConstructionAttempts,
+  });
+
   if (construction === null || constructionFinalist === null) {
     // Execution 07 LOOP 09: this stop means the bounded search exhausted its
     // configured limits -- it is NOT proof that rigid tooling is impossible.
@@ -299,6 +384,19 @@ export async function runMasterMoldEngine(
     const recovery = atAutomaticCeiling
       ? `automatic escalation already reached the internal safety ceiling of ${maxPieces} piece(s); use flexible/sacrificial tooling for fully enclosed features, or simplify the part`
       : `raise the piece-count cap (currently ${maxPieces} of a ${MASTER_PLANNER_LIMITS.absoluteMaxWorkingMoldPieces}-piece safety ceiling) in the process profile or preferred piece-count setting, or use flexible/sacrificial tooling for fully enclosed features`;
+    // Execution 08 LOOP 19: name exactly which budget(s) actually hit their
+    // limit, instead of one generic "search failed" message -- 0 exact
+    // construction attempts is then never confusable with an exact-CSG
+    // engine failure (which would show attempts > 0 with a construction
+    // error instead).
+    const exhaustedBudgetNames = budget.budgetDetails
+      .filter((item) => item.name !== "parting_surface" && item.limit > 0 && item.used >= item.limit)
+      .map((item) => item.name);
+    const exhaustedBudgetClause = exhaustedBudgetNames.length > 0
+      ? ` Exhausted budget(s): ${exhaustedBudgetNames.join(", ")}.`
+      : budget.workingMoldConstructionAttempts === 0
+        ? " No individual search budget was exhausted; planning itself never produced a feasible candidate at any attempted piece count (see planningDiagnostics for the per-count reason)."
+        : "";
     return {
       seedId: seed.seedId,
       plan: null,
@@ -309,7 +407,7 @@ export async function runMasterMoldEngine(
           reason: "no_release_plan",
           family: masterMoldFailureFamilyOf("no_release_plan"),
           message: budgetReached
-            ? `the bounded search reached its configured limits (piece-count cap ${maxPieces}, ${budget.workingMoldConstructionAttempts} exact construction attempt(s), ${rejectedPieceCounts.length} piece count(s) rejected) without finding a releasable decomposition${constructionError === null ? "" : ` (last exact failure: ${constructionError.message})`}. This is a search-budget outcome, not proof that rigid tooling is impossible: review the part, ${recovery}.`
+            ? `the bounded search reached its configured limits (piece-count cap ${maxPieces}, ${budget.workingMoldConstructionAttempts} exact construction attempt(s), ${rejectedPieceCounts.length} piece count(s) rejected) without finding a releasable decomposition${constructionError === null ? "" : ` (last exact failure: ${constructionError.message})`}.${exhaustedBudgetClause} This is a search-budget outcome, not proof that rigid tooling is impossible: review the part, ${recovery}.`
             : `no working-mold decomposition could be planned${constructionError === null ? "" : ` (last exact failure: ${constructionError.message})`}. This is a search-budget outcome, not proof that rigid tooling is impossible; flexible/sacrificial tooling may be required for fully enclosed features.`,
         },
       ],

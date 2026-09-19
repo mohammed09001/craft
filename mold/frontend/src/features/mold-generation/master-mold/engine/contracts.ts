@@ -406,6 +406,28 @@ export interface MasterMoldProgressStage {
   readonly elapsedMs: number;
 }
 
+/**
+ * Execution 08 LOOP 19: one named search budget's accounting -- a
+ * budget-exhausted failure must identify WHICH budget exhausted, not just
+ * report a generic "search failed". `pruned` is how much this budget's own
+ * limit discarded (candidates generated but not kept); `reason` is a short,
+ * human-readable account of what the number means.
+ */
+export interface MasterMoldBudgetLineItem {
+  readonly name:
+    | "candidate_directions"
+    | "combination_directions"
+    | "parting_thresholds"
+    | "beam_width"
+    | "piece_count"
+    | "exact_construction_attempts"
+    | "parting_surface";
+  readonly limit: number;
+  readonly used: number;
+  readonly pruned: number;
+  readonly reason: string;
+}
+
 /** Execution 06 Article 13.4: observable budget accounting (the engine reports when it reaches a planning budget). */
 export interface MasterMoldBudgetReport {
   candidateDirectionCount: number;
@@ -419,6 +441,8 @@ export interface MasterMoldBudgetReport {
   toolingExactPlanAttempts: number;
   releaseVerificationAttempts: number;
   readonly limitsExceeded: string[];
+  /** Execution 08 LOOP 19: per-named-budget limit/used/pruned/reason -- populated once planning has run. */
+  budgetDetails: MasterMoldBudgetLineItem[];
 }
 
 /**

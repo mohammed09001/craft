@@ -32,7 +32,7 @@ import { greedyRegionCover } from "./regionSetCover";
 
 const SLIDING_WALL_COSINE = 0.2;
 const SEAM_INTERIOR_COSINE = 0.5;
-const BEAM_WIDTH = 8;
+const BEAM_WIDTH = MASTER_PLANNER_LIMITS.beamWidth;
 
 interface BeamPrefix {
   readonly prisms: { readonly directionIndex: number; readonly offsetMm: number }[];
@@ -646,6 +646,7 @@ export function createWorkingMoldPieceCountSearch(input: WorkingMoldPlannerInput
           candidateDirectionCountUsed: analysis.directions.length,
           combinationDirectionCountUsed,
           thresholdCountUsed,
+          beamSizeUsed: beam.length,
           regionSetCoverMinimumPieceEstimate,
           regionSetCoverUncoveredRegionCount,
         };
@@ -699,6 +700,7 @@ export function createWorkingMoldPieceCountSearch(input: WorkingMoldPlannerInput
           candidateDirectionCountUsed: analysis.directions.length,
           combinationDirectionCountUsed,
           thresholdCountUsed,
+          beamSizeUsed: beam.length,
           regionSetCoverMinimumPieceEstimate,
           regionSetCoverUncoveredRegionCount,
         };
@@ -722,6 +724,7 @@ export function createWorkingMoldPieceCountSearch(input: WorkingMoldPlannerInput
         candidateDirectionCountUsed: analysis.directions.length,
         combinationDirectionCountUsed,
         thresholdCountUsed,
+        beamSizeUsed: beam.length,
         regionSetCoverMinimumPieceEstimate,
         regionSetCoverUncoveredRegionCount,
       };

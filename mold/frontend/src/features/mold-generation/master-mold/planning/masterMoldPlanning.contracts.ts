@@ -88,6 +88,8 @@ export interface WorkingMoldPieceCountDiagnostics {
   readonly combinationDirectionCountUsed: number;
   /** Parting-plane threshold offsets attempted across the directions used at this count. */
   readonly thresholdCountUsed: number;
+  /** Execution 08 LOOP 19: surviving prism-prefix candidates retained in the beam at this level, after diversity-aware selection (LOOP 18), bounded by `MASTER_PLANNER_LIMITS.beamWidth`. */
+  readonly beamSizeUsed: number;
   /**
    * Execution 08 LOOP 11: the greedy region set-cover estimate -- how many
    * directions a bounded, real coverage-matrix search needs to release
@@ -325,6 +327,8 @@ export const MASTER_PLANNER_LIMITS = {
   surfaceRegionMergeAngleDeg: 20,
   /** Execution 08 LOOP 05: a boundary between two regions is flagged "sharp" when their average normals differ by at least this angle (deg). */
   surfaceRegionRidgeAngleDeg: 45,
+  /** Execution 08 LOOP 19: beam width for the ordered-prism search (Article 13: centralized, not a scattered local constant). */
+  beamWidth: 8,
   /** Execution 08 LOOP 08: bounded adaptive-direction-discovery rounds (each round re-checks coverage after adding the previous round's directions). */
   maxAdaptiveDirectionRounds: 3,
   /** Execution 08 LOOP 08: unresolved regions inspected per round (largest-area first), bounding the search. */

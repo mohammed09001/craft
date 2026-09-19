@@ -65,7 +65,7 @@ function makeResult(sets: MasterToolingSet[], overrides: Record<string, unknown>
     plan: null,
     workingMoldPieceCount: 2,
     warningCount: 0,
-    budget: { candidateDirectionCount: 0, planningPatchCount: 0, workingMoldPlanCandidateCount: 0, workingMoldConstructionAttempts: 1, pourFaceAnalysisAttempts: 0, ventAnalysisAttempts: 0, toolingOnePieceAttempts: 0, toolingMultiPieceAttempts: 0, toolingExactPlanAttempts: 2, releaseVerificationAttempts: 0, limitsExceeded: [] },
+    budget: { candidateDirectionCount: 0, planningPatchCount: 0, workingMoldPlanCandidateCount: 0, workingMoldConstructionAttempts: 1, pourFaceAnalysisAttempts: 0, ventAnalysisAttempts: 0, toolingOnePieceAttempts: 0, toolingMultiPieceAttempts: 0, toolingExactPlanAttempts: 2, releaseVerificationAttempts: 0, limitsExceeded: [], budgetDetails: [] },
     seedId: "seed-1",
     ...overrides,
   };

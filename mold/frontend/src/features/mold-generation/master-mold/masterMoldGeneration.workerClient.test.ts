@@ -53,7 +53,7 @@ function createResult(request: MasterMoldRequest): MasterMoldResult {
     plan: null,
     workingMoldPieceCount: 0,
     warningCount: 0,
-    budget: { candidateDirectionCount: 0, planningPatchCount: 0, workingMoldPlanCandidateCount: 0, workingMoldConstructionAttempts: 0, pourFaceAnalysisAttempts: 0, ventAnalysisAttempts: 0, toolingOnePieceAttempts: 0, toolingMultiPieceAttempts: 0, toolingExactPlanAttempts: 0, releaseVerificationAttempts: 0, limitsExceeded: [] },
+    budget: { candidateDirectionCount: 0, planningPatchCount: 0, workingMoldPlanCandidateCount: 0, workingMoldConstructionAttempts: 0, pourFaceAnalysisAttempts: 0, ventAnalysisAttempts: 0, toolingOnePieceAttempts: 0, toolingMultiPieceAttempts: 0, toolingExactPlanAttempts: 0, releaseVerificationAttempts: 0, limitsExceeded: [], budgetDetails: [] },
     seedId: request.seed.seedId,
   };
 }
