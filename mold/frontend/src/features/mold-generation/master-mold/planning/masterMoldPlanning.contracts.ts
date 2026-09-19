@@ -23,7 +23,9 @@ export type CandidateDirectionSource =
   | "world-axis"
   | "principal-axis"
   | "planar-patch-normal"
-  | "normal-cluster";
+  | "normal-cluster"
+  /** Execution 08 LOOP 08: derived from an unresolved surface region after the initial candidate set failed to cover it. */
+  | "adaptive-region";
 
 /** One candidate release direction generated from geometry (Article 04). */
 export interface PlanningCandidateDirection {
@@ -312,6 +314,12 @@ export const MASTER_PLANNER_LIMITS = {
   surfaceRegionMergeAngleDeg: 20,
   /** Execution 08 LOOP 05: a boundary between two regions is flagged "sharp" when their average normals differ by at least this angle (deg). */
   surfaceRegionRidgeAngleDeg: 45,
+  /** Execution 08 LOOP 08: bounded adaptive-direction-discovery rounds (each round re-checks coverage after adding the previous round's directions). */
+  maxAdaptiveDirectionRounds: 3,
+  /** Execution 08 LOOP 08: unresolved regions inspected per round (largest-area first), bounding the search. */
+  maxAdaptiveRegionsPerRound: 4,
+  /** Execution 08 LOOP 08: new candidate directions generated per inspected region per round. */
+  maxAdaptiveDirectionsPerRegion: 4,
 } as const;
 
 /** Working Mold envelope policy (Article 08): Master-owned wall around the source part. */

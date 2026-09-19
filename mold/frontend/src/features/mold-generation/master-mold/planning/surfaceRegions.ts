@@ -13,45 +13,29 @@ import { angleBetweenDeg } from "./candidateDirections";
  * runs once, before any candidate direction or accessibility pass, and every
  * later stage (Articles 04/05 onward) consumes its output.
  *
- * Construction is connected components of a FILTERED adjacency graph (an
- * edge survives only when its two patches' normals are within
- * `surfaceRegionMergeAngleDeg` of each other). Connected components are a
- * property of the graph's content, not of traversal order, so region
- * membership is inherently triangle-array-order invariant; the only
- * order-sensitive step is REGION LABELING (which component becomes region
- * 0, 1, 2...), which this module fixes by sorting components on a
- * content-derived key (their lexicographically smallest rounded centroid)
- * rather than encounter order.
+ * Construction is SEED-ANCHORED, cone-capped region growing, not plain
+ * connected components of a locally-filtered graph. An earlier version used
+ * plain connected components (an edge survives only when its two patches'
+ * normals are within `surfaceRegionMergeAngleDeg` of each other): on a
+ * smoothly curved CLOSED body (a sphere, an organic blob) that lets normal
+ * drift accumulate transitively all the way around the surface -- every
+ * single hop stays under the threshold, but the whole closed surface still
+ * collapses into one region with a normal cone approaching 180 degrees,
+ * which is not a "coherent" region by any useful definition and makes the
+ * average normal/cone-extremum direction sources meaningless. Seed-anchored
+ * growth fixes this: each region's membership test is the angle to its own
+ * FIXED seed normal (not to whichever neighbor discovered it), so a
+ * region's cone half-angle is bounded by `surfaceRegionMergeAngleDeg` by
+ * construction, regardless of how the underlying surface curves.
+ *
+ * This still depends on which patch seeds each region, and seed order is
+ * therefore fixed to a purely CONTENT-derived canonical order (patches
+ * sorted by rounded centroid) rather than array/index order, and BFS
+ * expansion within a region visits neighbors in that same canonical order
+ * -- so region membership is triangle-array-order invariant even though
+ * growth order now matters (unlike a pure connected-components construction
+ * where order genuinely does not matter at all).
  */
-
-interface UnionFind {
-  find(x: number): number;
-  union(a: number, b: number): void;
-}
-
-function createUnionFind(size: number): UnionFind {
-  const parent = new Int32Array(size);
-  for (let index = 0; index < size; index += 1) parent[index] = index;
-  const find = (x: number): number => {
-    let root = x;
-    while (parent[root] !== root) root = parent[root]!;
-    let cursor = x;
-    while (parent[cursor] !== root) {
-      const next = parent[cursor]!;
-      parent[cursor] = root;
-      cursor = next;
-    }
-    return root;
-  };
-  return {
-    find,
-    union(a: number, b: number): void {
-      const rootA = find(a);
-      const rootB = find(b);
-      if (rootA !== rootB) parent[rootA] = rootB;
-    },
-  };
-}
 
 function centroidKey(centroid: PlanningVector3): string {
   return `${centroid.x.toFixed(6)}:${centroid.y.toFixed(6)}:${centroid.z.toFixed(6)}`;
@@ -84,35 +68,41 @@ export function buildSurfaceRegionGraph(planningMesh: PlanningMesh): SurfaceRegi
 
   const mergeAngleDeg = MASTER_PLANNER_LIMITS.surfaceRegionMergeAngleDeg;
   const ridgeAngleDeg = MASTER_PLANNER_LIMITS.surfaceRegionRidgeAngleDeg;
-  const unionFind = createUnionFind(patchCount);
 
-  for (let patchIndex = 0; patchIndex < patchCount; patchIndex += 1) {
-    for (const neighbor of planningMesh.adjacency[patchIndex] ?? []) {
-      if (neighbor <= patchIndex) continue;
-      const angle = angleBetweenDeg(patches[patchIndex]!.normal, patches[neighbor]!.normal);
-      if (angle <= mergeAngleDeg) unionFind.union(patchIndex, neighbor);
-    }
-  }
-
-  const membersByRoot = new Map<number, number[]>();
-  for (let patchIndex = 0; patchIndex < patchCount; patchIndex += 1) {
-    const root = unionFind.find(patchIndex);
-    let members = membersByRoot.get(root);
-    if (members === undefined) {
-      members = [];
-      membersByRoot.set(root, members);
-    }
-    members.push(patchIndex);
-  }
-
-  // Deterministic, content-derived region ordering (never encounter order,
-  // which follows Map insertion order = triangle array order).
-  const orderedGroups = [...membersByRoot.values()].sort((a, b) => canonicalGroupKey(a, patches).localeCompare(canonicalGroupKey(b, patches)));
+  // Canonical, content-derived processing order: never raw patch/array
+  // index (which follows triangle array order for the full-resolution
+  // path -- LOOP 04).
+  const canonicalOrder = patches
+    .map((patch) => patch.patchIndex)
+    .sort((a, b) => centroidKey(patches[a]!.centroid).localeCompare(centroidKey(patches[b]!.centroid)));
+  const neighborsOf = (patchIndex: number): readonly number[] =>
+    [...(planningMesh.adjacency[patchIndex] ?? [])].sort((a, b) => centroidKey(patches[a]!.centroid).localeCompare(centroidKey(patches[b]!.centroid)));
 
   const regionOfPatch = new Array<number>(patchCount).fill(-1);
-  orderedGroups.forEach((members, regionIndex) => {
-    for (const patchIndex of members) regionOfPatch[patchIndex] = regionIndex;
-  });
+  const orderedGroups: number[][] = [];
+  for (const seedPatchIndex of canonicalOrder) {
+    if (regionOfPatch[seedPatchIndex] !== -1) continue;
+    const seedNormal = patches[seedPatchIndex]!.normal;
+    const regionIndex = orderedGroups.length;
+    const members: number[] = [];
+    const queue: number[] = [seedPatchIndex];
+    regionOfPatch[seedPatchIndex] = regionIndex;
+    let head = 0;
+    while (head < queue.length) {
+      const current = queue[head]!;
+      head += 1;
+      members.push(current);
+      for (const neighbor of neighborsOf(current)) {
+        if (regionOfPatch[neighbor] !== -1) continue;
+        // Bounded to the SEED's normal (not the discovering neighbor's):
+        // this is what caps the region's cone half-angle by construction.
+        if (angleBetweenDeg(patches[neighbor]!.normal, seedNormal) > mergeAngleDeg) continue;
+        regionOfPatch[neighbor] = regionIndex;
+        queue.push(neighbor);
+      }
+    }
+    orderedGroups.push(members);
+  }
 
   // Boundary/adjacency evidence: any adjacency edge crossing a region boundary.
   const adjacentRegionSets: Set<number>[] = orderedGroups.map(() => new Set());

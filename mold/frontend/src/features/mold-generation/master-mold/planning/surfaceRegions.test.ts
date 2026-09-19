@@ -92,7 +92,16 @@ describe("Surface region graph (Execution 08 LOOP 05)", () => {
     expect(fingerprint(graphB.regions)).toEqual(fingerprint(graphA.regions));
   });
 
-  it("names the real regression's permanently-locked region via region-level accessibility, not sparse patch incidence", async () => {
+  it("shows the real regression's failure is combinatorial coverage, not a missing direction: every cone-capped region IS individually resolvable", async () => {
+    // With cone-capped regions (bounded to surfaceRegionMergeAngleDeg by
+    // construction), a region is small/local enough that some direction in
+    // the kept candidate set almost always sees it fully -- this precisely
+    // separates two different failure classes: "no direction exists at
+    // all" (LOOP 08's target) versus "no small SET of directions jointly
+    // covers everything within the piece-count budget" (LOOP 10/11's
+    // target, the real regression's actual failure, per
+    // masterMoldEngine.loop02RealRegression.test.ts: planning still rejects
+    // every piece count even though every region here resolves alone).
     const fixture = await buildFreeFormObliqueLockFixture();
     const seed = seedFromFixture(fixture);
     const mesh = buildPlanningMesh({ positions: seed.sourceMesh.positions, indices: seed.sourceMesh.indices, bounds: seed.sourceBounds, sourceGeometryVersion: seed.sourceGeometryVersion });
@@ -105,10 +114,8 @@ describe("Surface region graph (Execution 08 LOOP 05)", () => {
     const summaries = summarizeRegionAccessibility(graph, mesh, analysis);
     const unresolved = unresolvedSurfaceRegions(summaries, graph);
 
-    expect(unresolved.length).toBeGreaterThan(0);
-    for (const region of unresolved) {
-      const summary = summaries.find((entry) => entry.regionIndex === region.regionIndex)!;
-      expect(summary.bestVisibleAreaFraction).toBeLessThan(0.999);
-    }
+    expect(graph.regions.length).toBeGreaterThan(10);
+    expect(unresolved).toEqual([]);
+    for (const summary of summaries) expect(summary.bestVisibleAreaFraction).toBeGreaterThanOrEqual(0.999);
   });
 });
