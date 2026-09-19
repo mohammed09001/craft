@@ -3,12 +3,14 @@ import type {
   DecompositionCandidate,
   PlanningMesh,
   PlanningVector3,
+  SurfaceRegionGraph,
   WorkingMoldPartingInterface,
   WorkingMoldPieceCountDiagnostics,
   WorkingMoldPlanScore,
 } from "./masterMoldPlanning.contracts";
 import { MASTER_PLANNER_LIMITS } from "./masterMoldPlanning.contracts";
 import { dot } from "./candidateDirections";
+import { buildSurfaceRegionGraph } from "./surfaceRegions";
 
 /**
  * Execution 06 Articles 06/07: the automatic working-mold piece count
@@ -87,6 +89,95 @@ export function exactPartingThreshold(
   }
   if (!Number.isFinite(min)) return null;
   return Math.round(min * 1e4) / 1e4 - 1e-4;
+}
+
+const THRESHOLD_ROUND_DECIMALS = 1e4;
+
+/**
+ * Execution 08 LOOP 09: bounded multiple parting-threshold candidates per
+ * direction (`MASTER_PLANNER_LIMITS.maxPartingThresholdsPerDirection`,
+ * previously defined but unused -- `exactPartingThreshold` alone gave every
+ * direction exactly one offset attempt). A single valid release direction
+ * must not fail the whole search because the ONE plane offset that was
+ * tried happened to be the wrong one.
+ *
+ * Sources (Article 07): the exact direction-exclusive minimum (always
+ * candidate 0 -- the geometrically tightest, provenly safe default), major
+ * section changes (the largest gaps in the direction-exclusive patches'
+ * own projection distribution -- a natural place to split off an isolated
+ * cluster instead of dragging the whole prism down to include it), region
+ * boundary projections (LOOP 05's region graph: each coherent region's own
+ * entry point along the axis), and the undercut boundary level (the
+ * furthest projection among BLOCKED patches -- a more conservative cut
+ * that clears every inaccessible patch entirely, rather than the minimal
+ * exclusive-patch cut).
+ */
+export function candidatePartingThresholds(
+  planningMesh: PlanningMesh,
+  visibilityForDirection: readonly number[],
+  visibilityOpposing: readonly number[],
+  direction: PlanningVector3,
+  regionGraph: SurfaceRegionGraph,
+): number[] {
+  const primary = exactPartingThreshold(planningMesh, visibilityForDirection, visibilityOpposing, direction);
+  if (primary === null) return [];
+
+  const exclusiveProjections: number[] = [];
+  let maxBlockedProjection = -Infinity;
+  for (const patch of planningMesh.patches) {
+    const index = patch.patchIndex;
+    const projection = dot(patch.centroid, direction);
+    if (visibilityForDirection[index] === 1 && visibilityOpposing[index] !== 1) exclusiveProjections.push(projection);
+    if (visibilityForDirection[index] !== 1 && projection > maxBlockedProjection) maxBlockedProjection = projection;
+  }
+
+  const candidates: number[] = [primary];
+  const pushCandidate = (value: number) => {
+    if (!Number.isFinite(value)) return;
+    const rounded = Math.round(value * THRESHOLD_ROUND_DECIMALS) / THRESHOLD_ROUND_DECIMALS;
+    if (candidates.some((existing) => Math.abs(existing - rounded) < 1 / THRESHOLD_ROUND_DECIMALS)) return;
+    candidates.push(rounded);
+  };
+
+  // Major section changes: the largest gaps in the exclusive-patch
+  // projection distribution -- each gap's upper edge is a candidate cut
+  // that leaves the isolated lower cluster out of the prism.
+  const sorted = [...exclusiveProjections].sort((a, b) => a - b);
+  const gaps: { size: number; afterValue: number }[] = [];
+  for (let index = 1; index < sorted.length; index += 1) {
+    const size = sorted[index]! - sorted[index - 1]!;
+    if (size > 1e-6) gaps.push({ size, afterValue: sorted[index]! });
+  }
+  gaps.sort((a, b) => b.size - a.size);
+  for (const gap of gaps) {
+    if (candidates.length >= MASTER_PLANNER_LIMITS.maxPartingThresholdsPerDirection) break;
+    pushCandidate(gap.afterValue - 1e-4);
+  }
+
+  // Region boundary projections: each region touching this direction's
+  // exclusive set contributes its own entry point along the axis.
+  for (const region of regionGraph.regions) {
+    if (candidates.length >= MASTER_PLANNER_LIMITS.maxPartingThresholdsPerDirection) break;
+    let regionMin = Infinity;
+    let touchesExclusive = false;
+    for (const patchIndex of region.patchIndexes) {
+      if (visibilityForDirection[patchIndex] === 1 && visibilityOpposing[patchIndex] !== 1) {
+        touchesExclusive = true;
+        const projection = dot(planningMesh.patches[patchIndex]!.centroid, direction);
+        if (projection < regionMin) regionMin = projection;
+      }
+    }
+    if (touchesExclusive) pushCandidate(regionMin - 1e-4);
+  }
+
+  // Undercut boundary level: a conservative cut that clears every blocked
+  // patch entirely (may sacrifice more material than the minimal cut, but
+  // is sometimes the only offset that yields a physically sound prism).
+  if (candidates.length < MASTER_PLANNER_LIMITS.maxPartingThresholdsPerDirection && Number.isFinite(maxBlockedProjection)) {
+    pushCandidate(maxBlockedProjection + 1e-4);
+  }
+
+  return candidates.slice(0, MASTER_PLANNER_LIMITS.maxPartingThresholdsPerDirection);
 }
 
 /**
@@ -343,6 +434,7 @@ export function createWorkingMoldPieceCountSearch(input: WorkingMoldPlannerInput
   let beam: BeamPrefix[] = [];
   const evaluated = new Set<string>();
   const prefixKey = (prisms: { directionIndex: number; offsetMm: number }[]) => prisms.map((p) => `${p.directionIndex}@${p.offsetMm}`).join("|");
+  const regionGraph = buildSurfaceRegionGraph(planningMesh);
 
   const opposingVisibilityOf = (d: number): readonly number[] => {
     const vector = analysis.directions[d]!.vector;
@@ -356,15 +448,18 @@ export function createWorkingMoldPieceCountSearch(input: WorkingMoldPlannerInput
     return new Array<number>(planningMesh.patches.length).fill(0);
   };
 
+  // Execution 08 LOOP 09: every direction offers its full bounded set of
+  // threshold candidates, not just the single exact-exclusive-minimum --
+  // one valid release direction must not fail the search because the ONE
+  // offset tried happened to be the wrong one.
   const extensionsOf = (prisms: { directionIndex: number; offsetMm: number }[]): { directionIndex: number; offsetMm: number }[] => {
     const directionBudget = prisms.length === 0
       ? analysis.directions.length
       : Math.min(analysis.directions.length, MASTER_PLANNER_LIMITS.maxCombinationDirections);
     const result: { directionIndex: number; offsetMm: number }[] = [];
     for (let d = 0; d < directionBudget; d += 1) {
-      const offset = exactPartingThreshold(planningMesh, analysis.perDirection[d]!.visible, opposingVisibilityOf(d), analysis.directions[d]!.vector);
-      if (offset === null) continue;
-      result.push({ directionIndex: d, offsetMm: offset });
+      const offsets = candidatePartingThresholds(planningMesh, analysis.perDirection[d]!.visible, opposingVisibilityOf(d), analysis.directions[d]!.vector, regionGraph);
+      for (const offset of offsets) result.push({ directionIndex: d, offsetMm: offset });
     }
     return result;
   };
@@ -376,8 +471,8 @@ export function createWorkingMoldPieceCountSearch(input: WorkingMoldPlannerInput
       pieceCount += 1;
       const prismCount = currentCount - 1;
 
-      let combinationDirectionCountUsed = analysis.directions.length;
-      let thresholdCountUsed = 0;
+      let combinationDirectionCountUsed: number;
+      let thresholdCountUsed: number;
 
       if (prismCount === 1) {
         beam = [];
