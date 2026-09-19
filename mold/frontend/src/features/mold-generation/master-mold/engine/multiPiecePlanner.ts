@@ -408,10 +408,36 @@ export function flipDirection(direction: MasterMoldDirection): MasterMoldDirecti
   return MASTER_MOLD_DIRECTIONS[index ^ 1]!;
 }
 
+/** One exact cut plane in a chunk's split lineage (Execution 07 LOOP 05). */
+export interface ChunkCutPlane {
+  /** Nearest world axis to the cut plane's normal (anchor for bounds/slicing). */
+  readonly axis: MasterMoldDirection;
+  readonly coordinateMm: number;
+  /** Exact unit plane normal; undefined = axis-aligned cut perpendicular to `axis`. */
+  readonly normal?: { readonly x: number; readonly y: number; readonly z: number };
+  /** A point on the plane (always present for oblique cuts). */
+  readonly point?: { readonly x: number; readonly y: number; readonly z: number };
+}
+
+/**
+ * Split provenance for one case chunk (Execution 07 LOOP 05): the exact
+ * sequence of cut planes that produced it and which side of each cut the
+ * chunk lies on. Two chunks can only touch on the plane of the last cut
+ * their lineages disagree about, so provenance -- not AABB proximity --
+ * nominates panel interfaces.
+ */
+export interface ChunkLineage {
+  readonly cuts: readonly ChunkCutPlane[];
+  /** sides[i]: false = min side of cuts[i], true = max side. */
+  readonly sides: readonly boolean[];
+}
+
 export interface CaseChunk {
   readonly solid: ManifoldSolid;
   readonly bounds: ReturnType<typeof boundsFromManifold>;
   readonly volumeMm3: number;
+  /** How this chunk was cut out of the case; undefined = no recorded provenance. */
+  readonly lineage?: ChunkLineage;
 }
 
 interface ChunkBudget {
@@ -457,21 +483,22 @@ function pullCandidatesFor(
   return candidates;
 }
 
-/** Splits a chunk solid into connected components (ownership: inputs stay valid; returned solids are new). */
-async function chunkify(solid: ManifoldSolid): Promise<CaseChunk[]> {
+/** Splits a chunk solid into connected components (ownership: inputs stay valid; returned solids are new). Components inherit the input's lineage: they are disconnected, so they never share an interface. */
+async function chunkify(solid: ManifoldSolid, lineage?: ChunkLineage): Promise<CaseChunk[]> {
   const components = solid.decompose();
   if (components.length <= 1) {
     for (const component of components) component.delete();
-    return [{ solid: solid.asOriginal(), bounds: boundsFromManifold(solid), volumeMm3: solid.volume() }];
+    return [{ solid: solid.asOriginal(), bounds: boundsFromManifold(solid), volumeMm3: solid.volume(), ...(lineage === undefined ? {} : { lineage }) }];
   }
   return components.map((component) => ({
     solid: component.asOriginal(),
     bounds: boundsFromManifold(component),
     volumeMm3: component.volume(),
+    ...(lineage === undefined ? {} : { lineage }),
   }));
 }
 
-/** Bounded bisection of a stuck chunk along its longest axis; returns new chunk solids (caller owns them). */
+/** Bounded bisection of a stuck chunk along its longest axis; returns new chunk solids (caller owns them). Children record the exact cut plane, extending the parent's lineage. */
 async function bisectChunk(module: Awaited<ReturnType<typeof getManifoldModule>>, chunk: CaseChunk): Promise<CaseChunk[] | null> {
   const axes = (["x", "y", "z"] as const);
   let longest: (typeof axes)[number] = "x";
@@ -484,7 +511,6 @@ async function bisectChunk(module: Awaited<ReturnType<typeof getManifoldModule>>
     }
   }
   if (longestSpan <= 0) return null;
-  const indexOffset = longest === "x" ? 0 : longest === "y" ? 1 : 2;
 
   const results: CaseChunk[] = [];
   for (const fraction of MULTI_PIECE_PLANNER_LIMITS.bisectionFractions) {
@@ -502,12 +528,21 @@ async function bisectChunk(module: Awaited<ReturnType<typeof getManifoldModule>>
         halfBox = createBlankSolid(module, halfBounds);
         piece = chunk.solid.intersect(halfBox);
         if (piece.isEmpty()) continue;
-        results.push({ solid: piece.asOriginal(), bounds: boundsFromManifold(piece), volumeMm3: piece.volume() });
+        const parentLineage = chunk.lineage ?? { cuts: [], sides: [] };
+        results.push({
+          solid: piece.asOriginal(),
+          bounds: boundsFromManifold(piece),
+          volumeMm3: piece.volume(),
+          lineage: {
+            cuts: [...parentLineage.cuts, { axis: longest === "x" ? "+X" : longest === "y" ? "+Y" : "+Z", coordinateMm: cut }],
+            // side=true built the max side of the cut (see halfBounds above).
+            sides: [...parentLineage.sides, side],
+          },
+        });
       } finally {
         halfBox?.delete();
         piece?.delete();
       }
-      void indexOffset;
     }
     if (results.length >= 2) break;
   }
@@ -684,9 +719,13 @@ export async function attemptRecursiveSplit(
   }
   targetSolid.delete();
 
-  // Decompose both halves into releasable chunks (bounded recursion).
-  const collectChunks = async (half: { readonly solid: ManifoldSolid }): Promise<CaseChunk[]> => {
-    const chunks = await chunkify(half.solid);
+  // Decompose both halves into releasable chunks (bounded recursion). The
+  // initial split plane seeds both sides' lineages (Execution 07 LOOP 05):
+  // every panel records the exact cuts that produced it, so interfaces are
+  // proven by split provenance rather than AABB proximity.
+  const rootLineage = (side: boolean): ChunkLineage => ({ cuts: [splitDescriptor], sides: [side] });
+  const collectChunks = async (half: { readonly solid: ManifoldSolid }, lineage: ChunkLineage): Promise<CaseChunk[]> => {
+    const chunks = await chunkify(half.solid, lineage);
     let frontier = chunks;
     let depth = 1;
     while (frontier.length > 0 && depth < MULTI_PIECE_PLANNER_LIMITS.maxSplitDepth) {
@@ -723,8 +762,8 @@ export async function attemptRecursiveSplit(
     return frontier;
   };
 
-  const positiveChunks = await collectChunks(positivePiece);
-  const negativeChunks = await collectChunks(negativePiece);
+  const positiveChunks = await collectChunks(positivePiece, rootLineage(false));
+  const negativeChunks = await collectChunks(negativePiece, rootLineage(true));
   positivePiece.solid.delete();
   negativePiece.solid.delete();
   if (positiveChunks.length === 0 || negativeChunks.length === 0) {
@@ -829,7 +868,9 @@ export async function attemptRecursiveSplit(
     const registration = await registerMultiPanelInterfaces(
       module,
       castTarget,
+      pourFace,
       sequence,
+      ventFeatures,
       parameters,
       policy,
       volumeTolerance,
@@ -845,12 +886,16 @@ export async function attemptRecursiveSplit(
         solid: entry.chunk.solid.asOriginal(),
       }, entry.pull.pull, [`${split.axis}`], registrationFeatures.filter((feature) => feature.malePieceId === `piece-panel-${index + 1}`).map((feature) => feature.featureId), entry.pull.oblique ? { x: entry.pull.vector[0], y: entry.pull.vector[1], z: entry.pull.vector[2] } : undefined),
     );
-    const interfaces = touchingPanelPairs(pieces);
-    const registeredInterfaces = new Set(registrationFeatures.map((feature) => `${feature.malePieceId.replace("piece-panel-", "panel-")}:${feature.femalePieceId.replace("piece-panel-", "panel-")}`));
-    const uncovered = interfaces.filter((pair) => !registeredInterfaces.has(pair));
-    registrationNote = uncovered.length === 0 && registrationFeatures.length > 0
+    // Interfaces come from split provenance + exact contact proof (LOOP 05);
+    // an interface that stayed unregistered is named with its physical
+    // block reason instead of silently implying user-managed alignment.
+    const provenInterfaces = provenanceInterfaceCuts(sequence)
+      .map((nomination) => `panel-${nomination.first + 1}:panel-${nomination.second + 1}`);
+    const blocked = new Set(registration.blockedInterfaces);
+    const uncovered = provenInterfaces.filter((pair) => blocked.has(pair));
+    registrationNote = registration.features.length > 0 && uncovered.length === 0 && registration.failureReason === null
       ? null
-      : `automatic alignment registration remains unresolved on interfaces ${(uncovered.length > 0 ? uncovered : interfaces).join(", ")}; ${registration.failureReason ?? "user-managed alignment is required until each pair's release corridor is proven."}.`;
+      : `automatic alignment registration remains unresolved on interfaces ${(uncovered.length > 0 ? uncovered : provenInterfaces).join(", ")}; ${registration.failureReason ?? "user-managed alignment is required until each pair's release corridor is proven."}.`;
   }
 
   for (const chunk of chunks) chunk.solid.delete();
@@ -902,79 +947,203 @@ export async function attemptRecursiveSplit(
   };
 }
 
-function touchingPanelPairs(pieces: readonly MasterToolingPiece[]): string[] {
-  const toleranceMm = 1e-3;
-  const pairs: string[] = [];
-  const axes = ["x", "y", "z"] as const;
-  for (let i = 0; i < pieces.length; i += 1) {
-    for (let j = i + 1; j < pieces.length; j += 1) {
-      const a = pieces[i]!.bounds;
-      const b = pieces[j]!.bounds;
-      const touching = axes.some((axis) =>
-        Math.abs(a.max[axis] - b.min[axis]) <= toleranceMm || Math.abs(b.max[axis] - a.min[axis]) <= toleranceMm,
-      );
-      const overlapOnOtherAxes = axes.every((axis) => {
-        if (Math.abs(a.max[axis] - b.min[axis]) <= toleranceMm || Math.abs(b.max[axis] - a.min[axis]) <= toleranceMm) return true;
-        return Math.min(a.max[axis], b.max[axis]) - Math.max(a.min[axis], b.min[axis]) > toleranceMm;
-      });
-      if (touching && overlapOnOtherAxes) pairs.push(`panel-${i + 1}:panel-${j + 1}`);
+/**
+ * Nominates panel interfaces from SPLIT PROVENANCE (Execution 07 LOOP 05),
+ * replacing the old AABB-touch heuristic. Chunk lineages are paths in the
+ * bisection tree: two disjoint chunks can only touch on the plane of the cut
+ * where their paths first diverge (after that they live in disjoint
+ * subtrees). Identical paths mean decompose siblings -- disconnected, never
+ * an interface. Provenance only NOMINATES; `provenInterfaceAreaMm2` proves
+ * real contact exactly.
+ */
+function provenanceInterfaceCuts(sequence: readonly SequencedChunk[]): { readonly first: number; readonly second: number; readonly cut: ChunkCutPlane }[] {
+  const pairs: { first: number; second: number; cut: ChunkCutPlane }[] = [];
+  for (let first = 0; first < sequence.length; first += 1) {
+    for (let second = first + 1; second < sequence.length; second += 1) {
+      const lineageA = sequence[first]!.chunk.lineage;
+      const lineageB = sequence[second]!.chunk.lineage;
+      if (lineageA === undefined || lineageB === undefined) continue;
+      let divergence = -1;
+      const shared = Math.min(lineageA.sides.length, lineageB.sides.length);
+      for (let depth = 0; depth < shared; depth += 1) {
+        if (lineageA.sides[depth] !== lineageB.sides[depth]) {
+          divergence = depth;
+          break;
+        }
+      }
+      if (divergence < 0) continue;
+      const cut = lineageA.cuts[divergence] ?? lineageB.cuts[divergence];
+      if (cut === undefined) continue;
+      pairs.push({ first, second, cut });
     }
   }
   return pairs;
 }
 
-interface PanelInterfaceCandidate {
-  readonly first: number;
-  readonly second: number;
-  readonly axis: "x" | "y" | "z";
-  readonly inset: number;
+/**
+ * Exact contact proof for a nominated interface (Execution 07 LOOP 05):
+ * cross-sections of both panels at the nominated cut plane are intersected;
+ * a positive area is the real shared interface patch. Returns 0 when the
+ * panels never actually meet there (AABB/provenance near-misses).
+ */
+function provenInterfaceAreaMm2(
+  policy: GeometryTolerancePolicy,
+  first: CaseChunk,
+  second: CaseChunk,
+  cut: ChunkCutPlane,
+): number {
+  const normal: readonly [number, number, number] = cut.normal !== undefined
+    ? [cut.normal.x, cut.normal.y, cut.normal.z]
+    : DIRECTION_VECTORS[cut.axis];
+  const planeOffsetMm = cut.normal !== undefined && cut.point !== undefined
+    ? cut.normal.x * cut.point.x + cut.normal.y * cut.point.y + cut.normal.z * cut.point.z
+    : cut.coordinateMm;
+  const centerA = {
+    x: (first.bounds.min.x + first.bounds.max.x) / 2,
+    y: (first.bounds.min.y + first.bounds.max.y) / 2,
+    z: (first.bounds.min.z + first.bounds.max.z) / 2,
+  };
+  const centerB = {
+    x: (second.bounds.min.x + second.bounds.max.x) / 2,
+    y: (second.bounds.min.y + second.bounds.max.y) / 2,
+    z: (second.bounds.min.z + second.bounds.max.z) / 2,
+  };
+  const dotA = centerA.x * normal[0]! + centerA.y * normal[1]! + centerA.z * normal[2]!;
+  const dotB = centerB.x * normal[0]! + centerB.y * normal[1]! + centerB.z * normal[2]!;
+  const firstIsMinSide = dotA <= dotB;
+  // Rotation mapping the plane normal onto +Z. rotate(θx,θy,0) maps
+  // +Z→n (the kernel convention verified in LOOP 04), so the inverse is the
+  // chained pair Ry(−θy) then Rx(−θx), which carries the plane {n·p = d}
+  // exactly onto {z = d}.
+  const thetaY = Math.atan2(normal[0]!, normal[2]!);
+  const thetaX = -Math.asin(Math.max(-1, Math.min(1, normal[1]!)));
+  const rotateToZ = (solid: ManifoldSolid): ManifoldSolid =>
+    solid.rotate(0, (-thetaY * 180) / Math.PI, 0).rotate((-thetaX * 180) / Math.PI, 0, 0);
+  // Slice just inside each panel so the section is the panel's own face
+  // patch (the exact boundary plane itself is numerically ambiguous).
+  const eps = Math.max(policy.surfaceToleranceMm, 1e-4) * 10;
+  const rotated: ManifoldSolid[] = [];
+  const sections: ReturnType<ManifoldSolid["slice"]>[] = [];
+  let contact: ReturnType<ReturnType<ManifoldSolid["slice"]>["intersect"]> | null = null;
+  try {
+    rotated.push(rotateToZ(first.solid.asOriginal()));
+    rotated.push(rotateToZ(second.solid.asOriginal()));
+    sections.push(rotated[firstIsMinSide ? 0 : 1]!.slice(planeOffsetMm - eps));
+    sections.push(rotated[firstIsMinSide ? 1 : 0]!.slice(planeOffsetMm + eps));
+    contact = sections[0]!.intersect(sections[1]!);
+    return contact.area();
+  } finally {
+    contact?.delete();
+    for (const section of sections) section.delete();
+    for (const solid of rotated) solid.delete();
+  }
 }
 
-function panelInterfaceCandidates(sequence: readonly SequencedChunk[]): PanelInterfaceCandidate[] {
-  const candidates: PanelInterfaceCandidate[] = [];
-  const axes = ["x", "y", "z"] as const;
-  for (let first = 0; first < sequence.length; first += 1) {
-    for (let second = first + 1; second < sequence.length; second += 1) {
-      const a = sequence[first]!.chunk.bounds;
-      const b = sequence[second]!.chunk.bounds;
-      for (const axis of axes) {
-        const touching = Math.abs(a.max[axis] - b.min[axis]) <= 1e-3 || Math.abs(b.max[axis] - a.min[axis]) <= 1e-3;
-        const others = axes.filter((candidate) => candidate !== axis);
-        const overlap = others.every((other) => Math.min(a.max[other], b.max[other]) - Math.max(a.min[other], b.min[other]) > 1e-3);
-        if (touching && overlap) {
-          for (const inset of [0.1, 0.9]) {
-            candidates.push({ first, second, axis, inset });
-          }
-          break;
-        }
-      }
-    }
-  }
-  return candidates;
+/** Minimum printable registration key radius (mm) — same printability floor as the two-panel pin planner. */
+const MULTI_PANEL_MIN_PIN_RADIUS_MM = 1;
+/** Deterministic key positions across a proven interface patch, as (u, v) fractions of the transverse overlap box. */
+const MULTI_PANEL_PIN_POSITIONS = [
+  [0.2, 0.2],
+  [0.8, 0.8],
+  [0.2, 0.8],
+  [0.8, 0.2],
+  [0.5, 0.5],
+] as const;
+
+/** Shortest distance from a point to a segment (3-D). */
+function pointToSegmentDistanceMm(
+  point: { readonly x: number; readonly y: number; readonly z: number },
+  start: { readonly x: number; readonly y: number; readonly z: number },
+  end: { readonly x: number; readonly y: number; readonly z: number },
+): number {
+  const sx = end.x - start.x;
+  const sy = end.y - start.y;
+  const sz = end.z - start.z;
+  const lengthSquared = sx * sx + sy * sy + sz * sz;
+  const t = lengthSquared <= 1e-18 ? 0 : Math.max(0, Math.min(1, ((point.x - start.x) * sx + (point.y - start.y) * sy + (point.z - start.z) * sz) / lengthSquared));
+  return Math.hypot(point.x - (start.x + t * sx), point.y - (start.y + t * sy), point.z - (start.z + t * sz));
 }
 
 export async function registerMultiPanelInterfaces(
   module: Awaited<ReturnType<typeof getManifoldModule>>,
   castTarget: MasterCastTarget,
+  pourFace: MasterMoldDirection,
   sequence: SequencedChunk[],
+  ventFeatures: readonly MasterVentFeature[],
   parameters: MasterToolingParameters,
   policy: GeometryTolerancePolicy,
   volumeTolerance: number,
   sweepClearanceMm: number,
-): Promise<{ readonly features: MasterToolingRegistrationFeature[]; readonly failureReason: string | null }> {
-  // Start at the smallest profile-safe cylindrical key. Larger keys are more
-  // likely to enter a release corridor or thin the case wall; this solver is
-  // allowed to succeed only when the final geometry proves the feature safe.
-  const radiusMm = Math.min(TOOLING_CONSTRUCTION_LIMITS.registrationPinRadiusMm, parameters.caseWallThicknessMm / 2, 0.1);
-  if (radiusMm < 0.1) return { features: [], failureReason: "registration key is below the minimum printable radius." };
+): Promise<{
+  readonly features: MasterToolingRegistrationFeature[];
+  readonly failureReason: string | null;
+  /** Interfaces that stayed unregistered, with the physical evidence that blocked them. */
+  readonly blockedInterfaces: readonly string[];
+}> {
+  // Key size derived from physical limits (Execution 07 LOOP 05), replacing
+  // the old unexplained 0.1 mm cap: a spherical key straddling the interface
+  // sockets depth radius/2 into each panel, so the case wall must carry it —
+  // clamped by the profile's preferred pin radius, and floored by
+  // printability. Per-interface the radius is further clamped by the proven
+  // patch extent so the key always sits inside real shared material.
+  const wallDerivedRadiusMm = Math.min(TOOLING_CONSTRUCTION_LIMITS.registrationPinRadiusMm, parameters.caseWallThicknessMm / 2);
+  if (wallDerivedRadiusMm < MULTI_PANEL_MIN_PIN_RADIUS_MM) {
+    return {
+      features: [],
+      failureReason: `case wall ${parameters.caseWallThicknessMm}mm can carry at most a ${(wallDerivedRadiusMm).toFixed(3)}mm registration key, below the ${MULTI_PANEL_MIN_PIN_RADIUS_MM}mm printable minimum.`,
+      blockedInterfaces: [],
+    };
+  }
   const targetSolid = manifoldFromPayload(module, castTarget.mesh, policy.booleanToleranceMm);
+  const caseBounds = caseEnvelopeFor(castTarget.bounds, pourFace, parameters.caseWallThicknessMm, parameters.caseBaseThicknessMm);
+  // Pour corridor: the filling column over the cast target's footprint, from
+  // the pour face to the outer case face. Keys may never enter it.
+  const pourAxisName = axisOf(pourFace);
+  const pourDirection = DIRECTION_VECTORS[pourFace];
+  const pourKeepOutBounds = {
+    min: { x: castTarget.bounds.min.x - wallDerivedRadiusMm, y: castTarget.bounds.min.y - wallDerivedRadiusMm, z: castTarget.bounds.min.z - wallDerivedRadiusMm },
+    max: { x: castTarget.bounds.max.x + wallDerivedRadiusMm, y: castTarget.bounds.max.y + wallDerivedRadiusMm, z: castTarget.bounds.max.z + wallDerivedRadiusMm },
+  };
+  if (pourDirection[pourAxisName === "x" ? 0 : pourAxisName === "y" ? 1 : 2]! > 0) {
+    pourKeepOutBounds.min[pourAxisName] = castTarget.bounds.max[pourAxisName];
+    pourKeepOutBounds.max[pourAxisName] = Math.max(caseBounds.max[pourAxisName], castTarget.bounds.max[pourAxisName]);
+  } else {
+    pourKeepOutBounds.max[pourAxisName] = castTarget.bounds.min[pourAxisName];
+    pourKeepOutBounds.min[pourAxisName] = Math.min(caseBounds.min[pourAxisName], castTarget.bounds.min[pourAxisName]);
+  }
+  const pourKeepOut = (() => {
+    const bounds = pourKeepOutBounds;
+    const axis = pourAxisName;
+    // A flush pour face leaves no corridor column inside the case; there is
+    // nothing to protect.
+    if (bounds.max[axis] - bounds.min[axis] <= 0) return null;
+    return createBlankSolid(module, bounds);
+  })();
   const features: MasterToolingRegistrationFeature[] = [];
+  const blockedInterfaces: string[] = [];
   let failureReason: string | null = null;
   try {
-    for (const candidate of panelInterfaceCandidates(sequence)) {
-      if (features.some((feature) => feature.malePieceId === `piece-panel-${candidate.first + 1}` && feature.femalePieceId === `piece-panel-${candidate.second + 1}`)) continue;
-      const first = sequence[candidate.first]!.chunk;
-      const second = sequence[candidate.second]!.chunk;
+    for (const nomination of provenanceInterfaceCuts(sequence)) {
+      const pairLabel = `panel-${nomination.first + 1}:panel-${nomination.second + 1}`;
+      if (features.some((feature) => feature.malePieceId === `piece-panel-${nomination.first + 1}` && feature.femalePieceId === `piece-panel-${nomination.second + 1}`)) continue;
+      const first = sequence[nomination.first]!.chunk;
+      const second = sequence[nomination.second]!.chunk;
+      // Exact contact proof at the nominated plane: no proven shared patch,
+      // no interface (this is where the old AABB heuristic placed phantom
+      // keys). Not an interface at all — not a block — so skip silently.
+      const patchAreaMm2 = provenInterfaceAreaMm2(policy, first, second, nomination.cut);
+      if (patchAreaMm2 <= volumeTolerance / Math.max(1e-3, sweepClearanceMm)) {
+        continue;
+      }
+      const cutNormal: readonly [number, number, number] = nomination.cut.normal !== undefined
+        ? [nomination.cut.normal.x, nomination.cut.normal.y, nomination.cut.normal.z]
+        : DIRECTION_VECTORS[nomination.cut.axis];
+      const planeOffsetMm = nomination.cut.normal !== undefined && nomination.cut.point !== undefined
+        ? nomination.cut.normal.x * nomination.cut.point.x + nomination.cut.normal.y * nomination.cut.point.y + nomination.cut.normal.z * nomination.cut.point.z
+        : nomination.cut.coordinateMm;
+      const cutAxisName = axisOf(nomination.cut.axis);
+      const cutAxisComponent = cutAxisName === "x" ? 0 : cutAxisName === "y" ? 1 : 2;
+      const transverseAxes = (["x", "y", "z"] as const).filter((axis) => axis !== cutAxisName);
       const overlapMin = {
         x: Math.max(first.bounds.min.x, second.bounds.min.x),
         y: Math.max(first.bounds.min.y, second.bounds.min.y),
@@ -985,85 +1154,156 @@ export async function registerMultiPanelInterfaces(
         y: Math.min(first.bounds.max.y, second.bounds.max.y),
         z: Math.min(first.bounds.max.z, second.bounds.max.z),
       };
-      const center = {
-        x: overlapMin.x + (overlapMax.x - overlapMin.x) * candidate.inset,
-        y: overlapMin.y + (overlapMax.y - overlapMin.y) * candidate.inset,
-        z: overlapMin.z + (overlapMax.z - overlapMin.z) * candidate.inset,
-      };
-      // Registration belongs on the printable case/flange, not in the
-      // functional cavity. When the overlap sample lands inside the target,
-      // move it deterministically to the corresponding outer corner of the
-      // panel envelope while retaining the interface coordinate below.
-      const transverseAxes = (["x", "y", "z"] as const).filter((axis) => axis !== candidate.axis);
-      for (const axis of transverseAxes) {
-        const insideTarget = center[axis] > castTarget.bounds.min[axis] + radiusMm && center[axis] < castTarget.bounds.max[axis] - radiusMm;
-        if (insideTarget) {
-          const outerMin = Math.min(first.bounds.min[axis], second.bounds.min[axis]) + radiusMm;
-          const outerMax = Math.max(first.bounds.max[axis], second.bounds.max[axis]) - radiusMm;
-          center[axis] = candidate.inset < 0.5 ? outerMin : outerMax;
-        }
+      // The key must sit inside the proven patch with a full radius of
+      // margin on every transverse side.
+      const patchRadiusCapMm = Math.min(...transverseAxes.map((axis) => (overlapMax[axis] - overlapMin[axis]) / 4));
+      const radiusMm = Math.min(wallDerivedRadiusMm, patchRadiusCapMm);
+      if (radiusMm < MULTI_PANEL_MIN_PIN_RADIUS_MM) {
+        blockedInterfaces.push(pairLabel);
+        failureReason ??= `${pairLabel} interface patch (${patchAreaMm2.toFixed(1)} mm²) cannot carry a printable key: patch extent allows at most a ${patchRadiusCapMm.toFixed(3)}mm radius, below the ${MULTI_PANEL_MIN_PIN_RADIUS_MM}mm printable minimum.`;
+        continue;
       }
-      const firstOnMinSide = Math.abs(first.bounds.max[candidate.axis] - second.bounds.min[candidate.axis]) <= 1e-3;
-      const interfaceCoordinate = firstOnMinSide
-        ? (first.bounds.max[candidate.axis] + second.bounds.min[candidate.axis]) / 2
-        : (second.bounds.max[candidate.axis] + first.bounds.min[candidate.axis]) / 2;
-      const direction = { x: 0, y: 0, z: 0 };
-      direction[candidate.axis] = firstOnMinSide ? 1 : -1;
-      // A spherical key has no preferred sliding axis, so it remains
-      // releasable when adjacent panels have oblique or differing pull
-      // vectors. Its center is on the interface, giving the male panel a
-      // genuine hemispherical overlap and the female panel an exact socket.
-      center[candidate.axis] = interfaceCoordinate - direction[candidate.axis] * radiusMm / 2;
-      const pinSphere = module.Manifold.sphere(radiusMm, TOOLING_CONSTRUCTION_LIMITS.registrationPinSegments);
-      const pin = pinSphere.translate(center.x, center.y, center.z);
-      pinSphere.delete();
-      const beforeFirst = first.solid.asOriginal();
-      const beforeSecond = second.solid.asOriginal();
-      try {
-        const newFirst = first.solid.add(pin);
-        const newSecond = second.solid.subtract(pin);
-        first.solid.delete();
-        second.solid.delete();
-        (first as { solid: ManifoldSolid; bounds: ReturnType<typeof boundsFromManifold>; volumeMm3: number }).solid = newFirst;
-        (second as { solid: ManifoldSolid; bounds: ReturnType<typeof boundsFromManifold>; volumeMm3: number }).solid = newSecond;
-        (first as { bounds: ReturnType<typeof boundsFromManifold>; volumeMm3: number }).bounds = boundsFromManifold(newFirst);
-        (second as { bounds: ReturnType<typeof boundsFromManifold>; volumeMm3: number }).bounds = boundsFromManifold(newSecond);
-        (first as { volumeMm3: number }).volumeMm3 = newFirst.volume();
-        (second as { volumeMm3: number }).volumeMm3 = newSecond.volume();
-
-        let verified = true;
-        for (let entryIndex = 0; entryIndex < sequence.length && verified; entryIndex += 1) {
-          const entry = sequence[entryIndex]!;
-          const targetProof = verifyDemoldTranslationByVector(targetSolid, entry.chunk.solid, entry.pull.vector, sweepClearanceMm, policy.surfaceToleranceMm, volumeTolerance);
-          if (!targetProof.removable) { failureReason ??= `panel-${entryIndex + 1} intersects the cast target at ${targetProof.firstCollisionDistanceMm?.toFixed(3) ?? "unknown"} mm`; verified = false; break; }
-          for (let siblingIndex = entryIndex + 1; siblingIndex < sequence.length; siblingIndex += 1) {
-            const siblingProof = verifyDemoldTranslationByVector(sequence[siblingIndex]!.chunk.solid, entry.chunk.solid, entry.pull.vector, sweepClearanceMm, policy.surfaceToleranceMm, volumeTolerance);
-            if (!siblingProof.removable) { failureReason ??= `panel-${entryIndex + 1} collides with panel-${siblingIndex + 1} at ${siblingProof.firstCollisionDistanceMm?.toFixed(3) ?? "unknown"} mm`; verified = false; break; }
+      const ventClearanceMm = parameters.geometryToleranceMm;
+      let placed = false;
+      let blockedReason: string | null = null;
+      for (const [uFraction, vFraction] of MULTI_PANEL_PIN_POSITIONS) {
+        const center = { x: 0, y: 0, z: 0 };
+        for (const axis of transverseAxes) center[axis] = overlapMin[axis];
+        const uAxis = transverseAxes[0]!;
+        const vAxis = transverseAxes[1]!;
+        center[uAxis] += (overlapMax[uAxis] - overlapMin[uAxis]) * uFraction;
+        center[vAxis] += (overlapMax[vAxis] - overlapMin[vAxis]) * vFraction;
+        // Solve the cut-axis coordinate so the center lies on the exact
+        // plane n·p = d (the anchor axis dominates the normal, so the
+        // component is never degenerate).
+        let residual = planeOffsetMm;
+        for (const axis of transverseAxes) {
+          const component = axis === "x" ? 0 : axis === "y" ? 1 : 2;
+          residual -= cutNormal[component]! * center[axis];
+        }
+        center[cutAxisName] = residual / cutNormal[cutAxisComponent]!;
+        // Corridor prefilters (exact, cheap): the key may never enter the
+        // functional cavity, the pour column, or a vent path.
+        const pinProbe = module.Manifold.sphere(radiusMm, TOOLING_CONSTRUCTION_LIMITS.registrationPinSegments).translate(center.x, center.y, center.z);
+        let corridorClear = true;
+        try {
+          const cavityOverlap = pinProbe.intersect(targetSolid);
+          try {
+            if (cavityOverlap.volume() > volumeTolerance) {
+              blockedReason = "the key body intersects the functional cavity";
+              corridorClear = false;
+            }
+          } finally {
+            cavityOverlap.delete();
+          }
+          if (corridorClear && pourKeepOut !== null) {
+            const pourOverlap = pinProbe.intersect(pourKeepOut);
+            try {
+              if (pourOverlap.volume() > volumeTolerance) {
+                blockedReason = "the key body enters the pour corridor";
+                corridorClear = false;
+              }
+            } finally {
+              pourOverlap.delete();
+            }
+          }
+        } finally {
+          pinProbe.delete();
+        }
+        if (corridorClear) {
+          for (const vent of ventFeatures) {
+            const distanceMm = pointToSegmentDistanceMm(center, vent.start, vent.end);
+            if (distanceMm < radiusMm + vent.radiusMm + ventClearanceMm) {
+              blockedReason = "the key body enters a vent path corridor";
+              corridorClear = false;
+              break;
+            }
           }
         }
-        if (!verified) {
-          first.solid.delete(); second.solid.delete();
-          (first as { solid: ManifoldSolid }).solid = beforeFirst;
-          (second as { solid: ManifoldSolid }).solid = beforeSecond;
-          continue;
+        if (!corridorClear) continue;
+
+        // Tentative key: male panel gains the hemispherical tenon, female
+        // panel the exact socket. Both must stay single connected solids.
+        const pin = module.Manifold.sphere(radiusMm, TOOLING_CONSTRUCTION_LIMITS.registrationPinSegments).translate(center.x, center.y, center.z);
+        const beforeFirst = first.solid.asOriginal();
+        const beforeSecond = second.solid.asOriginal();
+        let verified = false;
+        try {
+          const newFirst = first.solid.add(pin);
+          const newSecond = second.solid.subtract(pin);
+          first.solid.delete();
+          second.solid.delete();
+          (first as { solid: ManifoldSolid; bounds: ReturnType<typeof boundsFromManifold>; volumeMm3: number }).solid = newFirst;
+          (second as { solid: ManifoldSolid; bounds: ReturnType<typeof boundsFromManifold>; volumeMm3: number }).solid = newSecond;
+          (first as { bounds: ReturnType<typeof boundsFromManifold>; volumeMm3: number }).bounds = boundsFromManifold(newFirst);
+          (second as { bounds: ReturnType<typeof boundsFromManifold>; volumeMm3: number }).bounds = boundsFromManifold(newSecond);
+          (first as { volumeMm3: number }).volumeMm3 = newFirst.volume();
+          (second as { volumeMm3: number }).volumeMm3 = newSecond.volume();
+
+          // Topology/connectivity gate: a key may never split a panel into
+          // disjoint lumps.
+          const firstComponents = newFirst.decompose();
+          const secondComponents = newSecond.decompose();
+          for (const component of firstComponents) component.delete();
+          for (const component of secondComponents) component.delete();
+          if (firstComponents.length !== 1 || secondComponents.length !== 1) {
+            blockedReason = "the key would leave a disconnected panel";
+          } else {
+            // Full release re-verification: every panel must still sweep
+            // clear of the cast target and of every still-assembled sibling
+            // (this is the exact release-corridor proof).
+            verified = true;
+            for (let entryIndex = 0; entryIndex < sequence.length && verified; entryIndex += 1) {
+              const entry = sequence[entryIndex]!;
+              const targetProof = verifyDemoldTranslationByVector(targetSolid, entry.chunk.solid, entry.pull.vector, sweepClearanceMm, policy.surfaceToleranceMm, volumeTolerance);
+              if (!targetProof.removable) {
+                blockedReason = `panel-${entryIndex + 1} no longer clears the cast target along its pull`;
+                verified = false;
+                break;
+              }
+              for (let siblingIndex = entryIndex + 1; siblingIndex < sequence.length; siblingIndex += 1) {
+                const siblingProof = verifyDemoldTranslationByVector(sequence[siblingIndex]!.chunk.solid, entry.chunk.solid, entry.pull.vector, sweepClearanceMm, policy.surfaceToleranceMm, volumeTolerance);
+                if (!siblingProof.removable) {
+                  blockedReason = `panel-${entryIndex + 1} collides with panel-${siblingIndex + 1} during release`;
+                  verified = false;
+                  break;
+                }
+              }
+            }
+          }
+          if (!verified) {
+            first.solid.delete();
+            second.solid.delete();
+            (first as { solid: ManifoldSolid }).solid = beforeFirst;
+            (second as { solid: ManifoldSolid }).solid = beforeSecond;
+            continue;
+          }
+          features.push({
+            featureId: `multi-panel-pin-${nomination.first}-${nomination.second}-${features.length}`,
+            kind: "pin",
+            malePieceId: `piece-panel-${nomination.first + 1}`,
+            femalePieceId: `piece-panel-${nomination.second + 1}`,
+          });
+          placed = true;
+        } finally {
+          pin.delete();
+          if (first.solid !== beforeFirst && second.solid !== beforeSecond) {
+            beforeFirst.delete();
+            beforeSecond.delete();
+          }
         }
-        features.push({
-          featureId: `multi-panel-pin-${candidate.first}-${candidate.second}-${candidate.inset}`,
-          kind: "pin",
-          malePieceId: `piece-panel-${candidate.first + 1}`,
-          femalePieceId: `piece-panel-${candidate.second + 1}`,
-        });
-      } finally {
-        pin.delete();
-        if (first.solid !== beforeFirst && second.solid !== beforeSecond) {
-          beforeFirst.delete(); beforeSecond.delete();
-        }
+        if (placed) break;
+      }
+      if (!placed) {
+        blockedInterfaces.push(pairLabel);
+        failureReason ??= `${pairLabel}: no key position on the ${patchAreaMm2.toFixed(1)} mm² interface patch cleared the corridors at the derived ${radiusMm.toFixed(2)}mm radius (${blockedReason ?? "all candidate positions rejected"}).`;
       }
     }
   } finally {
+    pourKeepOut?.delete();
     targetSolid.delete();
   }
-  return { features, failureReason };
+  return { features, failureReason, blockedInterfaces };
 }
 
 /**

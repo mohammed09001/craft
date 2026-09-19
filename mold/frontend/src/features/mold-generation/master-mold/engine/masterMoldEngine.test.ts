@@ -270,13 +270,17 @@ describe("Master Mold Engine golden cases (Execution 06 Article 17)", () => {
 
   it("Article 10: automatically registers a feasible 3-panel chain with real CSG keys", { timeout: ENGINE_TIMEOUT }, async () => {
     const module = await getManifoldModule();
+    // Case slab x ∈ [0, 6], split at x=2 (root cut) then the max side at x=4
+    // (bisection cut). Sequence is release order: min panel, far panel, middle panel.
+    const rootCut = { axis: "+X" as const, coordinateMm: 2 };
+    const bisectCut = { axis: "+X" as const, coordinateMm: 4 };
     const solids = [
-      createBlankSolid(module, { min: { x: 0, y: 0, z: 0 }, max: { x: 2, y: 4, z: 4 } }),
-      createBlankSolid(module, { min: { x: 4, y: 0, z: 0 }, max: { x: 6, y: 4, z: 4 } }),
-      createBlankSolid(module, { min: { x: 2, y: 0, z: 0 }, max: { x: 4, y: 4, z: 4 } }),
+      { solid: createBlankSolid(module, { min: { x: 0, y: 0, z: 0 }, max: { x: 2, y: 4, z: 4 } }), lineage: { cuts: [rootCut], sides: [false] } },
+      { solid: createBlankSolid(module, { min: { x: 4, y: 0, z: 0 }, max: { x: 6, y: 4, z: 4 } }), lineage: { cuts: [rootCut, bisectCut], sides: [true, true] } },
+      { solid: createBlankSolid(module, { min: { x: 2, y: 0, z: 0 }, max: { x: 4, y: 4, z: 4 } }), lineage: { cuts: [rootCut, bisectCut], sides: [true, false] } },
     ];
-    const sequence: SequencedChunk[] = solids.map((solid, index) => ({
-      chunk: { solid, bounds: boundsFromManifold(solid), volumeMm3: solid.volume() },
+    const sequence: SequencedChunk[] = solids.map(({ solid, lineage }, index) => ({
+      chunk: { solid, bounds: boundsFromManifold(solid), volumeMm3: solid.volume(), lineage },
       pull: { pull: index === 0 ? "-X" : "+X", vector: index === 0 ? [-1, 0, 0] as const : [1, 0, 0] as const, oblique: false },
     }));
     const targetSolid = module.Manifold.cube([2, 2, 2], true).translate(21, 21, 21);
@@ -291,9 +295,15 @@ describe("Master Mold Engine golden cases (Execution 06 Article 17)", () => {
       warnings: [],
     };
     const policy = toolingTolerancePolicy({ min: { x: -3, y: -3, z: -3 }, max: { x: 9, y: 7, z: 7 } });
-    const registration = await registerMultiPanelInterfaces(module, castTarget, sequence, toolingParametersFromProfile(GENERIC_RIGID_CAST_PROFILE), policy, 1e-3, 10);
-    expect(registration.features.length).toBeGreaterThan(0);
+    const registration = await registerMultiPanelInterfaces(module, castTarget, "+Z", sequence, [], toolingParametersFromProfile(GENERIC_RIGID_CAST_PROFILE), policy, 1e-3, 10);
+    // The two REAL interfaces (panels 1-2 touch at x=2? no: 1-3 touch at x=2,
+    // 3-2 touch at x=4; panels 1-2 never touch) are registered with keys.
+    expect(registration.features.map((f) => `${f.malePieceId}:${f.femalePieceId}`).sort()).toEqual([
+      "piece-panel-1:piece-panel-3",
+      "piece-panel-2:piece-panel-3",
+    ]);
     expect(registration.failureReason).toBeNull();
+    expect(registration.blockedInterfaces).toEqual([]);
     targetSolid.delete();
   });
 
