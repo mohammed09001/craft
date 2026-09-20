@@ -39,12 +39,20 @@ import { runMasterMoldEngine } from "./masterMoldEngine";
  * variant of the SAME correct assignment fails at the identical point): full
  * release verification for this specific, deliberately hard fixture's
  * catch-all piece does not currently succeed, and it is not a curve-fitting
- * precision gap -- something deeper about sequential single-direction-per-
- * piece removal not sufficing here, even with a provably correct patch
- * assignment, not yet root-caused further (regionDirectConstruction.ts's own
- * doc comment). LOOP 02's remaining gate items are NOT met until release
- * verification succeeds too; do not read this file's current passing status
- * as full LOOP 02 closure.
+ * precision gap. Root-caused (see regionDirectConstruction.ts's own doc
+ * comment for the full derivation): each non-last piece's flat construction
+ * offset is chosen as the minimum projection of its own TRUE patches along
+ * its own direction, and for a piece with a small or sparse true region a
+ * single deep outlier patch drags that offset far enough to also claim large
+ * amounts of OTHER pieces' material -- measured directly for this fixture,
+ * piece 2 (159 true patches) claims 964 (805 wrong), piece 3 (164 true
+ * patches) claims 1024 (860 wrong). This is a global mismatch between a
+ * single flat half-space and the true non-convex shape a correct assignment
+ * can require, not fixable by the existing local per-neighbor curve
+ * correction. Closing it needs a genuinely different construction technique,
+ * explicitly scoped out of this loop per user decision. LOOP 02's remaining
+ * gate items are NOT met until release verification succeeds too; do not
+ * read this file's current passing status as full LOOP 02 closure.
  */
 describe("Real free-form regression (Execution 08 LOOP 02)", () => {
   it("reaches real exact-CSG construction via the region-direct-assignment fallback (previously 0 attempts, ever), still fails release for this specific hard fixture", { timeout: 120_000 }, async () => {

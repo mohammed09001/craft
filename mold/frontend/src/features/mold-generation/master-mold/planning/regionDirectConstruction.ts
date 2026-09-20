@@ -31,10 +31,34 @@ import type { RegionDirectAssignmentResult } from "./regionDirectAssignment";
  * verification for that specific, deliberately hard fixture did NOT
  * succeed in that same trial, and -- checked directly -- an all-flat-plane
  * variant of the SAME assignment failed at the exact same point, so the
- * remaining gap there is not curve-fitting precision; it is something
- * deeper about this sequential single-direction-per-piece removal order
- * not sufficing for that fixture's own real complexity, even with a
- * provably correct patch assignment. Not yet root-caused further.
+ * remaining gap there is not curve-fitting precision.
+ *
+ * Root-caused (measured directly against this fixture, by comparing each
+ * piece's TRUE assigned-patch set against what its computed flat offset
+ * actually claims): the `minProjection - epsilon` "best-fit" offset above
+ * is unsound for a piece whose true region is small or sparse relative to
+ * the whole shape. A single outlier patch -- one that happens to sit
+ * unusually deep along the piece's own direction, but is still correctly
+ * assigned to this piece by the region proof -- drags `minProjection` far
+ * enough that the resulting half-space also captures large amounts of
+ * OTHER pieces' material, because "everything beyond this one offset" is
+ * a strictly weaker, more permissive test than "this patch's true region
+ * assignment". Measured for this fixture: piece 2 (159 true patches) has
+ * its flat offset claim 964 patches -- 805 wrong, 685 of those stolen from
+ * piece 1 alone; piece 3 (164 true patches) claims 1024 -- 860 wrong, 515
+ * from piece 0 and 327 from piece 1. This is NOT fixable by the existing
+ * per-neighbor local curve correction (heightFieldPartingSolid /
+ * multiNeighborHeightFieldSolid): those correct the boundary only near
+ * each neighbor's own real parting curve, and the wrongly-claimed material
+ * here is not topologically adjacent to the piece at all -- it is a global
+ * mismatch between "single flat half-space" as a boundary primitive and
+ * the true, highly non-convex shape a correct multi-region assignment can
+ * require. Closing this needs a genuinely different construction
+ * technique (e.g. abandoning the flat-offset fallback entirely in favor of
+ * a boundary derived directly from the per-patch assignment, or abandoning
+ * sequential ordered removal in favor of simultaneous partition) --
+ * explicitly scoped out of Execution 08 LOOP 14 per user decision, not
+ * attempted here.
  */
 export function buildDirectAssignmentConstructionPieces(
   planningMesh: PlanningMesh,
