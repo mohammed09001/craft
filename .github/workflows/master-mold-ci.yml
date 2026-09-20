@@ -1,0 +1,80 @@
+name: Master Mold CI
+
+# Execution 08 LOOP 27: real CI closure. The PR gate runs the fast,
+# always-required checks on every push/PR; the heavier real-browser
+# Playwright suite (including the real /workspace high-poly E2E spec) runs
+# nightly and on manual dispatch so it never blocks or slows a PR, per the
+# execution document's own "PR gate: core tests; nightly/full gate: heavy
+# geometry/browser suite" allowance.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # 03:17 UTC daily -- an off-the-hour time, not a round number every
+    # scheduled workflow on GitHub tends to pile onto.
+    - cron: "17 3 * * *"
+  workflow_dispatch: {}
+
+defaults:
+  run:
+    working-directory: frontend
+
+concurrency:
+  group: master-mold-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pr-gate:
+    name: PR gate (typecheck, lint, architecture, unit tests, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Architecture check
+        run: npm run check:architecture
+      - name: Unit tests (Master Mold, Working Mold intelligence, real free-form regression, full suite)
+        run: npm run test:run
+      - name: Build
+        run: npm run build
+
+  nightly-e2e:
+    name: Nightly/manual real-browser E2E (real /workspace high-poly, Master Mold)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+      - name: Build (e2e mode)
+        run: npm run build:e2e
+      - name: Real-browser E2E (includes masterMoldRealWorkspace.spec.ts)
+        run: npm run e2e
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 14
