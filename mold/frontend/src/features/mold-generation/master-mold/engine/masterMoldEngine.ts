@@ -191,9 +191,38 @@ function buildBudgetDetails(params: {
       limit: 0,
       used: 0,
       pruned: 0,
-      reason: "general (non-half-space) parting surface construction is not yet implemented (Execution 08 LOOP 14); every piece is still an ordered half-space prism. A ruled-surface (curve-swept) primitive exists and is unit-tested in isolation (workingMoldConstructor.ts's ruledPartingSurfaceSolid), but composing it into a correct drop-in half-space replacement was attempted and found to need real height-field surface support the flat 2D polygon extrusion cannot provide (a locally-corrected composition produced volume-correct but topologically fragmented pieces) -- not wired into construction.",
+      reason: "a height-field (curve-following) parting surface (Execution 08 LOOP 14) is attempted only as a two-piece fallback when the flat half-space plane fails real construction; a multi-piece decomposition's non-catch-all pieces are still ordered half-space prisms, and this fallback is skipped when a finalist's own parting curve self-intersects or has too few points.",
     },
   ];
+}
+
+/**
+ * Execution 08 LOOP 14: builds a height-field (curve-based) alternative to
+ * a finalist's own flat-plane prism pieces, or `null` when this finalist
+ * isn't eligible. Bounded to exactly one prism piece plus the catch-all (a
+ * two-piece decomposition): the piece's own real parting curve, extracted
+ * from the SAME already-proven-sound patch assignment the plane search
+ * failed to realize, is only guaranteed to be one simple closed loop
+ * against a single other piece -- a multi-piece boundary can touch several
+ * neighbors and is not one loop in general (a further increment).
+ */
+function heightFieldFallbackPieces(
+  finalist: WorkingMoldDecompositionFinalist,
+  planarPieces: readonly { readonly releaseDirection: PlanningVector3; readonly plane: { readonly direction: PlanningVector3; readonly offsetMm: number } | null }[],
+): readonly { readonly releaseDirection: PlanningVector3; readonly plane: { readonly direction: PlanningVector3; readonly offsetMm: number } | null; readonly curve?: { readonly points: readonly PlanningVector3[] } | null }[] | null {
+  if (finalist.candidate.pieces.length !== 2) return null;
+  const prismPieceIndex = finalist.candidate.pieces.findIndex((piece) => piece.prism !== null);
+  if (prismPieceIndex === -1) return null;
+  if (finalist.interfaces.length !== 1) return null;
+  const [interfaceCurve] = finalist.interfaces;
+  if (interfaceCurve!.selfIntersecting) return null;
+  if (interfaceCurve!.samplePoints.length < 3) return null;
+
+  return planarPieces.map((piece, index) =>
+    index === prismPieceIndex
+      ? { releaseDirection: piece.releaseDirection, plane: piece.plane, curve: { points: interfaceCurve!.samplePoints } }
+      : piece,
+  );
 }
 
 export async function runMasterMoldEngine(
@@ -335,26 +364,53 @@ export async function runMasterMoldEngine(
     for (const finalist of step.finalists) {
       throwIfCancelled(hooks);
       budget.workingMoldConstructionAttempts += 1;
+      const planarPieces = finalist.candidate.pieces.map((piece) => ({
+        releaseDirection: piece.releaseDirection,
+        plane: piece.prism === null
+          ? null
+          : {
+              direction: analysis.directions[piece.prism.directionIndex]!.vector,
+              offsetMm: piece.prism.offsetMm,
+            },
+      }));
       try {
         construction = await constructWorkingMold({
           sourceMesh: seed.sourceMesh,
           sourceBounds: seed.sourceBounds,
           releaseClearanceMm: seed.processProfile.releaseClearanceMm ?? 0,
           minimumToolingWallMm: seed.processProfile.minimumToolingWallMm,
-          pieces: finalist.candidate.pieces.map((piece) => ({
-            releaseDirection: piece.releaseDirection,
-            plane: piece.prism === null
-              ? null
-              : {
-                  direction: analysis.directions[piece.prism.directionIndex]!.vector,
-                  offsetMm: piece.prism.offsetMm,
-                },
-          })),
+          pieces: planarPieces,
         });
         constructionFinalist = finalist;
         break;
       } catch (error) {
         countError = error instanceof Error ? error : new Error(String(error));
+      }
+      // Execution 08 LOOP 14: the flat half-space plane this finalist's
+      // prism search settled on is not the only way to realize its own
+      // (already-proven-sound) patch assignment -- retry with a
+      // height-field cutting tool that follows that assignment's own real
+      // parting curve instead. Bounded to a two-piece decomposition (one
+      // prism piece + the catch-all): the curve is that piece's FULL
+      // boundary against everything else, only guaranteed to be one simple
+      // closed loop when there is exactly one other piece.
+      const heightFieldPieces = heightFieldFallbackPieces(finalist, planarPieces);
+      if (heightFieldPieces !== null) {
+        throwIfCancelled(hooks);
+        budget.workingMoldConstructionAttempts += 1;
+        try {
+          construction = await constructWorkingMold({
+            sourceMesh: seed.sourceMesh,
+            sourceBounds: seed.sourceBounds,
+            releaseClearanceMm: seed.processProfile.releaseClearanceMm ?? 0,
+            minimumToolingWallMm: seed.processProfile.minimumToolingWallMm,
+            pieces: heightFieldPieces,
+          });
+          constructionFinalist = finalist;
+          break;
+        } catch (error) {
+          countError = error instanceof Error ? error : new Error(String(error));
+        }
       }
     }
     if (construction !== null) break;

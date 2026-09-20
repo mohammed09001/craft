@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { getManifoldModule, payloadFromManifold } from "../../geometry/manifold";
+import { getManifoldModule, payloadFromManifold, createBlankSolid } from "../../geometry/manifold";
 import { meshTopology } from "../../geometry/meshTopology";
 import type { PlanningVector3 } from "./masterMoldPlanning.contracts";
-import { basisAround, ruledPartingSurfaceSolid } from "./workingMoldConstructor";
+import { basisAround, ruledPartingSurfaceSolid, heightFieldPartingSolid } from "./workingMoldConstructor";
 
 /**
  * Execution 08 LOOP 14: the first increment of "Working Mold must not
@@ -107,6 +107,91 @@ describe("ruledPartingSurfaceSolid (Execution 08 LOOP 14)", () => {
     const bounds = { min: { x: -10, y: -10, z: -10 }, max: { x: 10, y: 10, z: 10 } };
     expect(() =>
       ruledPartingSurfaceSolid(module, [{ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }], { x: 0, y: 0, z: 1 }, bounds),
+    ).toThrow(/at least 3 curve points/);
+  });
+});
+
+/**
+ * Execution 08 LOOP 14, second increment: `ruledPartingSurfaceSolid` alone
+ * is bounded to the curve's own local (u, v) footprint, which is NOT a
+ * valid drop-in replacement for an infinite half-space plane (a naive
+ * substitution excluded the mold envelope's own far-field wall material,
+ * and a follow-up boolean composition attempt produced volume-correct but
+ * topologically fragmented pieces -- see `heightFieldPartingSolid`'s own
+ * doc comment). `heightFieldPartingSolid` is the real fix: a single,
+ * explicitly-built watertight mesh whose lower boundary follows the
+ * curve's own real per-point height near the part and is EXACTLY the flat
+ * plane's own offset at and beyond a generous outer radius -- a genuine
+ * height field, not a bounded polygon extrusion.
+ */
+describe("heightFieldPartingSolid (Execution 08 LOOP 14)", () => {
+  it("a perfectly flat curve produces a solid matching the analytic n-gon-prism volume exactly", async () => {
+    const module = await getManifoldModule();
+    const bounds = { min: { x: -10, y: -10, z: -10 }, max: { x: 10, y: 10, z: 10 } };
+    const n = 8;
+    const curveRadius = 3;
+    const curve: PlanningVector3[] = Array.from({ length: n }, (_, index) => {
+      const angle = (index / n) * Math.PI * 2;
+      return { x: Math.cos(angle) * curveRadius, y: Math.sin(angle) * curveRadius, z: 0 };
+    });
+    const solid = heightFieldPartingSolid(module, curve, { x: 0, y: 0, z: 1 }, 0, bounds, 1e-4);
+    try {
+      expect(solid.status()).toBe("NoError");
+      const diagonal = Math.hypot(20, 20, 20);
+      const outerRadius = diagonal + curveRadius + 1;
+      const depth = diagonal * 1.5 + 2;
+      const polygonArea = 0.5 * n * outerRadius * outerRadius * Math.sin((2 * Math.PI) / n);
+      expect(solid.volume()).toBeCloseTo(polygonArea * depth, -1);
+
+      const mesh = payloadFromManifold(solid);
+      const topology = meshTopology(mesh);
+      expect(topology.openEdgeCount).toBe(0);
+      expect(topology.nonManifoldEdgeCount).toBe(0);
+      const components = solid.decompose();
+      expect(components.length).toBe(1);
+      for (const component of components) component.delete();
+    } finally {
+      solid.delete();
+    }
+  });
+
+  it("far from the curve's local footprint, the solid matches the flat plane offset exactly", async () => {
+    const module = await getManifoldModule();
+    const bounds = { min: { x: -10, y: -10, z: -10 }, max: { x: 10, y: 10, z: 10 } };
+    const n = 6;
+    const curveRadius = 2;
+    // A curve with real height variation (not flat) -- the local correction this test isn't checking.
+    const curve: PlanningVector3[] = Array.from({ length: n }, (_, index) => {
+      const angle = (index / n) * Math.PI * 2;
+      return { x: Math.cos(angle) * curveRadius, y: Math.sin(angle) * curveRadius, z: Math.sin(angle * 2) * 1.5 };
+    });
+    const flatOffsetMm = 0;
+    const solid = heightFieldPartingSolid(module, curve, { x: 0, y: 0, z: 1 }, flatOffsetMm, bounds, 1e-4);
+    // Tall enough to fully cover the probe below (z spans [-10, 10]).
+    const flatHalfSpace = createBlankSolid(module, { min: { x: -9, y: -9, z: flatOffsetMm }, max: { x: 9, y: 9, z: 20 } });
+    // Sample far from the curve's own small footprint (radius 2): a probe
+    // block near the envelope's own corner, well outside the local
+    // correction region, should be carved IDENTICALLY by the height-field
+    // tool and the flat plane.
+    const probe = module.Manifold.cube([2, 2, 20], true).translate(8, 8, 0);
+    try {
+      const heightFieldProbe = probe.intersect(solid);
+      const flatProbe = probe.intersect(flatHalfSpace);
+      expect(heightFieldProbe.volume()).toBeCloseTo(flatProbe.volume(), 1);
+      heightFieldProbe.delete();
+      flatProbe.delete();
+    } finally {
+      probe.delete();
+      flatHalfSpace.delete();
+      solid.delete();
+    }
+  });
+
+  it("rejects a degenerate curve with fewer than 3 points", async () => {
+    const module = await getManifoldModule();
+    const bounds = { min: { x: -10, y: -10, z: -10 }, max: { x: 10, y: 10, z: 10 } };
+    expect(() =>
+      heightFieldPartingSolid(module, [{ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }], { x: 0, y: 0, z: 1 }, 0, bounds, 1e-4),
     ).toThrow(/at least 3 curve points/);
   });
 });

@@ -48,6 +48,22 @@ export interface PlannedPieceRegion {
   readonly releaseDirection: PlanningVector3;
   /** Parting plane (unit direction + offset): piece occupies dot(p,d) >= offset minus earlier pieces. null for the catch-all remainder. */
   readonly plane: { readonly direction: PlanningVector3; readonly offsetMm: number } | null;
+  /**
+   * Execution 08 LOOP 14: a height-field cutting tool (`heightFieldPartingSolid`)
+   * -- `plane`'s own flat cut everywhere except near this piece's own real
+   * parting curve (from the planning-level patch assignment, Loop 13's
+   * ordered/simplified curve), where the true curve's own per-point height
+   * is followed instead. `plane` MUST still be supplied alongside `curve`,
+   * not null: the height field's far field, and its fallback if this piece
+   * is rejected, are both the flat cut. Registration-pin placement (which
+   * reuses `plane`) still lands correctly almost everywhere, since pins are
+   * placed away from the part by design. Only meaningful for a two-piece
+   * decomposition (this piece plus the catch-all remainder): the curve is
+   * this piece's FULL boundary against everything else, which is only
+   * guaranteed to be one simple closed loop when there is exactly one
+   * other piece.
+   */
+  readonly curve?: { readonly points: readonly PlanningVector3[] } | null;
 }
 
 export interface WorkingMoldConstructionInput {
@@ -228,6 +244,142 @@ export function ruledPartingSurfaceSolid(
     crossSection.delete();
     extruded?.delete();
   }
+}
+
+/**
+ * Execution 08 LOOP 14: a genuine height-field cutting tool -- the correct
+ * fix `ruledPartingSurfaceSolid` alone could not provide (see its own doc
+ * comment for why a flat 2D polygon extrusion cannot replace a half-space
+ * plane). The lower boundary of this solid is a real surface that follows
+ * the curve's own actual per-point height NEAR the part, and is EXACTLY
+ * `flatOffsetMm` (the flat plane's own value) at and beyond a generous
+ * outer radius -- so it is a genuine drop-in replacement for
+ * `halfSpacePrismPayload` in `remainder.intersect(...)` /
+ * `remainder.subtract(...)` carving: identical to the flat plane far from
+ * the part, following the real (possibly non-planar) boundary near it.
+ *
+ * Built as one explicit, watertight mesh (not a boolean composition of
+ * separate tools, which an earlier attempt found produces a gap and
+ * fragmented pieces):
+ *   - a fan cap from the curve's own centroid to the curve loop, each
+ *     triangle carrying the curve's own real per-point height (the wavy
+ *     "floor" near the part);
+ *   - a collar strip connecting the curve loop to a circle of the same
+ *     angular sampling at a generous outer radius, height 0 (flat, matching
+ *     the plane) -- closing the gap between the curve's real shape and the
+ *     flat far field with NO seam;
+ *   - a cylindrical side wall from that outer circle up to a ceiling circle
+ *     far above (matching `halfSpacePrismPayload`'s own oversized "depth"
+ *     convention for an effectively unbounded half-space), and a flat
+ *     ceiling cap.
+ *
+ * Requires the curve to be star-shaped around its own centroid when
+ * projected onto the plane perpendicular to `flatDirection` (points are
+ * explicitly re-sorted by angle around that centroid before building the
+ * fan/collar, regardless of the curve's own stored order, to guarantee
+ * this): a real single-loop parting curve around one piece's own moldable
+ * region satisfies this in the cases this loop targets. A curve that
+ * doubles back on itself in angle (not star-shaped) would produce
+ * self-intersecting fan triangles -- `selfIntersecting` from Loop 13's own
+ * curve extraction is a necessary but not sufficient guard for that; the
+ * caller should treat a `NoError`-but-implausible-volume result here as a
+ * signal to fall back to the flat plane.
+ */
+export function heightFieldPartingSolid(
+  module: Awaited<ReturnType<typeof getManifoldModule>>,
+  curvePoints: readonly PlanningVector3[],
+  flatDirection: PlanningVector3,
+  flatOffsetMm: number,
+  bounds: Bounds3,
+  toleranceMm: number,
+): ManifoldSolid {
+  if (curvePoints.length < 3) throw new Error("a height-field parting surface needs at least 3 curve points.");
+  const { u, v, w } = basisAround(flatDirection);
+
+  const local = curvePoints.map((point) => ({
+    pu: point.x * u.x + point.y * u.y + point.z * u.z,
+    pv: point.x * v.x + point.y * v.y + point.z * v.z,
+    h: point.x * w.x + point.y * w.y + point.z * w.z - flatOffsetMm,
+  }));
+  const centroidU = local.reduce((sum, point) => sum + point.pu, 0) / local.length;
+  const centroidV = local.reduce((sum, point) => sum + point.pv, 0) / local.length;
+  const centroidH = local.reduce((sum, point) => sum + point.h, 0) / local.length;
+
+  const sorted = [...local].sort(
+    (a, b) => Math.atan2(a.pv - centroidV, a.pu - centroidU) - Math.atan2(b.pv - centroidV, b.pu - centroidU),
+  );
+  let maxCurveRadius = 0;
+  for (const point of sorted) {
+    const radius = Math.hypot(point.pu - centroidU, point.pv - centroidV);
+    if (radius > maxCurveRadius) maxCurveRadius = radius;
+  }
+
+  const diagonal = Math.hypot(
+    bounds.max.x - bounds.min.x,
+    bounds.max.y - bounds.min.y,
+    bounds.max.z - bounds.min.z,
+  );
+  const outerRadius = diagonal + maxCurveRadius + 1;
+  const depth = diagonal * 1.5 + 2;
+
+  const positions: number[] = [];
+  const pushVertex = (pu: number, pv: number, hRelative: number): number => {
+    const height = flatOffsetMm + hRelative;
+    positions.push(
+      u.x * pu + v.x * pv + w.x * height,
+      u.y * pu + v.y * pv + w.y * height,
+      u.z * pu + v.z * pv + w.z * height,
+    );
+    return positions.length / 3 - 1;
+  };
+
+  const centerIndex = pushVertex(centroidU, centroidV, centroidH);
+  const n = sorted.length;
+  const curveIndices: number[] = new Array(n);
+  const outerIndices: number[] = new Array(n);
+  const ceilingOuterIndices: number[] = new Array(n);
+  const angles: number[] = new Array(n);
+  for (let i = 0; i < n; i += 1) {
+    const point = sorted[i]!;
+    angles[i] = Math.atan2(point.pv - centroidV, point.pu - centroidU);
+    curveIndices[i] = pushVertex(point.pu, point.pv, point.h);
+  }
+  for (let i = 0; i < n; i += 1) {
+    const outerU = centroidU + Math.cos(angles[i]!) * outerRadius;
+    const outerV = centroidV + Math.sin(angles[i]!) * outerRadius;
+    outerIndices[i] = pushVertex(outerU, outerV, 0);
+    ceilingOuterIndices[i] = pushVertex(outerU, outerV, depth);
+  }
+  const ceilingCenterIndex = pushVertex(centroidU, centroidV, depth);
+
+  const indices: number[] = [];
+  const addTri = (a: number, b: number, c: number) => indices.push(a, b, c);
+  const addQuad = (a: number, b: number, c: number, d: number) => {
+    addTri(a, b, c);
+    addTri(a, c, d);
+  };
+  for (let i = 0; i < n; i += 1) {
+    const next = (i + 1) % n;
+    // Fan cap (the wavy floor near the part).
+    addTri(centerIndex, curveIndices[next]!, curveIndices[i]!);
+    // Collar (curve loop -> flat outer circle, no seam).
+    addQuad(curveIndices[i]!, curveIndices[next]!, outerIndices[next]!, outerIndices[i]!);
+    // Side wall (outer circle -> ceiling circle).
+    addQuad(outerIndices[i]!, outerIndices[next]!, ceilingOuterIndices[next]!, ceilingOuterIndices[i]!);
+    // Ceiling cap (flat, opposite winding to the fan cap).
+    addTri(ceilingCenterIndex, ceilingOuterIndices[i]!, ceilingOuterIndices[next]!);
+  }
+
+  const solid = manifoldFromPayload(module, { positions, indices }, toleranceMm);
+  // The winding convention above is empirically verified (workingMoldConstructor.loop14.test.ts)
+  // to produce outward-facing normals (positive volume); a negative volume
+  // here would mean every triangle above needs its last two indices swapped.
+  assertManifoldStatus(solid, "Height-field parting-surface construction");
+  if (solid.volume() < 0) {
+    solid.delete();
+    throw new Error("height-field parting surface produced an inward-facing (negative-volume) solid.");
+  }
+  return solid;
 }
 
 /** Explicit n-gon prism payload (registration pin) along `direction`, centered on `center` spanning ±length/2. */
@@ -514,21 +666,33 @@ export async function constructWorkingMold(input: WorkingMoldConstructionInput):
   try {
     remainder = createBlankSolid(module, envelopeBounds);
     for (let index = 0; index < input.pieces.length; index += 1) {
-      const plane = input.pieces[index]!.plane;
+      const piece = input.pieces[index]!;
+      const plane = piece.plane;
+      const curve = piece.curve;
       if (plane === null) {
         pieceSolids.push(remainder);
         remainder = null;
         break;
       }
-      const prismSolid = manifoldFromPayload(module, halfSpacePrismPayload(plane.direction, plane.offsetMm, envelopeBounds), policy.booleanToleranceMm);
+      if (curve !== null && curve !== undefined && curve.points.length < 3) {
+        throw new Error("a height-field cutting tool needs at least 3 curve points.");
+      }
+      // Execution 08 LOOP 14: a curve-based cutting tool (present) takes
+      // priority over the plain half-space plane -- the same
+      // intersect/subtract carving either way, just following the real
+      // parting curve's own per-point height near the part instead of a
+      // pure infinite half-plane.
+      const cuttingSolid = curve
+        ? heightFieldPartingSolid(module, curve.points, plane.direction, plane.offsetMm, envelopeBounds, policy.booleanToleranceMm)
+        : manifoldFromPayload(module, halfSpacePrismPayload(plane.direction, plane.offsetMm, envelopeBounds), policy.booleanToleranceMm);
       try {
-        const region = remainder.intersect(prismSolid);
-        const nextRemainder = remainder.subtract(prismSolid);
+        const region = remainder.intersect(cuttingSolid);
+        const nextRemainder = remainder.subtract(cuttingSolid);
         remainder.delete();
         remainder = nextRemainder;
         pieceSolids.push(region);
       } finally {
-        prismSolid.delete();
+        cuttingSolid.delete();
       }
     }
 
