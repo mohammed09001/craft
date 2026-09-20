@@ -69,16 +69,33 @@ export interface PlannedPieceRegion {
    */
   readonly curve?: readonly (readonly PlanningVector3[])[] | null;
   /**
-   * Execution 08 LOOP 14 (flat-offset over-capture fix): a cutting tool
-   * driven DIRECTLY by the real per-patch assignment, not by a single
-   * global flat offset -- see `assignmentGridPartingSolid`'s own doc
-   * comment for why the single-offset heuristic is unsound and what this
-   * replaces it with. When present, this takes priority over `curve` in
-   * `constructWorkingMold`'s carving loop (both correct the same
-   * `plane`-based flat fallback, but `grid` is the strictly more general
-   * fix: it does not depend on a pre-extracted boundary curve at all).
+   * Execution 08 LOOP 14: this piece's own real per-patch assignment
+   * (`ownPoints`) and every OTHER piece's (`otherPoints`) -- driven
+   * directly by the real assignment, not by a single global flat offset.
+   * When EVERY non-last piece in a `constructWorkingMold` call carries
+   * this (and the last has `plane: null`), the whole call switches to the
+   * simultaneous, order-independent partition construction mode (each
+   * piece built directly via `localBoundedAssignmentSolid`, not the
+   * sequential remainder-carving loop) -- see that function's and
+   * `constructWorkingMold`'s own doc comments for why. `otherPoints` is
+   * symmetric in that mode: ALL other pieces, not just later ones, since
+   * there is no carving order to make "later" meaningful.
    */
-  readonly grid?: { readonly ownPoints: readonly PlanningVector3[]; readonly otherPoints: readonly PlanningVector3[] } | null;
+  readonly grid?: {
+    readonly ownPoints: readonly PlanningVector3[];
+    readonly otherPoints: readonly PlanningVector3[];
+    /**
+     * The largest own patch's own equivalent radius (`sqrt(areaMm2 / PI)`).
+     * `localBoundedAssignmentSolid`'s footprint is built from patch
+     * CENTROIDS, which sit strictly inside each triangle -- on a coarsely
+     * triangulated mesh (a handful of large patches), centroid-to-centroid
+     * spread alone badly underestimates the real surface extent (measured:
+     * a simple box's own top-half claim came out at 1445 of an expected
+     * ~5324). This inflates the footprint radius enough to comfortably
+     * cover each own patch's actual triangle, not just its centroid.
+     */
+    readonly ownPatchRadiusMm: number;
+  } | null;
 }
 
 export interface WorkingMoldConstructionInput {
@@ -513,57 +530,27 @@ export function multiNeighborHeightFieldSolid(
 }
 
 /**
- * Execution 08 LOOP 14 (flat-offset over-capture fix, second attempt): a
- * SURGICAL replacement for a piece's single "best-fit" flat offset
- * (`buildDirectAssignmentConstructionPieces`'s own `minProjection -
- * epsilon`), which is unsound whenever a piece's true assigned region is
- * small or sparse relative to the whole shape -- a single outlier patch,
- * still correctly assigned to the piece, drags the ONE global scalar
- * offset low enough that the resulting half-space also captures large
- * amounts of OTHER pieces' material that isn't even topologically
- * adjacent to this piece (measured directly against the real free-form
- * regression fixture: a piece with 159 true patches had its flat offset
- * claim 964, 805 of them wrong).
- *
- * A first attempt here replaced the ENTIRE flat floor with an independent
- * per-grid-cell nearest-own-vs-nearest-other decision. That did eliminate
- * the over-capture, but introduced a worse problem, found empirically: it
- * fragments EVERY piece into many disconnected solid components (measured
- * on the real fixture: 21, 13, 7, 4, 3 components across the 5 pieces),
- * because a "no-claim" column carves a full-height gap straight through
- * the remainder there, and the true per-patch assignment's own boundary is
- * not always representable as a single-valued function of the in-plane
- * position (the same "not monotonic enough" limitation already documented
- * on `multiNeighborHeightFieldSolid`, just now hit everywhere instead of
- * only near known neighbor curves).
- *
- * This version keeps the flat plane as the base (guaranteed simple,
- * convex, single-connected) and drills only LOCAL, bounded "give-back"
- * exclusions exactly where the flat plane provably steals real material:
- * every `otherPoints` patch whose own projection along `direction` is >=
- * `flatOffsetMm` (i.e. would be wrongly included by the flat half-space)
- * is a known theft. Cluster those thefts by in-plane proximity (simple
- * union-find), and for each cluster subtract a full-height cylinder
- * (spanning comfortably beyond the whole envelope both ways along
- * `direction`, so it is a clean drill-through, not a height-field patch)
- * centered on the cluster with radius covering it plus margin. No own
- * point is ever excluded this way (`flatOffsetMm` is always <= every own
- * point's own projection, by construction), so this only ever gives
- * material BACK to the remainder, never takes any of this piece's own
- * material away -- a small number of localized full-height notches out of
- * an otherwise plain convex shape, far less likely to sever connectivity
- * than replacing the whole surface.
+ * Execution 08 LOOP 14 (simultaneous-partition rewrite): given a BASE
+ * cutting-tool solid already built (`localBoundedAssignmentSolid`'s own
+ * local footprint, the only caller now that `grid` always routes through
+ * the simultaneous partition mode -- an earlier flat-half-space-based
+ * caller, `assignmentGridPartingSolid`, is gone; see
+ * `buildDirectAssignmentConstructionPieces`'s and this file's own carving
+ * doc comments for that history), drills the same local "give-back"
+ * exclusions -- one full-height (well, near-side-bounded) cylinder per
+ * cluster of `otherPoints` the base solid would otherwise wrongly claim
+ * (`point.h >= flatOffsetMm`). Consumes and returns ownership of `base`
+ * (deletes it on both the normal and error paths).
  */
-export function assignmentGridPartingSolid(
+function applyStolenMaterialExclusions(
   module: Awaited<ReturnType<typeof getManifoldModule>>,
-  ownPoints: readonly PlanningVector3[],
+  base: ManifoldSolid,
   otherPoints: readonly PlanningVector3[],
   direction: PlanningVector3,
   flatOffsetMm: number,
   bounds: Bounds3,
   toleranceMm: number,
 ): ManifoldSolid {
-  if (ownPoints.length === 0) throw new Error("an assignment-grid parting surface needs at least one own patch point.");
   const { u, v, w } = basisAround(direction);
   const project = (point: PlanningVector3) => ({
     pu: point.x * u.x + point.y * u.y + point.z * u.z,
@@ -571,9 +558,7 @@ export function assignmentGridPartingSolid(
     h: point.x * w.x + point.y * w.y + point.z * w.z,
   });
 
-  const flatPayload = halfSpacePrismPayload(direction, flatOffsetMm, bounds);
-  let tool = manifoldFromPayload(module, flatPayload, toleranceMm);
-
+  let tool = base;
   const stolen = otherPoints.map(project).filter((point) => point.h >= flatOffsetMm);
   if (stolen.length === 0) return tool;
 
@@ -691,6 +676,108 @@ export function assignmentGridPartingSolid(
   }
 }
 
+/**
+ * Execution 08 LOOP 14 (simultaneous-partition rewrite): a piece's cutting
+ * tool bounded to its OWN local footprint from the start, instead of an
+ * infinite flat half-space corrected after the fact by exclusions.
+ *
+ * Diagnosed against the real free-form regression fixture: the flat-plane-
+ * plus-exclusions model (`assignmentGridPartingSolid`) works well when a
+ * piece's own territory is most of its half-space, but for a piece with a
+ * small or scattered territory surrounded by many OTHER pieces' patches, it
+ * still starts from "claim (almost) everything" and drills enough holes to
+ * give most of it back -- a fragile shape (verified: pieces this happens to
+ * fragment into multiple disconnected components even with per-cluster
+ * exclusions correctly computed). Building the piece's own local extent
+ * DIRECTLY, instead of subtracting it out of a much bigger claim, removes
+ * that fragility at the source.
+ *
+ * This is also the basis of the simultaneous (order-independent) partition
+ * this loop introduces: because each piece's tool is bounded to its OWN
+ * local footprint, computing all pieces' raw claims INDEPENDENTLY (using
+ * ALL other pieces' patches as `otherPoints`, not just later ones) no
+ * longer risks one piece unboundedly claiming another's whole territory the
+ * way two independently-computed infinite half-spaces could -- residual
+ * overlap, if any, is small and local, safely resolved by a single
+ * deterministic subtraction pass afterward (see the construction call
+ * site) instead of a fragile, order-dependent sequential carve.
+ *
+ * Built as: a cylinder around `ownPoints`' own in-plane footprint (centroid
+ * + max radius + margin), spanning comfortably beyond the whole envelope
+ * both ways along `direction`, intersected with the flat half-space
+ * `dot(p, direction) >= flatOffsetMm` (`flatOffsetMm` is still the minimum
+ * projection of `ownPoints` -- it says how deep this piece's own material
+ * reaches, exactly as it always has); then the same per-cluster exclusion
+ * treatment (`applyStolenMaterialExclusions`, shared with this file's
+ * curve- and flat-based tools) for any `otherPoints` that still fall
+ * within that bounded footprint.
+ */
+export function localBoundedAssignmentSolid(
+  module: Awaited<ReturnType<typeof getManifoldModule>>,
+  ownPoints: readonly PlanningVector3[],
+  otherPoints: readonly PlanningVector3[],
+  direction: PlanningVector3,
+  bounds: Bounds3,
+  toleranceMm: number,
+  ownPatchRadiusMm: number,
+): ManifoldSolid {
+  if (ownPoints.length === 0) throw new Error("a local-bounded assignment solid needs at least one own patch point.");
+  const { u, v, w } = basisAround(direction);
+  const project = (point: PlanningVector3) => ({
+    pu: point.x * u.x + point.y * u.y + point.z * u.z,
+    pv: point.x * v.x + point.y * v.y + point.z * v.z,
+    h: point.x * w.x + point.y * w.y + point.z * w.z,
+  });
+  const own = ownPoints.map(project);
+
+  const centroidU = own.reduce((sum, point) => sum + point.pu, 0) / own.length;
+  const centroidV = own.reduce((sum, point) => sum + point.pv, 0) / own.length;
+  let maxRadius = 0;
+  let flatOffsetMm = Infinity;
+  for (const point of own) {
+    const radius = Math.hypot(point.pu - centroidU, point.pv - centroidV);
+    if (radius > maxRadius) maxRadius = radius;
+    if (point.h < flatOffsetMm) flatOffsetMm = point.h;
+  }
+  flatOffsetMm -= 1e-4;
+  // `ownPatchRadiusMm` (largest own patch's own equivalent radius) covers
+  // the gap between "own patches' CENTROIDS reach this far" and "own
+  // patches' actual TRIANGLES reach this far" -- see PlannedPieceRegion's
+  // own `grid.ownPatchRadiusMm` doc comment for the measured box-fixture
+  // regression this fixes.
+  const footprintRadiusMm = maxRadius + ownPatchRadiusMm * 2 + toleranceMm * 8 + Math.max(maxRadius * 0.15, 1e-3);
+
+  const diagonal = Math.hypot(
+    bounds.max.x - bounds.min.x,
+    bounds.max.y - bounds.min.y,
+    bounds.max.z - bounds.min.z,
+  );
+  const boundsCenter = {
+    x: (bounds.min.x + bounds.max.x) / 2,
+    y: (bounds.min.y + bounds.max.y) / 2,
+    z: (bounds.min.z + bounds.max.z) / 2,
+  };
+  const centerAlong = boundsCenter.x * w.x + boundsCenter.y * w.y + boundsCenter.z * w.z;
+  const footprintCenter = {
+    x: u.x * centroidU + v.x * centroidV + w.x * centerAlong,
+    y: u.y * centroidU + v.y * centroidV + w.y * centerAlong,
+    z: u.z * centroidU + v.z * centroidV + w.z * centerAlong,
+  };
+  const footprintPayload = cylinderPrismPayload(direction, footprintCenter, footprintRadiusMm, diagonal * 4 + 4, 24);
+  const footprintSolid = manifoldFromPayload(module, footprintPayload, toleranceMm);
+  const flatPayload = halfSpacePrismPayload(direction, flatOffsetMm, bounds);
+  const flatSolid = manifoldFromPayload(module, flatPayload, toleranceMm);
+  let base: ManifoldSolid;
+  try {
+    base = footprintSolid.intersect(flatSolid);
+    assertManifoldStatus(base, "Local-bounded assignment footprint intersection");
+  } finally {
+    footprintSolid.delete();
+    flatSolid.delete();
+  }
+  return applyStolenMaterialExclusions(module, base, otherPoints, direction, flatOffsetMm, bounds, toleranceMm);
+}
+
 /** Explicit n-gon prism payload (registration pin) along `direction`, centered on `center` spanning ±length/2. */
 function cylinderPayload(direction: PlanningVector3, center: PlanningVector3, radiusMm: number, lengthMm: number): MoldMeshPayload {
   return cylinderPrismPayload(direction, center, radiusMm, lengthMm, REGISTRATION_PIN_SEGMENTS);
@@ -735,7 +822,13 @@ function verifyWorkingMoldRelease(
       for (const siblingIndex of remaining) {
         if (siblingIndex === pieceIndex) continue;
         const sibling = carved[siblingIndex]!;
-        remainingUnion = remainingUnion === null ? sibling.asOriginal() : remainingUnion.add(sibling);
+        if (remainingUnion === null) {
+          remainingUnion = sibling.asOriginal();
+        } else {
+          const nextUnion: ManifoldSolid = remainingUnion.add(sibling);
+          remainingUnion.delete();
+          remainingUnion = nextUnion;
+        }
       }
       const verifies = (candidate: readonly [number, number, number]): boolean => {
         const vsPart = verifyDemoldTranslationByVector(partSolid, carved[pieceIndex]!, candidate, clearance, policy.surfaceToleranceMm, volumeTolerance);
@@ -972,46 +1065,113 @@ export async function constructWorkingMold(input: WorkingMoldConstructionInput):
   const pieceSolids: ManifoldSolid[] = [];
   const carved: ManifoldSolid[] = [];
   let remainder: ManifoldSolid | null = null;
+  // Execution 08 LOOP 14 (simultaneous-partition rewrite): the
+  // region-direct-assignment fallback supplies `grid` on every non-last
+  // piece. That signal is used here to pick construction MODE, not just a
+  // tool: sequential remainder-carving (below) threads a single shrinking
+  // volume through every piece in order, so a LATER piece's own local
+  // correction can slice through an EARLIER piece's already-finalized
+  // shape, and a piece with small/scattered territory has to start from
+  // "claim the whole half-space" and drill enough holes to give most of it
+  // back -- both diagnosed, real fragmentation mechanisms on the real free-
+  // form regression fixture (piece count climbed 5 -> 11 -> 23 chasing
+  // them one at a time). The simultaneous path removes the ordering
+  // dependency (every non-last piece's raw claim is computed independently
+  // and locally-bounded via `localBoundedAssignmentSolid`, using ALL other
+  // pieces as `otherPoints`, not just later ones) and only falls back to a
+  // single deterministic subtraction pass for whatever small overlap
+  // remains between two independently-computed local claims -- never the
+  // fragile "everything, minus many holes" shape. The ordinary
+  // threshold-search path (planar / curve-based pieces, `grid` unset)
+  // keeps the original sequential carving entirely unchanged.
+  const isSimultaneousPartition =
+    input.pieces.length >= 2 &&
+    input.pieces.slice(0, -1).every((piece) => piece.grid !== null && piece.grid !== undefined) &&
+    input.pieces[input.pieces.length - 1]!.plane === null;
   try {
-    remainder = createBlankSolid(module, envelopeBounds);
-    for (let index = 0; index < input.pieces.length; index += 1) {
-      const piece = input.pieces[index]!;
-      const plane = piece.plane;
-      const curve = piece.curve;
-      const grid = piece.grid;
-      if (plane === null) {
-        pieceSolids.push(remainder);
-        remainder = null;
-        break;
-      }
-      if (curve !== null && curve !== undefined) {
-        if (curve.length === 0) throw new Error("a height-field cutting tool needs at least one curve group.");
-        for (const group of curve) {
-          if (group.length < 3) throw new Error("a height-field cutting tool needs at least 3 curve points per neighbor group.");
+    if (isSimultaneousPartition) {
+      const envelopeBlank = createBlankSolid(module, envelopeBounds);
+      try {
+        const nonLast = input.pieces.slice(0, -1);
+        const rawClaims: ManifoldSolid[] = nonLast.map((piece) => {
+          const grid = piece.grid!;
+          const localTool = localBoundedAssignmentSolid(
+            module, grid.ownPoints, grid.otherPoints, piece.releaseDirection, envelopeBounds, policy.booleanToleranceMm, grid.ownPatchRadiusMm,
+          );
+          try {
+            const claim = envelopeBlank.intersect(localTool);
+            assertManifoldStatus(claim, "Simultaneous-partition raw claim");
+            return claim;
+          } finally {
+            localTool.delete();
+          }
+        });
+        // Deterministic overlap resolution: each claim keeps only what no
+        // EARLIER claim already took. Any two independently-computed local
+        // claims should barely overlap at all (each already gives back
+        // material near the other's own patches) -- this pass exists for
+        // the small residual case, not to define each piece's shape.
+        let claimedSoFar: ManifoldSolid | null = null;
+        for (let index = 0; index < rawClaims.length; index += 1) {
+          if (claimedSoFar !== null) {
+            const resolved = rawClaims[index]!.subtract(claimedSoFar);
+            assertManifoldStatus(resolved, "Simultaneous-partition overlap resolution");
+            rawClaims[index]!.delete();
+            rawClaims[index] = resolved;
+          }
+          if (claimedSoFar === null) {
+            claimedSoFar = rawClaims[index]!.asOriginal();
+          } else {
+            const nextClaimed: ManifoldSolid = claimedSoFar.add(rawClaims[index]!);
+            claimedSoFar.delete();
+            claimedSoFar = nextClaimed;
+          }
         }
+        pieceSolids.push(...rawClaims);
+        const catchAll = claimedSoFar === null ? envelopeBlank.asOriginal() : envelopeBlank.subtract(claimedSoFar);
+        assertManifoldStatus(catchAll, "Simultaneous-partition catch-all");
+        pieceSolids.push(catchAll);
+        claimedSoFar?.delete();
+      } finally {
+        envelopeBlank.delete();
       }
-      // Execution 08 LOOP 14: an assignment-grid cutting tool (present)
-      // takes priority over a curve-based one, which takes priority over
-      // the plain half-space plane -- the same intersect/subtract carving
-      // either way. `grid` is driven directly by the real per-patch
-      // assignment (assignmentGridPartingSolid's own doc comment); `curve`
-      // only corrects the boundary locally near a pre-extracted neighbor
-      // curve.
-      const cuttingSolid = grid !== null && grid !== undefined
-        ? assignmentGridPartingSolid(module, grid.ownPoints, grid.otherPoints, plane.direction, plane.offsetMm, envelopeBounds, policy.booleanToleranceMm)
-        : curve
+    } else {
+      remainder = createBlankSolid(module, envelopeBounds);
+      for (let index = 0; index < input.pieces.length; index += 1) {
+        const piece = input.pieces[index]!;
+        const plane = piece.plane;
+        const curve = piece.curve;
+        if (plane === null) {
+          pieceSolids.push(remainder);
+          remainder = null;
+          break;
+        }
+        if (curve !== null && curve !== undefined) {
+          if (curve.length === 0) throw new Error("a height-field cutting tool needs at least one curve group.");
+          for (const group of curve) {
+            if (group.length < 3) throw new Error("a height-field cutting tool needs at least 3 curve points per neighbor group.");
+          }
+        }
+        // A curve-based cutting tool (present) takes priority over the
+        // plain half-space plane -- the same intersect/subtract carving
+        // either way, just following the real parting curve's own
+        // per-point height near the part instead of a pure infinite
+        // half-plane. (`grid` never appears here: `isSimultaneousPartition`
+        // already routed that case to the branch above.)
+        const cuttingSolid = curve
           ? curve.length === 1
             ? heightFieldPartingSolid(module, curve[0]!, plane.direction, plane.offsetMm, envelopeBounds, policy.booleanToleranceMm)
             : multiNeighborHeightFieldSolid(module, curve, plane.direction, plane.offsetMm, envelopeBounds, policy.booleanToleranceMm)
           : manifoldFromPayload(module, halfSpacePrismPayload(plane.direction, plane.offsetMm, envelopeBounds), policy.booleanToleranceMm);
-      try {
-        const region = remainder.intersect(cuttingSolid);
-        const nextRemainder = remainder.subtract(cuttingSolid);
-        remainder.delete();
-        remainder = nextRemainder;
-        pieceSolids.push(region);
-      } finally {
-        cuttingSolid.delete();
+        try {
+          const region = remainder.intersect(cuttingSolid);
+          const nextRemainder = remainder.subtract(cuttingSolid);
+          remainder.delete();
+          remainder = nextRemainder;
+          pieceSolids.push(region);
+        } finally {
+          cuttingSolid.delete();
+        }
       }
     }
 
@@ -1076,7 +1236,13 @@ export async function constructWorkingMold(input: WorkingMoldConstructionInput):
     let overlap: ManifoldSolid | null = null;
     try {
       for (const piece of carved) {
-        assembled = assembled === null ? piece.asOriginal() : assembled.add(piece);
+        if (assembled === null) {
+          assembled = piece.asOriginal();
+        } else {
+          const nextAssembled: ManifoldSolid = assembled.add(piece);
+          assembled.delete();
+          assembled = nextAssembled;
+        }
       }
       overlap = assembled!.intersect(partSolid);
       if (overlap.volume() > volumeTolerance) {

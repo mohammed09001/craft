@@ -35,7 +35,7 @@ import { runMasterMoldEngine } from "./masterMoldEngine";
  * PLANNING-level gap -- the engine now genuinely reaches real exact-CSG
  * construction for this fixture (previously 0 attempts, ever).
  *
- * What remains open, tracked through three further real, verified fixes
+ * What remains open, tracked through four further real, verified fixes
  * (each precisely root-caused; full derivations in
  * regionDirectConstruction.ts's and workingMoldConstructor.ts's own doc
  * comments) that still have not closed release verification for this
@@ -46,9 +46,8 @@ import { runMasterMoldEngine } from "./masterMoldEngine";
  *     direction. A single outlier patch could drag that one global scalar
  *     low enough to also claim large amounts of another piece's material
  *     that was not even topologically adjacent -- measured directly, a
- *     159-patch piece claimed 964 patches, 805 wrong. Fixed by
- *     `assignmentGridPartingSolid`: a LOCAL, per-region decision that a
- *     distant outlier cannot drag.
+ *     159-patch piece claimed 964 patches, 805 wrong. Fixed by a LOCAL,
+ *     per-region decision that a distant outlier cannot drag.
  *  2. That local fix eliminated the over-capture but fragmented pieces
  *     into many disconnected solid components (measured: up to 21 per
  *     piece). Root-caused: a region-cover DIRECTION's own assigned patches
@@ -67,22 +66,40 @@ import { runMasterMoldEngine } from "./masterMoldEngine";
  *     multiple components after carving is split into that many final
  *     pieces (a no-op on the ordinary threshold-search path, which never
  *     produces this) -- raised the physical piece count further, to 23.
+ *  4. A genuine architectural rewrite: sequential remainder-carving (each
+ *     piece's tool threaded through a single shrinking volume, so a later
+ *     piece's correction could ripple into an earlier piece's already-
+ *     finalized shape) replaced with a SIMULTANEOUS, order-independent
+ *     partition -- every non-last piece built directly from the full
+ *     envelope via `localBoundedAssignmentSolid` (a footprint bounded to
+ *     its OWN territory from the start, not a global flat claim corrected
+ *     after the fact), with symmetric `otherPoints` (every other piece, not
+ *     just later ones) and only a single deterministic pass to resolve
+ *     small residual overlaps. This fixed two REAL, independently
+ *     confirmed bugs along the way (a simple box fixture regressed under
+ *     the rewrite, and the root cause -- patch-centroid-based footprints
+ *     badly underestimating a coarse mesh's true surface extent -- was a
+ *     genuine defect, not specific to this hard fixture). Against the real
+ *     regression fixture itself: the physical piece count climbed further
+ *     still, to 25, and it still fails release.
  *
- * That trajectory -- 5, then 11, then 23 physical pieces, each fix
- * genuinely closing the specific defect it targeted -- is the honest
- * stopping point, not a specific remaining bug: representing this
- * fixture's true per-patch assignment as a sequence of half-space-derived
- * cuts, however locally corrected, is DIVERGING, not converging, toward a
- * valid small piece set. Piece 23 (of 23) still fails release verification
- * along either polarity of its own direction. Closing this needs a
- * genuinely different construction technique -- abandoning sequential
- * half-space-derived cuts for something that reasons about the volume
- * directly -- explicitly scoped out of this loop; the fixes above are real
- * and kept (they are correctness improvements independent of whether this
- * specific fixture ever closes), but no further attempt was made to force
- * this fixture's own release verification to succeed. LOOP 02's remaining
- * gate items are NOT met until release verification succeeds too; do not
- * read this file's current passing status as full LOOP 02 closure.
+ * That trajectory -- 5, then 11, then 23, then 25 physical pieces, across
+ * FOUR increasingly large fixes including one full paradigm change
+ * (sequential to simultaneous), each fix genuinely closing the specific
+ * defect it targeted -- is the honest stopping point, not a specific
+ * remaining bug: representing this fixture's true per-patch assignment via
+ * ANY half-space- or local-footprint-derived CSG boundary construction does
+ * not converge to a small, valid set of physical pieces, regardless of
+ * whether that construction is sequential or simultaneous. Closing this for
+ * real needs true volumetric reconstruction (e.g. marching cubes over a 3D
+ * nearest-assignment field, not a boundary derived from any single
+ * direction's projection) -- a fundamentally different KIND of
+ * infrastructure, not a further correction to boundary-based construction,
+ * and out of scope here. The fixes above are all real and kept (each is a
+ * correctness improvement independent of whether this specific fixture ever
+ * closes). LOOP 02's remaining gate items are NOT met until release
+ * verification succeeds too; do not read this file's current passing
+ * status as full LOOP 02 closure.
  */
 describe("Real free-form regression (Execution 08 LOOP 02)", () => {
   it("reaches real exact-CSG construction via the region-direct-assignment fallback (previously 0 attempts, ever), still fails release for this specific hard fixture", { timeout: 120_000 }, async () => {

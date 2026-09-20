@@ -48,41 +48,51 @@ function splitIntoConnectedComponents(patches: readonly number[], adjacency: Pla
  * height field, all tried here -- can force genuinely disjoint surface
  * territory into one connected solid; every attempt at forcing it produced
  * a fragmented, multi-component "piece", which is not a valid mold piece
- * regardless of how clean its own topology checks out. The real fix is
- * upstream of geometry entirely: split each direction's assigned patches
- * into their own connected components FIRST (`splitIntoConnectedComponents`
- * above), and give each component its own real physical piece, still
- * released along its parent direction (so this never adds a new release
- * direction to search or verify) -- `constructWorkingMold` itself needs no
- * changes, since it already treats its `pieces` input as a plain ordered
- * sequence, not one entry per region-cover direction.
+ * regardless of how clean its own topology checks out. Part of the real
+ * fix is upstream of geometry entirely: split each direction's assigned
+ * patches into their own connected components FIRST
+ * (`splitIntoConnectedComponents` above), and give each component its own
+ * real physical piece, still released along its parent direction (so this
+ * never adds a new release direction to search or verify). The other part
+ * of the fix IS in `constructWorkingMold`: its simultaneous-partition
+ * construction mode (own doc comment there) removed a further, separate
+ * fragmentation source this component-splitting alone did not close.
  *
  * Each non-last physical piece's cutting tool is driven DIRECTLY by its own
- * real per-patch assignment (`assignmentGridPartingSolid`, wired in
- * `constructWorkingMold`) -- `ownPoints` are this piece's own component's
- * patch centroids, `otherPoints` are every LATER physical piece's patch
- * centroids (whether that's a later component of the SAME direction or a
- * later direction entirely -- both are "not yet carved" by the time this
- * piece is cut, the same "ordered, nested" convention the half-space prism
- * sequence already relies on). `plane`'s own flat offset (the minimum
- * projection of just this component's own patches) is kept as the
- * far-field default `assignmentGridPartingSolid` reverts to away from every
- * patch, and for registration-pin placement / candidate release
- * directions, which both already tolerate an approximate value (verified
- * downstream by real boolean checks, never trusted blindly). The last
- * physical piece overall is the catch-all: whatever remains.
+ * real per-patch assignment (`localBoundedAssignmentSolid`, wired in
+ * `constructWorkingMold`'s simultaneous-partition mode) -- `ownPoints` are
+ * this piece's own component's patch centroids, `otherPoints` are EVERY
+ * OTHER physical piece's patch centroids, including the catch-all's own
+ * (symmetric: there is no carving order in that mode, so "later" is not a
+ * meaningful distinction any more -- see `constructWorkingMold`'s own doc
+ * comment for why). `plane`'s own flat offset (the minimum projection of
+ * just this component's own patches) is kept as the local claim's own
+ * "how deep does my own material reach" bound, and for registration-pin
+ * placement / candidate release directions, which both already tolerate an
+ * approximate value (verified downstream by real boolean checks, never
+ * trusted blindly). The last physical piece overall is the catch-all:
+ * whatever remains after every other piece's own local claim.
  *
  * History: an earlier version of this function used one `PlannedPieceRegion`
  * per DIRECTION (not per component), first with a single global flat offset
  * plus local curve corrections (reached real construction for the first
  * time, but a single outlier patch could drag the global offset into
- * stealing large amounts of other pieces' material -- root-caused and
- * fixed by `assignmentGridPartingSolid`'s local, non-global decision), then
- * with that per-direction grid tool alone (which fixed the over-capture but
- * left pieces fragmenting into many disconnected components -- root-caused
- * here as a mismatch between "one physical piece per direction" and the
- * true assignment's own disconnected structure, not a geometry-construction
- * bug at all).
+ * stealing large amounts of other pieces' material), then with a per-
+ * direction grid tool with a LOCAL (non-global) offset decision (fixed the
+ * over-capture but left pieces fragmenting into many disconnected
+ * components -- root-caused as a mismatch between "one physical piece per
+ * direction" and the true assignment's own disconnected structure), then
+ * with `otherPoints` scoped to only LATER physical pieces in a sequential
+ * remainder-carving order (fixed most of that fragmentation but left the
+ * physical piece count climbing -- 5, then 11, then 23 -- as sequential
+ * carving order itself kept rippling fragmentation from one piece into the
+ * next). `otherPoints` is symmetric now (every other piece, not just later
+ * ones) because `constructWorkingMold`'s simultaneous-partition mode
+ * removes that ordering dependency at the source -- own doc comment on
+ * `localBoundedAssignmentSolid` and in `constructWorkingMold` for the full
+ * mechanism, and on the fact that even this genuine paradigm change did
+ * NOT converge for the hardest known fixture (piece count still climbed,
+ * to 25).
  */
 export function buildDirectAssignmentConstructionPieces(
   planningMesh: PlanningMesh,
@@ -128,24 +138,32 @@ export function buildDirectAssignmentConstructionPieces(
     const physical = physicalPieces[pieceIndex]!;
     const direction = releaseDirections[physical.directionIndex]!;
     let minProjection = Infinity;
+    let ownPatchRadiusMm = 0;
     const ownPoints = physical.patches.map((patchIndex) => {
-      const centroid = planningMesh.patches[patchIndex]!.centroid;
-      const projection = dot(centroid, direction);
+      const patch = planningMesh.patches[patchIndex]!;
+      const projection = dot(patch.centroid, direction);
       if (projection < minProjection) minProjection = projection;
-      return centroid;
+      const equivalentRadius = Math.sqrt(patch.areaMm2 / Math.PI);
+      if (equivalentRadius > ownPatchRadiusMm) ownPatchRadiusMm = equivalentRadius;
+      return patch.centroid;
     });
     if (!Number.isFinite(minProjection)) return null;
     const offsetMm = minProjection - 1e-4;
+    // Symmetric: every OTHER physical piece, including the catch-all's own
+    // (the last entry in `physicalPieces`) -- the simultaneous-partition
+    // construction mode has no carving order, so there is no "not yet
+    // carved" distinction to scope this to.
     const otherPoints: typeof ownPoints = [];
-    for (let laterIndex = pieceIndex + 1; laterIndex < physicalPieces.length; laterIndex += 1) {
-      for (const patchIndex of physicalPieces[laterIndex]!.patches) {
+    for (let otherIndex = 0; otherIndex < physicalPieces.length; otherIndex += 1) {
+      if (otherIndex === pieceIndex) continue;
+      for (const patchIndex of physicalPieces[otherIndex]!.patches) {
         otherPoints.push(planningMesh.patches[patchIndex]!.centroid);
       }
     }
     pieces.push({
       releaseDirection: direction,
       plane: { direction, offsetMm },
-      grid: { ownPoints, otherPoints },
+      grid: { ownPoints, otherPoints, ownPatchRadiusMm },
     });
   }
   const lastDirectionIndex = physicalPieces[physicalPieces.length - 1]!.directionIndex;

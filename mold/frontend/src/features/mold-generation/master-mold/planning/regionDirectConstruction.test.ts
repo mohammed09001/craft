@@ -83,23 +83,30 @@ describe("buildDirectAssignmentConstructionPieces (Execution 08 LOOP 14 real-reg
     // this reaches real exact-CSG partition and carving (never possible
     // before the first fix here -- the threshold search's own
     // budget-exhausted failure meant 0 exact construction attempts ever
-    // ran), and two further real, verified fixes landed since --
-    // `assignmentGridPartingSolid`'s local (not global) offset decision
-    // closed a catastrophic over-capture bug, and splitting each
+    // ran), and several further real, verified fixes landed since (full
+    // history in this file's own doc comment): a local, non-global offset
+    // decision closed a catastrophic over-capture bug; splitting each
     // direction's assignment into its own mesh-connected components (plus
     // constructWorkingMold's own post-hoc decomposition safety net) closed
-    // a resulting fragmentation bug. Full release verification for this
-    // specific, deliberately hard fixture STILL does not succeed: each fix
-    // traded one failure mode for another rather than converging, and the
-    // physical piece count needed to keep every piece single-connected
-    // climbed from 5 to 11 to 23 across those fixes -- diverging, not
-    // converging. That trajectory, not a specific remaining bug, is the
-    // honest stopping point: representing this fixture's true per-patch
-    // assignment as a sequence of half-space-derived cuts (however locally
-    // corrected) does not converge to a small, valid set of physical
-    // pieces. This test asserts what is actually true: real construction
-    // is REACHED (the gap this file fixes), not that it fully succeeds for
-    // this specific fixture.
+    // a resulting fragmentation bug; a genuine architectural rewrite
+    // (`localBoundedAssignmentSolid` + a simultaneous, order-independent
+    // partition in `constructWorkingMold`, replacing sequential remainder-
+    // carving) fixed a real box-fixture regression AND a real patch-radius
+    // underestimation bug it surfaced. Full release verification for this
+    // specific, deliberately hard fixture STILL does not succeed: every one
+    // of those fixes is real and independently verified, yet the physical
+    // piece count needed to keep every piece single-connected has climbed
+    // 5 -> 11 -> 23 -> 25 across them -- diverging, not converging, even
+    // across a genuine paradigm change (sequential to simultaneous). That
+    // trajectory, not a specific remaining bug, is the honest stopping
+    // point: representing this fixture's true per-patch assignment via
+    // ANY half-space- or local-footprint-derived CSG boundary construction
+    // does not converge to a small, valid set of physical pieces --
+    // closing it for real would need true volumetric reconstruction (e.g.
+    // marching cubes over a 3D nearest-assignment field), not a further
+    // correction to boundary-based construction. This test asserts what is
+    // actually true: real construction is REACHED (the gap this file
+    // fixes), not that it fully succeeds for this specific fixture.
     let reachedRealConstruction: boolean;
     try {
       await constructWorkingMold({
