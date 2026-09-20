@@ -12,6 +12,7 @@ import { MASTER_PLANNER_LIMITS } from "./masterMoldPlanning.contracts";
 import { dot } from "./candidateDirections";
 import { buildSurfaceRegionGraph } from "./surfaceRegions";
 import { greedyRegionCover } from "./regionSetCover";
+import { refineRegionGraphByVisibility } from "./regionSubdivision";
 
 /**
  * Execution 06 Articles 06/07: the automatic working-mold piece count
@@ -682,7 +683,15 @@ export function createWorkingMoldPieceCountSearch(input: WorkingMoldPlannerInput
   let beam: BeamPrefix[] = [];
   const evaluated = new Set<string>();
   const prefixKey = (prisms: { directionIndex: number; offsetMm: number }[]) => prisms.map((p) => `${p.directionIndex}@${p.offsetMm}`).join("|");
-  const regionGraph = buildSurfaceRegionGraph(planningMesh);
+  // Execution 08 LOOP 12: a region that straddles a visibility transition
+  // (part visible along some direction, part not) is split along that
+  // boundary instead of the whole region being written off -- bounded by a
+  // minimum child size and a maximum refinement depth so this cannot
+  // fragment the surface unboundedly. Everything downstream (region
+  // ownership LOOP 10, set-cover LOOP 11, feasibility LOOP 15, diagnostics)
+  // consumes the refined graph automatically.
+  const baseRegionGraph = buildSurfaceRegionGraph(planningMesh);
+  const regionGraph = refineRegionGraphByVisibility(baseRegionGraph, planningMesh, analysis).regionGraph;
   // Execution 08 LOOP 11: computed once per search (direction-set-dependent,
   // not piece-count-dependent) -- how many directions a bounded set-cover
   // needs to release every moldable region, and which regions (if any) no
