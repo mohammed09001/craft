@@ -86,7 +86,7 @@ function edgeKey(a: number, b: number): string {
  * true duplicate is found regardless of which side of a bucket boundary it
  * quantizes to). Bounded average cost: one hash-bucket scan per vertex.
  */
-function weldedVertexIds(positions: readonly number[] | Float32Array, vertexCount: number, toleranceMm: number): Int32Array {
+export function weldedVertexIds(positions: readonly number[] | Float32Array, vertexCount: number, toleranceMm: number): Int32Array {
   const cellSize = Math.max(toleranceMm, 1e-9);
   const toleranceSq = toleranceMm * toleranceMm;
   const buckets = new Map<string, number[]>();
@@ -137,7 +137,7 @@ function weldedVertexIds(positions: readonly number[] | Float32Array, vertexCoun
  * degenerate flat/pathological mesh instead of throwing, so a genuinely
  * zero-extent axis falls back to a fixed conservative weld tolerance.
  */
-function weldToleranceMmFor(bounds: Bounds3): number {
+export function weldToleranceMmFor(bounds: Bounds3): number {
   try {
     return buildGeometryTolerancePolicy(bounds, 0).containmentToleranceMm;
   } catch {
@@ -145,7 +145,7 @@ function weldToleranceMmFor(bounds: Bounds3): number {
   }
 }
 
-function boundsOf(positions: readonly number[] | Float32Array, vertexCount: number): Bounds3 {
+export function boundsOf(positions: readonly number[] | Float32Array, vertexCount: number): Bounds3 {
   let minX = Infinity, minY = Infinity, minZ = Infinity;
   let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
   for (let vertex = 0; vertex < vertexCount; vertex += 1) {

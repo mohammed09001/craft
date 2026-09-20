@@ -39,6 +39,27 @@ interface BeamPrefix {
   readonly prisms: { readonly directionIndex: number; readonly offsetMm: number }[];
   readonly unassignable: number;
   readonly score: number;
+  /**
+   * 1 when this prefix's prism captures a near-empty or a near-total share
+   * of the surface (either extreme), 0 otherwise. A prism that is safe
+   * (unassignable=0) but captures almost nothing still ties on raw score
+   * with a genuinely useful split -- this breaks the tie in favor of a
+   * non-degenerate one. Deliberately coarse (a boolean band, not a
+   * continuous "how close to 50/50" measure): an earlier, continuous
+   * version of this tie-break rewarded PERFECT area balance, which
+   * systematically favored an exotic corner-to-corner diagonal (PCA-axis)
+   * cut of a plain box over its own trivial, robust flat face-aligned
+   * cut -- the diagonal was marginally more "balanced" by area, so it
+   * crowded every flat cut out of the beam entirely, and then genuinely
+   * failed real exact-CSG release (a wedge grazing its sibling along the
+   * shared diagonal seam). A coarse non-degenerate/degenerate band still
+   * clears the tiny-cap crowding problem it was added for (the real
+   * high-poly sphere golden case) without expressing a preference between
+   * two otherwise-reasonable splits -- that judgment belongs to
+   * `evaluateFinalized`'s own seam/sliding-wall scoring downstream, which
+   * already correctly favors the simpler cut once both reach it.
+   */
+  readonly isDegenerateSplit: number;
   /** Execution 08 LOOP 18: sorted region indexes this prefix leaves entirely in the remainder -- the beam's diversity key. */
   readonly uncoveredRegionSignature: string;
 }
@@ -270,23 +291,27 @@ function regionOwnedAssignment(
  * pieces in order; patches outside all prisms get -1 = still remainder) and
  * the unassignable count assuming prisms only (no catch-all yet).
  */
-function evaluatePrefix(
+export function evaluatePrefix(
   planningMesh: PlanningMesh,
   analysis: AccessibilityAnalysis,
   regionGraph: SurfaceRegionGraph,
   prisms: { directionIndex: number; offsetMm: number }[],
-): { assignment: Int32Array; unassignable: number } {
+): { assignment: Int32Array; unassignable: number; remainderPatchCount: number } {
   const assignment = regionOwnedAssignment(planningMesh, analysis, regionGraph, prisms, -1, null);
   let unassignable = 0;
+  let remainderPatchCount = 0;
   // Prism pieces' feasibility can be pre-checked here; the remainder is
   // scored through the catch-all direction at finalization.
   for (const patch of planningMesh.patches) {
     const pieceIndex = assignment[patch.patchIndex]!;
-    if (pieceIndex === -1) continue;
+    if (pieceIndex === -1) {
+      remainderPatchCount += 1;
+      continue;
+    }
     const visibility = analysis.perDirection[prisms[pieceIndex]!.directionIndex]!.visible;
     if (visibility[patch.patchIndex] !== 1) unassignable += 1;
   }
-  return { assignment, unassignable };
+  return { assignment, unassignable, remainderPatchCount };
 }
 
 /** Sorted, deduplicated region indexes an assignment leaves entirely in the remainder (-1) -- a beam prefix's diversity key (Execution 08 LOOP 18). */
@@ -312,17 +337,51 @@ function uncoveredRegionSignature(assignment: Int32Array, regionGraph: SurfaceRe
  * slots by score alone. The beam width itself (`BEAM_WIDTH`) is never
  * raised -- diversity is a selection policy within the existing bound.
  */
+/**
+ * A prefix's own direction set (sorted, so order-of-extension never matters).
+ * Guards against one direction's several threshold variants (gap-based,
+ * region-boundary, undercut-boundary -- `candidatePartingThresholds` can
+ * offer several per direction) each producing a distinct
+ * `uncoveredRegionSignature` and, between them, filling the entire beam
+ * before any OTHER direction gets even one attempt. Found on the real
+ * high-poly sphere golden case once real (non-degenerate) regions started
+ * flowing through this search (Execution 08 adjacency-welding fix): a
+ * handful of narrow normal-cluster directions each tied at 0 unassignable
+ * patches for several near-degenerate small-area offsets, monopolizing the
+ * beam ahead of the world-axis direction that actually produced the correct
+ * balanced hemisphere split.
+ */
+function directionSetKeyOf(candidate: BeamPrefix): string {
+  return candidate.prisms.map((prism) => prism.directionIndex).sort((a, b) => a - b).join(",");
+}
+
+/** A near-empty or near-total prism capture -- see `BeamPrefix.isDegenerateSplit`. */
+const DEGENERATE_SPLIT_FRACTION = 0.05;
+function isDegenerateSplit(remainderPatchCount: number, totalPatchCount: number): number {
+  if (totalPatchCount === 0) return 0;
+  const remainderFraction = remainderPatchCount / totalPatchCount;
+  return remainderFraction < DEGENERATE_SPLIT_FRACTION || remainderFraction > 1 - DEGENERATE_SPLIT_FRACTION ? 1 : 0;
+}
+
 function selectDiverseBeam(candidates: readonly BeamPrefix[], width: number): BeamPrefix[] {
-  const ranked = [...candidates].sort((a, b) => a.unassignable - b.unassignable || a.score - b.score);
+  const ranked = [...candidates].sort(
+    (a, b) => a.unassignable - b.unassignable || a.score - b.score || a.isDegenerateSplit - b.isDegenerateSplit,
+  );
   const selected: BeamPrefix[] = [];
   const seenSignatures = new Set<string>();
+  const seenDirectionSets = new Set<string>();
   const leftover: BeamPrefix[] = [];
+  // First pass: at most one candidate per distinct direction set, so every
+  // direction gets a fair first attempt before any one of them contributes
+  // a second, before a genuinely different direction is crowded out.
   for (const candidate of ranked) {
     if (selected.length >= width) break;
-    if (seenSignatures.has(candidate.uncoveredRegionSignature)) {
+    const directionKey = directionSetKeyOf(candidate);
+    if (seenDirectionSets.has(directionKey) || seenSignatures.has(candidate.uncoveredRegionSignature)) {
       leftover.push(candidate);
       continue;
     }
+    seenDirectionSets.add(directionKey);
     seenSignatures.add(candidate.uncoveredRegionSignature);
     selected.push(candidate);
   }
@@ -752,6 +811,7 @@ export function createWorkingMoldPieceCountSearch(input: WorkingMoldPlannerInput
             prisms: [prism],
             unassignable: evaluation.unassignable,
             score: evaluation.unassignable,
+            isDegenerateSplit: isDegenerateSplit(evaluation.remainderPatchCount, planningMesh.patches.length),
             uncoveredRegionSignature: uncoveredRegionSignature(evaluation.assignment, regionGraph),
           });
         }
@@ -777,6 +837,7 @@ export function createWorkingMoldPieceCountSearch(input: WorkingMoldPlannerInput
               prisms,
               unassignable: evaluation.unassignable,
               score: evaluation.unassignable + prisms.length * 0.01,
+              isDegenerateSplit: isDegenerateSplit(evaluation.remainderPatchCount, planningMesh.patches.length),
               uncoveredRegionSignature: uncoveredRegionSignature(evaluation.assignment, regionGraph),
             });
           }
@@ -862,13 +923,41 @@ export function createWorkingMoldPieceCountSearch(input: WorkingMoldPlannerInput
         return { pieceCount: currentCount, finalists: [], rejectionReason: diagnostics.rejectionReason, diagnostics };
       }
 
-      const finalists = feasible
-        .slice(0, MASTER_PLANNER_LIMITS.maxExactPlansPerPieceCount)
-        .map((entry) => ({
-          candidate: entry.candidate,
-          patchAssignment: Array.from(entry.assignment),
-          interfaces: extractPartingInterfaces(planningMesh, entry.assignment, entry.candidate.pieces),
-        }));
+      // The top-scored shortlist, unchanged from before -- never displaced,
+      // since `evaluateFinalized`'s own scoring is frequently right and a
+      // proven-good candidate must not lose its slot to a diversity policy.
+      const topFinalists = feasible.slice(0, MASTER_PLANNER_LIMITS.maxExactPlansPerPieceCount);
+
+      // One ADDITIONAL insurance slot: the best-scoring candidate whose
+      // prism direction (and catch-all) isn't already used by `topFinalists`
+      // -- appended, never substituted, so it costs exactly one extra real
+      // exact-CSG attempt only when the top shortlist happens to be
+      // direction-homogeneous. Found on the real 30mm box golden case: the
+      // top-2-by-score shortlist was the SAME prism direction's two
+      // polarities (an oblique/diagonal cut that scores best on sliding-wall
+      // area but genuinely fails real release verification), so it alone
+      // filled the shortlist and forced a needless escalation to 3 pieces
+      // where the box's own trivial flat single-face cut (never attempted)
+      // would have worked. An earlier version of this fix REPLACED a
+      // top-scored slot instead of adding one, which then regressed a
+      // separate real fixture (Execution 08 LOOP 23's mushroom overhang)
+      // whose top-2-by-score shortlist was already direction-diverse and
+      // both genuinely worked -- displacing either one broke it.
+      const usedDirections = new Set<number>();
+      for (const entry of topFinalists) {
+        for (const prism of entry.prisms) usedDirections.add(prism.directionIndex);
+        usedDirections.add(entry.catchAllDirectionIndex);
+      }
+      const diverseInsurance = feasible.find((entry) => {
+        const prismDirections = entry.prisms.map((prism) => prism.directionIndex);
+        return !prismDirections.some((directionIndex) => usedDirections.has(directionIndex)) && !usedDirections.has(entry.catchAllDirectionIndex);
+      });
+
+      const finalists = [...topFinalists, ...(diverseInsurance ? [diverseInsurance] : [])].map((entry) => ({
+        candidate: entry.candidate,
+        patchAssignment: Array.from(entry.assignment),
+        interfaces: extractPartingInterfaces(planningMesh, entry.assignment, entry.candidate.pieces),
+      }));
       const diagnostics: WorkingMoldPieceCountDiagnostics = {
         pieceCount: currentCount,
         planningCandidatesGenerated: finalized.length,

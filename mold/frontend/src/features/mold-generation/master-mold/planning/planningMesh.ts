@@ -1,6 +1,7 @@
 import type { Bounds3 } from "../../split-face/splitFace.contracts";
 import type { PlanningMesh, PlanningPatch, PlanningVector3 } from "./masterMoldPlanning.contracts";
 import { MASTER_PLANNER_LIMITS } from "./masterMoldPlanning.contracts";
+import { boundsOf, weldedVertexIds, weldToleranceMmFor } from "./meshPreflight";
 
 /**
  * Execution 06 Article 03: two-resolution geometry architecture.
@@ -82,17 +83,34 @@ function fullResolutionPatches(triangles: readonly TriangleGeometry[]): Planning
 
 /**
  * Adjacency through shared vertices: two patches are adjacent when any of
- * their triangles' vertex indexes coincide. `triangleOf` maps a patch to the
+ * their triangles' vertices coincide. `triangleOf` maps a patch to the
  * (single, in the full-resolution case) triangle whose vertices define it.
+ *
+ * Identity is POSITION-welded (`weldId`), never a raw vertex INDEX: real
+ * imported STL geometry is a triangle soup (`captureCanonicalPartGeometry`
+ * falls back to an identity index whenever STLLoader's non-indexed
+ * geometry has no index attribute), so adjacent triangles from a real part
+ * essentially never share a vertex INDEX even though they share a vertex
+ * POSITION. An index-only adjacency check leaves every patch with zero
+ * neighbors on a real part -- discovered live via the real /workspace E2E
+ * high-poly spec failing end to end although the equivalent Manifold-built
+ * (pre-welded) test fixture passed: the region graph, undercut grouping,
+ * and everything downstream silently degenerate to one patch per region.
  */
-function adjacencyFromTriangles(mesh: PlanningMeshInput, patchCount: number, trianglesOf: (patchIndex: number) => readonly number[]): number[][] {
+function adjacencyFromTriangles(
+  mesh: PlanningMeshInput,
+  weldId: Int32Array,
+  patchCount: number,
+  trianglesOf: (patchIndex: number) => readonly number[],
+): number[][] {
   const adjacency: number[][] = Array.from({ length: patchCount }, () => []);
   if (patchCount === 0) return adjacency;
   const vertexToPatches = new Map<number, Set<number>>();
   for (let patchIndex = 0; patchIndex < patchCount; patchIndex += 1) {
     for (const triangle of trianglesOf(patchIndex)) {
       for (let corner = 0; corner < 3; corner += 1) {
-        const vertex = mesh.indices[triangle * 3 + corner]!;
+        const rawVertex = mesh.indices[triangle * 3 + corner]!;
+        const vertex = weldId[rawVertex]!;
         let bucket = vertexToPatches.get(vertex);
         if (bucket === undefined) {
           bucket = new Set();
@@ -215,16 +233,18 @@ function clusteredPatches(triangles: readonly TriangleGeometry[], bounds: Bounds
 export function buildPlanningMesh(mesh: PlanningMeshInput): PlanningMesh {
   const triangles = triangleGeometryFor(mesh);
   const useFullResolution = triangles.length <= MASTER_PLANNER_LIMITS.fullResolutionPlanningTriangleBudget;
+  const vertexCount = mesh.positions.length / 3;
+  const weldId = weldedVertexIds(mesh.positions, vertexCount, weldToleranceMmFor(boundsOf(mesh.positions, vertexCount)));
 
   let patches: PlanningPatch[];
   let adjacency: number[][];
   if (useFullResolution) {
     patches = fullResolutionPatches(triangles);
-    adjacency = adjacencyFromTriangles(mesh, patches.length, (patchIndex) => [patches[patchIndex]!.sourceTriangle]);
+    adjacency = adjacencyFromTriangles(mesh, weldId, patches.length, (patchIndex) => [patches[patchIndex]!.sourceTriangle]);
   } else {
     const clustered = clusteredPatches(triangles, mesh.bounds);
     patches = clustered.patches;
-    adjacency = adjacencyFromTriangles(mesh, patches.length, (patchIndex) => clustered.trianglesByPatch[patchIndex]!);
+    adjacency = adjacencyFromTriangles(mesh, weldId, patches.length, (patchIndex) => clustered.trianglesByPatch[patchIndex]!);
   }
 
   const totalAreaMm2 = patches.reduce((sum, patch) => sum + patch.areaMm2, 0);

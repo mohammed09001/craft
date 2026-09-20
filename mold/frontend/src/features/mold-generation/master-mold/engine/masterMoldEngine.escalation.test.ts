@@ -29,9 +29,12 @@ import { buildSimpleBoxFixture, seedFromFixture } from "../planning/masterMoldGo
 describe("Execution 07 LOOP 01: exact-failure piece-count escalation", () => {
   it("escalates to the next piece count when every finalist at N fails exact construction", { timeout: 300_000 }, async () => {
     const fixture = await buildSimpleBoxFixture();
-    // Reject every exact attempt the planner offers at the minimum count
-    // (maxExactPlansPerPieceCount finalists at 2 pieces).
-    mockState.exactFailuresRemaining = MASTER_PLANNER_LIMITS.maxExactPlansPerPieceCount;
+    // Reject every exact attempt the planner offers at the minimum count:
+    // maxExactPlansPerPieceCount top-scored finalists, plus the one
+    // additional direction-diverse insurance finalist the shortlist can add
+    // (Execution 08 Loop 28 E2E fix) when a genuinely different release
+    // direction exists.
+    mockState.exactFailuresRemaining = MASTER_PLANNER_LIMITS.maxExactPlansPerPieceCount + 1;
     try {
       const result = await runMasterMoldEngine(seedFromFixture(fixture));
       expect(result.failures).toEqual([]);
