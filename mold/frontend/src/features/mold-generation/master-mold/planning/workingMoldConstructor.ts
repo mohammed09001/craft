@@ -57,11 +57,12 @@ export interface PlannedPieceRegion {
    * not null: the height field's far field, and its fallback if this piece
    * is rejected, are both the flat cut. Registration-pin placement (which
    * reuses `plane`) still lands correctly almost everywhere, since pins are
-   * placed away from the part by design. Only meaningful for a two-piece
-   * decomposition (this piece plus the catch-all remainder): the curve is
-   * this piece's FULL boundary against everything else, which is only
-   * guaranteed to be one simple closed loop when there is exactly one
-   * other piece.
+   * placed away from the part by design. `curve` must be this piece's FULL
+   * boundary against everything else, which is only guaranteed to be one
+   * simple closed loop when this piece borders exactly one other piece
+   * (whether that is the whole decomposition's only other piece, in a
+   * two-piece split, or one specific neighbor among several in a
+   * multi-piece one) -- the caller is responsible for that guarantee.
    */
   readonly curve?: { readonly points: readonly PlanningVector3[] } | null;
 }

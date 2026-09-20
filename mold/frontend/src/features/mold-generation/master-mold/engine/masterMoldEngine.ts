@@ -191,38 +191,62 @@ function buildBudgetDetails(params: {
       limit: 0,
       used: 0,
       pruned: 0,
-      reason: "a height-field (curve-following) parting surface (Execution 08 LOOP 14) is attempted only as a two-piece fallback when the flat half-space plane fails real construction; a multi-piece decomposition's non-catch-all pieces are still ordered half-space prisms, and this fallback is skipped when a finalist's own parting curve self-intersects or has too few points.",
+      reason: "a height-field (curve-following) parting surface (Execution 08 LOOP 14) is attempted only as a fallback when the flat half-space plane fails real construction, and only per PIECE: a piece qualifies when it borders exactly one other piece (a boundary against two or more neighbors is not guaranteed to be one simple loop, a further increment) and its own real parting curve does not self-intersect. The catch-all piece is never substituted.",
     },
   ];
 }
 
 /**
  * Execution 08 LOOP 14: builds a height-field (curve-based) alternative to
- * a finalist's own flat-plane prism pieces, or `null` when this finalist
- * isn't eligible. Bounded to exactly one prism piece plus the catch-all (a
- * two-piece decomposition): the piece's own real parting curve, extracted
- * from the SAME already-proven-sound patch assignment the plane search
- * failed to realize, is only guaranteed to be one simple closed loop
- * against a single other piece -- a multi-piece boundary can touch several
- * neighbors and is not one loop in general (a further increment).
+ * a finalist's own flat-plane prism pieces, or `null` when NO piece is
+ * eligible. Applied PER PIECE, independent of the finalist's total piece
+ * count: a prism piece is only eligible when exactly ONE
+ * `WorkingMoldPartingInterface` touches it (it borders exactly one other
+ * piece), since that piece's own real parting curve -- extracted from the
+ * SAME already-proven-sound patch assignment the plane search failed to
+ * realize -- is only guaranteed to be one simple closed loop when there is
+ * a single neighbor. A piece that borders MULTIPLE neighbors (two or more
+ * interfaces touch it) has a boundary that is not one loop in general (a
+ * further increment: piecing together several loops, or several disjoint
+ * boundary components, into one height field); it keeps its flat plane.
+ * The catch-all piece (`plane: null`) is never substituted -- it has no
+ * offset for the height field's own far-field behavior to fall back to.
+ *
+ * Checked directly against a real 3/4-piece fixture (a three-hole cube):
+ * every piece bordered two or more neighbors there, so this fallback never
+ * actually triggered for it -- a real multi-piece decomposition's patch
+ * adjacency is generally richer than the ordered-prism model's own
+ * "each piece borders just the next one" intuition suggests. This
+ * generalization is genuinely correct and exercised (the real 30mm box's
+ * two-piece case), but its practical trigger rate for 3+-piece
+ * decompositions may be low until a further increment handles a
+ * multi-neighbor boundary.
  */
 function heightFieldFallbackPieces(
   finalist: WorkingMoldDecompositionFinalist,
   planarPieces: readonly { readonly releaseDirection: PlanningVector3; readonly plane: { readonly direction: PlanningVector3; readonly offsetMm: number } | null }[],
 ): readonly { readonly releaseDirection: PlanningVector3; readonly plane: { readonly direction: PlanningVector3; readonly offsetMm: number } | null; readonly curve?: { readonly points: readonly PlanningVector3[] } | null }[] | null {
-  if (finalist.candidate.pieces.length !== 2) return null;
-  const prismPieceIndex = finalist.candidate.pieces.findIndex((piece) => piece.prism !== null);
-  if (prismPieceIndex === -1) return null;
-  if (finalist.interfaces.length !== 1) return null;
-  const [interfaceCurve] = finalist.interfaces;
-  if (interfaceCurve!.selfIntersecting) return null;
-  if (interfaceCurve!.samplePoints.length < 3) return null;
+  const interfacesByPiece = new Map<number, typeof finalist.interfaces[number][]>();
+  for (const face of finalist.interfaces) {
+    for (const pieceIndex of [face.pieceAIndex, face.pieceBIndex]) {
+      const list = interfacesByPiece.get(pieceIndex) ?? [];
+      list.push(face);
+      interfacesByPiece.set(pieceIndex, list);
+    }
+  }
 
-  return planarPieces.map((piece, index) =>
-    index === prismPieceIndex
-      ? { releaseDirection: piece.releaseDirection, plane: piece.plane, curve: { points: interfaceCurve!.samplePoints } }
-      : piece,
-  );
+  let eligibleCount = 0;
+  const pieces = planarPieces.map((piece, index) => {
+    if (piece.plane === null) return piece;
+    const touching = interfacesByPiece.get(index);
+    if (touching === undefined || touching.length !== 1) return piece;
+    const [interfaceCurve] = touching;
+    if (interfaceCurve!.selfIntersecting) return piece;
+    if (interfaceCurve!.samplePoints.length < 3) return piece;
+    eligibleCount += 1;
+    return { releaseDirection: piece.releaseDirection, plane: piece.plane, curve: { points: interfaceCurve!.samplePoints } };
+  });
+  return eligibleCount > 0 ? pieces : null;
 }
 
 export async function runMasterMoldEngine(
@@ -386,14 +410,13 @@ export async function runMasterMoldEngine(
       } catch (error) {
         countError = error instanceof Error ? error : new Error(String(error));
       }
-      // Execution 08 LOOP 14: the flat half-space plane this finalist's
-      // prism search settled on is not the only way to realize its own
-      // (already-proven-sound) patch assignment -- retry with a
-      // height-field cutting tool that follows that assignment's own real
-      // parting curve instead. Bounded to a two-piece decomposition (one
-      // prism piece + the catch-all): the curve is that piece's FULL
-      // boundary against everything else, only guaranteed to be one simple
-      // closed loop when there is exactly one other piece.
+      // Execution 08 LOOP 14: the flat half-space planes this finalist's
+      // prism search settled on are not the only way to realize its own
+      // (already-proven-sound) patch assignment -- retry with height-field
+      // cutting tools that follow that assignment's own real parting
+      // curves instead, for every piece eligible (borders exactly one
+      // other piece, so its curve is guaranteed to be one simple loop).
+      // Pieces that border more than one neighbor keep their flat plane.
       const heightFieldPieces = heightFieldFallbackPieces(finalist, planarPieces);
       if (heightFieldPieces !== null) {
         throwIfCancelled(hooks);
