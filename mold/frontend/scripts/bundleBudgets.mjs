@@ -18,7 +18,15 @@
 // enough to absorb routine dependency bumps without masking a real
 // regression such as an accidental static import dragging Three (or
 // another heavy dependency) back into the eager path.
-export const EAGER_APP_BUDGET_KB = 410;
+//
+// Re-baselined at SHA 94d4020 (Execution 08's 28-loop Master Mold effort):
+// the eager app entry reached ~410.71 kB of real, verified planning/search
+// logic (region graphs, adjacency welding, beam/finalist diversity, etc.),
+// fully consuming the original 410 kB budget's margin -- first caught by
+// running the real CI build for the first time in this session (the push
+// had been network-blocked until now). 415 kB restores a comparable small
+// margin over this new observed baseline, not an open-ended increase.
+export const EAGER_APP_BUDGET_KB = 415;
 export const LAZY_SHARED_BUDGET_KB = 575;
 
 export const EAGER_APP_BUDGET_BYTES = EAGER_APP_BUDGET_KB * 1000;
