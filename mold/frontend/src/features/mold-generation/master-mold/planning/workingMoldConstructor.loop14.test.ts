@@ -1,0 +1,112 @@
+import { describe, expect, it } from "vitest";
+
+import { getManifoldModule, payloadFromManifold } from "../../geometry/manifold";
+import { meshTopology } from "../../geometry/meshTopology";
+import type { PlanningVector3 } from "./masterMoldPlanning.contracts";
+import { basisAround, ruledPartingSurfaceSolid } from "./workingMoldConstructor";
+
+/**
+ * Execution 08 LOOP 14: the first increment of "Working Mold must not
+ * require every parting interface to be one infinite plane" -- a "ruled
+ * surface" cutting tool built by sweeping the piece's own real parting
+ * curve (Loop 13's ordered curve) along a direction, instead of an infinite
+ * half-space plane. These tests exercise the geometric primitive in
+ * isolation, against known shapes with an analytically predictable volume,
+ * before it is wired into the full search/construction pipeline.
+ */
+describe("ruledPartingSurfaceSolid (Execution 08 LOOP 14)", () => {
+  it("sweeps a square loop along a world axis into a box of the exact expected volume", async () => {
+    const module = await getManifoldModule();
+    const square: PlanningVector3[] = [
+      { x: -5, y: -5, z: 0 },
+      { x: 5, y: -5, z: 0 },
+      { x: 5, y: 5, z: 0 },
+      { x: -5, y: 5, z: 0 },
+    ];
+    const bounds = { min: { x: -10, y: -10, z: -10 }, max: { x: 10, y: 10, z: 10 } };
+    const solid = ruledPartingSurfaceSolid(module, square, { x: 0, y: 0, z: 1 }, bounds);
+    try {
+      expect(solid.status()).toBe("NoError");
+      // Cross-section area 10x10 = 100mm^2; height = diagonal*1.5+2.
+      const diagonal = Math.hypot(20, 20, 20);
+      const expectedHeight = diagonal * 1.5 + 2;
+      expect(solid.volume()).toBeCloseTo(100 * expectedHeight, 0);
+
+      const mesh = payloadFromManifold(solid);
+      const topology = meshTopology(mesh);
+      expect(topology.openEdgeCount).toBe(0);
+      expect(topology.nonManifoldEdgeCount).toBe(0);
+      const components = solid.decompose();
+      expect(components.length).toBe(1);
+      for (const component of components) component.delete();
+    } finally {
+      solid.delete();
+    }
+  });
+
+  it("sweeps a square defined IN the oblique sweep plane into a solid of the exact expected volume", async () => {
+    const module = await getManifoldModule();
+    const bounds = { min: { x: -10, y: -10, z: -10 }, max: { x: 10, y: 10, z: 10 } };
+    const obliqueLength = Math.hypot(1, 1, 1);
+    const oblique = { x: 1 / obliqueLength, y: 1 / obliqueLength, z: 1 / obliqueLength };
+    // The function projects world-space curve points onto the plane
+    // perpendicular to `direction` -- a curve that does NOT already lie in
+    // that plane legitimately projects to a smaller footprint (this is the
+    // correct silhouette-from-the-release-direction behavior a real parting
+    // curve relies on). Building the square directly in the (u, v) plane
+    // for THIS direction, via the same `basisAround` the implementation
+    // uses, keeps this a fair like-for-like volume check.
+    const { u, v } = basisAround(oblique);
+    const point = (pu: number, pv: number): PlanningVector3 => ({
+      x: u.x * pu + v.x * pv,
+      y: u.y * pu + v.y * pv,
+      z: u.z * pu + v.z * pv,
+    });
+    const square: PlanningVector3[] = [point(-5, -5), point(5, -5), point(5, 5), point(-5, 5)];
+    const solid = ruledPartingSurfaceSolid(module, square, oblique, bounds);
+    try {
+      expect(solid.status()).toBe("NoError");
+      const diagonal = Math.hypot(20, 20, 20);
+      const expectedHeight = diagonal * 1.5 + 2;
+      expect(solid.volume()).toBeCloseTo(100 * expectedHeight, 0);
+    } finally {
+      solid.delete();
+    }
+  });
+
+  it("intersecting the swept solid with a big block extracts exactly the polygon footprint times the block's own span along the axis", async () => {
+    const module = await getManifoldModule();
+    // A hexagonal loop (not axis-aligned rectangle) -- exercises a genuinely
+    // non-planar-search-derived shape, closer to a real parting curve.
+    const radius = 4;
+    const hexagon: PlanningVector3[] = Array.from({ length: 6 }, (_, index) => {
+      const angle = (index / 6) * Math.PI * 2;
+      return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius, z: 0 };
+    });
+    const bounds = { min: { x: -10, y: -10, z: -10 }, max: { x: 10, y: 10, z: 10 } };
+    const solid = ruledPartingSurfaceSolid(module, hexagon, { x: 0, y: 0, z: 1 }, bounds);
+    const block = module.Manifold.cube([20, 20, 6], true);
+    try {
+      const clipped = solid.intersect(block);
+      try {
+        expect(clipped.status()).toBe("NoError");
+        // Regular hexagon area = (3*sqrt(3)/2) * radius^2; block spans 6mm along Z.
+        const hexagonArea = (3 * Math.sqrt(3) / 2) * radius * radius;
+        expect(clipped.volume()).toBeCloseTo(hexagonArea * 6, 0);
+      } finally {
+        clipped.delete();
+      }
+    } finally {
+      block.delete();
+      solid.delete();
+    }
+  });
+
+  it("rejects a degenerate curve with fewer than 3 points", async () => {
+    const module = await getManifoldModule();
+    const bounds = { min: { x: -10, y: -10, z: -10 }, max: { x: 10, y: 10, z: 10 } };
+    expect(() =>
+      ruledPartingSurfaceSolid(module, [{ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }], { x: 0, y: 0, z: 1 }, bounds),
+    ).toThrow(/at least 3 curve points/);
+  });
+});

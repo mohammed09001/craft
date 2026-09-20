@@ -1,6 +1,7 @@
 import type { Bounds3 } from "../../split-face/splitFace.contracts";
 import type { MoldMeshPayload } from "../../reference-mold-definition/orthogonalMold";
 import {
+  assertManifoldStatus,
   boundsFromManifold,
   createBlankSolid,
   getManifoldModule,
@@ -136,6 +137,97 @@ export function halfSpacePrismPayload(
     1, 2, 6, 1, 6, 5,
   ];
   return { positions, indices };
+}
+
+/**
+ * Execution 08 LOOP 14: a "ruled surface" solid -- the piece's own REAL
+ * parting curve (Loop 13's ordered, simplified curve extracted from the
+ * planning-level patch assignment, not a half-space plane search result),
+ * projected onto the plane perpendicular to `direction` and extruded far
+ * enough to span the whole envelope.
+ *
+ * NOT a drop-in replacement for `halfSpacePrismPayload` in
+ * `remainder.intersect(...)`/`remainder.subtract(...)` carving, despite the
+ * resemblance -- this is bounded to the curve's own (u, v) footprint, while
+ * a flat half-space plane is unbounded in the plane perpendicular to
+ * `direction` and so correctly reaches the mold envelope's WALL material far
+ * from the part. Naively substituting this for the plane excludes all of
+ * that far-field material (measured directly: a piece roughly 4.5x smaller
+ * than the flat plane's own cut of the same envelope, which then correctly
+ * failed release verification). A general fix needs the parting surface to
+ * follow the curve's real 3D shape NEAR the part while reverting to the
+ * flat plane's own offset FAR from it -- a height field varying over (u, v),
+ * which a single flat 2D polygon extrusion cannot represent (a
+ * locally-corrected CSG composition -- flat plane outside the curve's
+ * footprint, this extrusion inside it -- was attempted and produced
+ * volume-correct but topologically fragmented, disconnected pieces:
+ * "inside the curve's own polygon, for all sweep heights" is not the same
+ * shape as "beyond the true curved boundary at each (u, v)"). Not yet wired
+ * into `constructWorkingMold`; this primitive is tested here in isolation
+ * as real, verified infrastructure for that further work.
+ *
+ * The curve is treated as ONE simple closed loop in the plane perpendicular
+ * to `direction` (its own points projected there, implicitly closed back to
+ * the first point) -- multi-loop/disconnected boundaries are not supported
+ * here (Loop 13's own curve extraction assumes a single loop too). The
+ * caller must reject a `selfIntersecting` curve before calling this: a
+ * self-intersecting projection is not a simple polygon and Manifold's
+ * `CrossSection` construction requires one.
+ */
+export function ruledPartingSurfaceSolid(
+  module: Awaited<ReturnType<typeof getManifoldModule>>,
+  curvePoints: readonly PlanningVector3[],
+  direction: PlanningVector3,
+  bounds: Bounds3,
+): ManifoldSolid {
+  if (curvePoints.length < 3) throw new Error("a ruled parting surface needs at least 3 curve points.");
+  const { u, v, w } = basisAround(direction);
+  const diagonal = Math.hypot(
+    bounds.max.x - bounds.min.x,
+    bounds.max.y - bounds.min.y,
+    bounds.max.z - bounds.min.z,
+  );
+  const height = diagonal * 1.5 + 2;
+
+  const polygon: [number, number][] = curvePoints.map((point) => [
+    point.x * u.x + point.y * u.y + point.z * u.z,
+    point.x * v.x + point.y * v.y + point.z * v.z,
+  ]);
+
+  const crossSection = new module.CrossSection([polygon], "NonZero");
+  let extruded: ManifoldSolid | null = null;
+  try {
+    // scaleTop MUST be an explicit [1, 1] Vec2, not the bare number 1: the
+    // manifold-3d WASM binding's number overload for this parameter does not
+    // broadcast the way its own declared type suggests -- it silently halves
+    // the resulting volume (reproduced directly against a known 10x10x10 box:
+    // bare `1` gives volume 500, `[1, 1]` gives the correct 1000).
+    extruded = module.Manifold.extrude(crossSection, height, 0, 0, [1, 1], true);
+    assertManifoldStatus(extruded, "Ruled parting-surface extrusion");
+    // Column-major 4x4: maps the extrusion's local (x,y,z) onto the world
+    // basis (u,v,w) built around `direction` -- local Z (the extrude axis)
+    // becomes the release direction, matching `halfSpacePrismPayload`'s own
+    // use of `basisAround`. No translation: the polygon's own coordinates
+    // are already absolute world-frame dot products, not offsets from a
+    // moving local origin.
+    const rotation: [
+      number, number, number, number,
+      number, number, number, number,
+      number, number, number, number,
+      number, number, number, number,
+    ] = [
+      u.x, u.y, u.z, 0,
+      v.x, v.y, v.z, 0,
+      w.x, w.y, w.z, 0,
+      0, 0, 0, 1,
+    ];
+    const transformed = extruded.transform(rotation);
+    assertManifoldStatus(transformed, "Ruled parting-surface transform");
+    return transformed;
+  } finally {
+    crossSection.delete();
+    extruded?.delete();
+  }
 }
 
 /** Explicit n-gon prism payload (registration pin) along `direction`, centered on `center` spanning ±length/2. */

@@ -191,7 +191,7 @@ function buildBudgetDetails(params: {
       limit: 0,
       used: 0,
       pruned: 0,
-      reason: "general (non-half-space) parting surface construction is not yet implemented (Execution 08 LOOP 14); every piece is still an ordered half-space prism.",
+      reason: "general (non-half-space) parting surface construction is not yet implemented (Execution 08 LOOP 14); every piece is still an ordered half-space prism. A ruled-surface (curve-swept) primitive exists and is unit-tested in isolation (workingMoldConstructor.ts's ruledPartingSurfaceSolid), but composing it into a correct drop-in half-space replacement was attempted and found to need real height-field surface support the flat 2D polygon extrusion cannot provide (a locally-corrected composition produced volume-correct but topologically fragmented pieces) -- not wired into construction.",
     },
   ];
 }
