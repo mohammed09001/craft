@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { getManifoldModule, payloadFromManifold, createBlankSolid } from "../../geometry/manifold";
+import { getManifoldModule, payloadFromManifold, createBlankSolid, manifoldFromPayload } from "../../geometry/manifold";
 import { meshTopology } from "../../geometry/meshTopology";
 import type { PlanningVector3 } from "./masterMoldPlanning.contracts";
-import { basisAround, ruledPartingSurfaceSolid, heightFieldPartingSolid } from "./workingMoldConstructor";
+import { basisAround, ruledPartingSurfaceSolid, heightFieldPartingSolid, multiNeighborHeightFieldSolid, halfSpacePrismPayload } from "./workingMoldConstructor";
 
 /**
  * Execution 08 LOOP 14: the first increment of "Working Mold must not
@@ -193,5 +193,102 @@ describe("heightFieldPartingSolid (Execution 08 LOOP 14)", () => {
     expect(() =>
       heightFieldPartingSolid(module, [{ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }], { x: 0, y: 0, z: 1 }, 0, bounds, 1e-4),
     ).toThrow(/at least 3 curve points/);
+  });
+});
+
+/**
+ * Execution 08 LOOP 14, multi-neighbor increment: a piece bordering several
+ * other pieces has a boundary that is not one simple loop overall --
+ * `multiNeighborHeightFieldSolid` composes one independent local correction
+ * per neighbor's own curve onto a shared flat base, instead of one general
+ * multi-loop triangulation.
+ */
+describe("multiNeighborHeightFieldSolid (Execution 08 LOOP 14)", () => {
+  const octagon = (cx: number, cy: number, radius: number, z: number): PlanningVector3[] =>
+    Array.from({ length: 8 }, (_, index) => {
+      const angle = (index / 8) * Math.PI * 2;
+      return { x: cx + Math.cos(angle) * radius, y: cy + Math.sin(angle) * radius, z };
+    });
+
+  it("composes two separate flat curves into one watertight, single-connected, volume-conserving solid", async () => {
+    const module = await getManifoldModule();
+    const bounds = { min: { x: -20, y: -20, z: -20 }, max: { x: 20, y: 20, z: 20 } };
+    const curveA = octagon(-10, 0, 2, 0);
+    const curveB = octagon(10, 0, 2, 0);
+    const tool = multiNeighborHeightFieldSolid(module, [curveA, curveB], { x: 0, y: 0, z: 1 }, 0, bounds, 1e-4);
+    try {
+      expect(tool.status()).toBe("NoError");
+      const mesh = payloadFromManifold(tool);
+      const topology = meshTopology(mesh);
+      expect(topology.openEdgeCount).toBe(0);
+      expect(topology.nonManifoldEdgeCount).toBe(0);
+      const components = tool.decompose();
+      expect(components.length).toBe(1);
+      for (const component of components) component.delete();
+
+      // Volume conservation: the whole envelope, split by this tool, must
+      // sum back to exactly the envelope's own volume -- no gap, no overlap.
+      const remainder = createBlankSolid(module, bounds);
+      const region = remainder.intersect(tool);
+      const rest = remainder.subtract(tool);
+      expect(region.decompose().length).toBe(1);
+      expect(rest.decompose().length).toBe(1);
+      const envelopeVolume = (bounds.max.x - bounds.min.x) * (bounds.max.y - bounds.min.y) * (bounds.max.z - bounds.min.z);
+      expect(region.volume() + rest.volume()).toBeCloseTo(envelopeVolume, 3);
+      region.delete();
+      rest.delete();
+    } finally {
+      tool.delete();
+    }
+  });
+
+  it("composes two curves with real, opposite height variation into one connected solid", async () => {
+    const module = await getManifoldModule();
+    const bounds = { min: { x: -20, y: -20, z: -20 }, max: { x: 20, y: 20, z: 20 } };
+    const wavy = (cx: number, cy: number, radius: number, amplitude: number): PlanningVector3[] =>
+      Array.from({ length: 8 }, (_, index) => {
+        const angle = (index / 8) * Math.PI * 2;
+        return { x: cx + Math.cos(angle) * radius, y: cy + Math.sin(angle) * radius, z: amplitude };
+      });
+    const curveA = wavy(-10, 0, 2, 3);
+    const curveB = wavy(10, 0, 2, -3);
+    const tool = multiNeighborHeightFieldSolid(module, [curveA, curveB], { x: 0, y: 0, z: 1 }, 0, bounds, 1e-4);
+    try {
+      expect(tool.status()).toBe("NoError");
+      const components = tool.decompose();
+      expect(components.length).toBe(1);
+      for (const component of components) component.delete();
+    } finally {
+      tool.delete();
+    }
+  });
+
+  it("far from every curve's local footprint, matches the flat plane exactly", async () => {
+    const module = await getManifoldModule();
+    const bounds = { min: { x: -20, y: -20, z: -20 }, max: { x: 20, y: 20, z: 20 } };
+    const curveA = octagon(-10, 0, 1, 4);
+    const curveB = octagon(10, 0, 1, -4);
+    const tool = multiNeighborHeightFieldSolid(module, [curveA, curveB], { x: 0, y: 0, z: 1 }, 0, bounds, 1e-4);
+    const flatTool = manifoldFromPayload(module, halfSpacePrismPayload({ x: 0, y: 0, z: 1 }, 0, bounds), 1e-4);
+    // A probe far from both curves (they sit near x=-10 and x=10; this
+    // probe is near the envelope's own corner at y=18).
+    const probe = module.Manifold.cube([2, 2, 30], true).translate(0, 18, 0);
+    try {
+      const toolProbe = probe.intersect(tool);
+      const flatProbe = probe.intersect(flatTool);
+      expect(toolProbe.volume()).toBeCloseTo(flatProbe.volume(), 1);
+      toolProbe.delete();
+      flatProbe.delete();
+    } finally {
+      probe.delete();
+      flatTool.delete();
+      tool.delete();
+    }
+  });
+
+  it("rejects an empty curve group list", async () => {
+    const module = await getManifoldModule();
+    const bounds = { min: { x: -10, y: -10, z: -10 }, max: { x: 10, y: 10, z: 10 } };
+    expect(() => multiNeighborHeightFieldSolid(module, [], { x: 0, y: 0, z: 1 }, 0, bounds, 1e-4)).toThrow(/at least one curve/);
   });
 });

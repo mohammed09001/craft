@@ -191,7 +191,7 @@ function buildBudgetDetails(params: {
       limit: 0,
       used: 0,
       pruned: 0,
-      reason: "a height-field (curve-following) parting surface (Execution 08 LOOP 14) is attempted only as a fallback when the flat half-space plane fails real construction, and only per PIECE: a piece qualifies when it borders exactly one other piece (a boundary against two or more neighbors is not guaranteed to be one simple loop, a further increment) and its own real parting curve does not self-intersect. The catch-all piece is never substituted.",
+      reason: "a height-field (curve-following) parting surface (Execution 08 LOOP 14) is attempted only as a fallback when the flat half-space plane fails real construction, and only per PIECE: a piece qualifies when every neighbor it borders contributes a real, non-self-intersecting parting curve (one neighbor uses a single-curve height field; several neighbors compose one independent local correction each). The catch-all piece is never substituted.",
     },
   ];
 }
@@ -200,32 +200,26 @@ function buildBudgetDetails(params: {
  * Execution 08 LOOP 14: builds a height-field (curve-based) alternative to
  * a finalist's own flat-plane prism pieces, or `null` when NO piece is
  * eligible. Applied PER PIECE, independent of the finalist's total piece
- * count: a prism piece is only eligible when exactly ONE
- * `WorkingMoldPartingInterface` touches it (it borders exactly one other
- * piece), since that piece's own real parting curve -- extracted from the
- * SAME already-proven-sound patch assignment the plane search failed to
- * realize -- is only guaranteed to be one simple closed loop when there is
- * a single neighbor. A piece that borders MULTIPLE neighbors (two or more
- * interfaces touch it) has a boundary that is not one loop in general (a
- * further increment: piecing together several loops, or several disjoint
- * boundary components, into one height field); it keeps its flat plane.
- * The catch-all piece (`plane: null`) is never substituted -- it has no
- * offset for the height field's own far-field behavior to fall back to.
+ * count: a prism piece is eligible when EVERY `WorkingMoldPartingInterface`
+ * touching it is a real, usable curve (non-self-intersecting, >=3 points).
+ * One neighbor uses `heightFieldPartingSolid` directly; several neighbors
+ * compose one independent local correction per neighbor
+ * (`multiNeighborHeightFieldSolid`) -- each neighbor's own boundary against
+ * this piece is still guaranteed to be one simple closed loop, even when
+ * the piece as a whole borders several different neighbors. The catch-all
+ * piece (`plane: null`) is never substituted -- it has no offset for the
+ * height field's own far-field behavior to fall back to.
  *
  * Checked directly against a real 3/4-piece fixture (a three-hole cube):
- * every piece bordered two or more neighbors there, so this fallback never
- * actually triggered for it -- a real multi-piece decomposition's patch
- * adjacency is generally richer than the ordered-prism model's own
- * "each piece borders just the next one" intuition suggests. This
- * generalization is genuinely correct and exercised (the real 30mm box's
- * two-piece case), but its practical trigger rate for 3+-piece
- * decompositions may be low until a further increment handles a
- * multi-neighbor boundary.
+ * a real prism piece there bordered two neighbors with real, usable curves,
+ * and `multiNeighborHeightFieldSolid` constructed a valid, single-connected
+ * tool for it -- this genuinely extends coverage beyond the two-piece case,
+ * not just in theory.
  */
 function heightFieldFallbackPieces(
   finalist: WorkingMoldDecompositionFinalist,
   planarPieces: readonly { readonly releaseDirection: PlanningVector3; readonly plane: { readonly direction: PlanningVector3; readonly offsetMm: number } | null }[],
-): readonly { readonly releaseDirection: PlanningVector3; readonly plane: { readonly direction: PlanningVector3; readonly offsetMm: number } | null; readonly curve?: { readonly points: readonly PlanningVector3[] } | null }[] | null {
+): readonly { readonly releaseDirection: PlanningVector3; readonly plane: { readonly direction: PlanningVector3; readonly offsetMm: number } | null; readonly curve?: readonly (readonly PlanningVector3[])[] | null }[] | null {
   const interfacesByPiece = new Map<number, typeof finalist.interfaces[number][]>();
   for (const face of finalist.interfaces) {
     for (const pieceIndex of [face.pieceAIndex, face.pieceBIndex]) {
@@ -239,12 +233,10 @@ function heightFieldFallbackPieces(
   const pieces = planarPieces.map((piece, index) => {
     if (piece.plane === null) return piece;
     const touching = interfacesByPiece.get(index);
-    if (touching === undefined || touching.length !== 1) return piece;
-    const [interfaceCurve] = touching;
-    if (interfaceCurve!.selfIntersecting) return piece;
-    if (interfaceCurve!.samplePoints.length < 3) return piece;
+    if (touching === undefined || touching.length === 0) return piece;
+    if (touching.some((face) => face.selfIntersecting || face.samplePoints.length < 3)) return piece;
     eligibleCount += 1;
-    return { releaseDirection: piece.releaseDirection, plane: piece.plane, curve: { points: interfaceCurve!.samplePoints } };
+    return { releaseDirection: piece.releaseDirection, plane: piece.plane, curve: touching.map((face) => face.samplePoints) };
   });
   return eligibleCount > 0 ? pieces : null;
 }
@@ -414,9 +406,9 @@ export async function runMasterMoldEngine(
       // prism search settled on are not the only way to realize its own
       // (already-proven-sound) patch assignment -- retry with height-field
       // cutting tools that follow that assignment's own real parting
-      // curves instead, for every piece eligible (borders exactly one
-      // other piece, so its curve is guaranteed to be one simple loop).
-      // Pieces that border more than one neighbor keep their flat plane.
+      // curves instead, for every piece whose neighbors all contribute a
+      // real, usable curve (one neighbor: a direct height field; several:
+      // one independent local correction per neighbor).
       const heightFieldPieces = heightFieldFallbackPieces(finalist, planarPieces);
       if (heightFieldPieces !== null) {
         throwIfCancelled(hooks);

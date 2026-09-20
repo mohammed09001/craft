@@ -49,22 +49,25 @@ export interface PlannedPieceRegion {
   /** Parting plane (unit direction + offset): piece occupies dot(p,d) >= offset minus earlier pieces. null for the catch-all remainder. */
   readonly plane: { readonly direction: PlanningVector3; readonly offsetMm: number } | null;
   /**
-   * Execution 08 LOOP 14: a height-field cutting tool (`heightFieldPartingSolid`)
-   * -- `plane`'s own flat cut everywhere except near this piece's own real
-   * parting curve (from the planning-level patch assignment, Loop 13's
-   * ordered/simplified curve), where the true curve's own per-point height
-   * is followed instead. `plane` MUST still be supplied alongside `curve`,
-   * not null: the height field's far field, and its fallback if this piece
-   * is rejected, are both the flat cut. Registration-pin placement (which
+   * Execution 08 LOOP 14: a height-field cutting tool -- `plane`'s own flat
+   * cut everywhere except near this piece's own real parting curve(s) (from
+   * the planning-level patch assignment, Loop 13's ordered/simplified
+   * curves), where the true curve's own per-point height is followed
+   * instead. `plane` MUST still be supplied alongside `curve`, not null:
+   * the height field's far field, and its fallback if this piece is
+   * rejected, are both the flat cut. Registration-pin placement (which
    * reuses `plane`) still lands correctly almost everywhere, since pins are
-   * placed away from the part by design. `curve` must be this piece's FULL
-   * boundary against everything else, which is only guaranteed to be one
-   * simple closed loop when this piece borders exactly one other piece
-   * (whether that is the whole decomposition's only other piece, in a
-   * two-piece split, or one specific neighbor among several in a
-   * multi-piece one) -- the caller is responsible for that guarantee.
+   * placed away from the part by design.
+   *
+   * One entry per NEIGHBOR this piece borders: a piece with a single
+   * neighbor supplies one curve group (`heightFieldPartingSolid`); a piece
+   * bordering several neighbors supplies one group per neighbor
+   * (`multiNeighborHeightFieldSolid`, one independent local correction per
+   * group -- their own local footprints must not overlap). Each group must
+   * be this piece's FULL boundary against that ONE neighbor, which is only
+   * guaranteed to be one simple closed loop per neighbor, not per piece.
    */
-  readonly curve?: { readonly points: readonly PlanningVector3[] } | null;
+  readonly curve?: readonly (readonly PlanningVector3[])[] | null;
 }
 
 export interface WorkingMoldConstructionInput {
@@ -285,6 +288,14 @@ export function ruledPartingSurfaceSolid(
  * curve extraction is a necessary but not sufficient guard for that; the
  * caller should treat a `NoError`-but-implausible-volume result here as a
  * signal to fall back to the flat plane.
+ *
+ * `outerRadiusMm`: how far out the collar reaches before the surface is
+ * EXACTLY flat (`flatOffsetMm`). Left unset, it defaults to comfortably
+ * spanning the whole envelope (a genuine drop-in half-space replacement).
+ * `multiNeighborHeightFieldSolid` passes an explicit, much smaller radius
+ * instead, so several single-curve solids like this one can be composed
+ * as independent LOCAL corrections (each one is exactly flat at ITS OWN
+ * `outerRadiusMm`, so composing several together never leaves a seam).
  */
 export function heightFieldPartingSolid(
   module: Awaited<ReturnType<typeof getManifoldModule>>,
@@ -293,6 +304,7 @@ export function heightFieldPartingSolid(
   flatOffsetMm: number,
   bounds: Bounds3,
   toleranceMm: number,
+  outerRadiusMm?: number,
 ): ManifoldSolid {
   if (curvePoints.length < 3) throw new Error("a height-field parting surface needs at least 3 curve points.");
   const { u, v, w } = basisAround(flatDirection);
@@ -320,7 +332,10 @@ export function heightFieldPartingSolid(
     bounds.max.y - bounds.min.y,
     bounds.max.z - bounds.min.z,
   );
-  const outerRadius = diagonal + maxCurveRadius + 1;
+  const outerRadius = outerRadiusMm ?? diagonal + maxCurveRadius + 1;
+  if (outerRadius <= maxCurveRadius) {
+    throw new Error("a height-field parting surface's outer radius must comfortably exceed the curve's own extent.");
+  }
   const depth = diagonal * 1.5 + 2;
 
   const positions: number[] = [];
@@ -381,6 +396,109 @@ export function heightFieldPartingSolid(
     throw new Error("height-field parting surface produced an inward-facing (negative-volume) solid.");
   }
   return solid;
+}
+
+/**
+ * Execution 08 LOOP 14, multi-neighbor increment: a piece bordering SEVERAL
+ * other pieces has a boundary that is not one simple loop in general --
+ * `heightFieldPartingSolid` alone only handles a single neighbor. This
+ * composes one independent LOCAL correction per neighbor's own real
+ * parting curve onto a shared flat base, instead of attempting one general
+ * multi-loop triangulation (a full constrained 2D triangulation problem):
+ * for each curve, subtract a small local footprint circle (centered on
+ * that curve's own centroid, radius comfortably beyond its own extent)
+ * from the accumulated tool, and add back a `heightFieldPartingSolid` for
+ * that SAME curve built with `outerRadiusMm` set to that SAME radius --
+ * `heightFieldPartingSolid` is then, by construction, EXACTLY
+ * `flatOffsetMm` at that radius, identical to the flat base there, so the
+ * seam between the subtracted footprint and the added correction cannot
+ * gap (the mismatch that fragmented an earlier attempt at this).
+ *
+ * Requires each curve's own local footprint to not overlap any other
+ * curve's -- true whenever the neighbors are genuinely separate regions of
+ * the piece's boundary, which is the case this increment targets. Curves
+ * are applied in order without checking pairwise overlap; an unexpectedly
+ * close pair would surface as a real construction/release failure
+ * downstream (never silently wrong geometry), the same safety net every
+ * other fallback in this file relies on.
+ *
+ * What this DOES guarantee (verified: workingMoldConstructor.loop14.test.ts,
+ * and against a real fixture's own real curves in
+ * workingMoldConstructor.loop14.integration.test.ts): a watertight,
+ * single-connected solid that exactly partitions the envelope with its
+ * flat-plane far field intact. What it does NOT guarantee: that the
+ * resulting surface is monotonic enough along the release direction for
+ * a straight-line pull to actually clear it -- checked directly against
+ * that same real fixture, full release verification through
+ * `constructWorkingMold`'s complete pipeline failed for a curve with real
+ * geometric complexity (64+ points), even though this tool's own topology
+ * was valid. The caller (masterMoldEngine.ts's fallback) treats this as a
+ * best-effort retry inside a try/catch and falls through to ordinary
+ * piece-count escalation on failure -- never a silent wrong result, but
+ * also not a guarantee this closes every case it is tried against.
+ */
+export function multiNeighborHeightFieldSolid(
+  module: Awaited<ReturnType<typeof getManifoldModule>>,
+  curveGroups: readonly (readonly PlanningVector3[])[],
+  flatDirection: PlanningVector3,
+  flatOffsetMm: number,
+  bounds: Bounds3,
+  toleranceMm: number,
+): ManifoldSolid {
+  if (curveGroups.length === 0) throw new Error("multiNeighborHeightFieldSolid needs at least one curve.");
+  const { u, v } = basisAround(flatDirection);
+  const CIRCLE_SEGMENTS = 32;
+
+  let tool = manifoldFromPayload(module, halfSpacePrismPayload(flatDirection, flatOffsetMm, bounds), toleranceMm);
+  try {
+    for (const curvePoints of curveGroups) {
+      if (curvePoints.length < 3) throw new Error("a height-field parting surface needs at least 3 curve points.");
+      const local = curvePoints.map((point) => ({
+        pu: point.x * u.x + point.y * u.y + point.z * u.z,
+        pv: point.x * v.x + point.y * v.y + point.z * v.z,
+      }));
+      // Matches heightFieldPartingSolid's own centroid convention (the
+      // average of the curve's points) exactly -- the footprint circle
+      // built here and that function's own outer boundary must be
+      // concentric for the seam between them to close with no gap.
+      const centroidU = local.reduce((sum, point) => sum + point.pu, 0) / local.length;
+      const centroidV = local.reduce((sum, point) => sum + point.pv, 0) / local.length;
+      let maxCurveRadius = 0;
+      for (const point of local) {
+        const radius = Math.hypot(point.pu - centroidU, point.pv - centroidV);
+        if (radius > maxCurveRadius) maxCurveRadius = radius;
+      }
+      const localRadius = maxCurveRadius * 2 + toleranceMm * 8 + 1;
+
+      const footprintCircle: PlanningVector3[] = Array.from({ length: CIRCLE_SEGMENTS }, (_, index) => {
+        const angle = (index / CIRCLE_SEGMENTS) * Math.PI * 2;
+        const pu = centroidU + Math.cos(angle) * localRadius;
+        const pv = centroidV + Math.sin(angle) * localRadius;
+        return { x: u.x * pu + v.x * pv, y: u.y * pu + v.y * pv, z: u.z * pu + v.z * pv };
+      });
+
+      let footprintSolid: ManifoldSolid | null = null;
+      let localHeightField: ManifoldSolid | null = null;
+      let toolMinusFootprint: ManifoldSolid | null = null;
+      try {
+        footprintSolid = ruledPartingSurfaceSolid(module, footprintCircle, flatDirection, bounds);
+        localHeightField = heightFieldPartingSolid(module, curvePoints, flatDirection, flatOffsetMm, bounds, toleranceMm, localRadius);
+        toolMinusFootprint = tool.subtract(footprintSolid);
+        const composed = toolMinusFootprint.add(localHeightField);
+        assertManifoldStatus(composed, "Multi-neighbor height-field composition");
+        tool.delete();
+        tool = composed;
+      } finally {
+        footprintSolid?.delete();
+        localHeightField?.delete();
+        toolMinusFootprint?.delete();
+      }
+    }
+    return tool;
+  } catch (error) {
+    tool.delete();
+    throw error;
+  }
 }
 
 /** Explicit n-gon prism payload (registration pin) along `direction`, centered on `center` spanning ±length/2. */
@@ -675,16 +793,23 @@ export async function constructWorkingMold(input: WorkingMoldConstructionInput):
         remainder = null;
         break;
       }
-      if (curve !== null && curve !== undefined && curve.points.length < 3) {
-        throw new Error("a height-field cutting tool needs at least 3 curve points.");
+      if (curve !== null && curve !== undefined) {
+        if (curve.length === 0) throw new Error("a height-field cutting tool needs at least one curve group.");
+        for (const group of curve) {
+          if (group.length < 3) throw new Error("a height-field cutting tool needs at least 3 curve points per neighbor group.");
+        }
       }
       // Execution 08 LOOP 14: a curve-based cutting tool (present) takes
       // priority over the plain half-space plane -- the same
       // intersect/subtract carving either way, just following the real
       // parting curve's own per-point height near the part instead of a
-      // pure infinite half-plane.
+      // pure infinite half-plane. One curve group (single neighbor) uses
+      // the direct single-curve construction; several groups (multiple
+      // neighbors) compose one independent local correction per neighbor.
       const cuttingSolid = curve
-        ? heightFieldPartingSolid(module, curve.points, plane.direction, plane.offsetMm, envelopeBounds, policy.booleanToleranceMm)
+        ? curve.length === 1
+          ? heightFieldPartingSolid(module, curve[0]!, plane.direction, plane.offsetMm, envelopeBounds, policy.booleanToleranceMm)
+          : multiNeighborHeightFieldSolid(module, curve, plane.direction, plane.offsetMm, envelopeBounds, policy.booleanToleranceMm)
         : manifoldFromPayload(module, halfSpacePrismPayload(plane.direction, plane.offsetMm, envelopeBounds), policy.booleanToleranceMm);
       try {
         const region = remainder.intersect(cuttingSolid);
