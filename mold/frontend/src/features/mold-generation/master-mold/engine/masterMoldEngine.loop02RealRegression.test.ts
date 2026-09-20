@@ -12,52 +12,62 @@ import { runMasterMoldEngine } from "./masterMoldEngine";
  * masterMoldGoldenFixtures.ts) is a minimized derivative that reproduces the
  * SAME planner failure class from a real geometric cause, not a contrived
  * one: a smoothly curved free-form body (no flat faces) at a comparable
- * triangle density, carrying a blind pocket whose true release axis is never
- * captured as a candidate direction because the area-greedy, 8-seed-bounded
- * normal-cluster source is dominated by the curved body's own continuum of
- * surface normals. The nearest surviving candidate for that pocket sits
- * ~22 degrees off its true axis -- outside the narrow occlusion cone a
- * radius-0.8mm/height-~4mm blind bore allows -- so a small patch group stays
- * permanently unassignable at every piece count up to the profile default
- * cap of 4, and the search reports 0 exact construction attempts: the exact
- * symptom from the real part. (LOOP 04's full-resolution sampling fix
- * changed the exact unassignable-patch count from 1 to 5 -- more of the
- * pocket's marginal, grazing geometry is now visible to the search instead
- * of being skipped by stride sampling; the failure class itself is
- * unchanged, which is the point of this regression.)
+ * triangle density.
  *
- * This test currently documents that failure (pre-fix baseline, LOOP 02's
- * first gate item). LOOP 08 (adaptive direction discovery) and LOOP 16
- * (automatic piece count up to the 6-piece safety ceiling, not a hardcoded
- * 4) both landed since this was first written, and LOOP 11's region
- * set-cover now PROVES 5 directions can release every region of this
- * fixture (regionSetCoverMinimumPieceEstimate: 5,
- * regionSetCoverUncoveredRegionCount: 0) -- so the remaining gap is no
- * longer "no direction exists" (LOOP 08's target, closed) but this
- * planner's bounded prism-ORDERING search failing to find a geometric
- * arrangement that realizes a proven-achievable direction set (visible
- * directly in the piece-count-5 rejection reason below). That is LOOP
- * 10/12-14's target (region-owned assignment landed in LOOP 10; general,
- * non-half-space parting surfaces have not). LOOP 02's remaining gate items
- * are NOT met until exact construction succeeds; do not read this file's
- * current passing status as full LOOP 02 closure.
+ * LOOP 08 (adaptive direction discovery) and LOOP 16 (automatic piece count
+ * to the 6-piece safety ceiling) landed first: region set-cover proves 5
+ * directions collectively see every region of this fixture
+ * (regionSetCoverMinimumPieceEstimate: 5, regionSetCoverUncoveredRegionCount:
+ * 0) -- "no direction exists" is closed.
+ *
+ * The remaining gap, found by directly testing region set-cover's own
+ * 5-direction combination as an ordered half-space prism sequence: the
+ * ordered half-space search's assignment rule (`dot(patch.centroid,
+ * direction) >= offset`, claimed in a fixed prism sequence) is a DIFFERENT,
+ * weaker criterion than "this region is fully visible from direction D",
+ * which is all set-cover proves. Set-cover's own region-to-direction proof
+ * was never actually used to drive real patch assignment -- even trying its
+ * own proven-sufficient combination directly left 198 patches unassigned.
+ * `regionDirectAssignment.ts` fixes exactly this: it assigns patches DIRECTLY
+ * from set-cover's own proof (zero unassigned patches, verified directly
+ * against this fixture), and `masterMoldEngine.ts` now tries it as a real
+ * last-resort fallback when the ordinary search exhausts. This closes the
+ * PLANNING-level gap -- the engine now genuinely reaches real exact-CSG
+ * construction for this fixture (previously 0 attempts, ever).
+ *
+ * What remains open, found the same way (checked directly, an all-flat-plane
+ * variant of the SAME correct assignment fails at the identical point): full
+ * release verification for this specific, deliberately hard fixture's
+ * catch-all piece does not currently succeed, and it is not a curve-fitting
+ * precision gap -- something deeper about sequential single-direction-per-
+ * piece removal not sufficing here, even with a provably correct patch
+ * assignment, not yet root-caused further (regionDirectConstruction.ts's own
+ * doc comment). LOOP 02's remaining gate items are NOT met until release
+ * verification succeeds too; do not read this file's current passing status
+ * as full LOOP 02 closure.
  */
 describe("Real free-form regression (Execution 08 LOOP 02)", () => {
-  it("PRE-FIX BASELINE: reproduces 2..6-piece rejection with zero exact construction attempts", { timeout: 120_000 }, async () => {
+  it("reaches real exact-CSG construction via the region-direct-assignment fallback (previously 0 attempts, ever), still fails release for this specific hard fixture", { timeout: 120_000 }, async () => {
     const fixture = await buildFreeFormObliqueLockFixture();
     const seed = seedFromFixture(fixture);
     const result = await runMasterMoldEngine(seed);
 
     expect(result.plan).toBeNull();
     expect(result.toolingSets).toEqual([]);
-    expect(result.budget.workingMoldConstructionAttempts).toBe(0);
+    // The region-direct-assignment fallback (Execution 08 LOOP 14) genuinely
+    // reaches real exact-CSG construction now -- this is the fixed gap.
+    expect(result.budget.workingMoldConstructionAttempts).toBe(1);
     expect(result.failures).toHaveLength(1);
     expect(result.failures[0]!.reason).toBe("no_release_plan");
     expect(result.failures[0]!.family).toBe("budget-exhausted");
+    // The real construction attempt's own failure reason is preserved, not
+    // silently dropped.
+    expect(result.failures[0]!.message).toMatch(/region-set-cover-driven direct assignment/);
 
     // Every piece count up to the automatic safety ceiling (6, LOOP 16) was
-    // attempted and rejected -- planning diagnostics (LOOP 01) name the
-    // exact cause at each.
+    // still attempted and rejected by the ORDINARY search first -- planning
+    // diagnostics (LOOP 01) name the exact cause at each; the direct
+    // assignment is a fallback AFTER this, not a replacement for it.
     expect(result.planningDiagnostics.map((diagnostic) => diagnostic.pieceCount)).toEqual([2, 3, 4, 5, 6]);
     for (const diagnostic of result.planningDiagnostics) {
       expect(diagnostic.planningCandidatesFeasible).toBe(0);

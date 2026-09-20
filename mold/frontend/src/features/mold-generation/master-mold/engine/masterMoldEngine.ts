@@ -18,11 +18,14 @@ import { generateCandidateDirections } from "../planning/candidateDirections";
 import { analyzeDirectionAccessibility, pruneDirections } from "../planning/accessibility";
 import { runAdaptiveDirectionDiscovery } from "../planning/adaptiveDirectionDiscovery";
 import { buildSurfaceRegionGraph } from "../planning/surfaceRegions";
+import { refineRegionGraphByVisibility } from "../planning/regionSubdivision";
 import { greedyRegionCover } from "../planning/regionSetCover";
 import {
   createWorkingMoldPieceCountSearch,
   type WorkingMoldDecompositionFinalist,
 } from "../planning/workingMoldPlanner";
+import { buildRegionDirectAssignment } from "../planning/regionDirectAssignment";
+import { buildDirectAssignmentConstructionPieces } from "../planning/regionDirectConstruction";
 import { constructWorkingMold } from "../planning/workingMoldConstructor";
 import type { MasterMoldDirection } from "../masterMold.contracts";
 import type {
@@ -364,6 +367,11 @@ export async function runMasterMoldEngine(
   let construction: Awaited<ReturnType<typeof constructWorkingMold>> | null = null;
   let constructionFinalist: WorkingMoldDecompositionFinalist | null = null;
   let constructionError: Error | null = null;
+  // Execution 08 LOOP 14: how many REAL non-half-space (curved) parting
+  // surface constructions were actually attempted -- the per-finalist
+  // height-field fallback and the region-direct-assignment last resort.
+  // Reported honestly in the debug snapshot instead of a hardcoded 0.
+  let partingSurfaceCandidateAttempts = 0;
 
   for (;;) {
     const step = pieceCountSearch.next();
@@ -413,6 +421,7 @@ export async function runMasterMoldEngine(
       if (heightFieldPieces !== null) {
         throwIfCancelled(hooks);
         budget.workingMoldConstructionAttempts += 1;
+        partingSurfaceCandidateAttempts += 1;
         try {
           construction = await constructWorkingMold({
             sourceMesh: seed.sourceMesh,
@@ -434,6 +443,84 @@ export async function runMasterMoldEngine(
       pieceCount: step.pieceCount,
       reason: `all ${step.finalists.length} planning finalist(s) failed exact construction: ${countError?.message ?? "unknown"}`,
     });
+  }
+
+  // Execution 08 LOOP 14 (real-regression root cause): the ordered
+  // half-space search's own assignment rule -- geometric offset thresholds
+  // claimed in a fixed prism sequence -- is a different, weaker criterion
+  // than "this region is fully visible from direction D", which is all
+  // region set-cover (Loop 11) actually proves. When the whole search above
+  // exhausts every piece count with zero feasible candidates, but set-cover
+  // proves the candidate direction set collectively covers every region,
+  // try ONE more real construction: assign every patch DIRECTLY from
+  // set-cover's own region-to-direction proof (bypassing the offset search
+  // entirely), and build each piece's cutting tool from that assignment's
+  // own real parting curves. This is a genuine last resort, not a
+  // replacement for the ordinary search -- verified against a real,
+  // deliberately hard free-form fixture to REACH real exact-CSG
+  // construction where the ordinary search never got past 0 attempts, but
+  // not verified to always pass full release verification (see
+  // regionDirectConstruction.ts's own doc comment for the honest limit
+  // found there).
+  if (construction === null) {
+    const baseRegionGraph = buildSurfaceRegionGraph(planningMesh);
+    const refinedRegionGraph = refineRegionGraphByVisibility(baseRegionGraph, planningMesh, analysis).regionGraph;
+    const directCover = greedyRegionCover(refinedRegionGraph, planningMesh, analysis);
+    if (directCover.uncoveredRegionIndexes.length === 0 && directCover.steps.length >= 2 && directCover.steps.length <= maxPieces) {
+      const directAssignment = buildRegionDirectAssignment(refinedRegionGraph, planningMesh, analysis, directCover.steps);
+      const directBuilt = directAssignment.unassignedPatchCount === 0
+        ? buildDirectAssignmentConstructionPieces(planningMesh, analysis, directAssignment)
+        : null;
+      if (directBuilt !== null) {
+        throwIfCancelled(hooks);
+        budget.workingMoldConstructionAttempts += 1;
+        partingSurfaceCandidateAttempts += 1;
+        try {
+          construction = await constructWorkingMold({
+            sourceMesh: seed.sourceMesh,
+            sourceBounds: seed.sourceBounds,
+            releaseClearanceMm: seed.processProfile.releaseClearanceMm ?? 0,
+            minimumToolingWallMm: seed.processProfile.minimumToolingWallMm,
+            pieces: directBuilt.pieces,
+          });
+          const pieceCount = directBuilt.pieces.length;
+          const scoreBreakdown = {
+            slidingWallAreaMm2: 0,
+            seamCrossingCount: 0,
+            areaImbalance: 0,
+            interfaceCount: pieceCount - 1,
+            total: pieceCount * 0.1,
+          };
+          constructionFinalist = {
+            candidate: {
+              pieceCount,
+              pieces: directBuilt.pieces.map((piece, index) => ({
+                releaseDirection: piece.releaseDirection,
+                directionId: directCover.steps[index]!.directionId,
+                prism: null,
+              })),
+              feasible: true,
+              unassignablePatchCount: 0,
+              score: scoreBreakdown.total,
+              scoreBreakdown,
+            },
+            patchAssignment: Array.from(directAssignment.assignment),
+            interfaces: directBuilt.interfaces,
+          };
+        } catch (error) {
+          const rawMessage = error instanceof Error ? error.message : String(error);
+          // Attributed directly on the error itself: the top-level failure
+          // message below only ever surfaces `constructionError.message`
+          // (never `rejectedPieceCounts`, which this fallback runs after
+          // the ordinary search has already exhausted and populated), so
+          // attribution has to live here to reach the user-facing text.
+          constructionError = new Error(
+            `region-set-cover-driven direct assignment (${directCover.steps.length} directions, proven full region coverage) reached real exact construction but failed: ${rawMessage}`,
+          );
+          rejectedPieceCounts.push({ pieceCount: directBuilt.pieces.length, reason: constructionError.message });
+        }
+      }
+    }
   }
 
   budget.budgetDetails = buildBudgetDetails({
@@ -461,11 +548,14 @@ export async function runMasterMoldEngine(
     uncoveredRegionIndexes: debugRegionCover.uncoveredRegionIndexes,
     pieceCountAttempts: planningDiagnostics.map((diagnostic) => diagnostic.pieceCount),
     thresholdAttemptsByPieceCount: planningDiagnostics.map((diagnostic) => ({ pieceCount: diagnostic.pieceCount, thresholdCountUsed: diagnostic.thresholdCountUsed })),
-    // Execution 08 LOOP 14 (general, non-half-space parting surfaces) is not
-    // yet implemented: every candidate today is still an ordered half-space
-    // prism, so there is no separate parting-surface candidate search to
-    // report -- honestly 0, not fabricated.
-    partingSurfaceCandidateCount: 0,
+    // Execution 08 LOOP 14: how many real non-half-space (curved) parting
+    // surface constructions were actually attempted this run -- the
+    // per-finalist height-field fallback and the region-direct-assignment
+    // last resort. General multi-piece non-half-space construction is
+    // still not the default path (every finalist tries its flat plane
+    // first), so this is usually 0 on an easy part; honest either way, not
+    // hardcoded.
+    partingSurfaceCandidateCount: partingSurfaceCandidateAttempts,
     exactConstructionAttempts: budget.workingMoldConstructionAttempts,
     selectedPieceCount: constructionFinalist === null ? null : constructionFinalist.candidate.pieceCount,
   };

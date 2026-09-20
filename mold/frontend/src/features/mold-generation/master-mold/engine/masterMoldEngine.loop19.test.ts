@@ -38,7 +38,20 @@ describe("Observable, causal search budgets (Execution 08 LOOP 19)", () => {
 
   it("0 exact construction attempts is distinguishable from an exact-CSG engine failure via the exact_construction_attempts budget", async () => {
     const fixture = await buildFreeFormObliqueLockFixture();
-    const result = await runMasterMoldEngine(seedFromFixture(fixture));
+    // Execution 08 LOOP 14 (real-regression root cause fix): this fixture's
+    // ordinary search still finds 0 feasible candidates, but the engine now
+    // has a real last-resort fallback (region-set-cover-driven direct
+    // assignment) that IS eligible here (region set-cover proves 5
+    // directions suffice, within the default 6-piece ceiling) and DOES
+    // reach real exact construction -- so this fixture no longer exhibits
+    // 0 attempts on its own. Capping the piece-count preference below the
+    // 5 directions that fallback needs keeps it ineligible
+    // (`directCover.steps.length <= maxPieces` fails), preserving a genuine
+    // 0-feasible-candidates-AND-0-attempts scenario to test this budget's
+    // own reporting distinction, independent of that fallback's own
+    // separate (and separately tested: masterMoldEngine.loop02RealRegression.test.ts)
+    // success/failure.
+    const result = await runMasterMoldEngine(seedFromFixture(fixture, { userPreferences: { preferredMaximumWorkingMoldPieces: 3 } }));
     expect(result.plan).toBeNull();
     expect(result.budget.workingMoldConstructionAttempts).toBe(0);
     const exactBudget = result.budget.budgetDetails.find((item) => item.name === "exact_construction_attempts")!;

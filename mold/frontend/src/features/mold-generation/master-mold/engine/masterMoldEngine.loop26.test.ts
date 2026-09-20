@@ -71,9 +71,17 @@ describe("Working Mold intelligence telemetry (Execution 08 LOOP 26)", () => {
     expect(snapshot.coverageMatrixSummary.minimumPieceEstimate).not.toBeNull();
     expect(snapshot.pieceCountAttempts).toEqual([2, 3, 4, 5, 6]);
     expect(snapshot.thresholdAttemptsByPieceCount.map((entry) => entry.pieceCount)).toEqual([2, 3, 4, 5, 6]);
-    expect(snapshot.exactConstructionAttempts).toBe(0);
+    // Execution 08 LOOP 14 (real-regression root cause fix): the ordinary
+    // search still finds 0 feasible candidates at every piece count, but
+    // the engine's region-direct-assignment last resort IS eligible for
+    // this fixture (region set-cover proves 5 directions suffice) and DOES
+    // reach one real exact construction attempt -- honestly reported here,
+    // not the hardcoded 0 this snapshot used to report before that fallback
+    // existed (masterMoldEngine.loop02RealRegression.test.ts covers why it
+    // still fails release for this specific hard fixture).
+    expect(snapshot.exactConstructionAttempts).toBe(1);
     expect(snapshot.selectedPieceCount).toBeNull();
-    expect(snapshot.partingSurfaceCandidateCount).toBe(0); // LOOP 14 not yet implemented -- honestly reported, not fabricated.
+    expect(snapshot.partingSurfaceCandidateCount).toBe(1);
   }, 60_000);
 
   it("is null only for the invalid-source-mesh early return, where planning never ran", async () => {
