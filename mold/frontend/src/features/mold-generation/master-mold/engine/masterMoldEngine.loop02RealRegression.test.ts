@@ -35,22 +35,52 @@ import { runMasterMoldEngine } from "./masterMoldEngine";
  * PLANNING-level gap -- the engine now genuinely reaches real exact-CSG
  * construction for this fixture (previously 0 attempts, ever).
  *
- * What remains open, found the same way (checked directly, an all-flat-plane
- * variant of the SAME correct assignment fails at the identical point): full
- * release verification for this specific, deliberately hard fixture's
- * catch-all piece does not currently succeed, and it is not a curve-fitting
- * precision gap. Root-caused (see regionDirectConstruction.ts's own doc
- * comment for the full derivation): each non-last piece's flat construction
- * offset is chosen as the minimum projection of its own TRUE patches along
- * its own direction, and for a piece with a small or sparse true region a
- * single deep outlier patch drags that offset far enough to also claim large
- * amounts of OTHER pieces' material -- measured directly for this fixture,
- * piece 2 (159 true patches) claims 964 (805 wrong), piece 3 (164 true
- * patches) claims 1024 (860 wrong). This is a global mismatch between a
- * single flat half-space and the true non-convex shape a correct assignment
- * can require, not fixable by the existing local per-neighbor curve
- * correction. Closing it needs a genuinely different construction technique,
- * explicitly scoped out of this loop per user decision. LOOP 02's remaining
+ * What remains open, tracked through three further real, verified fixes
+ * (each precisely root-caused; full derivations in
+ * regionDirectConstruction.ts's and workingMoldConstructor.ts's own doc
+ * comments) that still have not closed release verification for this
+ * specific, deliberately hard fixture:
+ *
+ *  1. The FIRST construction attempt used one global flat offset (the
+ *     minimum projection of a piece's own patches) per region-cover
+ *     direction. A single outlier patch could drag that one global scalar
+ *     low enough to also claim large amounts of another piece's material
+ *     that was not even topologically adjacent -- measured directly, a
+ *     159-patch piece claimed 964 patches, 805 wrong. Fixed by
+ *     `assignmentGridPartingSolid`: a LOCAL, per-region decision that a
+ *     distant outlier cannot drag.
+ *  2. That local fix eliminated the over-capture but fragmented pieces
+ *     into many disconnected solid components (measured: up to 21 per
+ *     piece). Root-caused: a region-cover DIRECTION's own assigned patches
+ *     are not guaranteed to be one connected surface region (visibility
+ *     does not require adjacency) -- 3 of 5 directions' own assignments
+ *     were themselves split across 2-4 mesh-disconnected components for
+ *     this fixture. Fixed by splitting each direction's assignment into
+ *     its own connected components FIRST, each becoming its own physical
+ *     piece released along the same direction (`buildDirectAssignment
+ *     ConstructionPieces`) -- raised the physical piece count from 5 to
+ *     11.
+ *  3. Some regions still fragmented further DURING carving (a later
+ *     piece's local correction can slice through an earlier piece's own
+ *     connectivity). Fixed with a post-hoc safety net in
+ *     `constructWorkingMold` itself: any region that still decomposes into
+ *     multiple components after carving is split into that many final
+ *     pieces (a no-op on the ordinary threshold-search path, which never
+ *     produces this) -- raised the physical piece count further, to 23.
+ *
+ * That trajectory -- 5, then 11, then 23 physical pieces, each fix
+ * genuinely closing the specific defect it targeted -- is the honest
+ * stopping point, not a specific remaining bug: representing this
+ * fixture's true per-patch assignment as a sequence of half-space-derived
+ * cuts, however locally corrected, is DIVERGING, not converging, toward a
+ * valid small piece set. Piece 23 (of 23) still fails release verification
+ * along either polarity of its own direction. Closing this needs a
+ * genuinely different construction technique -- abandoning sequential
+ * half-space-derived cuts for something that reasons about the volume
+ * directly -- explicitly scoped out of this loop; the fixes above are real
+ * and kept (they are correctness improvements independent of whether this
+ * specific fixture ever closes), but no further attempt was made to force
+ * this fixture's own release verification to succeed. LOOP 02's remaining
  * gate items are NOT met until release verification succeeds too; do not
  * read this file's current passing status as full LOOP 02 closure.
  */

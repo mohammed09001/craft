@@ -68,6 +68,17 @@ export interface PlannedPieceRegion {
    * guaranteed to be one simple closed loop per neighbor, not per piece.
    */
   readonly curve?: readonly (readonly PlanningVector3[])[] | null;
+  /**
+   * Execution 08 LOOP 14 (flat-offset over-capture fix): a cutting tool
+   * driven DIRECTLY by the real per-patch assignment, not by a single
+   * global flat offset -- see `assignmentGridPartingSolid`'s own doc
+   * comment for why the single-offset heuristic is unsound and what this
+   * replaces it with. When present, this takes priority over `curve` in
+   * `constructWorkingMold`'s carving loop (both correct the same
+   * `plane`-based flat fallback, but `grid` is the strictly more general
+   * fix: it does not depend on a pre-extracted boundary curve at all).
+   */
+  readonly grid?: { readonly ownPoints: readonly PlanningVector3[]; readonly otherPoints: readonly PlanningVector3[] } | null;
 }
 
 export interface WorkingMoldConstructionInput {
@@ -501,6 +512,185 @@ export function multiNeighborHeightFieldSolid(
   }
 }
 
+/**
+ * Execution 08 LOOP 14 (flat-offset over-capture fix, second attempt): a
+ * SURGICAL replacement for a piece's single "best-fit" flat offset
+ * (`buildDirectAssignmentConstructionPieces`'s own `minProjection -
+ * epsilon`), which is unsound whenever a piece's true assigned region is
+ * small or sparse relative to the whole shape -- a single outlier patch,
+ * still correctly assigned to the piece, drags the ONE global scalar
+ * offset low enough that the resulting half-space also captures large
+ * amounts of OTHER pieces' material that isn't even topologically
+ * adjacent to this piece (measured directly against the real free-form
+ * regression fixture: a piece with 159 true patches had its flat offset
+ * claim 964, 805 of them wrong).
+ *
+ * A first attempt here replaced the ENTIRE flat floor with an independent
+ * per-grid-cell nearest-own-vs-nearest-other decision. That did eliminate
+ * the over-capture, but introduced a worse problem, found empirically: it
+ * fragments EVERY piece into many disconnected solid components (measured
+ * on the real fixture: 21, 13, 7, 4, 3 components across the 5 pieces),
+ * because a "no-claim" column carves a full-height gap straight through
+ * the remainder there, and the true per-patch assignment's own boundary is
+ * not always representable as a single-valued function of the in-plane
+ * position (the same "not monotonic enough" limitation already documented
+ * on `multiNeighborHeightFieldSolid`, just now hit everywhere instead of
+ * only near known neighbor curves).
+ *
+ * This version keeps the flat plane as the base (guaranteed simple,
+ * convex, single-connected) and drills only LOCAL, bounded "give-back"
+ * exclusions exactly where the flat plane provably steals real material:
+ * every `otherPoints` patch whose own projection along `direction` is >=
+ * `flatOffsetMm` (i.e. would be wrongly included by the flat half-space)
+ * is a known theft. Cluster those thefts by in-plane proximity (simple
+ * union-find), and for each cluster subtract a full-height cylinder
+ * (spanning comfortably beyond the whole envelope both ways along
+ * `direction`, so it is a clean drill-through, not a height-field patch)
+ * centered on the cluster with radius covering it plus margin. No own
+ * point is ever excluded this way (`flatOffsetMm` is always <= every own
+ * point's own projection, by construction), so this only ever gives
+ * material BACK to the remainder, never takes any of this piece's own
+ * material away -- a small number of localized full-height notches out of
+ * an otherwise plain convex shape, far less likely to sever connectivity
+ * than replacing the whole surface.
+ */
+export function assignmentGridPartingSolid(
+  module: Awaited<ReturnType<typeof getManifoldModule>>,
+  ownPoints: readonly PlanningVector3[],
+  otherPoints: readonly PlanningVector3[],
+  direction: PlanningVector3,
+  flatOffsetMm: number,
+  bounds: Bounds3,
+  toleranceMm: number,
+): ManifoldSolid {
+  if (ownPoints.length === 0) throw new Error("an assignment-grid parting surface needs at least one own patch point.");
+  const { u, v, w } = basisAround(direction);
+  const project = (point: PlanningVector3) => ({
+    pu: point.x * u.x + point.y * u.y + point.z * u.z,
+    pv: point.x * v.x + point.y * v.y + point.z * v.z,
+    h: point.x * w.x + point.y * w.y + point.z * w.z,
+  });
+
+  const flatPayload = halfSpacePrismPayload(direction, flatOffsetMm, bounds);
+  let tool = manifoldFromPayload(module, flatPayload, toleranceMm);
+
+  const stolen = otherPoints.map(project).filter((point) => point.h >= flatOffsetMm);
+  if (stolen.length === 0) return tool;
+
+  // Characteristic spacing among the stolen points themselves, to cluster
+  // by proximity without a hardcoded radius: two stolen points closer than
+  // a few multiples of this spacing belong to the same real cluster of
+  // material, further apart belong to different (possibly unrelated)
+  // clusters that should get their own independent, tightly-fitted
+  // exclusion instead of one giant one spanning both.
+  let stolenUMin = Infinity, stolenUMax = -Infinity, stolenVMin = Infinity, stolenVMax = -Infinity;
+  for (const point of stolen) {
+    if (point.pu < stolenUMin) stolenUMin = point.pu;
+    if (point.pu > stolenUMax) stolenUMax = point.pu;
+    if (point.pv < stolenVMin) stolenVMin = point.pv;
+    if (point.pv > stolenVMax) stolenVMax = point.pv;
+  }
+  const stolenArea = Math.max(stolenUMax - stolenUMin, 1e-6) * Math.max(stolenVMax - stolenVMin, 1e-6);
+  const stolenSpacing = Math.sqrt(stolenArea / stolen.length);
+  const clusterLinkRadius = Math.max(stolenSpacing * 4, toleranceMm * 16, 1e-3);
+  const clusterLinkRadiusSq = clusterLinkRadius * clusterLinkRadius;
+
+  // Union-find clustering by in-plane proximity (O(n^2), fine for the
+  // hundreds of points this deals with).
+  const parent = stolen.map((_, index) => index);
+  const find = (index: number): number => {
+    let root = index;
+    while (parent[root] !== root) root = parent[root]!;
+    let current = index;
+    while (parent[current] !== root) {
+      const next = parent[current]!;
+      parent[current] = root;
+      current = next;
+    }
+    return root;
+  };
+  const union = (a: number, b: number) => {
+    const rootA = find(a);
+    const rootB = find(b);
+    if (rootA !== rootB) parent[rootA] = rootB;
+  };
+  for (let i = 0; i < stolen.length; i += 1) {
+    for (let j = i + 1; j < stolen.length; j += 1) {
+      const du = stolen[i]!.pu - stolen[j]!.pu;
+      const dv = stolen[i]!.pv - stolen[j]!.pv;
+      if (du * du + dv * dv <= clusterLinkRadiusSq) union(i, j);
+    }
+  }
+  const clusters = new Map<number, { pu: number; pv: number; h: number }[]>();
+  for (let i = 0; i < stolen.length; i += 1) {
+    const root = find(i);
+    const list = clusters.get(root) ?? [];
+    list.push({ pu: stolen[i]!.pu, pv: stolen[i]!.pv, h: stolen[i]!.h });
+    clusters.set(root, list);
+  }
+
+  try {
+    for (const cluster of clusters.values()) {
+      const centroidU = cluster.reduce((sum, point) => sum + point.pu, 0) / cluster.length;
+      const centroidV = cluster.reduce((sum, point) => sum + point.pv, 0) / cluster.length;
+      let maxRadius = 0;
+      let clusterHMin = Infinity;
+      let clusterHMax = -Infinity;
+      for (const point of cluster) {
+        const radius = Math.hypot(point.pu - centroidU, point.pv - centroidV);
+        if (radius > maxRadius) maxRadius = radius;
+        if (point.h < clusterHMin) clusterHMin = point.h;
+        if (point.h > clusterHMax) clusterHMax = point.h;
+      }
+      const radiusMm = maxRadius + toleranceMm * 8 + 1e-3;
+      // Bounded on the NEAR side only (just below the stolen material's
+      // own shallowest point, plus margin): this piece's own real surface
+      // can pass through the SAME in-plane column at a shallower height (a
+      // fold or wrap-around in a free-form shape), and drilling that too
+      // would strip legitimate material and split the piece (found
+      // empirically: an unbounded-both-sides version left 2 of 5 pieces
+      // fragmented). Left UNBOUNDED on the far side, out past the whole
+      // envelope: everything beyond a later piece's own surface, in the
+      // SAME direction the flat half-space itself was already claiming,
+      // genuinely belongs to that later piece too (matching the convention
+      // a piece's own flat offset already uses -- "everything beyond my
+      // shallowest point is mine"), not just the thin slab at its exact
+      // height (bounding both sides was tried and measurably under-
+      // excludes: real wall material beyond the stolen patches stayed
+      // wrongly claimed, and pieces roughly doubled in volume).
+      const diagonal = Math.hypot(
+        bounds.max.x - bounds.min.x,
+        bounds.max.y - bounds.min.y,
+        bounds.max.z - bounds.min.z,
+      );
+      const marginH = Math.max(toleranceMm * 8, (clusterHMax - clusterHMin) * 0.2, 1e-3);
+      const hLow = clusterHMin - marginH;
+      const hHigh = flatOffsetMm + diagonal * 1.5 + 2;
+      const centerAlong = (hLow + hHigh) / 2;
+      const lengthMm = hHigh - hLow;
+      const centerPoint = {
+        x: u.x * centroidU + v.x * centroidV + w.x * centerAlong,
+        y: u.y * centroidU + v.y * centroidV + w.y * centerAlong,
+        z: u.z * centroidU + v.z * centroidV + w.z * centerAlong,
+      };
+      const exclusionPayload = cylinderPrismPayload(direction, centerPoint, radiusMm, lengthMm, 24);
+      const exclusionSolid = manifoldFromPayload(module, exclusionPayload, toleranceMm);
+      try {
+        const next = tool.subtract(exclusionSolid);
+        assertManifoldStatus(next, "Assignment-exclusion parting-surface subtraction");
+        tool.delete();
+        tool = next;
+      } finally {
+        exclusionSolid.delete();
+      }
+    }
+    return tool;
+  } catch (error) {
+    tool.delete();
+    throw error;
+  }
+}
+
 /** Explicit n-gon prism payload (registration pin) along `direction`, centered on `center` spanning ±length/2. */
 function cylinderPayload(direction: PlanningVector3, center: PlanningVector3, radiusMm: number, lengthMm: number): MoldMeshPayload {
   return cylinderPrismPayload(direction, center, radiusMm, lengthMm, REGISTRATION_PIN_SEGMENTS);
@@ -788,6 +978,7 @@ export async function constructWorkingMold(input: WorkingMoldConstructionInput):
       const piece = input.pieces[index]!;
       const plane = piece.plane;
       const curve = piece.curve;
+      const grid = piece.grid;
       if (plane === null) {
         pieceSolids.push(remainder);
         remainder = null;
@@ -799,18 +990,20 @@ export async function constructWorkingMold(input: WorkingMoldConstructionInput):
           if (group.length < 3) throw new Error("a height-field cutting tool needs at least 3 curve points per neighbor group.");
         }
       }
-      // Execution 08 LOOP 14: a curve-based cutting tool (present) takes
-      // priority over the plain half-space plane -- the same
-      // intersect/subtract carving either way, just following the real
-      // parting curve's own per-point height near the part instead of a
-      // pure infinite half-plane. One curve group (single neighbor) uses
-      // the direct single-curve construction; several groups (multiple
-      // neighbors) compose one independent local correction per neighbor.
-      const cuttingSolid = curve
-        ? curve.length === 1
-          ? heightFieldPartingSolid(module, curve[0]!, plane.direction, plane.offsetMm, envelopeBounds, policy.booleanToleranceMm)
-          : multiNeighborHeightFieldSolid(module, curve, plane.direction, plane.offsetMm, envelopeBounds, policy.booleanToleranceMm)
-        : manifoldFromPayload(module, halfSpacePrismPayload(plane.direction, plane.offsetMm, envelopeBounds), policy.booleanToleranceMm);
+      // Execution 08 LOOP 14: an assignment-grid cutting tool (present)
+      // takes priority over a curve-based one, which takes priority over
+      // the plain half-space plane -- the same intersect/subtract carving
+      // either way. `grid` is driven directly by the real per-patch
+      // assignment (assignmentGridPartingSolid's own doc comment); `curve`
+      // only corrects the boundary locally near a pre-extracted neighbor
+      // curve.
+      const cuttingSolid = grid !== null && grid !== undefined
+        ? assignmentGridPartingSolid(module, grid.ownPoints, grid.otherPoints, plane.direction, plane.offsetMm, envelopeBounds, policy.booleanToleranceMm)
+        : curve
+          ? curve.length === 1
+            ? heightFieldPartingSolid(module, curve[0]!, plane.direction, plane.offsetMm, envelopeBounds, policy.booleanToleranceMm)
+            : multiNeighborHeightFieldSolid(module, curve, plane.direction, plane.offsetMm, envelopeBounds, policy.booleanToleranceMm)
+          : manifoldFromPayload(module, halfSpacePrismPayload(plane.direction, plane.offsetMm, envelopeBounds), policy.booleanToleranceMm);
       try {
         const region = remainder.intersect(cuttingSolid);
         const nextRemainder = remainder.subtract(cuttingSolid);
@@ -826,6 +1019,40 @@ export async function constructWorkingMold(input: WorkingMoldConstructionInput):
       throw new Error("working mold partition did not produce one region per planned piece.");
     }
 
+    // Execution 08 LOOP 14 (fragmentation completeness fix): even after
+    // splitting each region-cover DIRECTION into its own mesh-adjacency-
+    // connected components upstream (regionDirectConstruction.ts), the
+    // ordered carving process itself can still leave a region fragmented
+    // -- a later-carved piece's own exclusion cylinders (or, on the
+    // ordinary threshold-search path, nothing at all: this never fires
+    // there) can slice through an EARLIER-carved region's connectivity.
+    // Rather than reject that outright, split any genuinely fragmented
+    // region into its own real components here, each becoming its own
+    // final piece released along the SAME direction as its parent --
+    // still fully collision-verified below like any other piece, never a
+    // silent wrong result. `pieceSourceIndex[k]` records which ORIGINAL
+    // `input.pieces` entry expanded piece `k` came from, so its release
+    // direction and plane (needed by registration/release below) can
+    // still be looked up. A single-component region decomposes to exactly
+    // itself, so this is a no-op wherever fragmentation never happens.
+    const pieceSourceIndex: number[] = [];
+    {
+      const expanded: ManifoldSolid[] = [];
+      for (let index = 0; index < pieceSolids.length; index += 1) {
+        const original = pieceSolids[index]!;
+        const components = original.decompose();
+        original.delete();
+        for (const component of components) {
+          expanded.push(component);
+          pieceSourceIndex.push(index);
+        }
+      }
+      pieceSolids.length = 0;
+      pieceSolids.push(...expanded);
+    }
+    const expandedPieces: readonly PlannedPieceRegion[] = pieceSourceIndex.map((sourceIndex) => input.pieces[sourceIndex]!);
+    const expandedInput: WorkingMoldConstructionInput = { ...input, pieces: expandedPieces };
+
     // Carve the part negative out of every region; everything downstream
     // (release verification, assembly validation, registration, export)
     // operates on the carved working-mold pieces.
@@ -836,12 +1063,12 @@ export async function constructWorkingMold(input: WorkingMoldConstructionInput):
     // Registration mutates the carved solids. It must happen before any
     // release or assembly proof so those proofs describe the geometry that
     // will actually be emitted to the rest of the product.
-    const registrationPlan = await placeWorkingMoldRegistration(module, input, envelopeBounds, policy, volumeTolerance, partSolid, carved);
+    const registrationPlan = await placeWorkingMoldRegistration(module, expandedInput, envelopeBounds, policy, volumeTolerance, partSolid, carved);
 
     // Release verification in reverse assignment order (innermost region
     // first): each FINAL registered piece sweeps against the part AND the
     // remaining assembled siblings.
-    const releaseSequence = verifyWorkingMoldRelease(input, envelopeBounds, policy, volumeTolerance, partSolid, carved);
+    const releaseSequence = verifyWorkingMoldRelease(expandedInput, envelopeBounds, policy, volumeTolerance, partSolid, carved);
 
     // Assembled-negative invariant on the FINAL registered pieces: union(pieces)
     // ∩ part ≈ 0 and envelope − union(pieces) − part ≈ 0.
@@ -887,7 +1114,7 @@ export async function constructWorkingMold(input: WorkingMoldConstructionInput):
         throw new Error(`working mold piece ${index + 1} is not a closed manifold.`);
       }
       const bounds = boundsFromManifold(solid);
-      const direction = input.pieces[index]!.releaseDirection;
+      const direction = expandedPieces[index]!.releaseDirection;
       const releaseStep = releaseSequence.find((step) => step.pieceIndex === index)!;
       const geometryVersion = `working-mold-piece:${hashStableValues({
         mesh: meshGeometryVersion({ id: `piece-${index + 1}`, mesh, bounds }),

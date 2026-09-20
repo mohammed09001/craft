@@ -71,21 +71,35 @@ describe("buildDirectAssignmentConstructionPieces (Execution 08 LOOP 14 real-reg
     expect(cover.steps.length).toBe(5);
     expect(direct.unassignedPatchCount).toBe(0);
     expect(built).not.toBeNull();
-    expect(built!.pieces.length).toBe(5);
+    // NOT 5: a region-cover DIRECTION's own assigned patches are not
+    // guaranteed to be one connected surface region (visibility does not
+    // require adjacency) -- this fixture's own assignment splits across
+    // more physical pieces than directions (regionDirectConstruction.ts's
+    // own doc comment has the full mechanism and measured numbers).
+    expect(built!.pieces.length).toBeGreaterThan(5);
     expect(built!.interfaces.length).toBeGreaterThan(0);
 
-    // Honest finding: this reaches real exact-CSG partition and carving
-    // (never possible before this fix -- the threshold search's own
+    // Honest finding, current as of this fixture's hardest-known state:
+    // this reaches real exact-CSG partition and carving (never possible
+    // before the first fix here -- the threshold search's own
     // budget-exhausted failure meant 0 exact construction attempts ever
-    // ran). Full release verification for this specific, deliberately
-    // hard fixture does not currently succeed -- checked directly, an
-    // all-flat-plane variant of this SAME assignment fails at the exact
-    // same point, so this is not a curve-fitting precision gap; it is
-    // something deeper about sequential single-direction-per-piece
-    // removal not sufficing here even with a provably correct patch
-    // assignment, not yet root-caused further. This test asserts what is
-    // actually true: real construction is REACHED (the gap this file
-    // fixes), not that it fully succeeds for this specific fixture.
+    // ran), and two further real, verified fixes landed since --
+    // `assignmentGridPartingSolid`'s local (not global) offset decision
+    // closed a catastrophic over-capture bug, and splitting each
+    // direction's assignment into its own mesh-connected components (plus
+    // constructWorkingMold's own post-hoc decomposition safety net) closed
+    // a resulting fragmentation bug. Full release verification for this
+    // specific, deliberately hard fixture STILL does not succeed: each fix
+    // traded one failure mode for another rather than converging, and the
+    // physical piece count needed to keep every piece single-connected
+    // climbed from 5 to 11 to 23 across those fixes -- diverging, not
+    // converging. That trajectory, not a specific remaining bug, is the
+    // honest stopping point: representing this fixture's true per-patch
+    // assignment as a sequence of half-space-derived cuts (however locally
+    // corrected) does not converge to a small, valid set of physical
+    // pieces. This test asserts what is actually true: real construction
+    // is REACHED (the gap this file fixes), not that it fully succeeds for
+    // this specific fixture.
     let reachedRealConstruction: boolean;
     try {
       await constructWorkingMold({
