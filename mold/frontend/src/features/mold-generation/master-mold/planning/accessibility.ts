@@ -13,6 +13,7 @@ import type {
   UndercutRegion,
 } from "./masterMoldPlanning.contracts";
 import { buildSurfaceRegionGraph, summarizeRegionAccessibility } from "./surfaceRegions";
+import { refineRegionGraphByVisibility } from "./regionSubdivision";
 
 /**
  * Execution 06 Article 05: global accessibility is the authority for mold
@@ -207,42 +208,55 @@ export function directionPreliminaryScore(accessibility: DirectionAccessibility,
 const REGION_FULL_COVERAGE_FRACTION = 0.999;
 
 /**
- * Execution 08 LOOP 07: the indexes of "coverage-critical" directions --
- * ones that are the ONLY candidate fully covering some surface region. A
- * region covered by exactly one direction has no substitute: dropping that
- * direction on score alone would make the region permanently unassignable
- * regardless of piece count, with no way for the search to recover it.
+ * Execution 08 LOOP 07: for every surface region, every direction (by
+ * index) that fully covers it on its own. Checked against the REFINED
+ * (subdivided, LOOP 12) region graph, since that is what the real
+ * downstream planning search (masterMoldEngine.ts, workingMoldPlanner.ts)
+ * actually runs region-cover against, not the raw one -- a refined
+ * sub-region's own full-coverer set can genuinely differ from its
+ * unrefined parent's.
  */
-function coverageCriticalDirectionIndexes(
+function fullCoveringDirectionIndexesPerRegion(
   directions: readonly PlanningCandidateDirection[],
   analysis: AccessibilityAnalysis,
   planningMesh: PlanningMesh,
-): ReadonlySet<number> {
-  const regionGraph = buildSurfaceRegionGraph(planningMesh);
-  const critical = new Set<number>();
-  if (regionGraph.regions.length === 0) return critical;
+): readonly (readonly number[])[] {
+  const regionGraph = refineRegionGraphByVisibility(buildSurfaceRegionGraph(planningMesh), planningMesh, analysis).regionGraph;
+  if (regionGraph.regions.length === 0) return [];
   const summaries = summarizeRegionAccessibility(regionGraph, planningMesh, analysis);
-  for (const summary of summaries) {
-    let fullCoverageCount = 0;
-    let soleDirectionIndex = -1;
+  return summaries.map((summary) => {
+    const coverers: number[] = [];
     for (let d = 0; d < directions.length; d += 1) {
       const fraction = summary.visibleAreaFractionByDirectionId.get(directions[d]!.directionId) ?? 0;
-      if (fraction >= REGION_FULL_COVERAGE_FRACTION) {
-        fullCoverageCount += 1;
-        soleDirectionIndex = d;
-      }
+      if (fraction >= REGION_FULL_COVERAGE_FRACTION) coverers.push(d);
     }
-    if (fullCoverageCount === 1) critical.add(soleDirectionIndex);
-  }
-  return critical;
+    return coverers;
+  });
 }
 
 /**
- * Prunes dominated directions: keeps at most `keep` directions ranked by the
- * preliminary score, always retaining the world axes (baseline candidates)
- * PLUS every coverage-critical direction (Execution 08 LOOP 07), regardless
- * of score and regardless of the `keep` budget -- correctness beats budget
- * for a direction nothing else can substitute.
+ * Prunes dominated directions: keeps at most `keep` directions ranked by
+ * the preliminary score, always retaining the world axes (baseline
+ * candidates).
+ *
+ * Coverage correctness (Execution 08 LOOP 07) is enforced in TWO passes,
+ * not one: (1) a region with exactly ONE full-coverer overall makes that
+ * direction mandatory from the start -- the original, narrower check; (2) a
+ * validation pass AFTER score-based trimming, that catches the case (1)
+ * alone misses -- a region with SEVERAL possible full-coverers, none
+ * individually "critical" since any one would do, whose ENTIRE coverer set
+ * still gets eliminated together by score-based trimming (nothing in a
+ * pass-1-only design checks whether at least one candidate survives).
+ * Measured directly against the real free-form regression fixture at a
+ * deliberately tight prune budget: a region with 5 distinct full-coverers
+ * (none "critical" under pass 1 alone) lost all 5 to score-based trimming
+ * simultaneously, leaving it uncovered even though the full direction set
+ * could reach it. Pass 2 adds back the single best-scoring survivor for
+ * any region left with none. A region with ZERO full-coverers at all (only
+ * coverable via a multi-direction COMBINATION) is not this function's
+ * concern -- greedyRegionCover's own combination search handles that
+ * downstream, and forcing every partial contributor to survive here would
+ * defeat pruning's whole purpose.
  */
 export function pruneDirections(
   directions: readonly PlanningCandidateDirection[],
@@ -255,16 +269,34 @@ export function pruneDirections(
     index,
     score: directionPreliminaryScore(analysis.perDirection[index]!, planningMesh),
   }));
-  const criticalIndexes = coverageCriticalDirectionIndexes(directions, analysis, planningMesh);
-  const mandatoryIndexSet = new Set<number>(criticalIndexes);
+  const perRegionCoverers = fullCoveringDirectionIndexesPerRegion(directions, analysis, planningMesh);
+
+  const mandatoryIndexSet = new Set<number>();
   for (const entry of scored) if (entry.direction.source === "world-axis") mandatoryIndexSet.add(entry.index);
+  for (const coverers of perRegionCoverers) {
+    if (coverers.length === 1) mandatoryIndexSet.add(coverers[0]!);
+  }
 
   const mandatory = scored.filter((entry) => mandatoryIndexSet.has(entry.index));
   const others = scored
     .filter((entry) => !mandatoryIndexSet.has(entry.index))
     .sort((a, b) => a.score - b.score || a.direction.directionId.localeCompare(b.direction.directionId));
   const remainingBudget = Math.max(0, Math.max(keep, mandatory.length) - mandatory.length);
-  const kept = [...mandatory, ...others.slice(0, remainingBudget)];
+  const keptIndexSet = new Set<number>([...mandatoryIndexSet, ...others.slice(0, remainingBudget).map((entry) => entry.index)]);
+
+  // Pass 2: a region with several full-coverers, none individually
+  // mandatory, can still lose ALL of them to score-based trimming at once.
+  // Restore just the single best-scoring one for any region left with no
+  // surviving coverer -- never the whole set, so this stays a minimal,
+  // targeted repair rather than defeating the budget.
+  for (const coverers of perRegionCoverers) {
+    if (coverers.length < 2) continue; // 0: no single coverer exists at all (a combination-only region, not this pass's job). 1: already mandatory above.
+    if (coverers.some((index) => keptIndexSet.has(index))) continue;
+    const best = coverers.reduce((bestIndex, index) => (scored[index]!.score < scored[bestIndex]!.score ? index : bestIndex), coverers[0]!);
+    keptIndexSet.add(best);
+  }
+
+  const kept = scored.filter((entry) => keptIndexSet.has(entry.index));
   // Rank the kept directions best-first so the bounded combination budget
   // (top-N used by multi-piece search) contains the strongest candidates,
   // geometry-derived directions included.

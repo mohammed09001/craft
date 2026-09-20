@@ -6,16 +6,31 @@ import type { AccessibilityAnalysis, DirectionAccessibility, PatchAccessibilityC
 /**
  * Execution 08 LOOP 07: a direction that uniquely covers one region must
  * survive pruning even when its global score is far worse than the
- * budget's cutoff would otherwise allow.
+ * budget's cutoff would otherwise allow. AND: a region covered by SEVERAL
+ * redundant directions (none individually "the only one") must still keep
+ * at least one of them -- score-based trimming can otherwise eliminate an
+ * entire redundant coverer set at once, since none of them looked
+ * individually critical.
  *
  * Synthetic scene: patches 0/1 form one small locked region visible ONLY
  * along the oblique "special" direction (score-wise the worst of the four
- * candidates, because it leaves the large filler patch 2 inaccessible).
- * Three "good" directions cover patch 2 well but never see patches 0/1 at
- * all. None of the four candidates is a world axis, so the OLD algorithm's
- * only protection (always keep world axes) does not apply here -- a
- * `keep` budget smaller than the candidate count would drop "special"
- * entirely under naive top-N-by-score pruning.
+ * candidates, because it leaves the large filler patch 2 inaccessible) --
+ * its own region, no substitute. Patch 2 is a SEPARATE region covered
+ * REDUNDANTLY by three "good" directions (any one of them would do), none
+ * of which ever sees patches 0/1. None of the four candidates is a world
+ * axis, so the OLD algorithm's only protection (always keep world axes)
+ * does not apply here.
+ *
+ * `pruneDirections` found and fixed a real gap in this exact scene: the
+ * ORIGINAL algorithm only ever protected a region with EXACTLY one
+ * full-coverer (patches 0/1's "special"), and did nothing to check whether
+ * a region with SEVERAL coverers (patch 2's three "good" directions) kept
+ * at least one after score-based trimming -- at a `keep` budget of 1, the
+ * original algorithm silently dropped ALL THREE of patch 2's coverers
+ * (none was individually "critical"), leaving patch 2 uncovered even
+ * though the full candidate set could reach it. The synthetic scene here
+ * always had this property; the original test just never asserted patch
+ * 2's own coverage survived, only that "special" did.
  */
 
 function buildScene() {
@@ -82,11 +97,17 @@ describe("Coverage-critical direction preservation (Execution 08 LOOP 07)", () =
     expect(keptIds).toHaveLength(3);
   });
 
-  it("keeps ONLY the coverage-critical direction when the budget is smaller than the mandatory set (correctness over budget)", () => {
+  it("keeps the sole coverer PLUS one survivor of the redundant set, even at a budget smaller than either group alone (correctness over budget)", () => {
     const { planningMesh, analysis, directions } = buildScene();
     const pruned = pruneDirections(directions, analysis, planningMesh, 1);
     const keptIds = pruned.directions.map((d) => d.directionId);
-    expect(keptIds).toEqual(["special"]);
+    // "special" is mandatory (patches 0/1's sole coverer). Patch 2's own
+    // coverage must ALSO survive -- some one of good-a/b/c, not necessarily
+    // a specific one (any of the three is an equally valid choice).
+    expect(keptIds).toContain("special");
+    const goodSurvivors = keptIds.filter((id) => id.startsWith("good-"));
+    expect(goodSurvivors).toHaveLength(1);
+    expect(keptIds).toHaveLength(2);
   });
 
   it("drops the coverage-critical direction when the budget is generous enough for everything (no forced tradeoff needed)", () => {
