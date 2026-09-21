@@ -114,21 +114,58 @@ import { runMasterMoldEngine } from "./masterMoldEngine";
  *     bolted onto this metric helps this fixture's own real, highly
  *     fragmented, curved assignment, however well it helps simpler cases.
  *
- * That trajectory -- 5, then 11, then 23, then 25, then 38/101/41 physical
- * pieces, across FIVE increasingly large fixes including two full paradigm
- * changes (sequential to simultaneous CSG, then CSG to genuine volumetric
- * reconstruction) plus two further within-paradigm refinements, each fix
- * genuinely closing the specific defect it targeted -- is the honest
- * stopping point, not a specific remaining bug: representing this
- * fixture's true per-patch assignment via EITHER a half-space-/local-
- * footprint-derived CSG boundary OR a bounded-nearest-surface Voronoi
- * partition (with or without a tie-break) does not converge to a small,
- * valid set of physical pieces. Closing this for real would need a
+ *  6. A sixth angle, one level further upstream of every construction
+ *     technique above: `buildRegionDirectAssignment` itself assigns each
+ *     region to the FIRST direction (in greedy cover order) that fully
+ *     sees it -- a purely visibility-driven, first-match rule with zero
+ *     regard for whether the result is spatially compact. Measured
+ *     directly: 132 of this fixture's 187 regions (70%) are fully visible
+ *     from MORE than one of the 5 chosen directions, so that first-match
+ *     tie-break is genuinely arbitrary for most of the surface, not forced
+ *     by geometry -- a real candidate root cause for the small, scattered
+ *     physical pieces seen throughout (several of the 11 physical pieces
+ *     had only 6-22 own patches). `absorbSmallDisconnectedComponents`
+ *     (`regionDirectConstruction.ts`) tests this directly: it reassigns an
+ *     orphan component (any component that is not its own direction's
+ *     largest) to an alternative direction only when that alternative both
+ *     legally covers it AND is mesh-adjacent to it -- so a merge only ever
+ *     happens where it actually removes a seam, never just relocates one.
+ *     Deliberately conservative (a direction's own largest component is
+ *     never touched, so no direction can be drained to zero and make the
+ *     whole assignment unusable). Verified correct in isolation on
+ *     synthetic adjacency graphs (`regionDirectConstruction.absorption.
+ *     test.ts`). Measured against this real fixture: reduces the physical
+ *     piece count BEFORE any CSG/volumetric construction from 11 to 10 --
+ *     real, but only one merge; the other four small fragments (6, 6, 20,
+ *     21, 22 patches) have no legal, adjacent alternative at all, so they
+ *     are not a first-match artifact -- they are genuinely isolated visible
+ *     islands. End-to-end with the volumetric construction path, this
+ *     10-piece input still fails release (a piece past index 34 in the
+ *     post-decompose expansion cannot find a collision-free release
+ *     direction), the same order of magnitude as the pre-fix 38/101/41
+ *     measurements. Conclusion: the assignment stage contributes a small,
+ *     real, and now-fixed amount of avoidable fragmentation, but it is NOT
+ *     the dominant source -- the dominant source remains downstream, in
+ *     construction itself (the CSG boundary or volumetric tie-wedge
+ *     mechanisms items 1-5 already diagnosed).
+ *
+ * That trajectory -- 5, then 11, then 23, then 25, then 38/101/41, then a
+ * confirmed-real-but-modest 11->10 at the assignment stage -- across SIX
+ * increasingly large fixes including two full paradigm changes (sequential
+ * to simultaneous CSG, then CSG to genuine volumetric reconstruction) plus
+ * three further refinements (two within the volumetric paradigm, one
+ * upstream at assignment), each fix genuinely closing the specific defect
+ * it targeted -- is the honest stopping point, not a specific remaining
+ * bug: representing this fixture's true per-patch assignment via EITHER a
+ * half-space-/local-footprint-derived CSG boundary OR a bounded-nearest-
+ * surface Voronoi partition (with or without a tie-break), fed by EITHER
+ * the original or the compactness-aware assignment, does not converge to a
+ * small, valid set of physical pieces. Closing this for real would need a
  * fundamentally different distance/boundary notion again (e.g. a true
  * generalized Voronoi/power diagram with a PER-REGION, geometry-aware
  * tie-break rather than one global criterion, or true multi-label surface
  * reconstruction) -- out of scope here after two large paradigm attempts
- * and two further refinements of the second. The fixes above are all real
+ * and three further refinements across them. The fixes above are all real
  * and kept (each is a correctness improvement independent of whether this
  * specific fixture ever closes). LOOP 02's remaining gate items are NOT
  * met until release verification succeeds too; do not read this file's

@@ -32,6 +32,7 @@ import type { RegionSetCoverStep } from "./regionSetCover";
  */
 
 const FULL_COVERAGE_FRACTION = 0.999;
+const EMPTY_PIECES: readonly number[] = [];
 
 export interface RegionDirectAssignmentResult {
   /** Patch index -> piece index (0-based, matching `pieceDirectionIndexes`'s own order). -1 for a patch whose region no cover step reaches. */
@@ -40,6 +41,17 @@ export interface RegionDirectAssignmentResult {
   readonly pieceDirectionIndexes: readonly number[];
   /** Patches left at -1: a region no supplied cover step fully sees (should be 0 whenever `coverSteps` came from a set-cover result with no `uncoveredRegionIndexes`). */
   readonly unassignedPatchCount: number;
+  /**
+   * Patch index -> every piece index whose direction ALSO fully covers this
+   * patch's region (always includes the piece it was actually assigned to,
+   * when unassigned is not the case). Execution 08 LOOP 02/14/28: measured
+   * directly against the real free-form regression fixture, 132 of 187
+   * regions (70%) have more than one legal covering piece -- this is the
+   * data `regionDirectConstruction.ts`'s small-component absorption pass
+   * uses to try an alternative, spatially-adjacent piece instead of
+   * whichever one happened to win first-match-in-cover-order.
+   */
+  readonly alternativePiecesByPatch: ReadonlyArray<readonly number[]>;
 }
 
 export function buildRegionDirectAssignment(
@@ -52,25 +64,30 @@ export function buildRegionDirectAssignment(
   const summaries = summarizeRegionAccessibility(regionGraph, planningMesh, analysis);
   const pieceDirectionIndexes = coverSteps.map((step) => step.directionIndex);
   const assignment = new Int32Array(planningMesh.patches.length).fill(-1);
+  const alternativePiecesByPatch: (readonly number[])[] = new Array(planningMesh.patches.length).fill(EMPTY_PIECES);
   let unassignedPatchCount = 0;
 
   for (const summary of summaries) {
     const region = regionGraph.regions[summary.regionIndex]!;
     let ownerPiece = -1;
+    const coveringPieces: number[] = [];
     for (let pieceIndex = 0; pieceIndex < pieceDirectionIndexes.length; pieceIndex += 1) {
       const directionId = analysis.directions[pieceDirectionIndexes[pieceIndex]!]!.directionId;
       const fraction = summary.visibleAreaFractionByDirectionId.get(directionId) ?? 0;
       if (fraction >= fullCoverageFraction) {
-        ownerPiece = pieceIndex;
-        break;
+        coveringPieces.push(pieceIndex);
+        if (ownerPiece === -1) ownerPiece = pieceIndex;
       }
     }
     if (ownerPiece === -1) {
       unassignedPatchCount += region.patchIndexes.length;
       continue;
     }
-    for (const patchIndex of region.patchIndexes) assignment[patchIndex] = ownerPiece;
+    for (const patchIndex of region.patchIndexes) {
+      assignment[patchIndex] = ownerPiece;
+      alternativePiecesByPatch[patchIndex] = coveringPieces;
+    }
   }
 
-  return { assignment, pieceDirectionIndexes, unassignedPatchCount };
+  return { assignment, pieceDirectionIndexes, unassignedPatchCount, alternativePiecesByPatch };
 }

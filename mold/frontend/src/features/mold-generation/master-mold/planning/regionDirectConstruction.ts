@@ -34,6 +34,104 @@ interface PhysicalPiece {
   readonly patches: readonly number[];
 }
 
+function computeComponentsByDirection(
+  assignment: Int32Array,
+  adjacency: PlanningMesh["adjacency"],
+): { directionIndex: number; patches: number[] }[] {
+  const patchesByDirection = new Map<number, number[]>();
+  for (let patchIndex = 0; patchIndex < assignment.length; patchIndex += 1) {
+    const directionIndex = assignment[patchIndex]!;
+    if (directionIndex === -1) continue;
+    const list = patchesByDirection.get(directionIndex) ?? [];
+    list.push(patchIndex);
+    patchesByDirection.set(directionIndex, list);
+  }
+  const components: { directionIndex: number; patches: number[] }[] = [];
+  for (const [directionIndex, patches] of patchesByDirection) {
+    for (const component of splitIntoConnectedComponents(patches, adjacency)) {
+      components.push({ directionIndex, patches: component });
+    }
+  }
+  return components;
+}
+
+/**
+ * Execution 08 LOOP 02/14/28 (fragmentation root cause, upstream of every
+ * construction technique): `buildRegionDirectAssignment` assigns each
+ * region to the FIRST piece (in greedy cover order) that fully sees it --
+ * a purely visibility-driven, first-match decision with zero regard for
+ * whether the resulting per-direction patch set is spatially compact.
+ * Measured directly against the real free-form regression fixture: 132 of
+ * 187 regions (70%) are fully visible from MORE than one of the 5 chosen
+ * directions, so this first-match tie-break is genuinely arbitrary for most
+ * of the surface, not forced by geometry.
+ *
+ * `splitIntoConnectedComponents` (below) already proved a single
+ * direction's own assigned patches routinely land in several
+ * mesh-disconnected components (visibility does not require adjacency).
+ * This pass tries, for every component OTHER than a direction's own
+ * largest ("orphan" components), to reassign it wholesale to an
+ * ALTERNATIVE direction that (a) also fully covers every one of its
+ * patches' regions (from `alternativePiecesByPatch`, so this never
+ * assigns a patch to a direction that cannot actually see it) and (b) is
+ * mesh-adjacent to it (some patch in the orphan component neighbors a
+ * patch already assigned to that alternative) -- i.e. only merges an
+ * orphan into a piece it would actually become topologically CONNECTED
+ * to, never just relocates fragmentation elsewhere. Repeats to a fixpoint
+ * (capped) since one merge can newly expose adjacency for another orphan.
+ * A component with no valid, adjacent alternative is left exactly as it
+ * was -- this can only reduce fragmentation, never increase it.
+ */
+function absorbSmallDisconnectedComponents(planningMesh: PlanningMesh, direct: RegionDirectAssignmentResult): Int32Array {
+  const assignment = Int32Array.from(direct.assignment);
+  const MAX_PASSES = 8;
+  for (let pass = 0; pass < MAX_PASSES; pass += 1) {
+    const components = computeComponentsByDirection(assignment, planningMesh.adjacency);
+    const largestSizeByDirection = new Map<number, number>();
+    for (const component of components) {
+      const current = largestSizeByDirection.get(component.directionIndex) ?? 0;
+      if (component.patches.length > current) largestSizeByDirection.set(component.directionIndex, component.patches.length);
+    }
+    let changed = false;
+    for (const component of components) {
+      if (component.patches.length === largestSizeByDirection.get(component.directionIndex)) continue; // this direction's own primary component.
+
+      let candidates: Set<number> | null = null;
+      for (const patchIndex of component.patches) {
+        const alternatives: readonly number[] = direct.alternativePiecesByPatch[patchIndex] ?? [];
+        const ownAlternatives = new Set<number>(alternatives.filter((pieceIndex) => pieceIndex !== component.directionIndex));
+        if (candidates === null) {
+          candidates = ownAlternatives;
+        } else {
+          const intersected = new Set<number>();
+          for (const pieceIndex of candidates) if (ownAlternatives.has(pieceIndex)) intersected.add(pieceIndex);
+          candidates = intersected;
+        }
+        if (candidates.size === 0) break;
+      }
+      if (candidates === null || candidates.size === 0) continue;
+
+      let chosen = -1;
+      for (const patchIndex of component.patches) {
+        for (const neighbor of planningMesh.adjacency[patchIndex] ?? []) {
+          const neighborDirection = assignment[neighbor]!;
+          if (candidates.has(neighborDirection)) {
+            chosen = neighborDirection;
+            break;
+          }
+        }
+        if (chosen !== -1) break;
+      }
+      if (chosen === -1) continue;
+
+      for (const patchIndex of component.patches) assignment[patchIndex] = chosen;
+      changed = true;
+    }
+    if (!changed) break;
+  }
+  return assignment;
+}
+
 /**
  * Splits each region-cover direction's assigned patches into its own
  * mesh-connected components (see `buildDirectAssignmentConstructionPieces`'s
@@ -41,6 +139,10 @@ interface PhysicalPiece {
  * component, still tagged with its parent direction. Shared by both the
  * CSG-boundary and volumetric construction paths below -- the disjoint-
  * assignment problem this fixes is upstream of and common to both.
+ *
+ * Runs `absorbSmallDisconnectedComponents` first so a spatially-adjacent
+ * alternative direction is preferred over accepting an arbitrary orphan
+ * fragment as its own physical piece.
  */
 function buildPhysicalPieces(
   planningMesh: PlanningMesh,
@@ -48,9 +150,10 @@ function buildPhysicalPieces(
 ): readonly PhysicalPiece[] | null {
   const directionCount = direct.pieceDirectionIndexes.length;
   if (directionCount < 2) return null;
+  const assignment = absorbSmallDisconnectedComponents(planningMesh, direct);
   const patchesByDirection = new Map<number, number[]>();
-  for (let patchIndex = 0; patchIndex < direct.assignment.length; patchIndex += 1) {
-    const directionIndex = direct.assignment[patchIndex]!;
+  for (let patchIndex = 0; patchIndex < assignment.length; patchIndex += 1) {
+    const directionIndex = assignment[patchIndex]!;
     const list = patchesByDirection.get(directionIndex) ?? [];
     list.push(patchIndex);
     patchesByDirection.set(directionIndex, list);
@@ -64,6 +167,22 @@ function buildPhysicalPieces(
     }
   }
   return physicalPieces.length < 2 ? null : physicalPieces;
+}
+
+/** Test-only seam: exposes the PRE-absorption component list, for measuring the absorption pass's own effect. */
+export function __TEST_ONLY_componentsBeforeAbsorption(
+  planningMesh: PlanningMesh,
+  direct: RegionDirectAssignmentResult,
+): readonly PhysicalPiece[] {
+  return computeComponentsByDirection(direct.assignment, planningMesh.adjacency);
+}
+
+/** Test-only seam: exposes the post-absorption component list for direct measurement without running full CSG/volumetric construction. */
+export function __TEST_ONLY_buildPhysicalPieceComponents(
+  planningMesh: PlanningMesh,
+  direct: RegionDirectAssignmentResult,
+): readonly PhysicalPiece[] {
+  return buildPhysicalPieces(planningMesh, direct) ?? [];
 }
 
 /**
