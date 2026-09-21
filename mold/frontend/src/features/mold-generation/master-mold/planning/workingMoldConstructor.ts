@@ -136,6 +136,22 @@ export interface WorkingMoldConstructionInput {
   readonly releaseClearanceMm: number;
   readonly minimumToolingWallMm: number;
   readonly pieces: readonly PlannedPieceRegion[];
+  /**
+   * Execution 08 LOOP 02/14/28 (multi-label release-direction gap, full
+   * candidate broadening): additional release-direction candidates every
+   * piece may try if its own assigned direction fails (see
+   * `verifyWorkingMoldRelease`'s own doc comment for the original,
+   * narrower version of this idea -- every other piece's own direction).
+   * Optional and unused by default; every existing call site is
+   * unaffected. Set by `masterMoldEngine.ts`'s multi-label fallback to the
+   * FULL planning candidate-direction set (not just the pieces actually
+   * used), so a release failure genuinely means "no direction in the
+   * entire planning search releases this piece", not just "the 9 other
+   * pieces' own directions do not" -- the stronger, principle-10-honest
+   * standard before calling anything a physical constraint rather than a
+   * search-budget artifact.
+   */
+  readonly extraReleaseDirections?: readonly PlanningVector3[] | null;
 }
 
 export interface WorkingMoldConstructionOutput {
@@ -1397,7 +1413,9 @@ export async function constructWorkingMold(input: WorkingMoldConstructionInput):
     // first): each FINAL registered piece sweeps against the part AND the
     // remaining assembled siblings. Multi-label mode additionally offers
     // every OTHER piece's own release direction as a candidate (see
-    // `verifyWorkingMoldRelease`'s own doc comment for why) -- every other
+    // `verifyWorkingMoldRelease`'s own doc comment for why), plus whatever
+    // broader set the caller supplied via `extraReleaseDirections` (see
+    // `WorkingMoldConstructionInput`'s own doc comment) -- every other
     // mode keeps its original, narrower candidate set unchanged.
     const releaseSequence = verifyWorkingMoldRelease(
       expandedInput,
@@ -1406,7 +1424,10 @@ export async function constructWorkingMold(input: WorkingMoldConstructionInput):
       volumeTolerance,
       partSolid,
       carved,
-      isMultiLabelPartition ? input.pieces.map((piece) => piece.releaseDirection) : [],
+      [
+        ...(isMultiLabelPartition ? input.pieces.map((piece) => piece.releaseDirection) : []),
+        ...(input.extraReleaseDirections ?? []),
+      ],
     );
 
     // Assembled-negative invariant on the FINAL registered pieces: union(pieces)

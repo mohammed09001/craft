@@ -558,6 +558,15 @@ export async function runMasterMoldEngine(
             releaseClearanceMm: seed.processProfile.releaseClearanceMm ?? 0,
             minimumToolingWallMm: seed.processProfile.minimumToolingWallMm,
             pieces: multiLabelBuilt.pieces,
+            // Execution 08 LOOP 02/14/28 (principle 10 honesty): if a piece
+            // fails release, try every candidate direction the WHOLE
+            // planning search considered, not just the handful actually
+            // used as release directions -- a real release failure against
+            // this full set is much stronger evidence of a genuine
+            // geometric constraint than a failure against only the small
+            // used subset (masterMoldEngine.loop02RealRegression.test.ts
+            // measures exactly what this changes).
+            extraReleaseDirections: analysis.directions.map((direction) => direction.vector),
           });
           const pieceCount = multiLabelBuilt.pieces.length;
           const scoreBreakdown = {

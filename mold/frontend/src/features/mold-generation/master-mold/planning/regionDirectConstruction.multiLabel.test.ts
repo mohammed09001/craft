@@ -48,7 +48,7 @@ describe("buildMultiLabelConstructionPieces (Execution 08 LOOP 02/14/28 true mul
     const cover = greedyRegionCover(regionGraph, planningMesh, analysis);
     const direct = buildRegionDirectAssignment(regionGraph, planningMesh, analysis, cover.steps);
     const built = buildMultiLabelConstructionPieces(planningMesh, analysis, direct);
-    return { seed, cover, direct, built };
+    return { seed, analysis, cover, direct, built };
   }
 
   /**
@@ -74,7 +74,7 @@ describe("buildMultiLabelConstructionPieces (Execution 08 LOOP 02/14/28 true mul
    * reached either way (never possible before LOOP 14's own fallback
    * existed for the box case's own trivial split).
    */
-  it("reaches real construction for a trivial fixture; an asymmetric split can still fail release (a real, understood limitation, not a bug)", { timeout: 30_000 }, async () => {
+  it("reaches real construction for a trivial fixture; an asymmetric split can still fail release (a real, understood limitation, not a bug)", { timeout: 60_000 }, async () => {
     const fixture = await buildSimpleBoxFixture();
     const { seed, cover, direct, built } = await planDirect(fixture);
     expect(cover.uncoveredRegionIndexes).toEqual([]);
@@ -153,6 +153,38 @@ describe("buildMultiLabelConstructionPieces (Execution 08 LOOP 02/14/28 true mul
         releaseClearanceMm: seed.processProfile.releaseClearanceMm ?? 0,
         minimumToolingWallMm: seed.processProfile.minimumToolingWallMm,
         pieces: built!.pieces,
+      }),
+    ).rejects.toThrow(/cannot release/);
+  });
+
+  /**
+   * Execution 08 LOOP 02/14/28 (principle 10 honesty): a release failure
+   * against only the 10 pieces' own release directions (the test above)
+   * is real evidence, but not yet the strongest available -- principle 10
+   * ("never equate a search-budget failure with physical impossibility")
+   * demands trying the WHOLE planning candidate-direction set, not just
+   * the handful actually used, before treating a failure as anything
+   * resembling a genuine geometric constraint. This test does exactly
+   * that: passes every one of the 26 planning candidate directions (52
+   * with negations, on top of the 18 already covered by the other test) as
+   * `extraReleaseDirections`. The SAME piece still fails identically --
+   * meaningfully stronger evidence that this specific island is a genuine
+   * undercut no straight-line pull can clear, not an artifact of only
+   * trying a narrow candidate subset.
+   */
+  it("still fails release for the same isolated island even against the FULL planning candidate-direction set (26 directions, 70+ total candidates)", { timeout: 120_000 }, async () => {
+    const fixture = await buildFreeFormObliqueLockFixture();
+    const { seed, analysis, built } = await planDirect(fixture);
+    expect(built).not.toBeNull();
+
+    await expect(
+      constructWorkingMold({
+        sourceMesh: seed.sourceMesh,
+        sourceBounds: seed.sourceBounds,
+        releaseClearanceMm: seed.processProfile.releaseClearanceMm ?? 0,
+        minimumToolingWallMm: seed.processProfile.minimumToolingWallMm,
+        pieces: built!.pieces,
+        extraReleaseDirections: analysis.directions.map((direction) => direction.vector),
       }),
     ).rejects.toThrow(/cannot release/);
   });

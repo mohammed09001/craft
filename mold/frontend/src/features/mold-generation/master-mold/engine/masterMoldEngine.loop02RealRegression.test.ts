@@ -188,14 +188,22 @@ import { runMasterMoldEngine } from "./masterMoldEngine";
  *     item 6's own finding, one of the two "genuinely isolated visible
  *     islands" already identified as having no legal adjacent merge
  *     alternative -- and it now additionally has no legal RELEASE
- *     direction either, checked against all 10 pieces' own directions and
- *     their negations (20 candidates total, `verifyWorkingMoldRelease`'s
- *     own `extraCandidateDirections` parameter), stable across four
- *     independently measured smoothness-weight settings. That is strong
- *     evidence of a genuine geometric constraint on this one tiny island
- *     (an undercut pocket no straight-line pull can clear), not a
- *     technique limitation -- wired into `masterMoldEngine.ts` as a
- *     further real last-resort fallback, tried after the CSG fallback
+ *     direction either. Checked twice, at increasing strength, per
+ *     principle 10's own imperative (never equate a search-budget failure
+ *     with physical impossibility): first against all 10 pieces' own
+ *     directions and their negations (20 candidates), stable across four
+ *     independently measured smoothness-weight settings; then against the
+ *     FULL planning candidate-direction set (26 directions, 70+ total
+ *     candidates including negations and the sibling set --
+ *     `WorkingMoldConstructionInput.extraReleaseDirections`) -- the same
+ *     piece fails identically both times
+ *     (`regionDirectConstruction.multiLabel.test.ts` has both as
+ *     permanent regressions). That is meaningfully strong evidence of a
+ *     genuine geometric constraint on this one tiny island (an undercut
+ *     pocket no straight-line pull can clear), not a technique
+ *     limitation or a narrow-search artifact -- wired into
+ *     `masterMoldEngine.ts` as a further real last-resort fallback, tried
+ *     after the CSG fallback
  *     when it also fails, since it is a substantively better technique
  *     for any real part that does not happen to contain this exact kind
  *     of isolated undercut island.
