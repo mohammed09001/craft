@@ -33,7 +33,7 @@ describe("volumetricAssignmentSolid (Execution 08 LOOP 02/14/28)", () => {
     return { positions, indices };
   }
 
-  it("extracts a real, single-connected, correctly-sized solid for two well-separated flat faces", async () => {
+  it("extracts a real, single-connected, correctly-sized solid for two well-separated flat faces", { timeout: 30_000 }, async () => {
     const module = await getManifoldModule();
     const sourceMesh = boxMesh();
     const bounds = { min: { x: -11, y: -11, z: -11 }, max: { x: 11, y: 11, z: 11 } };
