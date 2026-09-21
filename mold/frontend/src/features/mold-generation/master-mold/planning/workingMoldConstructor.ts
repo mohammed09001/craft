@@ -152,6 +152,20 @@ export interface WorkingMoldConstructionInput {
    * search-budget artifact.
    */
   readonly extraReleaseDirections?: readonly PlanningVector3[] | null;
+  /**
+   * Execution 08 LOOP 02/14/28 (release-ORDER search): when true, release
+   * verification searches over removal ORDER, not just per-piece
+   * direction -- see `verifyWorkingMoldRelease`'s own `useGreedyReleaseOrder`
+   * doc comment for the full mechanism and why it is a genuinely different
+   * question from `extraReleaseDirections`. Deliberately NOT the default
+   * for any mode, including multi-label: measured directly, this is
+   * computationally impractical for anything but a small piece count (an
+   * O(n^2) search, and a real 10-piece attempt did not complete in 15+
+   * minutes) -- only opt in when a caller specifically wants to try
+   * harder for one stuck piece and can tolerate that cost, never as a
+   * blanket default that would slow down every already-working case.
+   */
+  readonly useGreedyReleaseOrder?: boolean;
 }
 
 export interface WorkingMoldConstructionOutput {
@@ -876,21 +890,45 @@ function verifyWorkingMoldRelease(
    * as before, so this cannot change their already-verified behavior.
    */
   extraCandidateDirections: readonly PlanningVector3[] = [],
+  /**
+   * Execution 08 LOOP 02/14/28 (release-ORDER search, not just direction):
+   * the default loop below tests each piece against ALL OTHER pieces at
+   * once, in a FIXED reverse-construction-index order -- it never asks
+   * whether some OTHER removal order might let a piece out once
+   * non-blocking siblings are already gone. That is a real gap distinct
+   * from `extraCandidateDirections` (which only broadens the DIRECTION
+   * search per piece, not the ORDER). Measured directly against the real
+   * free-form regression fixture's own remaining island: it is always the
+   * highest-index physical piece, so the fixed reverse order always tests
+   * it FIRST, against ALL 9 siblings simultaneously -- the single most
+   * constrained scenario possible, regardless of whether a different
+   * disassembly order would actually free it. When true, this switches to
+   * a genuine greedy search: at each step, try every still-remaining piece
+   * against only the CURRENTLY remaining set (already-released siblings no
+   * longer block anything), and release whichever one succeeds first,
+   * repeating until none remain or none of the remaining pieces can be
+   * released against each other. Only enabled for multi-label mode (this
+   * function's own call site) -- every other construction mode keeps its
+   * original fixed-order behavior exactly as before, so this cannot change
+   * their already-verified release sequences or piece ordering.
+   */
+  useGreedyReleaseOrder: boolean = false,
 ): WorkingMoldReleaseStep[] {
   const releaseSequence: WorkingMoldReleaseStep[] = [];
   const remaining = new Set<number>(carved.keys());
-  for (const pieceIndex of [...carved.keys()].reverse()) {
-      const direction = input.pieces[pieceIndex]!.releaseDirection;
-      const planeDirection = input.pieces[pieceIndex]!.plane?.direction ?? null;
-      const candidateDirections = [
-        direction,
-        ...(planeDirection === null ? [] : [planeDirection, { x: -planeDirection.x, y: -planeDirection.y, z: -planeDirection.z }]),
-        { x: -direction.x, y: -direction.y, z: -direction.z },
-        ...extraCandidateDirections,
-        ...extraCandidateDirections.map((d) => ({ x: -d.x, y: -d.y, z: -d.z })),
-      ];
-      let remainingUnion: ManifoldSolid | null = null;
-      try {
+
+  const tryRelease = (pieceIndex: number): { readonly direction: PlanningVector3; readonly clearance: number } | null => {
+    const direction = input.pieces[pieceIndex]!.releaseDirection;
+    const planeDirection = input.pieces[pieceIndex]!.plane?.direction ?? null;
+    const candidateDirections = [
+      direction,
+      ...(planeDirection === null ? [] : [planeDirection, { x: -planeDirection.x, y: -planeDirection.y, z: -planeDirection.z }]),
+      { x: -direction.x, y: -direction.y, z: -direction.z },
+      ...extraCandidateDirections,
+      ...extraCandidateDirections.map((d) => ({ x: -d.x, y: -d.y, z: -d.z })),
+    ];
+    let remainingUnion: ManifoldSolid | null = null;
+    try {
       for (const siblingIndex of remaining) {
         if (siblingIndex === pieceIndex) continue;
         const sibling = carved[siblingIndex]!;
@@ -902,37 +940,61 @@ function verifyWorkingMoldRelease(
           remainingUnion = nextUnion;
         }
       }
-      const verifies = (candidate: readonly [number, number, number], candidateClearance: number): boolean => {
-        const vsPart = verifyDemoldTranslationByVector(partSolid, carved[pieceIndex]!, candidate, candidateClearance, policy.surfaceToleranceMm, volumeTolerance);
-        const vsSiblings = remainingUnion === null
-          ? { removable: true }
-          : verifyDemoldTranslationByVector(remainingUnion, carved[pieceIndex]!, candidate, candidateClearance, policy.surfaceToleranceMm, volumeTolerance);
-        return vsPart.removable && vsSiblings.removable;
-      };
-      let verifiedDirection: PlanningVector3 | null = null;
-      let verifiedClearance = 0;
       for (const candidate of candidateDirections) {
         const candidateClearance = sweepClearance(envelopeBounds, candidate);
-        if (verifies([candidate.x, candidate.y, candidate.z], candidateClearance)) {
-          verifiedDirection = candidate;
-          verifiedClearance = candidateClearance;
-          break;
+        const vsPart = verifyDemoldTranslationByVector(partSolid, carved[pieceIndex]!, [candidate.x, candidate.y, candidate.z], candidateClearance, policy.surfaceToleranceMm, volumeTolerance);
+        const vsSiblings = remainingUnion === null
+          ? { removable: true }
+          : verifyDemoldTranslationByVector(remainingUnion, carved[pieceIndex]!, [candidate.x, candidate.y, candidate.z], candidateClearance, policy.surfaceToleranceMm, volumeTolerance);
+        if (vsPart.removable && vsSiblings.removable) {
+          return { direction: candidate, clearance: candidateClearance };
         }
       }
-      if (verifiedDirection === null) {
-        throw new Error(`working mold piece ${pieceIndex + 1} cannot release along either polarity of its final registered direction.`);
-      }
-      remaining.delete(pieceIndex);
-      releaseSequence.push({
-        stepIndex: releaseSequence.length,
-        pieceIndex,
-        direction: verifiedDirection,
-        clearanceDistanceMm: verifiedClearance,
-        collisionVerified: true,
-      });
+      return null;
     } finally {
       remainingUnion?.delete();
     }
+  };
+
+  if (useGreedyReleaseOrder) {
+    while (remaining.size > 0) {
+      let releasedThisRound: { readonly pieceIndex: number; readonly direction: PlanningVector3; readonly clearance: number } | null = null;
+      for (const pieceIndex of remaining) {
+        const result = tryRelease(pieceIndex);
+        if (result !== null) {
+          releasedThisRound = { pieceIndex, ...result };
+          break;
+        }
+      }
+      if (releasedThisRound === null) {
+        const stuckPieceIndexes = [...remaining].sort((a, b) => a - b).map((i) => i + 1).join(", ");
+        throw new Error(`working mold piece(s) ${stuckPieceIndexes} cannot release against each other in any tried order or direction.`);
+      }
+      remaining.delete(releasedThisRound.pieceIndex);
+      releaseSequence.push({
+        stepIndex: releaseSequence.length,
+        pieceIndex: releasedThisRound.pieceIndex,
+        direction: releasedThisRound.direction,
+        clearanceDistanceMm: releasedThisRound.clearance,
+        collisionVerified: true,
+      });
+    }
+    return releaseSequence;
+  }
+
+  for (const pieceIndex of [...carved.keys()].reverse()) {
+    const result = tryRelease(pieceIndex);
+    if (result === null) {
+      throw new Error(`working mold piece ${pieceIndex + 1} cannot release along either polarity of its final registered direction.`);
+    }
+    remaining.delete(pieceIndex);
+    releaseSequence.push({
+      stepIndex: releaseSequence.length,
+      pieceIndex,
+      direction: result.direction,
+      clearanceDistanceMm: result.clearance,
+      collisionVerified: true,
+    });
   }
   return releaseSequence;
 }
@@ -1415,8 +1477,15 @@ export async function constructWorkingMold(input: WorkingMoldConstructionInput):
     // every OTHER piece's own release direction as a candidate (see
     // `verifyWorkingMoldRelease`'s own doc comment for why), plus whatever
     // broader set the caller supplied via `extraReleaseDirections` (see
-    // `WorkingMoldConstructionInput`'s own doc comment) -- every other
-    // mode keeps its original, narrower candidate set unchanged.
+    // `WorkingMoldConstructionInput`'s own doc comment). `useGreedyOrder`
+    // is a SEPARATE, explicit opt-in (`input.useGreedyReleaseOrder`), not
+    // automatically enabled for multi-label mode -- measured directly: an
+    // O(n^2) search over removal order, combined with any non-trivial
+    // candidate-direction count, is computationally impractical even for
+    // 10 pieces (a real run exceeded 15 minutes without completing). The
+    // FAST fixed-order path is what the already-verified "9 of 10 release
+    // cleanly" result used, and stays the default even for multi-label, so
+    // ordinary calls are not slowed down chasing one hard piece.
     const releaseSequence = verifyWorkingMoldRelease(
       expandedInput,
       envelopeBounds,
@@ -1428,6 +1497,7 @@ export async function constructWorkingMold(input: WorkingMoldConstructionInput):
         ...(isMultiLabelPartition ? input.pieces.map((piece) => piece.releaseDirection) : []),
         ...(input.extraReleaseDirections ?? []),
       ],
+      input.useGreedyReleaseOrder ?? false,
     );
 
     // Assembled-negative invariant on the FINAL registered pieces: union(pieces)
