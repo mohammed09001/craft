@@ -100,25 +100,39 @@ import { runMasterMoldEngine } from "./masterMoldEngine";
  *     resolution artifact (confirmed: refining the grid 2.5x left the gap
  *     unchanged). Against the real regression fixture: physical piece count
  *     climbed to 38 -- worse than every CSG-boundary attempt's own worst
- *     point of 25.
+ *     point of 25. A secondary tie-breaking term (`volumetricPartition.ts`'s
+ *     own doc comment has the full mechanism) then closed the exact
+ *     structural gap this diagnosed -- verified directly on controlled
+ *     cases and the real fixture's own simple-box sanity case -- but made
+ *     the real regression fixture WORSE again (piece count 101). A
+ *     refined, SMOOTHED version of that same tie-break (a fixed average
+ *     plane per piece instead of a per-point nearest-triangle lookup)
+ *     confirmed the flickering diagnosis partly right (101 -> 41) but
+ *     still did not beat the 38-piece baseline with no tie-break at all.
+ *     Three controlled, consistent measurements (38, then 101, then 41)
+ *     converge on the same conclusion: no single-criterion tie-break
+ *     bolted onto this metric helps this fixture's own real, highly
+ *     fragmented, curved assignment, however well it helps simpler cases.
  *
- * That trajectory -- 5, then 11, then 23, then 25, then 38 physical pieces,
- * across FIVE increasingly large fixes including two full paradigm changes
- * (sequential to simultaneous CSG, then CSG to genuine volumetric
- * reconstruction), each fix genuinely closing the specific defect it
- * targeted -- is the honest stopping point, not a specific remaining bug:
- * representing this fixture's true per-patch assignment via EITHER a
- * half-space-/local-footprint-derived CSG boundary OR a bounded-nearest-
- * surface Voronoi partition does not converge to a small, valid set of
- * physical pieces. Closing this for real would need a fundamentally
- * different distance/boundary notion again (e.g. a generalized Voronoi or
- * power diagram with a consistent tie-breaking rule, or true multi-label
- * surface reconstruction) -- out of scope here after two large paradigm
- * attempts. The fixes above are all real and kept (each is a correctness
- * improvement independent of whether this specific fixture ever closes).
- * LOOP 02's remaining gate items are NOT met until release verification
- * succeeds too; do not read this file's current passing status as full
- * LOOP 02 closure.
+ * That trajectory -- 5, then 11, then 23, then 25, then 38/101/41 physical
+ * pieces, across FIVE increasingly large fixes including two full paradigm
+ * changes (sequential to simultaneous CSG, then CSG to genuine volumetric
+ * reconstruction) plus two further within-paradigm refinements, each fix
+ * genuinely closing the specific defect it targeted -- is the honest
+ * stopping point, not a specific remaining bug: representing this
+ * fixture's true per-patch assignment via EITHER a half-space-/local-
+ * footprint-derived CSG boundary OR a bounded-nearest-surface Voronoi
+ * partition (with or without a tie-break) does not converge to a small,
+ * valid set of physical pieces. Closing this for real would need a
+ * fundamentally different distance/boundary notion again (e.g. a true
+ * generalized Voronoi/power diagram with a PER-REGION, geometry-aware
+ * tie-break rather than one global criterion, or true multi-label surface
+ * reconstruction) -- out of scope here after two large paradigm attempts
+ * and two further refinements of the second. The fixes above are all real
+ * and kept (each is a correctness improvement independent of whether this
+ * specific fixture ever closes). LOOP 02's remaining gate items are NOT
+ * met until release verification succeeds too; do not read this file's
+ * current passing status as full LOOP 02 closure.
  */
 describe("Real free-form regression (Execution 08 LOOP 02)", () => {
   it("reaches real exact-CSG construction via the region-direct-assignment fallback (previously 0 attempts, ever), still fails release for this specific hard fixture", { timeout: 120_000 }, async () => {

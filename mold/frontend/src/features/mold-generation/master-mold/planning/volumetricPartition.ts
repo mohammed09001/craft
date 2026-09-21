@@ -83,42 +83,64 @@ import { assertManifoldStatus, getManifoldModule, type ManifoldSolid } from "../
  * of 25), the same tie-ambiguity mechanism triggered by near-tangencies
  * between many small, irregularly-shaped pieces instead of one clean edge.
  *
- * A secondary tie-breaking term was then added (this file's own
- * `signedPlaneDistance` and its use in `volumetricAssignmentSolid`'s sdf):
- * off the exact bisector of a tied wedge, one side's nearest triangle's
- * own INFINITE PLANE is closer than the other's, and using that lightly-
- * weighted as a secondary criterion collapses the ambiguous region from a
- * full wedge VOLUME down to (at most) its own measure-zero bisector plane.
- * Measured directly: it works exactly as intended on controlled cases
- * (the same two-box-faces scenario above, gap ~2183mm3 before, ~14mm3
- * after -- kept as a real, permanent, passing test) AND on the real
- * fixture's own simple-box sanity case specifically (tiling failure
- * fixed entirely). But tried end to end on the real regression fixture
- * itself, it made things WORSE, not better: physical piece count climbed
- * to 101 (up from 38 without the tie-break term). Root cause: the
- * secondary term is keyed to "whichever triangle is nearest" at each
- * point, which is stable for a box's few large flat faces but changes
- * rapidly, almost point-to-point, across a real mesh's thousands of small
- * triangles -- turning a term meant to resolve rare, genuine ties into
- * high-frequency noise that flips the sign near boundaries the PRIMARY
- * term had already decided correctly, in a shape too complex for the
- * simple bounded scenario this fix was designed and verified against.
- * Kept anyway (it is a real, verified improvement for the primitive
- * itself, independent of this one adversarial fixture), but this is
- * exactly why it stays unwired from `masterMoldEngine.ts`.
+ * A secondary tie-breaking term was then added, and refined once, to close
+ * that gap -- both real, verified attempts, both ultimately kept as a net
+ * improvement to the PRIMITIVE while neither helps this one adversarial
+ * fixture:
+ *
+ *  1. First version: off the exact bisector of a tied wedge, one side's
+ *     NEAREST TRIANGLE's own infinite plane is closer than the other's;
+ *     using that lightly-weighted as a secondary criterion collapses the
+ *     ambiguous region from a full wedge VOLUME down to (at most) its own
+ *     measure-zero bisector plane. Measured directly: works exactly as
+ *     intended on controlled cases (the two-box-faces scenario above,
+ *     gap ~2183mm3 -> ~14mm3) AND on the real fixture's own simple-box
+ *     sanity case (tiling failure fixed entirely). But end to end on the
+ *     real regression fixture itself, it made things WORSE: physical
+ *     piece count climbed to 101 (from 38 with no tie-break at all).
+ *     Root-caused: "nearest triangle" is stable for a box's few large
+ *     faces but changes almost point-to-point across a mesh with
+ *     thousands of small triangles, turning a term meant for rare genuine
+ *     ties into high-frequency noise that flips decisions the PRIMARY
+ *     term had already made correctly.
+ *  2. Second version (this file's shipped `averagePlaneDistance`): replaced
+ *     the per-point "nearest triangle" with a single FIXED average plane
+ *     per piece (area-weighted average centroid + normal across ALL of
+ *     that piece's own triangles), computed once, so it cannot flicker by
+ *     construction. Confirmed the flickering hypothesis partly right --
+ *     physical piece count on the real fixture dropped from 101 to 41,
+ *     genuinely better than the noisy version -- but STILL worse than the
+ *     38-piece baseline with no tie-break term at all. A fixed plane
+ *     removes the NOISE, but a piece formed from a small, irregularly-
+ *     shaped, possibly highly curved connected-component fragment (this
+ *     project's own real assignment routinely produces these -- see
+ *     `regionDirectConstruction.ts`) often has no single meaningful
+ *     "average outward direction" at all; the fixed plane is stable but
+ *     still frequently the WRONG bias for that kind of fragment, not just
+ *     noisy.
+ *
+ * Three consecutive, controlled measurements now (no tie-break: 38; noisy
+ * tie-break: 101; smoothed tie-break: 41) converge on the same conclusion:
+ * every variant of a bounded-nearest-surface tie-break tried here helps
+ * simple, planar, well-formed geometry and actively hurts this specific
+ * fixture's own real, highly fragmented, curved assignment. That is no
+ * longer a tuning question -- it is strong evidence that ANY single-
+ * criterion secondary tie-break bolted onto this metric is the wrong tool
+ * for fragments this irregular, and further variants of the same idea are
+ * not a good use of further effort.
  *
  * This makes FIVE separate architectural paradigms this project has tried
  * for the real free-form regression fixture -- global flat offset, per-
  * cell grid, connected-component splitting, a full simultaneous CSG
  * rewrite, and this genuine 3D nearest-surface reconstruction (itself now
- * including a real refinement that helps simple cases and actively hurts
- * this one) -- and every one has diverged rather than converged, including
- * after a within-paradigm fix that measurably improved the general case.
- * That is the honest stopping point for construction-technique attempts at
- * this specific fixture: a real fix would need a fundamentally different
- * distance notion (e.g. a properly SMOOTHED/regularized generalized
- * Voronoi or power diagram, not a nearest-single-triangle tie-break, or
- * true multi-label surface reconstruction), out of scope here.
+ * including two real, measured tie-break refinements, both net
+ * improvements to the primitive and both net harmful to this fixture) --
+ * and every one has diverged rather than converged. That is the honest
+ * stopping point for construction-technique attempts at this specific
+ * fixture: a real fix would need a fundamentally different distance notion
+ * (e.g. a true generalized Voronoi/power diagram with a PER-REGION,
+ * geometry-aware tie-break -- not a single global criterion -- or true
+ * multi-label surface reconstruction), out of scope here.
  * `volumetricAssignmentSolid` itself is real, correct, tested
  * infrastructure -- kept as a genuine capability independent of whether
  * this specific fixture ever closes -- but is NOT wired into
@@ -136,8 +158,9 @@ export interface VolumetricPartitionInput {
 
 interface TriangleSubset {
   readonly bvh: MeshBVH;
-  /** Local (subset-relative) triangle index -> its 3 vertex positions, for the tie-break plane lookup. */
-  readonly triangleVertices: readonly [Vector3, Vector3, Vector3][];
+  /** A single area-weighted average centroid + normal across ALL of this subset's triangles -- see `averagePlaneDistance`'s own doc comment for why this replaces a per-point "nearest triangle" lookup. */
+  readonly averageCentroid: Vector3;
+  readonly averageNormal: Vector3;
 }
 
 /** Builds a MeshBVH over just the given triangle subset, referencing the same (larger, shared) position buffer -- no vertex remapping needed. */
@@ -147,8 +170,10 @@ function buildTriangleSubset(
 ): TriangleSubset {
   const positions = sourceMesh.positions instanceof Float32Array ? sourceMesh.positions : new Float32Array(sourceMesh.positions);
   const subsetIndices = new Uint32Array(triangleIndices.length * 3);
-  const triangleVertices: [Vector3, Vector3, Vector3][] = [];
   const vertexAt = (vertexIndex: number) => new Vector3(positions[vertexIndex * 3]!, positions[vertexIndex * 3 + 1]!, positions[vertexIndex * 3 + 2]!);
+  const averageCentroid = new Vector3();
+  const averageNormal = new Vector3();
+  let totalArea = 0;
   for (let i = 0; i < triangleIndices.length; i += 1) {
     const base = triangleIndices[i]! * 3;
     const i0 = sourceMesh.indices[base]!;
@@ -157,32 +182,50 @@ function buildTriangleSubset(
     subsetIndices[i * 3] = i0;
     subsetIndices[i * 3 + 1] = i1;
     subsetIndices[i * 3 + 2] = i2;
-    triangleVertices.push([vertexAt(i0), vertexAt(i1), vertexAt(i2)]);
+    const a = vertexAt(i0), b = vertexAt(i1), c = vertexAt(i2);
+    const edge1 = new Vector3().subVectors(b, a);
+    const edge2 = new Vector3().subVectors(c, a);
+    const cross = new Vector3().crossVectors(edge1, edge2);
+    const area = cross.length() / 2;
+    const centroid = new Vector3().add(a).add(b).add(c).divideScalar(3);
+    averageCentroid.addScaledVector(centroid, area);
+    averageNormal.addScaledVector(cross, 1); // cross's own length already encodes area; summing it directly area-weights the normal.
+    totalArea += area;
   }
+  if (totalArea > 0) averageCentroid.divideScalar(totalArea);
+  if (averageNormal.lengthSq() > 0) averageNormal.normalize();
   const geometry = new BufferGeometry();
   geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
   geometry.setIndex(new Uint32BufferAttribute(subsetIndices, 1));
-  return { bvh: new MeshBVH(geometry), triangleVertices };
+  return { bvh: new MeshBVH(geometry), averageCentroid, averageNormal };
 }
 
 /**
- * Signed distance from `point` to the INFINITE PLANE containing the given
- * triangle (not clamped to the triangle's own finite extent), using the
- * triangle's own winding to orient the normal. Used only as a secondary
- * tie-breaking term -- see `volumetricAssignmentSolid`'s own doc comment
- * for why the PRIMARY (bounded, clamped-to-triangle) distance alone
- * leaves a real gap wherever two pieces share an edge.
+ * Signed distance from `point` to a piece's own SINGLE, FIXED average
+ * plane (area-weighted average centroid + normal across ALL of that
+ * piece's triangles) -- used only as a secondary tie-breaking term, see
+ * `volumetricAssignmentSolid`'s own doc comment for why the PRIMARY
+ * (bounded, clamped-to-triangle) distance alone leaves a real gap
+ * wherever two pieces share an edge.
+ *
+ * An earlier version of this tie-break used the CLOSEST triangle's own
+ * plane instead of a fixed per-piece average. That worked exactly as
+ * intended on controlled, few-large-triangle cases (a plain box), but
+ * measurably WORSENED the real regression fixture (physical piece count
+ * climbed to 101, from 38 without any tie-break at all): "closest
+ * triangle" changes almost point-to-point across a mesh with thousands of
+ * small triangles, so a term meant to resolve rare genuine ties became
+ * high-frequency noise that flipped decisions the primary term had
+ * already made correctly. A single FIXED plane per piece cannot flicker
+ * point-to-point by construction -- it is the same plane everywhere,
+ * however coarse an approximation of one piece's own true (possibly
+ * curved) shape it may be.
  */
-function signedPlaneDistance(point: Vector3, triangle: readonly [Vector3, Vector3, Vector3]): number {
-  const [a, b, c] = triangle;
-  const edge1x = b.x - a.x, edge1y = b.y - a.y, edge1z = b.z - a.z;
-  const edge2x = c.x - a.x, edge2y = c.y - a.y, edge2z = c.z - a.z;
-  const nx = edge1y * edge2z - edge1z * edge2y;
-  const ny = edge1z * edge2x - edge1x * edge2z;
-  const nz = edge1x * edge2y - edge1y * edge2x;
-  const nLength = Math.hypot(nx, ny, nz) || 1;
-  const dx = point.x - a.x, dy = point.y - a.y, dz = point.z - a.z;
-  return (dx * nx + dy * ny + dz * nz) / nLength;
+function averagePlaneDistance(point: Vector3, subset: TriangleSubset): number {
+  const dx = point.x - subset.averageCentroid.x;
+  const dy = point.y - subset.averageCentroid.y;
+  const dz = point.z - subset.averageCentroid.z;
+  return dx * subset.averageNormal.x + dy * subset.averageNormal.y + dz * subset.averageNormal.z;
 }
 
 /**
@@ -193,15 +236,16 @@ function signedPlaneDistance(point: Vector3, triangle: readonly [Vector3, Vector
  * this same way, with no separate "catch-all" concept needed at all).
  *
  * The primary term is the bounded (clamped-to-triangle) nearest-surface
- * distance difference. A small secondary term -- the difference in signed
- * distance to each side's NEAREST triangle's own infinite plane -- is
- * added specifically to break the tie this file's own doc comment and
- * tests describe (two adjacent pieces sharing an edge are exactly
- * equidistant, by the bounded metric, throughout the whole wedge beyond
- * that edge). The secondary term is scaled small enough to never override
- * a genuine primary decision, and only matters where the primary term is
- * at or near zero -- collapsing the ambiguous region from a full wedge
- * VOLUME down to (at most) the wedge's own measure-zero bisector plane.
+ * distance difference. A small secondary term -- the difference in each
+ * side's SIGNED distance to its own FIXED average plane (own minus
+ * other) -- is added specifically to break the tie this file's own doc
+ * comment and tests describe (two adjacent pieces sharing an edge are
+ * exactly equidistant, by the bounded metric, throughout the whole wedge
+ * beyond that edge). The secondary term is scaled small enough to never
+ * override a genuine primary decision, and only matters where the
+ * primary term is at or near zero -- collapsing the ambiguous region
+ * from a full wedge VOLUME down to (at most) the wedge's own measure-zero
+ * bisector plane.
  */
 export function volumetricAssignmentSolid(
   module: Awaited<ReturnType<typeof getManifoldModule>>,
@@ -221,14 +265,13 @@ export function volumetricAssignmentSolid(
     const otherHit = other.bvh.closestPointToPoint(probe);
     const distOther = otherHit === null ? Infinity : otherHit.distance;
     const primary = distOther - distOwn;
-    const ownPlane = ownHit === null ? 0 : Math.abs(signedPlaneDistance(probe, own.triangleVertices[ownHit.faceIndex]!));
-    const otherPlane = otherHit === null ? 0 : Math.abs(signedPlaneDistance(probe, other.triangleVertices[otherHit.faceIndex]!));
-    // Whichever side's nearest triangle's own PLANE the point is closer to
-    // (smaller |signed plane distance|) is, off the exact tie line, the
-    // more "natural" extension of that triangle's own surface -- so a
-    // SMALLER own-plane distance should push the tie-break POSITIVE
-    // (toward "own"), hence otherPlane - ownPlane.
-    return primary + tieBreakWeight * (otherPlane - ownPlane);
+    // Being further "outward" along a piece's own fixed average normal
+    // (i.e. on the natural-extension side of its own average plane) makes
+    // that piece the more plausible owner of an otherwise-tied point.
+    // Fixed per piece, so unlike a per-point "nearest triangle" choice,
+    // this cannot flicker as the query point moves.
+    const tieBreak = averagePlaneDistance(probe, own) - averagePlaneDistance(probe, other);
+    return primary + tieBreakWeight * tieBreak;
   };
   const box = {
     min: [bounds.min.x, bounds.min.y, bounds.min.z] as [number, number, number],
