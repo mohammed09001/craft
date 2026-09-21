@@ -125,3 +125,59 @@ export function verifyDemoldTranslationByVector<S extends DemoldSolid>(
 
   return { removable: false, firstCollisionDistanceMm: hi };
 }
+
+/** One leg of a compound (multi-segment) release path: a straight translation of `distanceMm` along `direction`, starting where the previous segment ended. */
+export interface DemoldPathSegment {
+  readonly direction: readonly [number, number, number];
+  readonly distanceMm: number;
+}
+
+/**
+ * Execution 09 LOOP 2 (compound-motion release, scoping): verifies a piece's
+ * real sweep along an ORDERED LIST of straight segments -- e.g. slide
+ * sideways to clear an undercut lip, then pull straight out -- rather than
+ * the single straight-line pull `verifyDemoldTranslationByVector` checks.
+ * No new geometric primitive was needed: each segment reuses that exact
+ * function, called with the segment's own EXACT distance as its clearance
+ * (not a generous overshoot -- LOOP 1's own scoping proof surfaced this
+ * distinction directly: a segment must stop exactly where the next one
+ * takes over, not sweep further and flag a real, expected collision past
+ * that point as a false failure), then the target is translated for real by
+ * that exact distance before the next segment's own sweep begins from
+ * there.
+ *
+ * A single-segment path is exactly equivalent to
+ * `verifyDemoldTranslationByVector` on that one segment (proved directly in
+ * this file's own test) -- this function is a strict generalization, not a
+ * different mechanism.
+ */
+export function verifyDemoldTranslationByPath<S extends DemoldSolid>(
+  toolSolid: S,
+  targetSolid: S,
+  segments: readonly DemoldPathSegment[],
+  toleranceMm: number,
+  volumeToleranceMm3: number,
+  options: DemoldSweepOptions = {},
+): DemoldVerificationResult {
+  if (segments.length === 0) throw new Error("a compound demold path needs at least one segment.");
+  const tool: DemoldSolid = toolSolid;
+  let current: DemoldSolid = targetSolid;
+  const owned: DemoldSolid[] = [];
+  let traveledMm = 0;
+  try {
+    for (const segment of segments) {
+      const result = verifyDemoldTranslationByVector<DemoldSolid>(tool, current, segment.direction, segment.distanceMm, toleranceMm, volumeToleranceMm3, options);
+      if (!result.removable) {
+        return { removable: false, firstCollisionDistanceMm: traveledMm + (result.firstCollisionDistanceMm ?? 0) };
+      }
+      traveledMm += segment.distanceMm;
+      const [dx, dy, dz] = segment.direction;
+      const next = current.translate(dx * segment.distanceMm, dy * segment.distanceMm, dz * segment.distanceMm);
+      owned.push(next);
+      current = next;
+    }
+    return { removable: true, firstCollisionDistanceMm: null };
+  } finally {
+    for (const solid of owned) solid.delete();
+  }
+}
