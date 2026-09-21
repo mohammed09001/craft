@@ -77,12 +77,15 @@ describe("Working Mold intelligence telemetry (Execution 08 LOOP 26)", () => {
     // this fixture (region set-cover proves 5 directions suffice) and DOES
     // reach one real exact construction attempt -- honestly reported here,
     // not the hardcoded 0 this snapshot used to report before that fallback
-    // existed (masterMoldEngine.loop02RealRegression.test.ts covers why it
-    // still fails release for this specific hard fixture).
-    expect(snapshot.exactConstructionAttempts).toBe(1);
+    // existed. Execution 08 LOOP 02/14/28 (true multi-label reconstruction):
+    // since that CSG fallback also fails release, a SECOND real last-resort
+    // attempt now runs too (masterMoldEngine.loop02RealRegression.test.ts
+    // covers why even that still fails release for this specific hard
+    // fixture -- one genuinely isolated island).
+    expect(snapshot.exactConstructionAttempts).toBe(2);
     expect(snapshot.selectedPieceCount).toBeNull();
-    expect(snapshot.partingSurfaceCandidateCount).toBe(1);
-  }, 60_000);
+    expect(snapshot.partingSurfaceCandidateCount).toBe(2);
+  }, 120_000);
 
   it("is null only for the invalid-source-mesh early return, where planning never ran", async () => {
     const invalidResult = await runMasterMoldEngine(openBoxSeed());

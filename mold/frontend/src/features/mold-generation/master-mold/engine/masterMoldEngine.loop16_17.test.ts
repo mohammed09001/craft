@@ -20,7 +20,12 @@ describe("Automatic piece-count escalation (Execution 08 LOOP 16)", () => {
     const fixture = await buildFreeFormObliqueLockFixture();
     const result = await runMasterMoldEngine(seedFromFixture(fixture));
     expect(result.planningDiagnostics.map((diagnostic) => diagnostic.pieceCount)).toEqual([2, 3, 4, 5, 6]);
-  }, 60_000);
+    // Execution 08 LOOP 02/14/28: two real last-resort construction
+    // attempts now run for this fixture (CSG, then multi-label
+    // reconstruction), each with its own full release-verification sweep
+    // -- genuinely slower than the single-attempt version this timeout was
+    // first set for.
+  }, 120_000);
 });
 
 describe("Truthful recovery guidance (Execution 08 LOOP 17)", () => {
@@ -30,7 +35,7 @@ describe("Truthful recovery guidance (Execution 08 LOOP 17)", () => {
     expect(result.failures).toHaveLength(1);
     expect(result.failures[0]!.message).not.toMatch(/raise the piece-count cap/);
     expect(result.failures[0]!.message).toMatch(/safety ceiling/);
-  }, 60_000);
+  }, 120_000);
 
   it("does recommend raising the cap when a profile/user setting deliberately capped below the safety ceiling", async () => {
     const fixture = await buildFreeFormObliqueLockFixture();

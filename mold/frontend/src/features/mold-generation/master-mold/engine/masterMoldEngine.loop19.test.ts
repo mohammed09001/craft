@@ -69,5 +69,9 @@ describe("Observable, causal search budgets (Execution 08 LOOP 19)", () => {
     // Automatic mode reaches the 6-piece safety ceiling for this fixture.
     expect(pieceCountBudget.used).toBe(pieceCountBudget.limit);
     expect(result.failures[0]!.message).toMatch(/piece_count/);
-  }, 60_000);
+    // Execution 08 LOOP 02/14/28: two real last-resort construction
+    // attempts now run for this fixture (CSG, then multi-label
+    // reconstruction) -- genuinely slower than the single-attempt version
+    // this timeout was first set for.
+  }, 120_000);
 });
