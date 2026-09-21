@@ -129,18 +129,49 @@ import { assertManifoldStatus, getManifoldModule, type ManifoldSolid } from "../
  * for fragments this irregular, and further variants of the same idea are
  * not a good use of further effort.
  *
+ *  * A third variant was then tried, specifically targeting the "PER-REGION,
+ * geometry-aware tie-break" idea named above as the way forward: instead
+ * of ONE criterion for a whole piece (either the single nearest triangle,
+ * or one fixed whole-piece average), compute the average plane from a
+ * LOCAL, capped-size neighborhood of triangles found by a real mesh-edge
+ * BFS outward from whichever triangle is actually nearest the query point
+ * -- smoothed enough not to flicker point-to-point like a single nearest
+ * triangle, but local enough to track a boundary's own shape rather than
+ * one global bias for a piece that may look very different in different
+ * places. Measured directly at three cap sizes to trace the whole curve
+ * from "local" to "global": 24 triangles (>= 101 physical pieces, as bad
+ * as the noisy nearest-triangle variant), 100 triangles (>= 87, better but
+ * still far worse than either baseline), and 5000 triangles -- effectively
+ * the whole piece, since no real piece here has anywhere near that many
+ * triangles reachable by BFS -- landing at >= 33, matching (not beating)
+ * the already-measured 41-ish whole-piece-average result within the
+ * mechanism's own noise. All three points sit on ONE monotonic curve with
+ * no interior minimum: fragmentation strictly worsens as the neighborhood
+ * shrinks, and the best a local neighborhood can achieve, at its largest,
+ * is to reproduce the whole-piece average's own already-insufficient
+ * result. There is no sweet spot at any granularity between "one triangle"
+ * and "the whole piece" for this specific fixture -- neighborhood SIZE was
+ * not, in fact, the missing ingredient the two earlier attempts' gap
+ * implied it might be. (Code reverted to the plain whole-piece
+ * `averagePlaneDistance` below after this measurement -- the BFS/local-
+ * neighborhood machinery added no value baked into extra complexity, so it
+ * was removed rather than kept dormant.)
+ *
  * This makes FIVE separate architectural paradigms this project has tried
  * for the real free-form regression fixture -- global flat offset, per-
  * cell grid, connected-component splitting, a full simultaneous CSG
  * rewrite, and this genuine 3D nearest-surface reconstruction (itself now
- * including two real, measured tie-break refinements, both net
- * improvements to the primitive and both net harmful to this fixture) --
- * and every one has diverged rather than converged. That is the honest
- * stopping point for construction-technique attempts at this specific
- * fixture: a real fix would need a fundamentally different distance notion
- * (e.g. a true generalized Voronoi/power diagram with a PER-REGION,
- * geometry-aware tie-break -- not a single global criterion -- or true
- * multi-label surface reconstruction), out of scope here.
+ * including three real, measured tie-break refinements -- noisy per-point,
+ * smoothed whole-piece, and local-neighborhood-at-three-granularities --
+ * every one a net improvement to the primitive and every one net harmful
+ * to this fixture) -- and every one has diverged rather than converged.
+ * That is the honest stopping point for construction-technique AND
+ * tie-break-refinement attempts at this specific fixture: closing it for
+ * real needs true multi-label surface reconstruction (a genuine global
+ * optimization over a discrete labeling, e.g. multi-label graph cuts, that
+ * can explicitly penalize small/scattered regions in its own objective --
+ * not a distance-metric tie-break bolted on after the fact, since three
+ * different granularities of that idea are now measured and none help).
  * `volumetricAssignmentSolid` itself is real, correct, tested
  * infrastructure -- kept as a genuine capability independent of whether
  * this specific fixture ever closes -- but is NOT wired into
