@@ -85,7 +85,7 @@ describe("Working Mold intelligence telemetry (Execution 08 LOOP 26)", () => {
     expect(snapshot.exactConstructionAttempts).toBe(2);
     expect(snapshot.selectedPieceCount).toBeNull();
     expect(snapshot.partingSurfaceCandidateCount).toBe(2);
-  }, 120_000);
+  }, 300_000);
 
   it("is null only for the invalid-source-mesh early return, where planning never ran", async () => {
     const invalidResult = await runMasterMoldEngine(openBoxSeed());

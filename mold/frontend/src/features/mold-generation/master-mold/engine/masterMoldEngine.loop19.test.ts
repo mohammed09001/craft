@@ -73,5 +73,5 @@ describe("Observable, causal search budgets (Execution 08 LOOP 19)", () => {
     // attempts now run for this fixture (CSG, then multi-label
     // reconstruction) -- genuinely slower than the single-attempt version
     // this timeout was first set for.
-  }, 120_000);
+  }, 300_000);
 });

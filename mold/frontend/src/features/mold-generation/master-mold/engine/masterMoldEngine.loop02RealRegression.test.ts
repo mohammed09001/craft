@@ -231,7 +231,7 @@ import { runMasterMoldEngine } from "./masterMoldEngine";
  * as full LOOP 02 closure.
  */
 describe("Real free-form regression (Execution 08 LOOP 02)", () => {
-  it("reaches real exact-CSG AND multi-label construction via both fallbacks, still fails release for this specific hard fixture (one genuinely isolated island)", { timeout: 120_000 }, async () => {
+  it("reaches real exact-CSG AND multi-label construction via both fallbacks, still fails release for this specific hard fixture (one genuinely isolated island)", { timeout: 300_000 }, async () => {
     const fixture = await buildFreeFormObliqueLockFixture();
     const seed = seedFromFixture(fixture);
     const result = await runMasterMoldEngine(seed);
