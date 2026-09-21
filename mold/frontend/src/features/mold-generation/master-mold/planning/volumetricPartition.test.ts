@@ -83,7 +83,7 @@ describe("volumetricAssignmentSolid (Execution 08 LOOP 02/14/28)", () => {
    * of nearest-real-surface partitioning, found while investigating why
    * this approach -- despite eliminating the CSG-boundary paradigm's own
    * "single-direction-projection" bias entirely -- still failed to
-   * converge for the real hardest regression fixture.
+   * converge for the real hardest regression fixture, AND its fix.
    *
    * `MeshBVH.closestPointToPoint` correctly measures distance to the
    * NEAREST POINT ON THE FINITE TRIANGLE (clamped to its own edges, not
@@ -97,33 +97,27 @@ describe("volumetricAssignmentSolid (Execution 08 LOOP 02/14/28)", () => {
    * are beyond BOTH patches' extents (the outer diagonal wedge past their
    * shared edge/corner), the tie persists at every point in that entire
    * wedge, all the way to the envelope boundary. Neither `sdf > 0`
-   * (strict) captures a tied point, so `Manifold.levelSet` does not assign
+   * (strict) captures a tied point, so `Manifold.levelSet` did not assign
    * it to EITHER piece -- a real, structural GAP, not overlap, and not a
    * grid-resolution artifact (confirmed directly: refining the grid by
-   * 2.5x left the gap volume unchanged).
-   *
-   * This is fundamental to bounded-nearest-surface Voronoi partitioning of
-   * POLYHEDRAL (flat-faced, sharp-edged) geometry specifically -- a plain
-   * box, deliberately chosen as the simplest possible sanity case, turned
-   * out to be adversarial for this exact reason. Measured directly: two
-   * adjacent box faces (one small, five others forming an open box) gap
+   * 2.5x left the gap volume unchanged). Measured directly: two adjacent
+   * box faces (one small, five others forming an open box) gapped
    * ~2183mm3 of a 10648mm3 envelope, entirely in the wedge beyond their
-   * shared edges. The real target fixture (smoothly curved, no flat faces)
-   * does not have literal shared straight edges the same way, but still
-   * fragmented severely when tried end to end (physical piece count
-   * climbed to 38, worse than every CSG-boundary attempt's own worst
-   * point of 25) -- the same underlying tie-ambiguity mechanism, just
-   * triggered by near-tangencies between many small, irregularly-shaped
-   * connected-component pieces instead of one clean flat edge.
+   * shared edges.
    *
-   * Not fixed here: a genuine fix would need a different distance notion
-   * entirely (e.g. a proper generalized Voronoi/power diagram construction
-   * that resolves ties via a consistent secondary criterion, or true
-   * multi-label surface reconstruction), which is out of scope for this
-   * already-large undertaking. This test records the finding precisely
-   * rather than silently passing or hiding it.
+   * Fixed with a small secondary tie-breaking term in the sdf itself
+   * (`volumetricAssignmentSolid`'s own doc comment has the full mechanism):
+   * off the exact bisector of a tied wedge, one side's nearest triangle's
+   * own INFINITE PLANE is closer than the other's -- using that as a
+   * lightly-weighted secondary criterion collapses the ambiguous region
+   * from a full wedge VOLUME down to (at most) its own measure-zero
+   * bisector plane, which a continuous level-set field has no trouble
+   * with. Measured directly: the SAME two-faces-of-a-box scenario that
+   * gapped ~2183mm3 before the fix now gaps ~14mm3 (a ~150x reduction, and
+   * what remains is consistent with ordinary grid-resolution noise along
+   * that residual bisector, not a structural gap).
    */
-  it("KNOWN LIMITATION: two adjacent finite patches sharing an edge leave a real gap beyond that edge, not just overlap", async () => {
+  it("two adjacent finite patches sharing an edge tile correctly once the tie-break term is applied", { timeout: 30_000 }, async () => {
     const module = await getManifoldModule();
     const sourceMesh = boxMesh();
     const bounds = { min: { x: -11, y: -11, z: -11 }, max: { x: 11, y: 11, z: 11 } };
@@ -139,10 +133,17 @@ describe("volumetricAssignmentSolid (Execution 08 LOOP 02/14/28)", () => {
       const envelopeVolume = 22 * 22 * 22;
       const union = solid0.volume() + solid1.volume();
       const gap = envelopeVolume - union;
-      // The gap is real and large (order of thousands of mm3, not a thin
-      // numerical sliver): this assertion is deliberately a wide bound
-      // documenting that the limitation is structural, not tuning it away.
-      expect(gap).toBeGreaterThan(1000);
+      // What remains is residual grid-resolution noise along the
+      // (now measure-zero) bisector, not the ~2183mm3 structural gap the
+      // unfixed version left -- a wide but real bound, deliberately far
+      // below the old gap size, not just under the full envelope.
+      expect(gap).toBeLessThan(100);
+      const overlap = solid0.intersect(solid1);
+      try {
+        expect(overlap.volume()).toBeLessThan(100);
+      } finally {
+        overlap.delete();
+      }
     } finally {
       solid0.delete();
       solid1.delete();

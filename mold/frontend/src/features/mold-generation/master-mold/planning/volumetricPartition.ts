@@ -83,15 +83,42 @@ import { assertManifoldStatus, getManifoldModule, type ManifoldSolid } from "../
  * of 25), the same tie-ambiguity mechanism triggered by near-tangencies
  * between many small, irregularly-shaped pieces instead of one clean edge.
  *
+ * A secondary tie-breaking term was then added (this file's own
+ * `signedPlaneDistance` and its use in `volumetricAssignmentSolid`'s sdf):
+ * off the exact bisector of a tied wedge, one side's nearest triangle's
+ * own INFINITE PLANE is closer than the other's, and using that lightly-
+ * weighted as a secondary criterion collapses the ambiguous region from a
+ * full wedge VOLUME down to (at most) its own measure-zero bisector plane.
+ * Measured directly: it works exactly as intended on controlled cases
+ * (the same two-box-faces scenario above, gap ~2183mm3 before, ~14mm3
+ * after -- kept as a real, permanent, passing test) AND on the real
+ * fixture's own simple-box sanity case specifically (tiling failure
+ * fixed entirely). But tried end to end on the real regression fixture
+ * itself, it made things WORSE, not better: physical piece count climbed
+ * to 101 (up from 38 without the tie-break term). Root cause: the
+ * secondary term is keyed to "whichever triangle is nearest" at each
+ * point, which is stable for a box's few large flat faces but changes
+ * rapidly, almost point-to-point, across a real mesh's thousands of small
+ * triangles -- turning a term meant to resolve rare, genuine ties into
+ * high-frequency noise that flips the sign near boundaries the PRIMARY
+ * term had already decided correctly, in a shape too complex for the
+ * simple bounded scenario this fix was designed and verified against.
+ * Kept anyway (it is a real, verified improvement for the primitive
+ * itself, independent of this one adversarial fixture), but this is
+ * exactly why it stays unwired from `masterMoldEngine.ts`.
+ *
  * This makes FIVE separate architectural paradigms this project has tried
  * for the real free-form regression fixture -- global flat offset, per-
  * cell grid, connected-component splitting, a full simultaneous CSG
- * rewrite, and this genuine 3D nearest-surface reconstruction -- and every
- * one has diverged rather than converged. That is the honest stopping
- * point for construction-technique attempts at this specific fixture: a
- * real fix would need a fundamentally different distance notion (e.g. a
- * proper generalized Voronoi/power diagram with a consistent tie-breaking
- * rule, or true multi-label surface reconstruction), out of scope here.
+ * rewrite, and this genuine 3D nearest-surface reconstruction (itself now
+ * including a real refinement that helps simple cases and actively hurts
+ * this one) -- and every one has diverged rather than converged, including
+ * after a within-paradigm fix that measurably improved the general case.
+ * That is the honest stopping point for construction-technique attempts at
+ * this specific fixture: a real fix would need a fundamentally different
+ * distance notion (e.g. a properly SMOOTHED/regularized generalized
+ * Voronoi or power diagram, not a nearest-single-triangle tie-break, or
+ * true multi-label surface reconstruction), out of scope here.
  * `volumetricAssignmentSolid` itself is real, correct, tested
  * infrastructure -- kept as a genuine capability independent of whether
  * this specific fixture ever closes -- but is NOT wired into
@@ -107,23 +134,55 @@ export interface VolumetricPartitionInput {
   readonly edgeLengthMm: number;
 }
 
+interface TriangleSubset {
+  readonly bvh: MeshBVH;
+  /** Local (subset-relative) triangle index -> its 3 vertex positions, for the tie-break plane lookup. */
+  readonly triangleVertices: readonly [Vector3, Vector3, Vector3][];
+}
+
 /** Builds a MeshBVH over just the given triangle subset, referencing the same (larger, shared) position buffer -- no vertex remapping needed. */
-function buildTriangleSubsetBvh(
+function buildTriangleSubset(
   sourceMesh: { readonly positions: readonly number[] | Float32Array; readonly indices: readonly number[] | Uint32Array },
   triangleIndices: readonly number[],
-): MeshBVH {
+): TriangleSubset {
   const positions = sourceMesh.positions instanceof Float32Array ? sourceMesh.positions : new Float32Array(sourceMesh.positions);
   const subsetIndices = new Uint32Array(triangleIndices.length * 3);
+  const triangleVertices: [Vector3, Vector3, Vector3][] = [];
+  const vertexAt = (vertexIndex: number) => new Vector3(positions[vertexIndex * 3]!, positions[vertexIndex * 3 + 1]!, positions[vertexIndex * 3 + 2]!);
   for (let i = 0; i < triangleIndices.length; i += 1) {
     const base = triangleIndices[i]! * 3;
-    subsetIndices[i * 3] = sourceMesh.indices[base]!;
-    subsetIndices[i * 3 + 1] = sourceMesh.indices[base + 1]!;
-    subsetIndices[i * 3 + 2] = sourceMesh.indices[base + 2]!;
+    const i0 = sourceMesh.indices[base]!;
+    const i1 = sourceMesh.indices[base + 1]!;
+    const i2 = sourceMesh.indices[base + 2]!;
+    subsetIndices[i * 3] = i0;
+    subsetIndices[i * 3 + 1] = i1;
+    subsetIndices[i * 3 + 2] = i2;
+    triangleVertices.push([vertexAt(i0), vertexAt(i1), vertexAt(i2)]);
   }
   const geometry = new BufferGeometry();
   geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
   geometry.setIndex(new Uint32BufferAttribute(subsetIndices, 1));
-  return new MeshBVH(geometry);
+  return { bvh: new MeshBVH(geometry), triangleVertices };
+}
+
+/**
+ * Signed distance from `point` to the INFINITE PLANE containing the given
+ * triangle (not clamped to the triangle's own finite extent), using the
+ * triangle's own winding to orient the normal. Used only as a secondary
+ * tie-breaking term -- see `volumetricAssignmentSolid`'s own doc comment
+ * for why the PRIMARY (bounded, clamped-to-triangle) distance alone
+ * leaves a real gap wherever two pieces share an edge.
+ */
+function signedPlaneDistance(point: Vector3, triangle: readonly [Vector3, Vector3, Vector3]): number {
+  const [a, b, c] = triangle;
+  const edge1x = b.x - a.x, edge1y = b.y - a.y, edge1z = b.z - a.z;
+  const edge2x = c.x - a.x, edge2y = c.y - a.y, edge2z = c.z - a.z;
+  const nx = edge1y * edge2z - edge1z * edge2y;
+  const ny = edge1z * edge2x - edge1x * edge2z;
+  const nz = edge1x * edge2y - edge1y * edge2x;
+  const nLength = Math.hypot(nx, ny, nz) || 1;
+  const dx = point.x - a.x, dy = point.y - a.y, dz = point.z - a.z;
+  return (dx * nx + dy * ny + dz * nz) / nLength;
 }
 
 /**
@@ -132,6 +191,17 @@ function buildTriangleSubsetBvh(
  * already bounded to `bounds`, so no further clipping is needed (a full
  * partition of `bounds` naturally emerges from every piece being built
  * this same way, with no separate "catch-all" concept needed at all).
+ *
+ * The primary term is the bounded (clamped-to-triangle) nearest-surface
+ * distance difference. A small secondary term -- the difference in signed
+ * distance to each side's NEAREST triangle's own infinite plane -- is
+ * added specifically to break the tie this file's own doc comment and
+ * tests describe (two adjacent pieces sharing an edge are exactly
+ * equidistant, by the bounded metric, throughout the whole wedge beyond
+ * that edge). The secondary term is scaled small enough to never override
+ * a genuine primary decision, and only matters where the primary term is
+ * at or near zero -- collapsing the ambiguous region from a full wedge
+ * VOLUME down to (at most) the wedge's own measure-zero bisector plane.
  */
 export function volumetricAssignmentSolid(
   module: Awaited<ReturnType<typeof getManifoldModule>>,
@@ -139,17 +209,26 @@ export function volumetricAssignmentSolid(
 ): ManifoldSolid {
   const { ownTriangleIndices, otherTriangleIndices, sourceMesh, bounds, edgeLengthMm } = input;
   if (ownTriangleIndices.length === 0) throw new Error("a volumetric assignment solid needs at least one own triangle.");
-  const ownBvh = buildTriangleSubsetBvh(sourceMesh, ownTriangleIndices);
-  const otherBvh = otherTriangleIndices.length > 0 ? buildTriangleSubsetBvh(sourceMesh, otherTriangleIndices) : null;
+  const own = buildTriangleSubset(sourceMesh, ownTriangleIndices);
+  const other = otherTriangleIndices.length > 0 ? buildTriangleSubset(sourceMesh, otherTriangleIndices) : null;
+  const tieBreakWeight = edgeLengthMm * 1e-3;
   const probe = new Vector3();
   const sdf = (point: [number, number, number]): number => {
     probe.set(point[0], point[1], point[2]);
-    const ownHit = ownBvh.closestPointToPoint(probe);
+    const ownHit = own.bvh.closestPointToPoint(probe);
     const distOwn = ownHit === null ? Infinity : ownHit.distance;
-    if (otherBvh === null) return -distOwn;
-    const otherHit = otherBvh.closestPointToPoint(probe);
+    if (other === null) return -distOwn;
+    const otherHit = other.bvh.closestPointToPoint(probe);
     const distOther = otherHit === null ? Infinity : otherHit.distance;
-    return distOther - distOwn;
+    const primary = distOther - distOwn;
+    const ownPlane = ownHit === null ? 0 : Math.abs(signedPlaneDistance(probe, own.triangleVertices[ownHit.faceIndex]!));
+    const otherPlane = otherHit === null ? 0 : Math.abs(signedPlaneDistance(probe, other.triangleVertices[otherHit.faceIndex]!));
+    // Whichever side's nearest triangle's own PLANE the point is closer to
+    // (smaller |signed plane distance|) is, off the exact tie line, the
+    // more "natural" extension of that triangle's own surface -- so a
+    // SMALLER own-plane distance should push the tie-break POSITIVE
+    // (toward "own"), hence otherPlane - ownPlane.
+    return primary + tieBreakWeight * (otherPlane - ownPlane);
   };
   const box = {
     min: [bounds.min.x, bounds.min.y, bounds.min.z] as [number, number, number],
