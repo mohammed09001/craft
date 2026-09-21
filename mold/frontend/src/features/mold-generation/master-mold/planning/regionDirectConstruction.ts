@@ -1,4 +1,4 @@
-import type { AccessibilityAnalysis, PlanningMesh } from "./masterMoldPlanning.contracts";
+import type { AccessibilityAnalysis, PlanningMesh, PlanningVector3 } from "./masterMoldPlanning.contracts";
 import { dot } from "./candidateDirections";
 import { extractPartingInterfaces, type WorkingMoldDecompositionFinalist } from "./workingMoldPlanner";
 import type { PlannedPieceRegion } from "./workingMoldConstructor";
@@ -27,6 +27,101 @@ function splitIntoConnectedComponents(patches: readonly number[], adjacency: Pla
     components.push(component);
   }
   return components;
+}
+
+interface PhysicalPiece {
+  readonly directionIndex: number;
+  readonly patches: readonly number[];
+}
+
+/**
+ * Splits each region-cover direction's assigned patches into its own
+ * mesh-connected components (see `buildDirectAssignmentConstructionPieces`'s
+ * own doc comment for why this matters), producing one `PhysicalPiece` per
+ * component, still tagged with its parent direction. Shared by both the
+ * CSG-boundary and volumetric construction paths below -- the disjoint-
+ * assignment problem this fixes is upstream of and common to both.
+ */
+function buildPhysicalPieces(
+  planningMesh: PlanningMesh,
+  direct: RegionDirectAssignmentResult,
+): readonly PhysicalPiece[] | null {
+  const directionCount = direct.pieceDirectionIndexes.length;
+  if (directionCount < 2) return null;
+  const patchesByDirection = new Map<number, number[]>();
+  for (let patchIndex = 0; patchIndex < direct.assignment.length; patchIndex += 1) {
+    const directionIndex = direct.assignment[patchIndex]!;
+    const list = patchesByDirection.get(directionIndex) ?? [];
+    list.push(patchIndex);
+    patchesByDirection.set(directionIndex, list);
+  }
+  const physicalPieces: PhysicalPiece[] = [];
+  for (let directionIndex = 0; directionIndex < directionCount; directionIndex += 1) {
+    const patches = patchesByDirection.get(directionIndex) ?? [];
+    if (patches.length === 0) return null; // an empty direction: this assignment is unusable.
+    for (const component of splitIntoConnectedComponents(patches, planningMesh.adjacency)) {
+      physicalPieces.push({ directionIndex, patches: component });
+    }
+  }
+  return physicalPieces.length < 2 ? null : physicalPieces;
+}
+
+/**
+ * Execution 08 LOOP 02/14/28 (volumetric reconstruction): turns a
+ * `buildRegionDirectAssignment` result into inputs for
+ * `constructWorkingMold`'s volumetric partition mode -- see
+ * `volumetricPartition.ts`'s own doc comment for the full mechanism and
+ * why it replaces every CSG-boundary attempt this project tried (all of
+ * which diverged on the real free-form regression fixture).
+ *
+ * Unlike `buildDirectAssignmentConstructionPieces` below, there is no
+ * catch-all here: a genuine 3D nearest-SURFACE partition covers the whole
+ * envelope by construction (every point has SOME nearest triangle among
+ * ALL pieces), so every physical piece -- including what would have been
+ * "the last one" in the CSG-boundary construction -- gets built the exact
+ * same way, symmetrically, with `otherTriangleIndices` spanning every
+ * OTHER physical piece.
+ *
+ * Only real SOURCE TRIANGLE indices are produced here -- no point sampling
+ * at all. `volumetricAssignmentSolid` queries the actual continuous
+ * triangle surface (via `MeshBVH.closestPointToPoint`), not a discrete
+ * approximation of it; see that function's own doc comment for why every
+ * earlier point-sampling attempt here (centroids, then vertices, then a
+ * density-proportional barycentric grid) was a real bug, not just
+ * imprecision, and had to be replaced rather than tuned further.
+ */
+export function buildVolumetricConstructionPieces(
+  planningMesh: PlanningMesh,
+  analysis: AccessibilityAnalysis,
+  direct: RegionDirectAssignmentResult,
+): { readonly pieces: readonly PlannedPieceRegion[]; readonly interfaces: WorkingMoldDecompositionFinalist["interfaces"] } | null {
+  if (direct.unassignedPatchCount > 0) return null;
+  const physicalPieces = buildPhysicalPieces(planningMesh, direct);
+  if (physicalPieces === null) return null;
+
+  const releaseDirections = direct.pieceDirectionIndexes.map((directionIndex) => analysis.directions[directionIndex]!.vector);
+  const directionIds = direct.pieceDirectionIndexes.map((directionIndex) => analysis.directions[directionIndex]!.directionId);
+  const interfaces = extractPartingInterfaces(
+    planningMesh,
+    direct.assignment,
+    releaseDirections.map((releaseDirection, index) => ({ releaseDirection, directionId: directionIds[index]!, prism: null })),
+  );
+
+  const triangleIndicesOf = (physical: PhysicalPiece): number[] =>
+    physical.patches.map((patchIndex) => planningMesh.patches[patchIndex]!.sourceTriangle);
+
+  const pieces: PlannedPieceRegion[] = physicalPieces.map((physical, pieceIndex) => {
+    const direction = releaseDirections[physical.directionIndex]!;
+    const ownTriangleIndices = triangleIndicesOf(physical);
+    const otherTriangleIndices: number[] = [];
+    for (let otherIndex = 0; otherIndex < physicalPieces.length; otherIndex += 1) {
+      if (otherIndex === pieceIndex) continue;
+      otherTriangleIndices.push(...triangleIndicesOf(physicalPieces[otherIndex]!));
+    }
+    return { releaseDirection: direction, plane: null, volumetric: { ownTriangleIndices, otherTriangleIndices } };
+  });
+
+  return { pieces, interfaces };
 }
 
 /**
@@ -100,8 +195,8 @@ export function buildDirectAssignmentConstructionPieces(
   direct: RegionDirectAssignmentResult,
 ): { readonly pieces: readonly PlannedPieceRegion[]; readonly interfaces: WorkingMoldDecompositionFinalist["interfaces"] } | null {
   if (direct.unassignedPatchCount > 0) return null;
-  const directionCount = direct.pieceDirectionIndexes.length;
-  if (directionCount < 2) return null;
+  const physicalPieces = buildPhysicalPieces(planningMesh, direct);
+  if (physicalPieces === null) return null;
 
   const releaseDirections = direct.pieceDirectionIndexes.map((directionIndex) => analysis.directions[directionIndex]!.vector);
   const directionIds = direct.pieceDirectionIndexes.map((directionIndex) => analysis.directions[directionIndex]!.directionId);
@@ -111,35 +206,13 @@ export function buildDirectAssignmentConstructionPieces(
     releaseDirections.map((releaseDirection, index) => ({ releaseDirection, directionId: directionIds[index]!, prism: null })),
   );
 
-  const patchesByDirection = new Map<number, number[]>();
-  for (let patchIndex = 0; patchIndex < direct.assignment.length; patchIndex += 1) {
-    const directionIndex = direct.assignment[patchIndex]!;
-    const list = patchesByDirection.get(directionIndex) ?? [];
-    list.push(patchIndex);
-    patchesByDirection.set(directionIndex, list);
-  }
-
-  interface PhysicalPiece {
-    readonly directionIndex: number;
-    readonly patches: readonly number[];
-  }
-  const physicalPieces: PhysicalPiece[] = [];
-  for (let directionIndex = 0; directionIndex < directionCount; directionIndex += 1) {
-    const patches = patchesByDirection.get(directionIndex) ?? [];
-    if (patches.length === 0) return null; // an empty direction: this assignment is unusable.
-    for (const component of splitIntoConnectedComponents(patches, planningMesh.adjacency)) {
-      physicalPieces.push({ directionIndex, patches: component });
-    }
-  }
-  if (physicalPieces.length < 2) return null;
-
   const pieces: PlannedPieceRegion[] = [];
   for (let pieceIndex = 0; pieceIndex < physicalPieces.length - 1; pieceIndex += 1) {
-    const physical = physicalPieces[pieceIndex]!;
+    const physical: PhysicalPiece = physicalPieces[pieceIndex]!;
     const direction = releaseDirections[physical.directionIndex]!;
     let minProjection = Infinity;
     let ownPatchRadiusMm = 0;
-    const ownPoints = physical.patches.map((patchIndex) => {
+    const ownPoints: PlanningVector3[] = physical.patches.map((patchIndex: number) => {
       const patch = planningMesh.patches[patchIndex]!;
       const projection = dot(patch.centroid, direction);
       if (projection < minProjection) minProjection = projection;
@@ -153,7 +226,7 @@ export function buildDirectAssignmentConstructionPieces(
     // (the last entry in `physicalPieces`) -- the simultaneous-partition
     // construction mode has no carving order, so there is no "not yet
     // carved" distinction to scope this to.
-    const otherPoints: typeof ownPoints = [];
+    const otherPoints: PlanningVector3[] = [];
     for (let otherIndex = 0; otherIndex < physicalPieces.length; otherIndex += 1) {
       if (otherIndex === pieceIndex) continue;
       for (const patchIndex of physicalPieces[otherIndex]!.patches) {

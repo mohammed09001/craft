@@ -22,6 +22,7 @@ import type {
   WorkingMoldRegistrationPlan,
 } from "./masterMoldPlanning.contracts";
 import { workingMoldEnvelopeWallMm, inflatedBounds } from "./masterMoldPlanning.contracts";
+import { volumetricAssignmentSolid } from "./volumetricPartition";
 
 /**
  * Execution 06 Article 08: virtual Working Mold construction.
@@ -96,6 +97,21 @@ export interface PlannedPieceRegion {
      */
     readonly ownPatchRadiusMm: number;
   } | null;
+  /**
+   * Execution 08 LOOP 02/14/28 (volumetric reconstruction): this piece's
+   * own assigned patch centroids (`ownPoints`) and every OTHER physical
+   * piece's (`otherPoints`), built into a genuine 3D nearest-patch
+   * partition via `volumetricAssignmentSolid` (see that function's own
+   * doc comment for the full mechanism and why it replaces every
+   * CSG-boundary construction mode this file also offers). When EVERY
+   * piece in a `constructWorkingMold` call carries this, the whole call
+   * switches to the volumetric partition construction mode -- no
+   * `plane`/`grid`/`curve` needed at all, and no catch-all: a real 3D
+   * Voronoi-style partition already covers the whole envelope by
+   * construction, so every piece, including what would be "the last one"
+   * in every other mode this file supports, is built the exact same way.
+   */
+  readonly volumetric?: { readonly ownTriangleIndices: readonly number[]; readonly otherTriangleIndices: readonly number[] } | null;
 }
 
 export interface WorkingMoldConstructionInput {
@@ -1088,8 +1104,64 @@ export async function constructWorkingMold(input: WorkingMoldConstructionInput):
     input.pieces.length >= 2 &&
     input.pieces.slice(0, -1).every((piece) => piece.grid !== null && piece.grid !== undefined) &&
     input.pieces[input.pieces.length - 1]!.plane === null;
+  // Execution 08 LOOP 02/14/28 (volumetric reconstruction): EVERY piece
+  // carries `volumetric`, no catch-all -- see `volumetricPartition.ts`'s
+  // own doc comment for the full mechanism and why it replaces the
+  // CSG-boundary modes above (all of which diverged on the real free-form
+  // regression fixture across four separate architectural attempts).
+  const isVolumetricPartition =
+    input.pieces.length >= 2 && input.pieces.every((piece) => piece.volumetric !== null && piece.volumetric !== undefined);
   try {
-    if (isSimultaneousPartition) {
+    if (isVolumetricPartition) {
+      // Grid spacing for Manifold.levelSet's body-centered-cubic grid.
+      // Measured directly against the real free-form regression fixture:
+      // envelope-diagonal/60 extracts all pieces correctly in ~1.3s each;
+      // envelope-diagonal/120 (8x the grid cells) exhausted the WASM
+      // heap outright ("memory access out of bounds") -- finer is not
+      // free, and this margin has real headroom below the crash point.
+      const diagonal = Math.hypot(
+        envelopeBounds.max.x - envelopeBounds.min.x,
+        envelopeBounds.max.y - envelopeBounds.min.y,
+        envelopeBounds.max.z - envelopeBounds.min.z,
+      );
+      const edgeLengthMm = diagonal / 60;
+      const rawClaims: ManifoldSolid[] = input.pieces.map((piece) => {
+        const volumetric = piece.volumetric!;
+        const solid = volumetricAssignmentSolid(module, {
+          ownTriangleIndices: volumetric.ownTriangleIndices,
+          otherTriangleIndices: volumetric.otherTriangleIndices,
+          sourceMesh: input.sourceMesh,
+          bounds: envelopeBounds,
+          edgeLengthMm,
+        });
+        assertManifoldStatus(solid, "Volumetric partition raw claim");
+        return solid;
+      });
+      // A true nearest-patch partition should have ~zero overlap by
+      // construction (verified directly: an exact 864.0/864.0 split of a
+      // 1728 box in volumetricPartition's own tests) -- this pass exists
+      // only for whatever small grid-discretization residue remains at the
+      // shared boundary between two pieces, the same safety net every
+      // other construction mode in this file also carries.
+      let claimedSoFar: ManifoldSolid | null = null;
+      for (let index = 0; index < rawClaims.length; index += 1) {
+        if (claimedSoFar !== null) {
+          const resolved = rawClaims[index]!.subtract(claimedSoFar);
+          assertManifoldStatus(resolved, "Volumetric partition overlap resolution");
+          rawClaims[index]!.delete();
+          rawClaims[index] = resolved;
+        }
+        if (claimedSoFar === null) {
+          claimedSoFar = rawClaims[index]!.asOriginal();
+        } else {
+          const nextClaimed: ManifoldSolid = claimedSoFar.add(rawClaims[index]!);
+          claimedSoFar.delete();
+          claimedSoFar = nextClaimed;
+        }
+      }
+      claimedSoFar?.delete();
+      pieceSolids.push(...rawClaims);
+    } else if (isSimultaneousPartition) {
       const envelopeBlank = createBlankSolid(module, envelopeBounds);
       try {
         const nonLast = input.pieces.slice(0, -1);

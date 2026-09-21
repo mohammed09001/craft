@@ -35,11 +35,11 @@ import { runMasterMoldEngine } from "./masterMoldEngine";
  * PLANNING-level gap -- the engine now genuinely reaches real exact-CSG
  * construction for this fixture (previously 0 attempts, ever).
  *
- * What remains open, tracked through four further real, verified fixes
- * (each precisely root-caused; full derivations in
- * regionDirectConstruction.ts's and workingMoldConstructor.ts's own doc
- * comments) that still have not closed release verification for this
- * specific, deliberately hard fixture:
+ * What remains open, tracked through five further real, verified
+ * investigations (each precisely root-caused; full derivations in
+ * regionDirectConstruction.ts's, workingMoldConstructor.ts's, and
+ * volumetricPartition.ts's own doc comments) that still have not closed
+ * release verification for this specific, deliberately hard fixture:
  *
  *  1. The FIRST construction attempt used one global flat offset (the
  *     minimum projection of a piece's own patches) per region-cover
@@ -82,24 +82,43 @@ import { runMasterMoldEngine } from "./masterMoldEngine";
  *     genuine defect, not specific to this hard fixture). Against the real
  *     regression fixture itself: the physical piece count climbed further
  *     still, to 25, and it still fails release.
+ *  5. A full paradigm change, not a correction: replaced CSG boundary
+ *     construction entirely with a genuine 3D nearest-SURFACE partition
+ *     (`volumetricAssignmentSolid`), extracted via `Manifold.levelSet` (a
+ *     native marching-tetrahedra level-set-to-mesh constructor, manifoldness
+ *     guaranteed by the algorithm itself -- no hand-written marching cubes
+ *     needed). This eliminates the single-direction-projection bias
+ *     entirely -- there is no half-space, no local footprint, nothing
+ *     derived from any one direction anywhere in it. Proven CORRECT for
+ *     well-behaved geometry (exact analytic tiling for separated flat
+ *     faces; real, tested infrastructure kept regardless of this fixture's
+ *     outcome). But it surfaces a DIFFERENT, equally fundamental limitation:
+ *     wherever two pieces' patches share an edge, the region beyond that
+ *     edge is a genuine mathematical TIE (both pieces' nearest-point query
+ *     clamps to the identical shared point), which `Manifold.levelSet`
+ *     assigns to NEITHER piece -- a real structural gap, not a grid-
+ *     resolution artifact (confirmed: refining the grid 2.5x left the gap
+ *     unchanged). Against the real regression fixture: physical piece count
+ *     climbed to 38 -- worse than every CSG-boundary attempt's own worst
+ *     point of 25.
  *
- * That trajectory -- 5, then 11, then 23, then 25 physical pieces, across
- * FOUR increasingly large fixes including one full paradigm change
- * (sequential to simultaneous), each fix genuinely closing the specific
- * defect it targeted -- is the honest stopping point, not a specific
- * remaining bug: representing this fixture's true per-patch assignment via
- * ANY half-space- or local-footprint-derived CSG boundary construction does
- * not converge to a small, valid set of physical pieces, regardless of
- * whether that construction is sequential or simultaneous. Closing this for
- * real needs true volumetric reconstruction (e.g. marching cubes over a 3D
- * nearest-assignment field, not a boundary derived from any single
- * direction's projection) -- a fundamentally different KIND of
- * infrastructure, not a further correction to boundary-based construction,
- * and out of scope here. The fixes above are all real and kept (each is a
- * correctness improvement independent of whether this specific fixture ever
- * closes). LOOP 02's remaining gate items are NOT met until release
- * verification succeeds too; do not read this file's current passing
- * status as full LOOP 02 closure.
+ * That trajectory -- 5, then 11, then 23, then 25, then 38 physical pieces,
+ * across FIVE increasingly large fixes including two full paradigm changes
+ * (sequential to simultaneous CSG, then CSG to genuine volumetric
+ * reconstruction), each fix genuinely closing the specific defect it
+ * targeted -- is the honest stopping point, not a specific remaining bug:
+ * representing this fixture's true per-patch assignment via EITHER a
+ * half-space-/local-footprint-derived CSG boundary OR a bounded-nearest-
+ * surface Voronoi partition does not converge to a small, valid set of
+ * physical pieces. Closing this for real would need a fundamentally
+ * different distance/boundary notion again (e.g. a generalized Voronoi or
+ * power diagram with a consistent tie-breaking rule, or true multi-label
+ * surface reconstruction) -- out of scope here after two large paradigm
+ * attempts. The fixes above are all real and kept (each is a correctness
+ * improvement independent of whether this specific fixture ever closes).
+ * LOOP 02's remaining gate items are NOT met until release verification
+ * succeeds too; do not read this file's current passing status as full
+ * LOOP 02 closure.
  */
 describe("Real free-form regression (Execution 08 LOOP 02)", () => {
   it("reaches real exact-CSG construction via the region-direct-assignment fallback (previously 0 attempts, ever), still fails release for this specific hard fixture", { timeout: 120_000 }, async () => {
