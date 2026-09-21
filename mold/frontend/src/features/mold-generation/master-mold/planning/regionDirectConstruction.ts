@@ -244,6 +244,43 @@ export function buildVolumetricConstructionPieces(
 }
 
 /**
+ * Execution 08 LOOP 02/14/28 (true multi-label surface reconstruction):
+ * turns a `buildRegionDirectAssignment` result into inputs for
+ * `constructWorkingMold`'s multi-label partition mode -- see
+ * `multiLabelPartition.ts`'s own doc comment for the full mechanism.
+ * Structurally identical to `buildVolumetricConstructionPieces` above
+ * (same physical-piece splitting, same "no catch-all" property), except
+ * each piece only needs its OWN triangles: the reconstruction is a single
+ * joint computation across every piece, not an independent per-piece
+ * comparison against a merged "everyone else".
+ */
+export function buildMultiLabelConstructionPieces(
+  planningMesh: PlanningMesh,
+  analysis: AccessibilityAnalysis,
+  direct: RegionDirectAssignmentResult,
+): { readonly pieces: readonly PlannedPieceRegion[]; readonly interfaces: WorkingMoldDecompositionFinalist["interfaces"] } | null {
+  if (direct.unassignedPatchCount > 0) return null;
+  const physicalPieces = buildPhysicalPieces(planningMesh, direct);
+  if (physicalPieces === null) return null;
+
+  const releaseDirections = direct.pieceDirectionIndexes.map((directionIndex) => analysis.directions[directionIndex]!.vector);
+  const directionIds = direct.pieceDirectionIndexes.map((directionIndex) => analysis.directions[directionIndex]!.directionId);
+  const interfaces = extractPartingInterfaces(
+    planningMesh,
+    direct.assignment,
+    releaseDirections.map((releaseDirection, index) => ({ releaseDirection, directionId: directionIds[index]!, prism: null })),
+  );
+
+  const pieces: PlannedPieceRegion[] = physicalPieces.map((physical) => {
+    const direction = releaseDirections[physical.directionIndex]!;
+    const ownTriangleIndices = physical.patches.map((patchIndex) => planningMesh.patches[patchIndex]!.sourceTriangle);
+    return { releaseDirection: direction, plane: null, multiLabel: { ownTriangleIndices } };
+  });
+
+  return { pieces, interfaces };
+}
+
+/**
  * Execution 08 LOOP 14 (real-regression root cause fix, construction side):
  * turns a `buildRegionDirectAssignment` result into REAL construction
  * inputs -- one `PlannedPieceRegion` per PHYSICAL piece, sequenced so each

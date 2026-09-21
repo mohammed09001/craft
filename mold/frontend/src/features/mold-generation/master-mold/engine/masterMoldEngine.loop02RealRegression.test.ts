@@ -149,45 +149,104 @@ import { runMasterMoldEngine } from "./masterMoldEngine";
  *     construction itself (the CSG boundary or volumetric tie-wedge
  *     mechanisms items 1-5 already diagnosed).
  *
+ *  7. A further, literal attempt at "PER-REGION, geometry-aware tie-break"
+ *     on the volumetric paradigm: replace the whole-piece average plane
+ *     with one computed from a LOCAL, capped mesh-edge-BFS neighborhood
+ *     around whichever triangle is nearest the query point
+ *     (`volumetricPartition.ts`'s own doc comment has the full mechanism).
+ *     Measured at three cap sizes to trace the whole curve from local to
+ *     global: 24 triangles (>=101 pieces), 100 triangles (>=87), 5000
+ *     triangles/effectively whole-piece (>=33, matching the already-known
+ *     whole-piece result). One monotonic curve, no interior minimum --
+ *     neighborhood SIZE was not the missing ingredient. Reverted to the
+ *     plain whole-piece average (no value for the added complexity).
+ *  8. Execution 08 LOOP 02/14/28 -- BREAKTHROUGH: true multi-label surface
+ *     reconstruction (`multiLabelPartition.ts` + `multiLabelReconstruction.
+ *     ts`), the "true multi-label surface reconstruction" alternative
+ *     named (but not yet built) since item 5. Every attempt above (1-7)
+ *     shares one property: a point's piece is decided by a LOCAL
+ *     criterion evaluated independently, with NO awareness of its
+ *     neighbors' own decisions -- exactly what lets a small pocket end up
+ *     scattered. This replaces that with a discrete voxel labeling solved
+ *     via ICM (Iterated Conditional Modes) for a Potts-model random field:
+ *     one JOINT computation across every piece, whose own objective
+ *     explicitly penalizes a voxel disagreeing with its neighbors
+ *     (`multiLabelReconstruction.test.ts` proves this directly and in
+ *     isolation: it removes a synthetic single-voxel mislabeled island
+ *     while preserving a genuinely large minority region). Measured
+ *     against the real free-form regression fixture: of the 10 physical
+ *     pieces from the same region-set-cover assignment used by every
+ *     other attempt, ALL TEN decompose to exactly ONE connected component
+ *     each after raw reconstruction (never achieved by any prior
+ *     technique -- the closest before this was 10 -> 33). End to end
+ *     through full carving, registration, and release verification: NINE
+ *     of ten pieces release-verify cleanly (the tenth causes one of the
+ *     nine to further decompose into two components during carving, an
+ *     11-piece final result -- still dramatically better than every prior
+ *     attempt's 25-101+). The ONE remaining failure is not a fresh defect:
+ *     it is a 6-triangle piece, matched by exact triangle count against
+ *     item 6's own finding, one of the two "genuinely isolated visible
+ *     islands" already identified as having no legal adjacent merge
+ *     alternative -- and it now additionally has no legal RELEASE
+ *     direction either, checked against all 10 pieces' own directions and
+ *     their negations (20 candidates total, `verifyWorkingMoldRelease`'s
+ *     own `extraCandidateDirections` parameter), stable across four
+ *     independently measured smoothness-weight settings. That is strong
+ *     evidence of a genuine geometric constraint on this one tiny island
+ *     (an undercut pocket no straight-line pull can clear), not a
+ *     technique limitation -- wired into `masterMoldEngine.ts` as a
+ *     further real last-resort fallback, tried after the CSG fallback
+ *     when it also fails, since it is a substantively better technique
+ *     for any real part that does not happen to contain this exact kind
+ *     of isolated undercut island.
+ *
  * That trajectory -- 5, then 11, then 23, then 25, then 38/101/41, then a
- * confirmed-real-but-modest 11->10 at the assignment stage -- across SIX
- * increasingly large fixes including two full paradigm changes (sequential
- * to simultaneous CSG, then CSG to genuine volumetric reconstruction) plus
- * three further refinements (two within the volumetric paradigm, one
- * upstream at assignment), each fix genuinely closing the specific defect
- * it targeted -- is the honest stopping point, not a specific remaining
- * bug: representing this fixture's true per-patch assignment via EITHER a
- * half-space-/local-footprint-derived CSG boundary OR a bounded-nearest-
- * surface Voronoi partition (with or without a tie-break), fed by EITHER
- * the original or the compactness-aware assignment, does not converge to a
- * small, valid set of physical pieces. Closing this for real would need a
- * fundamentally different distance/boundary notion again (e.g. a true
- * generalized Voronoi/power diagram with a PER-REGION, geometry-aware
- * tie-break rather than one global criterion, or true multi-label surface
- * reconstruction) -- out of scope here after two large paradigm attempts
- * and three further refinements across them. The fixes above are all real
- * and kept (each is a correctness improvement independent of whether this
- * specific fixture ever closes). LOOP 02's remaining gate items are NOT
- * met until release verification succeeds too; do not read this file's
- * current passing status as full LOOP 02 closure.
+ * confirmed-real-but-modest 11->10 at the assignment stage, then a
+ * confirmed dead end across three tie-break granularities, then finally 10
+ * physical pieces with NINE fully release-verified and only one genuinely
+ * isolated island blocking full closure -- across EIGHT increasingly large
+ * investigations including THREE full paradigm changes (sequential to
+ * simultaneous CSG, CSG to volumetric Voronoi, volumetric Voronoi to true
+ * multi-label reconstruction) is real, measurable progress, not a repeat
+ * of the same ceiling: item 8 is the first technique in this entire
+ * investigation to reach full release verification for the large majority
+ * of a hard, real, previously-unsolved fixture's own pieces. LOOP 02's
+ * remaining gate item is NOT met -- one specific island still blocks full
+ * closure -- but the honest characterization changed: this is no longer
+ * "no technique converges", it is "one small, likely genuinely
+ * undercut-locked geometric feature remains, isolated and precisely
+ * identified, on top of a technique that otherwise works." The fixes
+ * above are all real and kept (each is a correctness improvement
+ * independent of whether this specific fixture ever fully closes); item 8
+ * specifically is now wired into production as a real fallback, not just
+ * tested infrastructure. Do not read this file's current passing status
+ * as full LOOP 02 closure.
  */
 describe("Real free-form regression (Execution 08 LOOP 02)", () => {
-  it("reaches real exact-CSG construction via the region-direct-assignment fallback (previously 0 attempts, ever), still fails release for this specific hard fixture", { timeout: 120_000 }, async () => {
+  it("reaches real exact-CSG AND multi-label construction via both fallbacks, still fails release for this specific hard fixture (one genuinely isolated island)", { timeout: 120_000 }, async () => {
     const fixture = await buildFreeFormObliqueLockFixture();
     const seed = seedFromFixture(fixture);
     const result = await runMasterMoldEngine(seed);
 
     expect(result.plan).toBeNull();
     expect(result.toolingSets).toEqual([]);
-    // The region-direct-assignment fallback (Execution 08 LOOP 14) genuinely
-    // reaches real exact-CSG construction now -- this is the fixed gap.
-    expect(result.budget.workingMoldConstructionAttempts).toBe(1);
+    // Both real-construction fallbacks run now: the region-direct-assignment
+    // CSG fallback (Execution 08 LOOP 14), then, since it also fails release,
+    // the multi-label reconstruction fallback (Execution 08 LOOP 02/14/28,
+    // this file's own doc comment has the full history) -- a genuinely
+    // different technique, tried as a further last resort, not a
+    // replacement.
+    expect(result.budget.workingMoldConstructionAttempts).toBe(2);
     expect(result.failures).toHaveLength(1);
     expect(result.failures[0]!.reason).toBe("no_release_plan");
     expect(result.failures[0]!.family).toBe("budget-exhausted");
-    // The real construction attempt's own failure reason is preserved, not
-    // silently dropped.
-    expect(result.failures[0]!.message).toMatch(/region-set-cover-driven direct assignment/);
+    // The LAST real construction attempt's own failure reason is preserved
+    // (multi-label, tried after the CSG fallback) -- and it is a release
+    // failure for a SPECIFIC, tiny, isolated island (this file's own doc
+    // comment traces it to a genuinely un-mergeable 6-triangle fragment),
+    // not a generic or silently-dropped message.
+    expect(result.failures[0]!.message).toMatch(/region-set-cover-driven multi-label reconstruction/);
+    expect(result.failures[0]!.message).toMatch(/cannot release/);
 
     // Every piece count up to the automatic safety ceiling (6, LOOP 16) was
     // still attempted and rejected by the ORDINARY search first -- planning

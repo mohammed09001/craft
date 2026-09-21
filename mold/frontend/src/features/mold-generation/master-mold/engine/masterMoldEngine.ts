@@ -25,7 +25,7 @@ import {
   type WorkingMoldDecompositionFinalist,
 } from "../planning/workingMoldPlanner";
 import { buildRegionDirectAssignment } from "../planning/regionDirectAssignment";
-import { buildDirectAssignmentConstructionPieces } from "../planning/regionDirectConstruction";
+import { buildDirectAssignmentConstructionPieces, buildMultiLabelConstructionPieces } from "../planning/regionDirectConstruction";
 import { constructWorkingMold } from "../planning/workingMoldConstructor";
 import type { MasterMoldDirection } from "../masterMold.contracts";
 import type {
@@ -518,6 +518,77 @@ export async function runMasterMoldEngine(
             `region-set-cover-driven direct assignment (${directCover.steps.length} directions, proven full region coverage) reached real exact construction but failed: ${rawMessage}`,
           );
           rejectedPieceCounts.push({ pieceCount: directBuilt.pieces.length, reason: constructionError.message });
+        }
+      }
+    }
+
+    // Execution 08 LOOP 02/14/28 (true multi-label surface reconstruction):
+    // when the CSG-boundary fallback above also fails (or never applied),
+    // try one further real construction: the SAME region-set-cover-driven
+    // assignment, built via a genuinely different technique -- a joint,
+    // discrete multi-label reconstruction with an ICM/Potts-model
+    // smoothness term that directly penalizes a voxel disagreeing with its
+    // neighbors (see `multiLabelPartition.ts`'s own doc comment for the
+    // full mechanism and its measured history). Every prior CSG-boundary
+    // and volumetric-Voronoi attempt (five separate paradigms, five
+    // separate tie-break variants -- `volumetricPartition.ts`'s own doc
+    // comment has the complete history) failed to converge on the real
+    // free-form regression fixture; this is the first to reach FULL
+    // release verification for the large majority of its pieces (9 of 10
+    // measured directly), with the one remaining failure traced to a
+    // specific, tiny, already-diagnosed geometric island
+    // (`masterMoldEngine.loop02RealRegression.test.ts`'s own doc comment
+    // has the full derivation) rather than a fresh defect in this
+    // technique. Tried as a genuine LAST resort after the CSG fallback,
+    // not a replacement for it -- both are last resorts after the ordinary
+    // search, and either succeeding is a real win.
+    if (construction === null && directCover.uncoveredRegionIndexes.length === 0 && directCover.steps.length >= 2 && directCover.steps.length <= maxPieces) {
+      const directAssignment = buildRegionDirectAssignment(refinedRegionGraph, planningMesh, analysis, directCover.steps);
+      const multiLabelBuilt = directAssignment.unassignedPatchCount === 0
+        ? buildMultiLabelConstructionPieces(planningMesh, analysis, directAssignment)
+        : null;
+      if (multiLabelBuilt !== null) {
+        throwIfCancelled(hooks);
+        budget.workingMoldConstructionAttempts += 1;
+        partingSurfaceCandidateAttempts += 1;
+        try {
+          construction = await constructWorkingMold({
+            sourceMesh: seed.sourceMesh,
+            sourceBounds: seed.sourceBounds,
+            releaseClearanceMm: seed.processProfile.releaseClearanceMm ?? 0,
+            minimumToolingWallMm: seed.processProfile.minimumToolingWallMm,
+            pieces: multiLabelBuilt.pieces,
+          });
+          const pieceCount = multiLabelBuilt.pieces.length;
+          const scoreBreakdown = {
+            slidingWallAreaMm2: 0,
+            seamCrossingCount: 0,
+            areaImbalance: 0,
+            interfaceCount: pieceCount - 1,
+            total: pieceCount * 0.1,
+          };
+          constructionFinalist = {
+            candidate: {
+              pieceCount,
+              pieces: multiLabelBuilt.pieces.map((piece, index) => ({
+                releaseDirection: piece.releaseDirection,
+                directionId: directCover.steps[index]!.directionId,
+                prism: null,
+              })),
+              feasible: true,
+              unassignablePatchCount: 0,
+              score: scoreBreakdown.total,
+              scoreBreakdown,
+            },
+            patchAssignment: Array.from(directAssignment.assignment),
+            interfaces: multiLabelBuilt.interfaces,
+          };
+        } catch (error) {
+          const rawMessage = error instanceof Error ? error.message : String(error);
+          constructionError = new Error(
+            `region-set-cover-driven multi-label reconstruction (${directCover.steps.length} directions, proven full region coverage) reached real exact construction but failed: ${rawMessage}`,
+          );
+          rejectedPieceCounts.push({ pieceCount: multiLabelBuilt.pieces.length, reason: constructionError.message });
         }
       }
     }

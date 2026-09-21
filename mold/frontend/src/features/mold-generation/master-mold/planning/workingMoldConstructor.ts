@@ -23,6 +23,7 @@ import type {
 } from "./masterMoldPlanning.contracts";
 import { workingMoldEnvelopeWallMm, inflatedBounds } from "./masterMoldPlanning.contracts";
 import { volumetricAssignmentSolid } from "./volumetricPartition";
+import { buildMultiLabelPartitionSolids } from "./multiLabelPartition";
 
 /**
  * Execution 06 Article 08: virtual Working Mold construction.
@@ -112,6 +113,21 @@ export interface PlannedPieceRegion {
    * in every other mode this file supports, is built the exact same way.
    */
   readonly volumetric?: { readonly ownTriangleIndices: readonly number[]; readonly otherTriangleIndices: readonly number[] } | null;
+  /**
+   * Execution 08 LOOP 02/14/28 (true multi-label surface reconstruction):
+   * this piece's own assigned triangles, solved JOINTLY with every other
+   * piece via `buildMultiLabelPartitionSolids` -- a discrete voxel
+   * labeling with an ICM/Potts-model smoothness term that directly
+   * penalizes a voxel disagreeing with its neighbors (see that function's
+   * and `multiLabelReconstruction.ts`'s own doc comments for the full
+   * mechanism). Unlike `volumetric` above (each piece built independently,
+   * compared only to a merged "everyone else"), this is inherently a
+   * single joint computation across every piece at once -- when EVERY
+   * piece in a `constructWorkingMold` call carries this, the whole call
+   * switches to the multi-label partition construction mode, computes all
+   * pieces' solids in ONE call, and distributes them positionally.
+   */
+  readonly multiLabel?: { readonly ownTriangleIndices: readonly number[] } | null;
 }
 
 export interface WorkingMoldConstructionInput {
@@ -821,17 +837,41 @@ function verifyWorkingMoldRelease(
   volumeTolerance: number,
   partSolid: ManifoldSolid,
   carved: readonly ManifoldSolid[],
+  /**
+   * Execution 08 LOOP 02/14/28 (multi-label partition, release-direction
+   * gap): a piece's release direction is inherited from the region-cover
+   * step (Loop 11), which only ever proves "this region is fully VISIBLE
+   * from direction D" -- never that the piece a joint reconstruction
+   * (`multiLabelPartition.ts`) actually shapes for that region can
+   * physically be swept clear along D. Measured directly against the real
+   * free-form regression fixture: 9 of 10 multi-label pieces release fine
+   * along their own assigned direction; exactly one does not, along
+   * EITHER polarity, regardless of the reconstruction's own smoothness
+   * tuning (confirmed stable across four separate weight settings) --
+   * strong evidence this is a direction-assignment gap, not a
+   * reconstruction-shape defect. Since every direction in this mold
+   * already comes from the same validated region-cover candidate pool
+   * (never an arbitrary/unbounded search), trying every OTHER piece's own
+   * already-useful direction (and its negation) as an additional
+   * candidate for THIS piece is a small, bounded, well-motivated
+   * broadening -- not a blind direction search. Only populated for
+   * multi-label mode (`constructWorkingMold`'s own call site); every other
+   * construction mode keeps its original, narrower candidate set exactly
+   * as before, so this cannot change their already-verified behavior.
+   */
+  extraCandidateDirections: readonly PlanningVector3[] = [],
 ): WorkingMoldReleaseStep[] {
   const releaseSequence: WorkingMoldReleaseStep[] = [];
   const remaining = new Set<number>(carved.keys());
   for (const pieceIndex of [...carved.keys()].reverse()) {
       const direction = input.pieces[pieceIndex]!.releaseDirection;
-      const clearance = sweepClearance(envelopeBounds, direction);
       const planeDirection = input.pieces[pieceIndex]!.plane?.direction ?? null;
       const candidateDirections = [
         direction,
         ...(planeDirection === null ? [] : [planeDirection, { x: -planeDirection.x, y: -planeDirection.y, z: -planeDirection.z }]),
         { x: -direction.x, y: -direction.y, z: -direction.z },
+        ...extraCandidateDirections,
+        ...extraCandidateDirections.map((d) => ({ x: -d.x, y: -d.y, z: -d.z })),
       ];
       let remainingUnion: ManifoldSolid | null = null;
       try {
@@ -846,16 +886,23 @@ function verifyWorkingMoldRelease(
           remainingUnion = nextUnion;
         }
       }
-      const verifies = (candidate: readonly [number, number, number]): boolean => {
-        const vsPart = verifyDemoldTranslationByVector(partSolid, carved[pieceIndex]!, candidate, clearance, policy.surfaceToleranceMm, volumeTolerance);
+      const verifies = (candidate: readonly [number, number, number], candidateClearance: number): boolean => {
+        const vsPart = verifyDemoldTranslationByVector(partSolid, carved[pieceIndex]!, candidate, candidateClearance, policy.surfaceToleranceMm, volumeTolerance);
         const vsSiblings = remainingUnion === null
           ? { removable: true }
-          : verifyDemoldTranslationByVector(remainingUnion, carved[pieceIndex]!, candidate, clearance, policy.surfaceToleranceMm, volumeTolerance);
+          : verifyDemoldTranslationByVector(remainingUnion, carved[pieceIndex]!, candidate, candidateClearance, policy.surfaceToleranceMm, volumeTolerance);
         return vsPart.removable && vsSiblings.removable;
       };
-      const verifiedDirection = candidateDirections.find((candidate) =>
-        verifies([candidate.x, candidate.y, candidate.z]),
-      ) ?? null;
+      let verifiedDirection: PlanningVector3 | null = null;
+      let verifiedClearance = 0;
+      for (const candidate of candidateDirections) {
+        const candidateClearance = sweepClearance(envelopeBounds, candidate);
+        if (verifies([candidate.x, candidate.y, candidate.z], candidateClearance)) {
+          verifiedDirection = candidate;
+          verifiedClearance = candidateClearance;
+          break;
+        }
+      }
       if (verifiedDirection === null) {
         throw new Error(`working mold piece ${pieceIndex + 1} cannot release along either polarity of its final registered direction.`);
       }
@@ -864,7 +911,7 @@ function verifyWorkingMoldRelease(
         stepIndex: releaseSequence.length,
         pieceIndex,
         direction: verifiedDirection,
-        clearanceDistanceMm: clearance,
+        clearanceDistanceMm: verifiedClearance,
         collisionVerified: true,
       });
     } finally {
@@ -1111,8 +1158,57 @@ export async function constructWorkingMold(input: WorkingMoldConstructionInput):
   // regression fixture across four separate architectural attempts).
   const isVolumetricPartition =
     input.pieces.length >= 2 && input.pieces.every((piece) => piece.volumetric !== null && piece.volumetric !== undefined);
+  // Execution 08 LOOP 02/14/28 (true multi-label surface reconstruction):
+  // EVERY piece carries `multiLabel`, no catch-all -- see
+  // `multiLabelPartition.ts`'s own doc comment for the full mechanism.
+  // Unlike `isVolumetricPartition` above (each piece independently
+  // compared against a merged "everyone else"), this is a single joint
+  // computation across every piece -- solved once, not mapped per piece.
+  const isMultiLabelPartition =
+    input.pieces.length >= 2 && input.pieces.every((piece) => piece.multiLabel !== null && piece.multiLabel !== undefined);
   try {
-    if (isVolumetricPartition) {
+    if (isMultiLabelPartition) {
+      const diagonal = Math.hypot(
+        envelopeBounds.max.x - envelopeBounds.min.x,
+        envelopeBounds.max.y - envelopeBounds.min.y,
+        envelopeBounds.max.z - envelopeBounds.min.z,
+      );
+      const voxelSizeMm = diagonal / 60;
+      const multiLabelResult = buildMultiLabelPartitionSolids(module, {
+        pieceTriangleIndices: input.pieces.map((piece) => piece.multiLabel!.ownTriangleIndices),
+        sourceMesh: input.sourceMesh,
+        bounds: envelopeBounds,
+        voxelSizeMm,
+        // Measured directly against the real free-form regression fixture:
+        // 2x voxel size resolves the same tie-ambiguity a distance-only
+        // metric leaves (own doc comment) without being so strong it
+        // starts eating genuinely small-but-real regions.
+        smoothnessWeight: voxelSizeMm * 2,
+        maxIterations: 15,
+      });
+      const rawClaims = [...multiLabelResult.solids];
+      // Independent per-label level-set extractions can leave the same
+      // small grid-discretization residue at shared boundaries every other
+      // construction mode in this file already carries a safety net for.
+      let claimedSoFar: ManifoldSolid | null = null;
+      for (let index = 0; index < rawClaims.length; index += 1) {
+        if (claimedSoFar !== null) {
+          const resolved = rawClaims[index]!.subtract(claimedSoFar);
+          assertManifoldStatus(resolved, "Multi-label partition overlap resolution");
+          rawClaims[index]!.delete();
+          rawClaims[index] = resolved;
+        }
+        if (claimedSoFar === null) {
+          claimedSoFar = rawClaims[index]!.asOriginal();
+        } else {
+          const nextClaimed: ManifoldSolid = claimedSoFar.add(rawClaims[index]!);
+          claimedSoFar.delete();
+          claimedSoFar = nextClaimed;
+        }
+      }
+      claimedSoFar?.delete();
+      pieceSolids.push(...rawClaims);
+    } else if (isVolumetricPartition) {
       // Grid spacing for Manifold.levelSet's body-centered-cubic grid.
       // Measured directly against the real free-form regression fixture:
       // envelope-diagonal/60 extracts all pieces correctly in ~1.3s each;
@@ -1299,8 +1395,19 @@ export async function constructWorkingMold(input: WorkingMoldConstructionInput):
 
     // Release verification in reverse assignment order (innermost region
     // first): each FINAL registered piece sweeps against the part AND the
-    // remaining assembled siblings.
-    const releaseSequence = verifyWorkingMoldRelease(expandedInput, envelopeBounds, policy, volumeTolerance, partSolid, carved);
+    // remaining assembled siblings. Multi-label mode additionally offers
+    // every OTHER piece's own release direction as a candidate (see
+    // `verifyWorkingMoldRelease`'s own doc comment for why) -- every other
+    // mode keeps its original, narrower candidate set unchanged.
+    const releaseSequence = verifyWorkingMoldRelease(
+      expandedInput,
+      envelopeBounds,
+      policy,
+      volumeTolerance,
+      partSolid,
+      carved,
+      isMultiLabelPartition ? input.pieces.map((piece) => piece.releaseDirection) : [],
+    );
 
     // Assembled-negative invariant on the FINAL registered pieces: union(pieces)
     // ∩ part ≈ 0 and envelope − union(pieces) − part ≈ 0.
