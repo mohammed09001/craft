@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildFreeFormObliqueLockFixture, seedFromFixture } from "../planning/masterMoldGoldenFixtures";
+import { buildFreeFormObliqueLockFixture, buildSimpleBoxFixture, seedFromFixture } from "../planning/masterMoldGoldenFixtures";
 import { MASTER_PLANNER_LIMITS } from "../planning/masterMoldPlanning.contracts";
 import { GENERIC_RIGID_CAST_PROFILE } from "./contracts";
 import { runMasterMoldEngine } from "./masterMoldEngine";
@@ -26,6 +26,19 @@ describe("Automatic piece-count escalation (Execution 08 LOOP 16)", () => {
     // -- genuinely slower than the single-attempt version this timeout was
     // first set for.
   }, 300_000);
+
+  it("stops escalating past the piece count that already produces a working plan, instead of always running to the safety ceiling", async () => {
+    const fixture = await buildSimpleBoxFixture();
+    const result = await runMasterMoldEngine(seedFromFixture(fixture));
+    expect(result.failures).toEqual([]);
+    expect(result.plan).not.toBeNull();
+    // A simple convex box succeeds at the minimum piece count (2): the
+    // escalation loop must not gratuitously keep searching 3/4/5/6 once a
+    // working plan already exists at a lower count -- "search stops when
+    // no gain exists" (2/6's own gate item).
+    expect(result.planningDiagnostics.map((diagnostic) => diagnostic.pieceCount)).toEqual([2]);
+    expect(result.plan!.rejectedPieceCounts).toEqual([]);
+  });
 });
 
 describe("Truthful recovery guidance (Execution 08 LOOP 17)", () => {
