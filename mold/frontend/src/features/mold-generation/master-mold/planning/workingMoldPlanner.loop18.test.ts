@@ -5,7 +5,7 @@ import { generateCandidateDirections } from "./candidateDirections";
 import { analyzeDirectionAccessibility, pruneDirections } from "./accessibility";
 import { createWorkingMoldPieceCountSearch } from "./workingMoldPlanner";
 import { MASTER_PLANNER_LIMITS } from "./masterMoldPlanning.contracts";
-import { buildFourHoleCubeFixture, seedFromFixture } from "./masterMoldGoldenFixtures";
+import { buildFourHoleCubeFixture, buildFreeFormObliqueLockFixture, seedFromFixture } from "./masterMoldGoldenFixtures";
 
 /**
  * Execution 08 LOOP 18: the beam must not collapse onto near-identical
@@ -65,6 +65,45 @@ describe("Region-aware beam diversity (Execution 08 LOOP 18)", () => {
       // underlying beam is a wider (but still bounded) intermediate --
       // exact CSG only ever sees the small final shortlist.
       expect(step.finalists.length).toBeLessThanOrEqual(MASTER_PLANNER_LIMITS.maxExactPlansPerPieceCount);
+    }
+  });
+
+  it("the real free-form regression fixture's beam does not collapse early: it stays at full configured width across multiple piece counts", { timeout: 300_000 }, async () => {
+    // This fixture never reaches a fully feasible candidate through the
+    // ordinary beam search at any piece count (its real closure comes from
+    // a separate last-resort, per LOOP 02's own status) -- so this cannot
+    // check a WINNING finalist's own direction diversity the way the
+    // four-hole-cube test above does. What it CAN check directly, by name,
+    // is whether the beam itself dies down to a small/degenerate set (the
+    // gate's own "does not die from early beam collapse" wording) or
+    // genuinely retains real breadth throughout: `beamSizeUsed` is the
+    // post-`selectDiverseBeam` beam size, reported honestly in diagnostics
+    // for exactly this purpose (LOOP 26). A beam that collapsed onto
+    // near-identical variations of a single best-scoring prefix would
+    // report a small `beamSizeUsed` (1-2), not the full configured width.
+    const fixture = await buildFreeFormObliqueLockFixture();
+    const seed = seedFromFixture(fixture);
+    const planningMesh = buildPlanningMesh({
+      positions: seed.sourceMesh.positions,
+      indices: seed.sourceMesh.indices,
+      bounds: seed.sourceBounds,
+      sourceGeometryVersion: seed.sourceGeometryVersion,
+    });
+    const directions = generateCandidateDirections(planningMesh, seed.sourceMesh.positions);
+    let analysis = analyzeDirectionAccessibility(seed.sourceMesh, planningMesh, directions);
+    const pruned = pruneDirections(analysis.directions, analysis, planningMesh, MASTER_PLANNER_LIMITS.maxCandidateDirections);
+    analysis = pruned.analysis;
+
+    const search = createWorkingMoldPieceCountSearch({ planningMesh, analysis, maxWorkingMoldPieces: 4 });
+    const beamSizesByPieceCount: number[] = [];
+    for (;;) {
+      const step = search.next();
+      if (step === null) break;
+      beamSizesByPieceCount.push(step.diagnostics.beamSizeUsed);
+    }
+    expect(beamSizesByPieceCount.length).toBeGreaterThan(1); // multiple piece counts genuinely searched, not a one-shot rejection.
+    for (const beamSize of beamSizesByPieceCount) {
+      expect(beamSize, `beamSizeUsed across piece counts: ${beamSizesByPieceCount.join(",")}`).toBe(MASTER_PLANNER_LIMITS.beamWidth);
     }
   });
 });
