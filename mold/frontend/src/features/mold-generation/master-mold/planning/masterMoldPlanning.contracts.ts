@@ -219,10 +219,19 @@ export interface WorkingMoldPartingInterface {
   readonly pieceAIndex: number;
   readonly pieceBIndex: number;
   /**
-   * Points along the parting curve on the source surface (silhouette/region
-   * boundary), in curve ORDER (Execution 08 LOOP 13: nearest-neighbor
+   * Points approximating the parting curve along the silhouette/region
+   * boundary, in curve ORDER (Execution 08 LOOP 13: nearest-neighbor
    * chained and simplified -- not the raw, unordered edge-midpoint bag
-   * earlier executions produced).
+   * earlier executions produced). For VISUALIZATION only, not exact
+   * construction (which is decided independently from real triangle
+   * indices verified against the source BVH; see
+   * `buildVolumetricConstructionPieces`'s own doc comment). Each point is
+   * the straight-line midpoint between two adjacent patch centroids, which
+   * can land measurably off the true source surface near a curved/faceted
+   * boundary (e.g. a hole's cylindrical wall meeting a flat face) --
+   * measured up to ~10% of the fixture's own bounding diagonal on a real
+   * golden fixture (`workingMoldPlanner.loop13.test.ts`), not a rare
+   * outlier. Do not treat these points as lying exactly on the surface.
    */
   readonly samplePoints: readonly PlanningVector3[];
   readonly kind: "silhouette" | "region-adjacency" | "planar-parting";
