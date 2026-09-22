@@ -250,17 +250,22 @@ import { runMasterMoldEngine } from "./masterMoldEngine";
  *     could instead be absorbed into one of the other 9 already-releasing
  *     pieces: of all 9, exactly one (by volume, a real geometric touch)
  *     forms a single connected solid with it; merged, it still does not
- *     release along that piece's own direction, and a broader
+ *     release along that piece's own direction. A broader
  *     full-direction/compound-path search on that specific merged solid
- *     was started but not completed within a reasonable compute budget --
- *     left explicitly as an open, unresolved thread rather than a closed
- *     failure. Net effect of the sixth angle: the genuinely unresolved
- *     geometry for this fixture's hardest piece has shrunk roughly
- *     15-40x, from the full island down to one 2.18mm3 sliver, with a
- *     live lead (the sliver-plus-piece-1 combination) still unexplored to
- *     completion. Closing that sliver for real would still need either a
- *     shape-convexity-aware ICM objective, true rotational release
- *     verification, or finishing that interrupted broader search
+ *     was first attempted with a short compute budget and left
+ *     inconclusive, then RE-RUN with no artificial cutoff and allowed to
+ *     reach its natural, bounded end: 280 candidates tried (the complete
+ *     set, not a subset), ~37.6 minutes of real search time, result --
+ *     no release path found. That closes what had been an open thread
+ *     into a real, exhaustively-completed negative result. Net effect of
+ *     the sixth angle: the genuinely unresolved geometry for this
+ *     fixture's hardest piece has shrunk roughly 15-40x, from the full
+ *     island down to one 2.18mm3 sliver, now searched as thoroughly as
+ *     everything else in this investigation and still unresolved.
+ *     Closing that sliver for real would still need either a
+ *     shape-convexity-aware ICM objective or true rotational release
+ *     verification -- the compound-path/absorption avenue is no longer
+ *     an open question
  *     (`Master Mold Execution 09.md` Section 7 has the full
  *     investigation, including Step 6).
  *
