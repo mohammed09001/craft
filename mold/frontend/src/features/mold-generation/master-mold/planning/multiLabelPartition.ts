@@ -3,7 +3,9 @@ import { MeshBVH } from "three-mesh-bvh";
 
 import type { Bounds3 } from "../../split-face/splitFace.contracts";
 import { assertManifoldStatus, getManifoldModule, type ManifoldSolid } from "../../geometry/manifold";
+import { buildMeshGeometry, classifyPointInside } from "../../geometry/meshBvh";
 import { argminLabels, relaxLabeling } from "./multiLabelReconstruction";
+import { carveEscapeCorridors } from "./multiLabelEscapeCorridor";
 
 /**
  * Execution 08 LOOP 02/14/28: wires `multiLabelReconstruction.ts`'s
@@ -65,6 +67,35 @@ export interface MultiLabelPartitionResult {
   readonly dims: readonly [number, number, number];
   readonly iterationsRun: number;
   readonly converged: boolean;
+  /**
+   * Execution 08/09 (escape-corridor pass): how many pieces needed a real
+   * corridor carved through raw cavity space to reach the envelope
+   * boundary after ICM converged, and how many voxels that took in total
+   * -- see `multiLabelEscapeCorridor.ts`'s own doc comment for the full
+   * mechanism. Real, tested, and kept (it can only ever help: a piece
+   * that already reaches the boundary is left untouched). Measured
+   * directly against the real free-form regression fixture's own
+   * remaining island, though: `corridorsCarved` is 0 there -- that
+   * specific piece's territory ALREADY touched the envelope boundary
+   * (16 of its 98 own voxels), so it was never topologically sealed in
+   * the first place. Its actual release failure (still unresolved) comes
+   * from something else: it is a moderately compact, non-tendril blob
+   * (average 4.27 same-label 6-connected neighbors per voxel) that is
+   * nonetheless non-convex/bent in a way that no tested straight-line or
+   * short compound path -- across both a narrow 8-direction set and the
+   * full 52-direction planning candidate set, up to 4 segments -- can
+   * navigate. This distinguishes two genuinely different failure modes
+   * this pass can tell apart: topological sealing (fixable by a
+   * corridor, and now fixed when it occurs) versus shape non-convexity
+   * (NOT fixed by a corridor, since the piece was never sealed to begin
+   * with -- would need either a shape-aware relabeling constraint in the
+   * ICM objective itself, or true rotational/multi-axis release
+   * verification, neither of which exists yet).
+   */
+  readonly corridorsCarved: number;
+  readonly totalCorridorVoxels: number;
+  /** Pieces with no path to the envelope boundary even through raw cavity space -- a genuine geometric lock, not an assignment artifact. */
+  readonly genuinelyUnreachablePieceLabels: readonly number[];
 }
 
 function buildPieceBvh(
@@ -122,7 +153,7 @@ export function buildMultiLabelPartitionSolids(
   }
 
   const initialLabels = argminLabels(dataCost, voxelCount, labelCount);
-  const { labels, iterationsRun, converged } = relaxLabeling({
+  const { labels: relaxedLabels, iterationsRun, converged } = relaxLabeling({
     dims,
     labelCount,
     dataCost,
@@ -130,6 +161,34 @@ export function buildMultiLabelPartitionSolids(
     smoothnessWeight,
     maxIterations,
   });
+
+  // Execution 08/09 (escape-corridor fix): classify every voxel as
+  // cavity or solid-part-material ONCE, against the full source mesh (the
+  // union of every piece's own triangles, by construction), then carve a
+  // real minimal corridor for any piece ICM sealed away from the envelope
+  // boundary despite raw cavity space actually reaching it.
+  const fullMeshGeometry = buildMeshGeometry({
+    positions: sourceMesh.positions instanceof Float32Array ? Array.from(sourceMesh.positions) : [...sourceMesh.positions],
+    indices: sourceMesh.indices instanceof Uint32Array ? Array.from(sourceMesh.indices) : [...sourceMesh.indices],
+  });
+  const fullMeshBvh = new MeshBVH(fullMeshGeometry);
+  const isCavity = new Uint8Array(voxelCount);
+  const cavityProbe = new Vector3();
+  for (let z = 0; z < sizeZ; z += 1) {
+    const wz = bounds.min.z + (z + 0.5) * voxelSizeMm;
+    for (let y = 0; y < sizeY; y += 1) {
+      const wy = bounds.min.y + (y + 0.5) * voxelSizeMm;
+      for (let x = 0; x < sizeX; x += 1) {
+        const wx = bounds.min.x + (x + 0.5) * voxelSizeMm;
+        cavityProbe.set(wx, wy, wz);
+        const v = (z * sizeY + y) * sizeX + x;
+        isCavity[v] = classifyPointInside(fullMeshBvh, cavityProbe) ? 0 : 1;
+      }
+    }
+  }
+  fullMeshGeometry.dispose();
+  const corridorResult = carveEscapeCorridors(relaxedLabels, dims, isCavity, labelCount);
+  const labels = corridorResult.labels;
 
   const box = {
     min: [bounds.min.x, bounds.min.y, bounds.min.z] as [number, number, number],
@@ -149,5 +208,13 @@ export function buildMultiLabelPartitionSolids(
     solids.push(solid);
   }
 
-  return { solids, dims, iterationsRun, converged };
+  return {
+    solids,
+    dims,
+    iterationsRun,
+    converged,
+    corridorsCarved: corridorResult.corridorsCarved,
+    totalCorridorVoxels: corridorResult.totalCorridorVoxels,
+    genuinelyUnreachablePieceLabels: corridorResult.genuinelyUnreachablePieceLabels,
+  };
 }

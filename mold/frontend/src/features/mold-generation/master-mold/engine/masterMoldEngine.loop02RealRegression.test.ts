@@ -207,6 +207,30 @@ import { runMasterMoldEngine } from "./masterMoldEngine";
  *     when it also fails, since it is a substantively better technique
  *     for any real part that does not happen to contain this exact kind
  *     of isolated undercut island.
+ *  9. Execution 09 -- COMPOUND-MOTION RELEASE, then a REFINED DIAGNOSIS: a
+ *     real, tested compound-path (multi-segment) release search
+ *     (`masterMoldDemold.compoundPathSearch.ts`) found ZERO release slack
+ *     for item 8's island across the entire realistic candidate direction
+ *     space at multiple distance scales (`compoundPathSearch.
+ *     realFixture.test.ts`) -- stronger evidence than item 8's own
+ *     straight-line-only checks, but framed there as consistent with "an
+ *     undercut pocket." A follow-up assignment-stage investigation
+ *     (`multiLabelEscapeCorridor.ts`, real and kept regardless) proved
+ *     that framing WRONG in a precise, useful way: a cheap voxel-BFS
+ *     showed raw cavity space near the island reaches the envelope
+ *     boundary in 197 voxels (no part-level undercut at all), and the
+ *     island's own territory ALREADY touched that boundary before any
+ *     fix -- it was never topologically sealed. Direct shape measurement
+ *     (average 4.27 same-label 6-connected voxel neighbors out of 6) also
+ *     ruled out a thin-tendril shape. The island is a real, moderately
+ *     compact, boundary-connected piece whose shape is simply non-convex/
+ *     bent in a way no translation-only search (1-4 segments, narrow or
+ *     broad direction sets, small or large step sizes) can navigate --
+ *     a genuinely different, and likely harder, failure mode than
+ *     "undercut," requiring either a shape-convexity-aware ICM objective
+ *     or true rotational release verification to close, neither of which
+ *     exists (`Master Mold Execution 09.md` Section 7 has the full
+ *     investigation).
  *
  * That trajectory -- 5, then 11, then 23, then 25, then 38/101/41, then a
  * confirmed-real-but-modest 11->10 at the assignment stage, then a
