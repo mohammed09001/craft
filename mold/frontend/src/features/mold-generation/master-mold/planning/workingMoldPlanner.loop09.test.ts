@@ -4,8 +4,8 @@ import { buildPlanningMesh } from "./planningMesh";
 import { generateCandidateDirections } from "./candidateDirections";
 import { analyzeDirectionAccessibility, pruneDirections } from "./accessibility";
 import { buildSurfaceRegionGraph } from "./surfaceRegions";
-import { candidatePartingThresholds } from "./workingMoldPlanner";
-import { MASTER_PLANNER_LIMITS, type PlanningMesh, type PlanningPatch } from "./masterMoldPlanning.contracts";
+import { candidatePartingThresholds, evaluateFinalized } from "./workingMoldPlanner";
+import { MASTER_PLANNER_LIMITS, type AccessibilityAnalysis, type PlanningMesh, type PlanningPatch } from "./masterMoldPlanning.contracts";
 import { buildThreeHoleCubeFixture, seedFromFixture } from "./masterMoldGoldenFixtures";
 
 /**
@@ -105,5 +105,113 @@ describe("Multiple parting thresholds per direction (Execution 08 LOOP 09)", () 
       expect(offsets.length).toBeLessThanOrEqual(MASTER_PLANNER_LIMITS.maxPartingThresholdsPerDirection);
     }
     expect(sawMultiple).toBe(true);
+  });
+
+  it("the primary (minimum) threshold can fail feasibility while a non-primary threshold succeeds -- the search must not stop at the first offset (Execution 08 LOOP 09 audit)", () => {
+    // Two +Z-EXCLUSIVE tiers (z=2 and z=8, a real gap between them, as in
+    // the first test above -- both count toward `candidatePartingThresholds`'s
+    // own "exclusive projection" set, so the primary offset is anchored to
+    // the LOWER tier, not the upper) plus a third "poison" patch sitting IN
+    // that gap (z=3) that is releasable ONLY along -Z, genuinely blocked
+    // along +Z (not just absent). The primary/minimum threshold (just above
+    // the lower tier, z~2) sweeps the poison patch into the +Z piece along
+    // with both tiers -- a real hard-blocked patch. A later, non-primary
+    // threshold (between the tiers) excludes the lower tier AND the poison
+    // patch from the +Z piece, sending them to the catch-all(-Z) piece
+    // instead: the poison patch is genuinely -Z-visible there, and the
+    // lower tier -- though not -Z-visible either -- is only "grazing" on
+    // that side (an ambiguity, not a proven block, per LOOP 15), so it does
+    // not itself count as a hard block. This is a real, minimal,
+    // hand-engineered proof that trying only the primary offset would
+    // silently reject an otherwise-valid direction.
+    const patches: PlanningPatch[] = [];
+    let patchIndex = 0;
+    const push = (z: number, count: number) => {
+      for (let i = 0; i < count; i += 1) {
+        patches.push({ patchIndex, centroid: { x: i * 0.1, y: 0, z }, normal: { x: 0, y: 0, z: 1 }, areaMm2: 1, sourceTriangle: patchIndex });
+        patchIndex += 1;
+      }
+    };
+    push(2, 5); // lower tier: +Z-exclusive; "grazing" (not "blocked") on the -Z side.
+    push(8, 5); // upper tier: +Z-exclusive; genuinely "blocked" on the -Z side.
+    push(3, 1); // poison patch, in the gap: genuinely -Z-exclusive, "blocked" on the +Z side.
+    const lowerTierIndexes = [0, 1, 2, 3, 4];
+    const upperTierIndexes = [5, 6, 7, 8, 9];
+    const poisonIndex = 10;
+
+    // Within-tier adjacency (matching the first test's own working two-tier
+    // pattern) -- the poison patch stays isolated, a distinct feature.
+    const adjacency: number[][] = patches.map((_, index) => {
+      if (lowerTierIndexes.includes(index)) return lowerTierIndexes.filter((other) => other !== index);
+      if (upperTierIndexes.includes(index)) return upperTierIndexes.filter((other) => other !== index);
+      return [];
+    });
+    const planningMesh: PlanningMesh = {
+      patches,
+      adjacency,
+      totalAreaMm2: patches.reduce((sum, p) => sum + p.areaMm2, 0),
+      bounds: { min: { x: -1, y: -1, z: 0 }, max: { x: 1, y: 1, z: 8 } },
+      sourceGeometryVersion: "loop09-poison-patch",
+      vertexCount: patches.length * 3,
+      triangleCount: patches.length,
+    };
+    const regionGraph = buildSurfaceRegionGraph(planningMesh);
+
+    // +Z: both tiers visible/clear; poison genuinely blocked.
+    const plusZVisible = patches.map((_, i) => (i === poisonIndex ? 0 : 1));
+    const plusZClassification = plusZVisible.map((v) => (v === 1 ? "clear" : "blocked"));
+    // -Z: poison visible/clear; upper tier genuinely blocked; lower tier merely grazing (ambiguous).
+    const minusZVisible = patches.map((_, i) => (lowerTierIndexes.includes(i) || upperTierIndexes.includes(i) ? 0 : 1));
+    const minusZClassification = patches.map((_, i) => (i === poisonIndex ? "clear" : lowerTierIndexes.includes(i) ? "grazing" : "blocked"));
+
+    const analysis: AccessibilityAnalysis = {
+      directions: [
+        { directionId: "world:world+Z", vector: { x: 0, y: 0, z: 1 }, source: "world-axis", origin: "loop09-poison" },
+        { directionId: "world:world-Z", vector: { x: 0, y: 0, z: -1 }, source: "world-axis", origin: "loop09-poison" },
+      ],
+      perDirection: [
+        {
+          directionId: "world:world+Z",
+          visible: plusZVisible,
+          classification: plusZClassification,
+          accessibleAreaMm2: plusZVisible.reduce((sum, v) => sum + v, 0),
+          inaccessibleAreaMm2: plusZVisible.filter((v) => v === 0).length,
+          undercutRegionCount: 1,
+          largestUndercutAreaMm2: 1,
+        },
+        {
+          directionId: "world:world-Z",
+          visible: minusZVisible,
+          classification: minusZClassification,
+          accessibleAreaMm2: minusZVisible.reduce((sum, v) => sum + v, 0),
+          inaccessibleAreaMm2: minusZVisible.filter((v) => v === 0).length,
+          undercutRegionCount: 1,
+          largestUndercutAreaMm2: 1,
+        },
+      ],
+      dominantPatchOrder: patches.map((p) => p.patchIndex),
+    };
+
+    const offsets = candidatePartingThresholds(planningMesh, plusZVisible, minusZVisible, { x: 0, y: 0, z: 1 }, regionGraph);
+    expect(offsets.length).toBeGreaterThanOrEqual(2);
+    expect(offsets[0]).toBeCloseTo(2 - 1e-4, 3); // primary offset: just above the lower tier.
+
+    const primaryResult = evaluateFinalized(planningMesh, analysis, regionGraph, [{ directionIndex: 0, offsetMm: offsets[0]! }], 1);
+    expect(primaryResult.candidate.feasible).toBe(false); // the poison patch got swept into the +Z piece: a real hard block.
+
+    const nonPrimaryOffset = offsets.find((offset) => offset > 5 && offset < 8);
+    expect(nonPrimaryOffset).toBeDefined();
+    const nonPrimaryResult = evaluateFinalized(planningMesh, analysis, regionGraph, [{ directionIndex: 0, offsetMm: nonPrimaryOffset! }], 1);
+    expect(nonPrimaryResult.candidate.feasible).toBe(true); // excludes the poison patch (and the lower tier) from the +Z piece: genuinely feasible.
+
+    // Sanity: the poison and lower-tier patches really did move to the
+    // catch-all piece under the non-primary offset (piece index 1: the
+    // remainder slot after the single prism at index 0).
+    for (const index of [...lowerTierIndexes, poisonIndex]) {
+      expect(nonPrimaryResult.assignment[index]).toBe(1);
+    }
+    for (const index of upperTierIndexes) {
+      expect(nonPrimaryResult.assignment[index]).toBe(0); // stays in the +Z prism piece.
+    }
   });
 });
