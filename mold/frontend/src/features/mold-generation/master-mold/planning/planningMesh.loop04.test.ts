@@ -10,8 +10,8 @@ import { buildHighPolySphereFixture } from "./masterMoldGoldenFixtures";
  * clustered-reduction) may depend on triangle array order.
  */
 
-function shuffledIndices(indices: readonly number[], seed: number): number[] {
-  const triangleCount = indices.length / 3;
+/** `order[destinationTriangle] === sourceTriangle`: destination triangle `d` in the shuffled array holds the same physical triangle as original triangle `order[d]`. */
+function shufflePermutation(triangleCount: number, seed: number): number[] {
   const order = Array.from({ length: triangleCount }, (_, index) => index);
   // Deterministic Fisher-Yates using a simple LCG (no dependency, reproducible).
   let state = seed >>> 0;
@@ -25,6 +25,10 @@ function shuffledIndices(indices: readonly number[], seed: number): number[] {
     order[i] = order[j]!;
     order[j] = tmp!;
   }
+  return order;
+}
+
+function shuffledIndices(indices: readonly number[], order: readonly number[]): number[] {
   const shuffled: number[] = new Array(indices.length);
   order.forEach((sourceTriangle, destinationTriangle) => {
     shuffled[destinationTriangle * 3] = indices[sourceTriangle * 3]!;
@@ -64,9 +68,10 @@ describe("PlanningMesh triangle-order independence (Execution 08 LOOP 04)", () =
       bounds: fixture.bounds,
       sourceGeometryVersion: "loop04-order-a",
     });
+    const order = shufflePermutation(fixture.mesh.indices.length / 3, 12345);
     const reordered = buildPlanningMesh({
       positions: fixture.mesh.positions,
-      indices: shuffledIndices(fixture.mesh.indices, 12345),
+      indices: shuffledIndices(fixture.mesh.indices, order),
       bounds: fixture.bounds,
       sourceGeometryVersion: "loop04-order-b",
     });
@@ -94,7 +99,7 @@ describe("PlanningMesh triangle-order independence (Execution 08 LOOP 04)", () =
     });
     const reordered = buildPlanningMesh({
       positions: fixture.mesh.positions,
-      indices: shuffledIndices(fixture.mesh.indices, 987),
+      indices: shuffledIndices(fixture.mesh.indices, shufflePermutation(triangleCount, 987)),
       bounds: fixture.bounds,
       sourceGeometryVersion: "loop04-large-b",
     });
@@ -104,5 +109,39 @@ describe("PlanningMesh triangle-order independence (Execution 08 LOOP 04)", () =
     // Content-derived clustering: exactly the same patches regardless of triangle order.
     expect(reordered.patches.length).toBe(original.patches.length);
     expect(reordered.totalAreaMm2).toBeCloseTo(original.totalAreaMm2, 6);
+  });
+
+  it("adjacency is topology-stable: the same physical neighbor relationships survive a triangle reorder (full-resolution path)", () => {
+    const fixture = buildMediumSphere();
+    const triangleCount = fixture.mesh.indices.length / 3;
+    const order = shufflePermutation(triangleCount, 42);
+
+    const original = buildPlanningMesh({
+      positions: fixture.mesh.positions,
+      indices: fixture.mesh.indices,
+      bounds: fixture.bounds,
+      sourceGeometryVersion: "loop04-adjacency-a",
+    });
+    const reordered = buildPlanningMesh({
+      positions: fixture.mesh.positions,
+      indices: shuffledIndices(fixture.mesh.indices, order),
+      bounds: fixture.bounds,
+      sourceGeometryVersion: "loop04-adjacency-b",
+    });
+
+    // Full-resolution path: one patch per triangle, so reordered patch `d`
+    // (sourceTriangle === d in its own array) is physically the same
+    // triangle as original patch `order[d]` (shuffledIndices put original
+    // triangle `order[d]` at destination `d`).
+    expect(reordered.patches.length).toBe(original.patches.length);
+    let comparedAtLeastOneNonEmptyAdjacency = false;
+    for (let reorderedPatchIndex = 0; reorderedPatchIndex < reordered.patches.length; reorderedPatchIndex += 1) {
+      const originalPatchIndex = order[reorderedPatchIndex]!;
+      const mappedNeighbors = new Set(reordered.adjacency[reorderedPatchIndex]!.map((neighbor) => order[neighbor]!));
+      const originalNeighbors = new Set(original.adjacency[originalPatchIndex]!);
+      if (originalNeighbors.size > 0) comparedAtLeastOneNonEmptyAdjacency = true;
+      expect(mappedNeighbors).toEqual(originalNeighbors);
+    }
+    expect(comparedAtLeastOneNonEmptyAdjacency).toBe(true); // guards against a vacuously-true empty-adjacency mesh.
   });
 });
