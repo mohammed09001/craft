@@ -235,10 +235,34 @@ import { runMasterMoldEngine } from "./masterMoldEngine";
  *     giving up, vs 40), but still no complete path, and reconciling the
  *     two techniques' mismatched boundaries fragmented the piece into 2
  *     components -- a fifth genuinely different technique tried and
- *     failed. Closing this would need either a shape-convexity-aware ICM
- *     objective or true rotational release verification, neither of which
- *     exists (`Master Mold Execution 09.md` Section 7 has the full
- *     investigation).
+ *     failed on its own terms. A sixth angle then asked whether that very
+ *     fragmentation was actually useful information rather than a new
+ *     problem: `constructWorkingMold`'s own production decomposition
+ *     safety net would split a multi-component piece into separate,
+ *     independently release-checked final pieces anyway, so testing the
+ *     2 components as one combined lump (as the fifth attempt did) was a
+ *     STRICTER test than production would apply. Tested separately: the
+ *     larger component (84.51mm3, 97.5% of the piece's material) releases
+ *     with a plain direct pull along the piece's own original release
+ *     direction -- no search needed. Only the remainder (a 2.18mm3
+ *     sliver) still fails, confirmed by a real, completed 270-candidate
+ *     full-direction/compound-path search. Checked whether that sliver
+ *     could instead be absorbed into one of the other 9 already-releasing
+ *     pieces: of all 9, exactly one (by volume, a real geometric touch)
+ *     forms a single connected solid with it; merged, it still does not
+ *     release along that piece's own direction, and a broader
+ *     full-direction/compound-path search on that specific merged solid
+ *     was started but not completed within a reasonable compute budget --
+ *     left explicitly as an open, unresolved thread rather than a closed
+ *     failure. Net effect of the sixth angle: the genuinely unresolved
+ *     geometry for this fixture's hardest piece has shrunk roughly
+ *     15-40x, from the full island down to one 2.18mm3 sliver, with a
+ *     live lead (the sliver-plus-piece-1 combination) still unexplored to
+ *     completion. Closing that sliver for real would still need either a
+ *     shape-convexity-aware ICM objective, true rotational release
+ *     verification, or finishing that interrupted broader search
+ *     (`Master Mold Execution 09.md` Section 7 has the full
+ *     investigation, including Step 6).
  *
  * That trajectory -- 5, then 11, then 23, then 25, then 38/101/41, then a
  * confirmed-real-but-modest 11->10 at the assignment stage, then a
