@@ -6,6 +6,7 @@ import { assertManifoldStatus, getManifoldModule, type ManifoldSolid } from "../
 import { buildMeshGeometry, classifyPointInside } from "../../geometry/meshBvh";
 import { argminLabels, relaxLabeling } from "./multiLabelReconstruction";
 import { carveEscapeCorridors } from "./multiLabelEscapeCorridor";
+import type { PlanningVector3 } from "./masterMoldPlanning.contracts";
 
 /**
  * Execution 08 LOOP 02/14/28: wires `multiLabelReconstruction.ts`'s
@@ -60,6 +61,26 @@ export interface MultiLabelPartitionInput {
   /** Cost of one 6-connected neighbor voxel disagreeing, in the same units as Euclidean distance (mm). */
   readonly smoothnessWeight: number;
   readonly maxIterations: number;
+  /**
+   * Execution 08/09 (shape-convexity-aware ICM, opt-in): one release
+   * direction per label/piece (same order as `pieceTriangleIndices`),
+   * used ONLY to add `convexityBiasWeight * perpendicularDistanceToAxis`
+   * to that label's own data cost -- a real, additive bias toward voxels
+   * that sit close to the straight axis through the label's own triangle
+   * centroid, oriented along its release direction, at the cost of
+   * ceding near-surface voxels that sit far off-axis to a competing
+   * label. This directly targets the ONE limitation this technique's own
+   * doc comment already names (nothing in the base objective is biased
+   * toward release-direction monotonicity) -- see
+   * `multiLabelReconstruction.convexityBias.test.ts` for the synthetic
+   * proof this mechanism does what it claims, and this module's own doc
+   * comment for the measured real-fixture result (positive or negative).
+   * Omitted (or `convexityBiasWeight` 0/undefined): IDENTICAL to prior
+   * behavior, byte-for-byte -- this is strictly additive, never a
+   * replacement for the base nearest-surface cost.
+   */
+  readonly releaseDirections?: readonly PlanningVector3[];
+  readonly convexityBiasWeight?: number;
 }
 
 export interface MultiLabelPartitionResult {
@@ -116,17 +137,64 @@ function buildPieceBvh(
   return new MeshBVH(geometry);
 }
 
+/** Area-weighted centroid of a triangle subset -- the real "own surface" center the convexity-bias axis is anchored to. Exported for direct unit testing. */
+export function areaWeightedCentroid(
+  sourceMesh: { readonly positions: readonly number[] | Float32Array; readonly indices: readonly number[] | Uint32Array },
+  triangleIndices: readonly number[],
+): [number, number, number] {
+  let cx = 0, cy = 0, cz = 0, totalArea = 0;
+  for (const triangle of triangleIndices) {
+    const base = triangle * 3;
+    const ia = sourceMesh.indices[base]! * 3, ib = sourceMesh.indices[base + 1]! * 3, ic = sourceMesh.indices[base + 2]! * 3;
+    const ax = sourceMesh.positions[ia]!, ay = sourceMesh.positions[ia + 1]!, az = sourceMesh.positions[ia + 2]!;
+    const bx = sourceMesh.positions[ib]!, by = sourceMesh.positions[ib + 1]!, bz = sourceMesh.positions[ib + 2]!;
+    const cx3 = sourceMesh.positions[ic]!, cy3 = sourceMesh.positions[ic + 1]!, cz3 = sourceMesh.positions[ic + 2]!;
+    const ux = bx - ax, uy = by - ay, uz = bz - az;
+    const vx = cx3 - ax, vy = cy3 - ay, vz = cz3 - az;
+    const area = Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx) / 2;
+    const triCx = (ax + bx + cx3) / 3, triCy = (ay + by + cy3) / 3, triCz = (az + bz + cz3) / 3;
+    cx += triCx * area;
+    cy += triCy * area;
+    cz += triCz * area;
+    totalArea += area;
+  }
+  if (totalArea <= 0) return [0, 0, 0];
+  return [cx / totalArea, cy / totalArea, cz / totalArea];
+}
+
+/** Perpendicular distance from `point` to the infinite line through `axisPoint` along unit `direction`. Exported for direct unit testing. */
+export function perpendicularDistanceToAxis(
+  point: readonly [number, number, number],
+  axisPoint: readonly [number, number, number],
+  direction: PlanningVector3,
+): number {
+  const rx = point[0] - axisPoint[0], ry = point[1] - axisPoint[1], rz = point[2] - axisPoint[2];
+  const alongLength = rx * direction.x + ry * direction.y + rz * direction.z;
+  const px = rx - alongLength * direction.x, py = ry - alongLength * direction.y, pz = rz - alongLength * direction.z;
+  return Math.hypot(px, py, pz);
+}
+
 export function buildMultiLabelPartitionSolids(
   module: Awaited<ReturnType<typeof getManifoldModule>>,
   input: MultiLabelPartitionInput,
 ): MultiLabelPartitionResult {
-  const { pieceTriangleIndices, sourceMesh, bounds, voxelSizeMm, smoothnessWeight, maxIterations } = input;
+  const { pieceTriangleIndices, sourceMesh, bounds, voxelSizeMm, smoothnessWeight, maxIterations, releaseDirections, convexityBiasWeight } = input;
   const labelCount = pieceTriangleIndices.length;
   if (labelCount < 2) throw new Error("multi-label partition needs at least two pieces.");
   const bvhs = pieceTriangleIndices.map((indices) => {
     if (indices.length === 0) throw new Error("multi-label partition piece has no triangles.");
     return buildPieceBvh(sourceMesh, indices);
   });
+
+  // Execution 08/09 (shape-convexity-aware ICM, opt-in): precompute each
+  // label's own straight axis (its real surface centroid, oriented along
+  // its release direction) ONCE -- static per label, never updated during
+  // ICM iteration, so this stays a pure per-voxel-per-label ADDITIVE data
+  // cost term, not a behavioral change to `relaxLabeling` itself.
+  const useConvexityBias = releaseDirections !== undefined && convexityBiasWeight !== undefined && convexityBiasWeight > 0;
+  const axisCentroids: readonly [number, number, number][] | null = useConvexityBias
+    ? pieceTriangleIndices.map((indices) => areaWeightedCentroid(sourceMesh, indices))
+    : null;
 
   const sizeX = Math.max(1, Math.ceil((bounds.max.x - bounds.min.x) / voxelSizeMm));
   const sizeY = Math.max(1, Math.ceil((bounds.max.y - bounds.min.y) / voxelSizeMm));
@@ -146,7 +214,12 @@ export function buildMultiLabelPartitionSolids(
         const v = (z * sizeY + y) * sizeX + x;
         for (let label = 0; label < labelCount; label += 1) {
           const hit = bvhs[label]!.closestPointToPoint(probe);
-          dataCost[v * labelCount + label] = hit === null ? Infinity : hit.distance;
+          let cost = hit === null ? Infinity : hit.distance;
+          if (useConvexityBias && Number.isFinite(cost)) {
+            const perpDistance = perpendicularDistanceToAxis([wx, wy, wz], axisCentroids![label]!, releaseDirections![label]!);
+            cost += convexityBiasWeight! * perpDistance;
+          }
+          dataCost[v * labelCount + label] = cost;
         }
       }
     }
