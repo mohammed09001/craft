@@ -68,6 +68,25 @@ describe("Scale invariance at the full engine level (Execution 08 LOOP 25)", () 
       ).toEqual(reference.plan!.rejectedPieceCounts.map((entry) => entry.pieceCount).sort());
       expect(result.plan!.moldPieces.every((piece) => piece.watertight && piece.manifold), `${factor}x: watertight/manifold`).toBe(true);
       expect(result.plan!.releaseSequence.every((step) => step.collisionVerified), `${factor}x: release verified`).toBe(true);
+
+      // Execution 08 LOOP 25 (audit follow-up): release DIRECTIONS
+      // (unit vectors, scale-independent) must match the reference set,
+      // not just piece count/pass-fail -- matched by nearest vector since
+      // piece encounter order is not guaranteed identical across scales.
+      const referenceDirections = reference.plan!.moldPieces.map((piece) => piece.assignedDirection);
+      const ownDirections = result.plan!.moldPieces.map((piece) => piece.assignedDirection);
+      const unmatchedReference = [...referenceDirections];
+      for (const direction of ownDirections) {
+        const matchIndex = unmatchedReference.findIndex(
+          (candidate) =>
+            Math.abs(candidate.x - direction.x) < 1e-6 &&
+            Math.abs(candidate.y - direction.y) < 1e-6 &&
+            Math.abs(candidate.z - direction.z) < 1e-6,
+        );
+        expect(matchIndex, `${factor}x: direction [${direction.x},${direction.y},${direction.z}] has no unmatched reference counterpart`).toBeGreaterThanOrEqual(0);
+        unmatchedReference.splice(matchIndex, 1);
+      }
+      expect(unmatchedReference, `${factor}x: every reference direction was matched`).toEqual([]);
     }
   });
 
