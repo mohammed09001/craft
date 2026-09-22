@@ -190,7 +190,11 @@ describe("Master Mold Engine golden cases (Execution 06 Article 17)", () => {
     expect(result.toolingSets).toEqual([]);
     expect(result.failures.length).toBe(1);
     const failure = result.failures[0]!;
-    expect(failure.reason).toBe("no_release_plan");
+    // Execution 08 Section 36 (audit fix): every piece count 2..6 was
+    // rejected at the PLANNING stage (no real exact construction attempt
+    // ever ran), so the piece-count ceiling is what actually stopped the
+    // search -- a more specific reason than the old generic "no_release_plan".
+    expect(failure.reason).toBe("planning_piece_count_budget_exhausted");
     // Execution 07 LOOP 09: budget exhaustion is a search-budget outcome,
     // never described as physical impossibility.
     expect(failure.family).toBe("budget-exhausted");
@@ -232,8 +236,12 @@ describe("Master Mold Engine golden cases (Execution 06 Article 17)", () => {
     // With 4 genuinely required but capped at 3, the outcome is a structured
     // no-plan failure naming the cap -- never a fake 3-piece plan. Execution
     // 07 LOOP 09: the family says budget-exhausted, not physical impossibility.
+    // Execution 08 Section 36 (audit fix): the cap itself is what stopped
+    // the search (every count up to it was rejected at planning, no real
+    // exact construction attempt ran) -- a more specific reason than the
+    // old generic "no_release_plan".
     expect(result.plan).toBeNull();
-    expect(result.failures[0]!.reason).toBe("no_release_plan");
+    expect(result.failures[0]!.reason).toBe("planning_piece_count_budget_exhausted");
     expect(result.failures[0]!.family).toBe("budget-exhausted");
     expect(result.failures[0]!.message).toContain("not proof that rigid tooling is impossible");
   });

@@ -307,8 +307,15 @@ describe("Real free-form regression (Execution 08 LOOP 02)", () => {
     // replacement.
     expect(result.budget.workingMoldConstructionAttempts).toBe(2);
     expect(result.failures).toHaveLength(1);
-    expect(result.failures[0]!.reason).toBe("no_release_plan");
-    expect(result.failures[0]!.family).toBe("budget-exhausted");
+    // Execution 08 Section 36 (audit fix): a REAL exact construction attempt
+    // ran real geometry and failed release verification specifically --
+    // "working_mold_release_locked" is more specific and more honest than
+    // the old generic "no_release_plan" for this case, and its family is
+    // "construction-failed" (real geometry was tested), not
+    // "budget-exhausted" (which now means planning never even reached a
+    // real construction attempt).
+    expect(result.failures[0]!.reason).toBe("working_mold_release_locked");
+    expect(result.failures[0]!.family).toBe("construction-failed");
     // The LAST real construction attempt's own failure reason is preserved
     // (multi-label, tried after the CSG fallback) -- and it is a release
     // failure for a SPECIFIC, tiny, isolated island (this file's own doc

@@ -33,6 +33,7 @@ import type {
   MasterMoldBudgetLineItem,
   MasterMoldBudgetReport,
   MasterMoldDebugSnapshot,
+  MasterMoldEngineFailureReason,
   MasterMoldEngineResult,
   MasterMoldFailure,
   MasterMoldProgressStage,
@@ -614,12 +615,27 @@ export async function runMasterMoldEngine(
   // Execution 08 LOOP 26: one consolidated, inspectable planner snapshot --
   // everything a person would otherwise open source code to piece together
   // from several separate result fields, in one place.
-  const debugRegionGraph = buildSurfaceRegionGraph(planningMesh);
-  const debugRegionCover = greedyRegionCover(debugRegionGraph, planningMesh, analysis);
+  //
+  // Audit fix (2026-09-22): this used to build its OWN fresh, unrefined
+  // `buildSurfaceRegionGraph` call and a second `greedyRegionCover` run,
+  // independent of the REAL search (`pieceCountSearch`), which refines the
+  // graph via LOOP 12's subdivision before ever using it for coverage or
+  // feasibility decisions. The two happened to agree on every fixture
+  // measured so far (none triggered a real subdivision) but were not
+  // guaranteed to. Reusing `pieceCountSearch`'s own already-computed,
+  // already-refined `regionGraph`/`regionCover` makes this snapshot
+  // report the EXACT numbers the search decided from -- not a second,
+  // independently-computed approximation of them.
+  const debugRegionGraph = pieceCountSearch.regionGraph;
+  const debugRegionCover = pieceCountSearch.regionCover;
   const debugSnapshot: MasterMoldDebugSnapshot = {
     sourceValidity: preflight.status === "valid" ? "valid" : "repairable-warning",
     regionCount: debugRegionGraph.regions.length,
     candidateDirectionCount: analysis.directions.length,
+    // Execution 08 LOOP 12/35 (audit fix): how many of the above regions
+    // were actually split by visibility-driven subdivision -- previously
+    // computed internally by the search and then discarded.
+    regionRefinementCount: pieceCountSearch.subdividedRegionCount,
     coverageMatrixSummary: {
       totalRegions: debugRegionCover.totalRegionCount,
       uncoveredRegionCount: debugRegionCover.uncoveredRegionIndexes.length,
@@ -638,6 +654,11 @@ export async function runMasterMoldEngine(
     partingSurfaceCandidateCount: partingSurfaceCandidateAttempts,
     exactConstructionAttempts: budget.workingMoldConstructionAttempts,
     selectedPieceCount: constructionFinalist === null ? null : constructionFinalist.candidate.pieceCount,
+    // Execution 08 LOOP 35 (audit fix): how many release-direction
+    // candidates the final exact construction's own release verification
+    // actually swept per piece, summed -- previously computed internally
+    // by `verifyWorkingMoldRelease` and then discarded.
+    releaseSweepCount: construction === null ? null : construction.releaseSweepCount,
   };
 
   if (construction === null || constructionFinalist === null) {
@@ -668,6 +689,32 @@ export async function runMasterMoldEngine(
       : budget.workingMoldConstructionAttempts === 0
         ? " No individual search budget was exhausted; planning itself never produced a feasible candidate at any attempted piece count (see planningDiagnostics for the per-count reason)."
         : "";
+    // Execution 08 Section 36 (audit fix): every one of these cases used to
+    // collapse into a single "no_release_plan" reason -- exactly the
+    // anti-pattern Section 36 names ("Never map them all to: no_release_plan").
+    // Priority order, most specific/informative first: a real exact
+    // construction attempt that actually ran real geometry (release lock vs.
+    // any other construction failure) outranks a planning-stage budget name,
+    // since it is strictly more specific evidence; among budget names, the
+    // OUTERMOST one that actually stopped the whole search (piece count) is
+    // reported over an inner per-count budget that is almost always ALSO
+    // exhausted whenever piece count is (escalating naturally re-exhausts
+    // direction/threshold budgets at every count tried). The genuinely
+    // degenerate case (no attempts, no budget exhausted at all -- planning
+    // never even produced a single candidate to reject) keeps the original,
+    // narrow "no_release_plan" code.
+    const failureReason: MasterMoldEngineFailureReason =
+      constructionError !== null
+        ? /cannot release/i.test(constructionError.message)
+          ? "working_mold_release_locked"
+          : "exact_working_mold_failed"
+        : exhaustedBudgetNames.includes("piece_count")
+          ? "planning_piece_count_budget_exhausted"
+          : exhaustedBudgetNames.includes("combination_directions")
+            ? "planning_direction_budget_exhausted"
+            : exhaustedBudgetNames.includes("parting_thresholds")
+              ? "planning_threshold_budget_exhausted"
+              : "no_release_plan";
     return {
       seedId: seed.seedId,
       plan: null,
@@ -675,8 +722,8 @@ export async function runMasterMoldEngine(
       failures: [
         {
           moldPartId: "working-mold",
-          reason: "no_release_plan",
-          family: masterMoldFailureFamilyOf("no_release_plan"),
+          reason: failureReason,
+          family: masterMoldFailureFamilyOf(failureReason),
           message: budgetReached
             ? `the bounded search reached its configured limits (piece-count cap ${maxPieces}, ${budget.workingMoldConstructionAttempts} exact construction attempt(s), ${rejectedPieceCounts.length} piece count(s) rejected) without finding a releasable decomposition${constructionError === null ? "" : ` (last exact failure: ${constructionError.message})`}.${exhaustedBudgetClause} This is a search-budget outcome, not proof that rigid tooling is impossible: review the part, ${recovery}.`
             : `no working-mold decomposition could be planned${constructionError === null ? "" : ` (last exact failure: ${constructionError.message})`}. This is a search-budget outcome, not proof that rigid tooling is impossible; flexible/sacrificial tooling may be required for fully enclosed features.`,

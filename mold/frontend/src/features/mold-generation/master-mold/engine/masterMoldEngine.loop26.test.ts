@@ -57,6 +57,16 @@ describe("Working Mold intelligence telemetry (Execution 08 LOOP 26)", () => {
     expect(snapshot.thresholdAttemptsByPieceCount).toHaveLength(1);
     expect(snapshot.exactConstructionAttempts).toBeGreaterThan(0);
     expect(snapshot.selectedPieceCount).toBe(2);
+    // Execution 08 LOOP 12/35 (audit fix): region refinement count is a
+    // real number (0 for this simple box -- no visibility-transition
+    // region needed splitting), not undefined/omitted.
+    expect(snapshot.regionRefinementCount).toBe(0);
+    // Execution 08 LOOP 35 (audit fix): a successful construction reports
+    // how many release-direction candidates its own verification actually
+    // swept -- real telemetry, not null (null is reserved for when no
+    // construction was ever selected).
+    expect(snapshot.releaseSweepCount).not.toBeNull();
+    expect(snapshot.releaseSweepCount).toBeGreaterThan(0);
   });
 
   it("diagnoses a failed generation from the snapshot alone: region count, uncovered regions, piece-count attempts, zero selection", async () => {
@@ -85,6 +95,19 @@ describe("Working Mold intelligence telemetry (Execution 08 LOOP 26)", () => {
     expect(snapshot.exactConstructionAttempts).toBe(2);
     expect(snapshot.selectedPieceCount).toBeNull();
     expect(snapshot.partingSurfaceCandidateCount).toBe(2);
+    // Execution 08 LOOP 12/35 (audit fix): region refinement is real,
+    // computed regardless of whether a plan was ever selected (it is a
+    // planning-stage fact, not a construction-stage one) -- a real,
+    // non-negative number even on total failure, never undefined.
+    expect(snapshot.regionRefinementCount).toBeGreaterThanOrEqual(0);
+    // Execution 08 LOOP 35 (audit fix): both real exact-construction
+    // attempts on this fixture ultimately THROW (the last piece cannot
+    // release), so `verifyWorkingMoldRelease` never reaches its own return
+    // statement to report a sweep count -- `releaseSweepCount` is honestly
+    // null here, not a fabricated number. This is a real, documented bound
+    // of this telemetry (only available when a construction attempt
+    // actually succeeds), not a bug.
+    expect(snapshot.releaseSweepCount).toBeNull();
   }, 300_000);
 
   it("is null only for the invalid-source-mesh early return, where planning never ran", async () => {

@@ -11,7 +11,7 @@ import type {
 import { MASTER_PLANNER_LIMITS } from "./masterMoldPlanning.contracts";
 import { dot } from "./candidateDirections";
 import { buildSurfaceRegionGraph } from "./surfaceRegions";
-import { greedyRegionCover } from "./regionSetCover";
+import { greedyRegionCover, type RegionSetCoverResult } from "./regionSetCover";
 import { refineRegionGraphByVisibility } from "./regionSubdivision";
 
 /**
@@ -716,6 +716,22 @@ export interface WorkingMoldPieceCountStep {
 export interface WorkingMoldPieceCountSearch {
   /** Advances the beam to the next piece count (2 upward); null once counts are exhausted. */
   next(): WorkingMoldPieceCountStep | null;
+  /**
+   * Execution 08 LOOP 26 (audit fix): the SAME refined region graph (LOOP
+   * 12's subdivision applied) this search itself uses to decide coverage
+   * and feasibility -- exposed so diagnostics/telemetry never recompute an
+   * independent, potentially-divergent RAW graph. Before this fix,
+   * `masterMoldEngine.ts`'s debug snapshot built its own fresh, UNREFINED
+   * `buildSurfaceRegionGraph` call for `regionCount`/`coverageMatrixSummary`,
+   * which coincidentally matched this search's own refined graph on every
+   * fixture measured so far (none triggered a real subdivision) but was not
+   * guaranteed to for one that does.
+   */
+  readonly regionGraph: SurfaceRegionGraph;
+  /** How many of `regionGraph`'s regions were split at least once by LOOP 12's subdivision (0 when refinement was a no-op). */
+  readonly subdividedRegionCount: number;
+  /** LOOP 11's region-vs-direction set-cover result over `regionGraph`, computed once per search (direction-set-dependent, not piece-count-dependent). */
+  readonly regionCover: RegionSetCoverResult;
 }
 
 /**
@@ -729,7 +745,13 @@ export interface WorkingMoldPieceCountSearch {
 export function createWorkingMoldPieceCountSearch(input: WorkingMoldPlannerInput): WorkingMoldPieceCountSearch {
   const { planningMesh, analysis } = input;
   if (analysis.directions.length === 0 || planningMesh.patches.length === 0) {
-    return { next: () => null };
+    const emptyRegionGraph = buildSurfaceRegionGraph(planningMesh);
+    return {
+      next: () => null,
+      regionGraph: emptyRegionGraph,
+      subdividedRegionCount: 0,
+      regionCover: greedyRegionCover(emptyRegionGraph, planningMesh, analysis),
+    };
   }
 
   const maxPieces = Math.max(
@@ -750,7 +772,9 @@ export function createWorkingMoldPieceCountSearch(input: WorkingMoldPlannerInput
   // ownership LOOP 10, set-cover LOOP 11, feasibility LOOP 15, diagnostics)
   // consumes the refined graph automatically.
   const baseRegionGraph = buildSurfaceRegionGraph(planningMesh);
-  const regionGraph = refineRegionGraphByVisibility(baseRegionGraph, planningMesh, analysis).regionGraph;
+  const refinement = refineRegionGraphByVisibility(baseRegionGraph, planningMesh, analysis);
+  const regionGraph = refinement.regionGraph;
+  const subdividedRegionCount = refinement.subdividedRegionCount;
   // Execution 08 LOOP 11: computed once per search (direction-set-dependent,
   // not piece-count-dependent) -- how many directions a bounded set-cover
   // needs to release every moldable region, and which regions (if any) no
@@ -788,6 +812,9 @@ export function createWorkingMoldPieceCountSearch(input: WorkingMoldPlannerInput
   };
 
   return {
+    regionGraph,
+    subdividedRegionCount,
+    regionCover,
     next(): WorkingMoldPieceCountStep | null {
       if (pieceCount > maxPieces) return null;
       const currentCount = pieceCount;

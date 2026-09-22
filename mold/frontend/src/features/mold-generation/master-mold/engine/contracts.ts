@@ -327,7 +327,25 @@ export type MasterMoldEngineFailureReason =
   | "invalid_source_geometry"
   | "invalid_source_mesh"
   | "cast_target_invalid"
+  /**
+   * Execution 08 Section 36 (audit fix): the genuinely degenerate case --
+   * planning never produced a single candidate to even reject (e.g. zero
+   * candidate directions or zero planning patches). Kept narrow and rare;
+   * every case that DID reach a real per-count rejection or a real exact
+   * construction attempt now gets one of the more specific codes below
+   * instead of collapsing here.
+   */
   | "no_release_plan"
+  /** The piece-count escalation itself reached its configured ceiling without any count producing a feasible, exactly-verified plan. */
+  | "planning_piece_count_budget_exhausted"
+  /** The bounded combination-direction search exhausted its budget before piece-count escalation did. */
+  | "planning_direction_budget_exhausted"
+  /** The bounded parting-threshold search exhausted its budget before piece-count or direction escalation did. */
+  | "planning_threshold_budget_exhausted"
+  /** A real exact construction attempt succeeded geometrically but its own release verification rejected it (the piece cannot physically be swept clear). */
+  | "working_mold_release_locked"
+  /** A real exact construction attempt failed for a reason other than release verification (Boolean/manifold/registration/assembly-invariant). */
+  | "exact_working_mold_failed"
   | "tooling_construction_failed"
   | "build_volume_exceeded"
   | "boolean_failed"
@@ -364,10 +382,25 @@ export function masterMoldFailureFamilyOf(reason: MasterMoldEngineFailureReason)
     case "non_manifold_result":
       return "construction-failed";
     case "no_release_plan":
-      // A bounded search that exhausted its piece-count/exact-attempt limits
-      // has NOT proven rigid tooling impossible -- it only reports the
-      // budget it was given (Execution 07 LOOP 09).
+    case "planning_piece_count_budget_exhausted":
+    case "planning_direction_budget_exhausted":
+    case "planning_threshold_budget_exhausted":
+      // A bounded search that exhausted its piece-count/direction/threshold
+      // limits has NOT proven rigid tooling impossible -- it only reports
+      // the budget it was given (Execution 07 LOOP 09), and never even
+      // reached a real exact-construction attempt to test real geometry.
       return "budget-exhausted";
+    case "working_mold_release_locked":
+    case "exact_working_mold_failed":
+      // Execution 08 Section 36 (audit fix): a REAL exact construction
+      // attempt happened here -- real geometry was built and tested, not
+      // just a planning-stage rejection. Still not a proof of physical
+      // impossibility (principle #10: a construction technique's own
+      // failure is not proof the part cannot be molded by some other
+      // technique) -- "construction-failed" is a distinct, more specific
+      // family than "budget-exhausted" precisely because real geometry was
+      // involved, not to imply a stronger impossibility claim.
+      return "construction-failed";
   }
 }
 
@@ -456,6 +489,8 @@ export interface MasterMoldDebugSnapshot {
   readonly sourceValidity: "valid" | "repairable-warning";
   readonly regionCount: number;
   readonly candidateDirectionCount: number;
+  /** Execution 08 LOOP 12/35 (audit fix): how many of `regionCount`'s regions were split at least once by visibility-driven subdivision (0 when refinement was a no-op). */
+  readonly regionRefinementCount: number;
   readonly coverageMatrixSummary: {
     readonly totalRegions: number;
     readonly uncoveredRegionCount: number;
@@ -467,6 +502,8 @@ export interface MasterMoldDebugSnapshot {
   readonly partingSurfaceCandidateCount: number;
   readonly exactConstructionAttempts: number;
   readonly selectedPieceCount: number | null;
+  /** Execution 08 LOOP 35 (audit fix): how many release-direction candidates the final exact construction's own release verification swept in total (summed across pieces); null when no construction was ever selected. */
+  readonly releaseSweepCount: number | null;
 }
 
 /**

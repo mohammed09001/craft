@@ -172,6 +172,8 @@ export interface WorkingMoldConstructionOutput {
   readonly pieces: readonly WorkingMoldPieceTarget[];
   readonly releaseSequence: readonly WorkingMoldReleaseStep[];
   readonly registrationPlan: WorkingMoldRegistrationPlan;
+  /** Execution 08 LOOP 35 (audit fix): total release-direction candidates the final release verification swept across every piece -- real "release sweeps" telemetry (Section 35's own tracking list). */
+  readonly releaseSweepCount: number;
 }
 
 export interface OrthonormalBasis {
@@ -913,9 +915,15 @@ function verifyWorkingMoldRelease(
    * their already-verified release sequences or piece ordering.
    */
   useGreedyReleaseOrder: boolean = false,
-): WorkingMoldReleaseStep[] {
+): { readonly steps: readonly WorkingMoldReleaseStep[]; readonly candidatesSwept: number } {
   const releaseSequence: WorkingMoldReleaseStep[] = [];
   const remaining = new Set<number>(carved.keys());
+  // Execution 08 LOOP 35 (audit fix): total release-direction candidates
+  // examined across every `tryRelease` call this verification makes --
+  // real "release sweeps" telemetry (Section 35's own tracking list),
+  // previously computed implicitly (one loop iteration per candidate) and
+  // then discarded once a working direction was found or none were.
+  let candidatesSwept = 0;
 
   const tryRelease = (pieceIndex: number): { readonly direction: PlanningVector3; readonly clearance: number } | null => {
     const direction = input.pieces[pieceIndex]!.releaseDirection;
@@ -941,6 +949,7 @@ function verifyWorkingMoldRelease(
         }
       }
       for (const candidate of candidateDirections) {
+        candidatesSwept += 1;
         const candidateClearance = sweepClearance(envelopeBounds, candidate);
         const vsPart = verifyDemoldTranslationByVector(partSolid, carved[pieceIndex]!, [candidate.x, candidate.y, candidate.z], candidateClearance, policy.surfaceToleranceMm, volumeTolerance);
         const vsSiblings = remainingUnion === null
@@ -979,7 +988,7 @@ function verifyWorkingMoldRelease(
         collisionVerified: true,
       });
     }
-    return releaseSequence;
+    return { steps: releaseSequence, candidatesSwept };
   }
 
   for (const pieceIndex of [...carved.keys()].reverse()) {
@@ -996,7 +1005,7 @@ function verifyWorkingMoldRelease(
       collisionVerified: true,
     });
   }
-  return releaseSequence;
+  return { steps: releaseSequence, candidatesSwept };
 }
 
 /**
@@ -1486,7 +1495,7 @@ export async function constructWorkingMold(input: WorkingMoldConstructionInput):
     // FAST fixed-order path is what the already-verified "9 of 10 release
     // cleanly" result used, and stays the default even for multi-label, so
     // ordinary calls are not slowed down chasing one hard piece.
-    const releaseSequence = verifyWorkingMoldRelease(
+    const { steps: releaseSequence, candidatesSwept: releaseSweepCount } = verifyWorkingMoldRelease(
       expandedInput,
       envelopeBounds,
       policy,
@@ -1575,7 +1584,7 @@ export async function constructWorkingMold(input: WorkingMoldConstructionInput):
       });
     }
 
-    return { pieces: targets, releaseSequence, registrationPlan };
+    return { pieces: targets, releaseSequence, registrationPlan, releaseSweepCount };
   } finally {
     for (const solid of pieceSolids) solid.delete();
     for (const solid of carved) solid.delete();
