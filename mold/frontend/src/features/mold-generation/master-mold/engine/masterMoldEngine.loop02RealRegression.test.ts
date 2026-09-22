@@ -227,8 +227,16 @@ import { runMasterMoldEngine } from "./masterMoldEngine";
  *     bent in a way no translation-only search (1-4 segments, narrow or
  *     broad direction sets, small or large step sizes) can navigate --
  *     a genuinely different, and likely harder, failure mode than
- *     "undercut," requiring either a shape-convexity-aware ICM objective
- *     or true rotational release verification to close, neither of which
+ *     "undercut." A further attempt swapped ONLY this piece's own
+ *     construction technique for the more convex, direction-driven CSG
+ *     local-bounded shape (`localBoundedAssignmentSolid`, already-existing
+ *     code) while keeping the other 9 pieces as multi-label: real
+ *     additional mobility resulted (260 release candidates tried before
+ *     giving up, vs 40), but still no complete path, and reconciling the
+ *     two techniques' mismatched boundaries fragmented the piece into 2
+ *     components -- a fifth genuinely different technique tried and
+ *     failed. Closing this would need either a shape-convexity-aware ICM
+ *     objective or true rotational release verification, neither of which
  *     exists (`Master Mold Execution 09.md` Section 7 has the full
  *     investigation).
  *
