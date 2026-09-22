@@ -172,13 +172,14 @@ describe("Parting curve ordering and simplification (Execution 08 LOOP 13)", () 
     try {
       const bounds = seed.sourceBounds;
       const diagonal = Math.hypot(bounds.max.x - bounds.min.x, bounds.max.y - bounds.min.y, bounds.max.z - bounds.min.z);
-      const target = new Vector3();
       let sampleCount = 0;
       let maxDistanceFound = 0;
       for (const face of interfaces) {
         for (const point of face.samplePoints) {
           sampleCount += 1;
-          const distance = bvh.closestPointToPoint(new Vector3(point.x, point.y, point.z), target).distance;
+          const hit = bvh.closestPointToPoint(new Vector3(point.x, point.y, point.z));
+          if (hit === null) throw new Error("expected a real closest-point hit against a non-empty source mesh");
+          const distance = hit.distance;
           maxDistanceFound = Math.max(maxDistanceFound, distance);
         }
       }
