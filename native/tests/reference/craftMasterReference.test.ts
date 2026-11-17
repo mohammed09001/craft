@@ -24,6 +24,7 @@ import { refineRegionGraphByVisibility } from "@/features/mold-generation/master
 import { analyzeDirectionAccessibility, pruneDirections } from "@/features/mold-generation/master-mold/planning/accessibility";
 import { runAdaptiveDirectionDiscovery } from "@/features/mold-generation/master-mold/planning/adaptiveDirectionDiscovery";
 import { constructWorkingMold } from "@/features/mold-generation/master-mold/planning/workingMoldConstructor";
+import { getManifoldModule, payloadFromManifold } from "@/features/mold-generation/geometry/manifold";
 import { runMasterMoldEngine } from "@/features/mold-generation/master-mold/engine/masterMoldEngine";
 import { greedyRegionCover } from "@/features/mold-generation/master-mold/planning/regionSetCover";
 import { candidatePartingThresholds, createWorkingMoldPieceCountSearch, planWorkingMoldDecomposition } from "@/features/mold-generation/master-mold/planning/workingMoldPlanner";
@@ -259,11 +260,11 @@ async function runCase(spec: MeshSpec) {
       pourFaceDecision: s.pourFaceDecision,
       accessibility: s.accessibility,
       releaseMode: s.releaseMode,
-      partingSurfaceCount: s.partingSurfaces.length,
+      partingSurfaces: s.partingSurfaces,
       coreMode: s.assembly.coreMode,
-      registrationFeatureCount: s.assembly.registrationFeatures.length,
+      registrationFeatures: s.assembly.registrationFeatures,
       releaseSequence: s.assembly.releaseSequence,
-      pieces: s.assembly.pieces.map((p) => ({ pieceId: p.pieceId, name: p.name, volumeMm3: p.volumeMm3, bounds: p.bounds, triangleCount: p.triangleCount, watertight: p.watertight, manifold: p.manifold, releaseDirection: p.releaseDirection, regions: p.regions, fitsBuildVolume: p.fitsBuildVolume, ...meshSummary(p.mesh) })),
+      pieces: s.assembly.pieces.map((p) => ({ pieceId: p.pieceId, name: p.name, volumeMm3: p.volumeMm3, bounds: p.bounds, triangleCount: p.triangleCount, watertight: p.watertight, manifold: p.manifold, releaseDirection: p.releaseDirection, directionVector: p.directionVector ?? null, regions: p.regions, toolingRegistrationFeatureIds: p.toolingRegistrationFeatureIds, fitsBuildVolume: p.fitsBuildVolume, ...meshSummary(p.mesh) })),
       warnings: s.warnings,
     })),
   };
@@ -351,6 +352,39 @@ it("writes the master mold foundation reference fixture", async () => {
   tessBox(10, 0, 0, 30, 20, 10, 3, assemblyPositions, assemblyIndices);
   tessBox(10, 0, 20, 30, 20, 30, 3, assemblyPositions, assemblyIndices);
   tessBox(26, 0, 12, 30, 10, 20, 2, assemblyPositions, assemblyIndices);
+  // Parts built with the real kernel; meshes are stored in the fixture so the native test replays identical input.
+  const module = await getManifoldModule();
+  const toSpec = (name: string, solid: InstanceType<typeof module.Manifold>, printer: MeshSpec["printer"] = null): MeshSpec => {
+    const mesh = payloadFromManifold(solid);
+    solid.delete();
+    return { name, positions: mesh.positions, indices: mesh.indices, transform: IDENTITY, printer };
+  };
+  const cyl = (radius: number, height: number, segments = 24) => module.Manifold.cylinder(height, radius, radius, segments, true);
+  const kernelSpecs: MeshSpec[] = [];
+  {
+    // Sphere with an equatorial groove: an undercut that no single pull can release.
+    const ring = cyl(24, 6, 40).subtract(cyl(12, 8, 40));
+    kernelSpecs.push(toSpec("grooved-sphere", module.Manifold.sphere(16, 32).subtract(ring)));
+  }
+  {
+    // Cube with two orthogonal blind holes.
+    const cube = module.Manifold.cube([30, 30, 30], true);
+    const blindZ = cyl(5, 20, 24).translate(0, 0, 10);
+    const blindX = cyl(5, 20, 24).rotate(0, 90, 0).translate(10, 0, 0);
+    kernelSpecs.push(toSpec("cross-blind-holes", cube.subtract(blindZ).subtract(blindX)));
+  }
+  {
+    // Dumbbell: two spheres joined by a thin neck.
+    const left = module.Manifold.sphere(10, 24).translate(-18, 0, 0);
+    const right = module.Manifold.sphere(10, 24).translate(18, 0, 0);
+    const neck = cyl(3, 40, 20).rotate(0, 90, 0);
+    kernelSpecs.push(toSpec("dumbbell", left.add(right).add(neck)));
+  }
+  {
+    // Torus standing on its edge.
+    const section = module.CrossSection.circle(5, 24).translate([14, 0]);
+    kernelSpecs.push(toSpec("torus", module.Manifold.revolve(section, 40).rotate(90, 0, 0)));
+  }
   const specs: MeshSpec[] = [
     { name: "box-rotated-translated", ...box, transform: [0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1, 0, 10, 20, 5, 1], printer: { x: 220, y: 220, z: 250 } },
     { name: "bracket-soup", ...bracket, transform: IDENTITY, printer: null },
@@ -358,12 +392,17 @@ it("writes the master mold foundation reference fixture", async () => {
     { name: "c-assembly", positions: assemblyPositions, indices: assemblyIndices, transform: IDENTITY, printer: null },
     { name: "tiny-box", ...boxMesh(6, 6, 6), transform: IDENTITY, printer: null },
     { name: "tiny-slab", ...boxMesh(10, 4, 3), transform: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 3, -2, 1, 1], printer: null },
+    ...kernelSpecs,
     { name: "box-open", ...open, transform: IDENTITY, printer: null },
     { name: "box-duplicate-face", ...duplicated, transform: IDENTITY, printer: null },
     { name: "cube-grid-large", positions: grid.positions, indices: grid.indices, transform: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -50, -50, 0, 1], printer: null, recipe: { kind: "cube-grid", segments: 65, size: 100 } },
   ];
   const cases = [];
-  for (const spec of specs) cases.push(await runCase(spec));
+  for (const spec of specs) {
+    const started = Date.now();
+    cases.push(await runCase(spec));
+    console.info(`[master-reference] ${spec.name}: ${Date.now() - started} ms`);
+  }
   const document = {
     schema: "craft.native-master-reference/1",
     generator: "native/tests/reference/craftMasterReference.test.ts",

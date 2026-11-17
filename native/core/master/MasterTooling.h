@@ -33,6 +33,7 @@ int masterDirAxis(MasterDir d);               // 0,1,2
 bool masterDirPositive(MasterDir d);
 MasterDir masterDirFlip(MasterDir d);
 Bounds3 masterStockBoundsFor(const Bounds3& bounds, MasterDir direction, double wallMm, double bottomMm);
+MasterDir masterDirFromName(const std::string& name);
 
 // --- contracts ---------------------------------------------------------------------------------------
 struct MasterCastTarget {
@@ -105,6 +106,7 @@ struct MasterToolingPiece {
   std::vector<std::string> regions;
   std::vector<std::string> toolingRegistrationFeatureIds;
   bool fitsBuildVolume = true;
+  std::optional<Point3> directionVector;  // exact pull for non-axis pulls
 };
 
 struct MasterReleaseStep {
@@ -113,10 +115,27 @@ struct MasterReleaseStep {
   std::string direction;
   double clearanceDistanceMm = 0;
   bool collisionVerified = false;
+  std::optional<Point3> directionVector;
+};
+
+struct MasterToolingRegistrationFeature {
+  std::string featureId;
+  std::string kind;  // pin
+  std::string malePieceId;
+  std::string femalePieceId;
+};
+
+struct MasterPartingSurface {
+  std::string kind = "planar";
+  std::string axis;  // direction name
+  double coordinateMm = 0;
+  std::optional<Point3> planeNormal;
+  std::string origin;
 };
 
 struct MasterToolingAssembly {
   std::vector<MasterToolingPiece> pieces;
+  std::vector<MasterToolingRegistrationFeature> registrationFeatures;
   std::string coreMode = "split";
   std::vector<MasterReleaseStep> releaseSequence;
 };
@@ -126,6 +145,7 @@ struct MasterToolingSet {
   MasterPourFaceDecision pourFaceDecision;
   MasterSurfaceAccessibility accessibility;
   std::string releaseMode;  // one-piece | multi-piece | sacrificial-recommended
+  std::vector<MasterPartingSurface> partingSurfaces;
   MasterToolingAssembly assembly;
   std::vector<std::string> warnings;
   std::string fingerprint;
@@ -168,12 +188,55 @@ std::vector<MasterVentFeature> safeVentPathsFor(const Bounds3& targetBounds, con
                                                 const std::vector<MasterVentRecommendation>& recommendations, double wallThicknessMm,
                                                 const MeshPayload& targetMesh, const MeshPayload* protectedMesh);
 
+// --- case construction -------------------------------------------------------------------------------------------
+
+enum class CoreAssignmentMode { Split, FullNegative, FullPositive, LocalizedRemovableCore };
+const char* coreModeName(CoreAssignmentMode mode);
+
+struct SplitSpec {
+  MasterDir axis = MasterDir::PX;
+  double coordinateMm = 0;
+  bool positiveSide = true;
+  std::optional<Point3> normal;  // oblique split: unit normal + a point on the plane
+  std::optional<Point3> point;
+};
+
+struct ConstructedPiece {
+  MeshPayload mesh;
+  Bounds3 bounds;
+  double volumeMm3 = 0;
+  SolidPtr solid;
+};
+
+Bounds3 caseEnvelopeFor(const Bounds3& targetBounds, MasterDir pourFace, double wallMm, double baseMm);
+
+/// constructCasePiece: case envelope (clipped to the split half-space) minus the target and pour extension, with
+/// core assignment for split pieces and vent subtraction. Throws std::runtime_error with the reference text.
+ConstructedPiece constructCasePiece(IMeshGeometryEngine& engine, const MasterCastTarget& target, MasterDir pourFace,
+                                    const MasterToolingParameters& parameters, const std::optional<SplitSpec>& split,
+                                    const MeshPayload* coreToolMesh, CoreAssignmentMode coreMode, const std::vector<MasterVentFeature>& vents);
+
+MasterToolingPiece pieceFromConstructed(const std::string& pieceId, const std::string& name, const ConstructedPiece& constructed,
+                                        const std::string& releaseDirection, const std::vector<std::string>& regions,
+                                        const std::vector<std::string>& toolingRegistrationFeatureIds = {},
+                                        const std::optional<Point3>& directionVector = std::nullopt);
+
+struct RegisteredPiecePair {
+  ConstructedPiece positivePiece, negativePiece;
+  std::vector<MasterToolingRegistrationFeature> features;
+  std::optional<std::string> reason;
+};
+RegisteredPiecePair applyToolingRegistration(IMeshGeometryEngine& engine, const MasterCastTarget& target, MasterDir pourFace, const SplitSpec& split,
+                                             const MasterToolingParameters& parameters, const std::optional<Bounds3>& functionalBounds,
+                                             const ConstructedPiece& positive, const ConstructedPiece& negative);
+
 // --- one-piece case ------------------------------------------------------------------------------------------------
 struct OnePieceAttempt {
   bool ok = false;
   std::vector<MasterToolingPiece> pieces;
   std::vector<MasterReleaseStep> releaseSequence;
   std::vector<MasterVentFeature> ventFeatures;
+  std::optional<Bounds3> collisionBounds;  // exact jam region of a failed release sweep (lock evidence)
 };
 
 /// constructCasePiece (no split) + exact release sweep + assembled-negative check.

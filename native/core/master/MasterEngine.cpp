@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <cmath>
 #include <regex>
 #include <set>
@@ -10,6 +12,7 @@
 #include "geometry/GeometryTolerance.h"
 #include "geometry/MeshAnalysis.h"
 #include "master/MasterAccessibility.h"
+#include "master/MasterMultiPiece.h"
 #include "master/MasterPlanning.h"
 #include "mold/Registration.h"  // jsNumberToString
 
@@ -141,64 +144,110 @@ struct CaseAttempt {
   std::string rejection;
 };
 
+void applyPlan(MasterToolingSet& set, const MultiPiecePlan& plan) {
+  set.releaseMode = "multi-piece";
+  set.assembly.pieces = plan.pieces;
+  set.assembly.releaseSequence = plan.releaseSequence;
+  set.assembly.coreMode = coreModeName(plan.coreMode);
+  set.assembly.registrationFeatures = plan.registrationFeatures;
+  set.partingSurfaces = {plan.partingSurface};
+  set.pourFaceDecision.ventPlan.features = plan.ventFeatures;
+}
+
 CaseAttempt attemptCaseForPourFace(IMeshGeometryEngine& engine, const MasterSeedSnapshot& seed, const MasterCastTarget& target,
                                    const NegativeTool& negative, const MasterToolingParameters& parameters, MasterMoldBudgetReport& budget,
                                    MasterDir pourFace, const MasterPourFaceDecision& decision, const MasterSurfaceAccessibility& accessibility,
-                                   std::vector<std::string>& unportedPaths) {
+                                   const Point3& assignedDirection) {
   std::vector<std::string> warnings;
+  const std::optional<Point3>& buildVolume = seed.printerBuildVolume;
+  const auto allFit = [&](const std::vector<MasterToolingPiece>& pieces) {
+    return !buildVolume || std::all_of(pieces.begin(), pieces.end(), [&](const auto& p) { return fitsBuildVolume(p, *buildVolume); });
+  };
+
   budget.toolingOnePieceAttempts += 1;
   budget.releaseVerificationAttempts += 1;
   OnePieceAttempt onePiece = attemptOnePiece(engine, target, pourFace, parameters, decision.ventPlan.unresolvedRecommendations, negative.mesh);
 
-  if (!onePiece.ok) {
-    // The reference tries the localized removable core and then the recursive multi-piece planner here.
-    budget.toolingMultiPieceAttempts += 1;
-    budget.toolingExactPlanAttempts += 1;
-    unportedPaths.push_back("multi-piece tooling after one-piece release failure (" + target.moldPartId + ", pour face " + masterDirName(pourFace) + ")");
-    return {std::nullopt, std::string(masterDirName(pourFace)) + ": multi-piece tooling planning is not available in the native port."};
-  }
-  if (seed.printerBuildVolume) {
-    const bool allFit = std::all_of(onePiece.pieces.begin(), onePiece.pieces.end(), [&](const auto& p) { return fitsBuildVolume(p, *seed.printerBuildVolume); });
-    if (!allFit) {
+  MasterToolingSet set;
+  set.releaseMode = "multi-piece";
+  set.assembly.coreMode = "split";
+  set.pourFaceDecision = decision;
+  set.pourFaceDecision.selected = pourFace;
+  std::vector<MasterVentFeature> ventFeatures;
+  const std::string face = masterDirName(pourFace);
+
+  if (onePiece.ok) {
+    set.releaseMode = "one-piece";
+    set.assembly.pieces = onePiece.pieces;
+    set.assembly.releaseSequence = onePiece.releaseSequence;
+    ventFeatures = onePiece.ventFeatures;
+    if (!allFit(set.assembly.pieces)) {
+      warnings.push_back("one-piece case exceeds the printer build volume; multi-piece partition attempted.");
       budget.toolingMultiPieceAttempts += 1;
+      const MultiPiecePlanAttempt multi = planMultiPieceTooling(engine, target, pourFace, parameters, &negative.mesh, assignedDirection, negative.bounds,
+                                                                buildVolume, decision.ventPlan.unresolvedRecommendations);
       budget.toolingExactPlanAttempts += 1;
-      unportedPaths.push_back("multi-piece partition for the printer build volume (" + target.moldPartId + ")");
-      return {std::nullopt, std::string(masterDirName(pourFace)) + ": multi-piece partition could not satisfy the printer build volume."};
+      if (multi.plan && allFit(multi.plan->pieces)) {
+        applyPlan(set, *multi.plan);
+        ventFeatures = multi.plan->ventFeatures;
+        if (multi.plan->registrationNote) warnings.push_back(*multi.plan->registrationNote);
+      } else {
+        return {std::nullopt, face + ": multi-piece partition could not satisfy the printer build volume."};
+      }
+    }
+  } else {
+    bool localizedAccepted = false;
+    if (parameters.maxToolingPieces >= 2) {
+      const LockEvidence lock = deriveLockRegions(target, masterDirFlip(pourFace), onePiece.collisionBounds);
+      if (!lock.regions.empty()) {
+        const MultiPiecePlanAttempt localized = planLocalizedRemovableCore(engine, target, pourFace, parameters, lock, assignedDirection, buildVolume,
+                                                                           decision.ventPlan.unresolvedRecommendations);
+        budget.toolingExactPlanAttempts += 1;
+        if (localized.plan) {
+          localizedAccepted = true;
+          applyPlan(set, *localized.plan);
+          ventFeatures = localized.plan->ventFeatures;
+          warnings.push_back(localized.plan->registrationNote.value_or("localized removable core selected after one-piece release failure."));
+        }
+      }
+    }
+    if (!localizedAccepted) {
+      budget.toolingMultiPieceAttempts += 1;
+      const MultiPiecePlanAttempt multi = planMultiPieceTooling(engine, target, pourFace, parameters, &negative.mesh, assignedDirection, negative.bounds,
+                                                                buildVolume, decision.ventPlan.unresolvedRecommendations);
+      budget.toolingExactPlanAttempts += 1;
+      if (!multi.plan) return {std::nullopt, face + ": " + multi.rejectionReason.value_or("unverified")};
+      if (!allFit(multi.plan->pieces)) return {std::nullopt, face + ": multi-piece partition could not satisfy the printer build volume."};
+      applyPlan(set, *multi.plan);
+      ventFeatures = multi.plan->ventFeatures;
+      if (multi.plan->registrationNote) warnings.push_back(*multi.plan->registrationNote);
     }
   }
 
-  MasterToolingSet set;
   set.moldPartId = target.moldPartId;
   set.moldPartName = target.moldPartName;
   set.castTargetVersion = target.geometryVersion;
   set.sourceSignature = toolingSetInputSignature(seed, target.moldPartId, target.geometryVersion);
-  set.pourFaceDecision = decision;
-  set.pourFaceDecision.selected = pourFace;
-  set.pourFaceDecision.ventPlan.features = onePiece.ventFeatures;
+  set.pourFaceDecision.ventPlan.features = ventFeatures;
   std::vector<MasterVentRecommendation> remaining;
   for (const auto& rec : decision.ventPlan.unresolvedRecommendations) {
-    const bool resolved = std::any_of(onePiece.ventFeatures.begin(), onePiece.ventFeatures.end(), [&](const auto& f) { return f.featureId == rec.recommendationId; });
+    const bool resolved = std::any_of(ventFeatures.begin(), ventFeatures.end(), [&](const auto& f) { return f.featureId == rec.recommendationId; });
     if (!resolved) remaining.push_back(rec);
   }
   set.pourFaceDecision.ventPlan.unresolvedRecommendations = remaining;
-  set.pourFaceDecision.ventPlan.status = onePiece.ventFeatures.size() == decision.ventPlan.unresolvedRecommendations.size() ? "clear" : "user-review";
+  set.pourFaceDecision.ventPlan.status = ventFeatures.size() == decision.ventPlan.unresolvedRecommendations.size() ? "clear" : "user-review";
   set.accessibility = accessibility;
-  set.releaseMode = "one-piece";
-  set.assembly.pieces = onePiece.pieces;
-  set.assembly.coreMode = "split";
-  set.assembly.releaseSequence = onePiece.releaseSequence;
   set.warnings = warnings;
-  std::string fingerprint = seed.seedId + "|" + target.geometryVersion + "|" + masterDirName(pourFace) + "|one-piece";
+  std::string fingerprint = seed.seedId + "|" + target.geometryVersion + "|" + face + "|" + set.releaseMode;
   for (const auto& p : set.assembly.pieces) fingerprint += "|" + p.pieceId + ":" + jsNumberToString(p.volumeMm3) + ":" + std::to_string(p.triangleCount);
+  for (const auto& f : set.assembly.registrationFeatures) fingerprint += "|" + f.featureId;
   set.fingerprint = "master-tooling-set:" + finishHash(hashText(fingerprint));
-  (void)negative;
   return {std::move(set), ""};
 }
-
 std::optional<MasterToolingSet> buildToolingSetForWorkingMoldPiece(IMeshGeometryEngine& engine, const MasterSeedSnapshot& seed,
                                                                    const MasterCastTarget& target, const NegativeTool& negative,
                                                                    const MasterToolingParameters& parameters, MasterMoldBudgetReport& budget,
-                                                                   const MasterMoldEngineHooks& hooks, std::vector<std::string>& unportedPaths) {
+                                                                   const MasterMoldEngineHooks& hooks, const Point3& assignedDirection) {
   std::vector<std::string> warnings;
   PourFacePlanInput input;
   input.castTarget = &target;
@@ -224,7 +273,7 @@ std::optional<MasterToolingSet> buildToolingSetForWorkingMoldPiece(IMeshGeometry
   std::optional<std::string> lastFailure;
   for (const auto& candidate : valid) {
     throwIfCancelled(hooks);
-    CaseAttempt attempt = attemptCaseForPourFace(engine, seed, target, negative, parameters, budget, candidate.direction, decision, accessibility, unportedPaths);
+    CaseAttempt attempt = attemptCaseForPourFace(engine, seed, target, negative, parameters, budget, candidate.direction, decision, accessibility, assignedDirection);
     if (attempt.set) {
       std::vector<std::string> merged = warnings;
       merged.insert(merged.end(), attempt.set->warnings.begin(), attempt.set->warnings.end());
@@ -232,6 +281,7 @@ std::optional<MasterToolingSet> buildToolingSetForWorkingMoldPiece(IMeshGeometry
       return attempt.set;
     }
     lastFailure = attempt.rejection;
+    if (std::getenv("CRAFT_MASTER_TRACE")) std::fprintf(stderr, "[master] %s face %s rejected: %s\n", target.moldPartId.c_str(), masterDirName(candidate.direction), attempt.rejection.c_str());
     if (attempt.rejection.find("budget") != std::string::npos) recordLimit(budget, "tooling_exact_plan");
   }
 
@@ -449,7 +499,7 @@ MasterMoldEngineResult runMasterMoldEngine(IMeshGeometryEngine& engine, const Ma
     target.geometryVersion = piece.geometryVersion;
     try {
       budget.toolingExactPlanAttempts += 1;
-      if (auto set = buildToolingSetForWorkingMoldPiece(engine, seed, target, negative, parameters, budget, hooks, result.unportedPaths)) {
+      if (auto set = buildToolingSetForWorkingMoldPiece(engine, seed, target, negative, parameters, budget, hooks, piece.assignedDirection)) {
         result.toolingSets.push_back(std::move(*set));
       }
     } catch (const CodedError&) {

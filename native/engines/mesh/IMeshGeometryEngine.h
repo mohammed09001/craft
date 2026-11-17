@@ -68,6 +68,13 @@ class IMeshGeometryEngine {
   /// Rigid translation by (dx, dy, dz) millimeters.
   virtual SolidPtr translate(const SolidPtr& solid, double dx, double dy, double dz) = 0;
 
+  /// Rotation by (rx, ry, rz) degrees about the origin (Manifold convention: x, then y, then z).
+  virtual SolidPtr rotate(const SolidPtr& solid, double rxDeg, double ryDeg, double rzDeg) = 0;
+  /// UV sphere of `radius` with `segments` circular segments, centred on `center`.
+  virtual SolidPtr sphere(double radius, int segments, const Point3& center) = 0;
+  /// Area of (slice of `a` at z = za) intersected with (slice of `b` at z = zb), both with the positive fill rule.
+  virtual double sliceOverlapArea(const SolidPtr& a, double za, const SolidPtr& b, double zb) = 0;
+
   virtual SolidPtr subtract(const SolidPtr& from, const SolidPtr& tool) = 0;
   virtual SolidPtr intersect(const SolidPtr& a, const SolidPtr& b) = 0;
   virtual std::vector<SolidPtr> decompose(const SolidPtr& solid) = 0;

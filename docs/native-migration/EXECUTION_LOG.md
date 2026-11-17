@@ -222,6 +222,24 @@ planner in the reference; native flags it and still matches pour face, accessibi
 
 Not done: multi-piece planner (recursive split, localized removable core, lock evidence), tooling registration pins, planar split case pieces, the engine's
 height-field / region-direct / multi-label construction fallbacks (and the constructor modes behind them), the worker, the store and the UI.
+### Session 13: Master Mold multi-piece planner
+
+Enabled Manifold CrossSection and extended the kernel seam (`rotate`, `sphere`, `sliceOverlapArea`). Ported full `constructCasePiece` (split half-spaces, oblique splits, core modes,
+vents), tooling registration pins, `deriveLockRegions`, the localized removable core, and the whole recursive planar planner (candidate splits from target/tool feature
+levels, build-volume cuts and oblique normal clusters; chunk decomposition and bisection; AABB-pruned greedy release sequencing; assembled-negative proof; exact
+interface contact area; multi-panel keys with corridor and release re-verification; cost). The engine now runs the real one-piece -> localized core -> multi-piece
+cascade including the build-volume path. The reference generator gained kernel-built hard parts (grooved sphere, cross-drilled cube, dumbbell, torus) and records
+parting surfaces, registration features and pull vectors.
+
+Result: `tst_master_equivalence` Release 56 passed / 0 failed (13 engine cases incl. 2-piece pinned, 3-piece and 4-piece tooling sets); Debug passes with the heavy rows
+skipped (D-034). Full Debug ctest 13/13.
+
+Finding: native plans for the dumbbell first disagreed with the reference. Sweep tables matched to 15 digits, so the kernel was not the cause. Tracing showed native
+building pieces in the full-negative core mode that the reference never could; reproducing the reference with the same inputs showed `Manifold instance already deleted`:
+a double-delete defect in the reference core modes (D-032). Native reproduces the observable behaviour behind a named switch.
+
+Not done: the constructor fallback modes (height-field / multi-neighbor / simultaneous grid / volumetric / multi-label) and region-direct assignment that feed them,
+the worker, the store and the UI.
 ### Next exact step
 1. GPU frame-rate/VRAM measurement, WASM timing for the same inputs, and a visual comparison with the Three.js viewport on real STLs (Phase 2 gate).
 2. Port Master Mold (tooling set generation) and the engineering reports.

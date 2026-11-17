@@ -42,6 +42,25 @@ Bounds3 masterStockBoundsFor(const Bounds3& b, MasterDir direction, double wall,
   return out;
 }
 
+MasterDir masterDirFromName(const std::string& name) {
+  for (MasterDir d : kMasterDirections) if (name == masterDirName(d)) return d;
+  throw std::invalid_argument("unknown Master Mold direction: " + name);
+}
+
+Bounds3 caseEnvelopeFor(const Bounds3& targetBounds, MasterDir pourFace, double wallMm, double baseMm) {
+  return masterStockBoundsFor(targetBounds, pourFace, wallMm, baseMm);
+}
+
+const char* coreModeName(CoreAssignmentMode mode) {
+  switch (mode) {
+    case CoreAssignmentMode::Split: return "split";
+    case CoreAssignmentMode::FullNegative: return "full-negative";
+    case CoreAssignmentMode::FullPositive: return "full-positive";
+    case CoreAssignmentMode::LocalizedRemovableCore: return "localized-removable-core";
+  }
+  return "split";
+}
+
 MasterToolingParameters toolingParametersFromProfile(const MasterCastingProcessProfile& profile) {
   MasterToolingParameters p;
   p.caseWallThicknessMm = std::max(profile.minimumToolingWallMm, 3.0);
@@ -427,7 +446,7 @@ std::vector<MasterVentFeature> safeVentPathsFor(const Bounds3& targetBounds, con
   return paths;
 }
 
-// --- one-piece case ----------------------------------------------------------------------------------------------------
+// --- case construction -------------------------------------------------------------------------------------------------
 
 namespace {
 
@@ -439,25 +458,73 @@ Bounds3 extensionBoxBounds(const Bounds3& b, MasterDir direction, double extensi
   return out;
 }
 
-struct ConstructedPiece {
-  MeshPayload mesh;
-  Bounds3 bounds;
-  double volumeMm3 = 0;
-  SolidPtr solid;
-};
+Bounds3 halfSpaceBoundsFor(const Bounds3& caseBounds, MasterDir axis, double coordinate, bool positive) {
+  const int a = masterDirAxis(axis);
+  Bounds3 out = caseBounds;
+  if (positive) out.min[a] = coordinate; else out.max[a] = coordinate;
+  return out;
+}
+
+SolidPtr halfSpaceClipSolid(IMeshGeometryEngine& engine, const Bounds3& caseBounds, const SplitSpec& split, bool positive, double toleranceMm) {
+  if (!split.normal || !split.point) return engine.box(halfSpaceBoundsFor(caseBounds, split.axis, split.coordinateMm, positive));
+  const double sign = positive ? 1 : -1;
+  const Point3 direction{split.normal->x * sign, split.normal->y * sign, split.normal->z * sign};
+  const double planeOffset = split.normal->x * split.point->x + split.normal->y * split.point->y + split.normal->z * split.point->z;
+  return engine.solidFromMesh(halfSpacePrismPayload(direction, sign * planeOffset, caseBounds), toleranceMm, "Mesh preparation");
+}
+
+bool removesAllCore(CoreAssignmentMode mode, bool positiveSide) {
+  return (mode == CoreAssignmentMode::FullNegative && positiveSide) || (mode == CoreAssignmentMode::FullPositive && !positiveSide);
+}
+
+}  // namespace
+
+/// The reference constructCasePiece, in the full-negative / full-positive core modes, releases `removal` (which still aliases
+/// `extendedTarget`) when it unions the core's own half and then releases `extendedTarget` again in its finally block. The
+/// second release throws "Manifold instance already deleted", so every such attempt is reported as a failed piece
+/// construction. Parity keeps that observable behaviour; set false to build the intended core-assigned pieces. See D-032.
+constexpr bool kReplicateReferenceCoreDeleteDefect = true;
 
 ConstructedPiece constructCasePiece(IMeshGeometryEngine& engine, const MasterCastTarget& target, MasterDir pourFace,
-                                    const MasterToolingParameters& parameters, const std::vector<MasterVentFeature>& vents) {
-  const Bounds3 caseBounds = masterStockBoundsFor(target.bounds, pourFace, parameters.caseWallThicknessMm, parameters.caseBaseThicknessMm);
+                                    const MasterToolingParameters& parameters, const std::optional<SplitSpec>& split,
+                                    const MeshPayload* coreToolMesh, CoreAssignmentMode coreMode, const std::vector<MasterVentFeature>& vents) {
+  const Bounds3 caseBounds = caseEnvelopeFor(target.bounds, pourFace, parameters.caseWallThicknessMm, parameters.caseBaseThicknessMm);
   const GeometryTolerancePolicy policy = buildGeometryTolerancePolicy(caseBounds, 0);
   const double extensionMm = policy.surfaceToleranceMm * 8 + parameters.pourOpeningMarginMm;
 
   const SolidPtr caseSolid = engine.box(caseBounds);
+  const SolidPtr pieceSide = split ? engine.intersect(caseSolid, halfSpaceClipSolid(engine, caseSolid->bounds(), *split, split->positiveSide, policy.booleanToleranceMm)) : caseSolid;
   const SolidPtr targetSolid = engine.solidFromMesh(target.mesh, policy.booleanToleranceMm, "Mesh preparation");
-  const SolidPtr extension = engine.box(extensionBoxBounds(target.bounds, pourFace, extensionMm));
-  const SolidPtr extendedTarget = engine.unionOf({targetSolid, extension});
-  SolidPtr voidSolid = engine.subtract(caseSolid, extendedTarget);
+  const SolidPtr extensionSolid = engine.box(extensionBoxBounds(target.bounds, pourFace, extensionMm));
+  const SolidPtr coreSolid = coreToolMesh ? engine.solidFromMesh(*coreToolMesh, policy.booleanToleranceMm, "Mesh preparation") : nullptr;
 
+  SolidPtr extendedTarget = engine.unionOf({targetSolid, extensionSolid});
+  SolidPtr removal = extendedTarget;
+  SolidPtr withCoreAdded;
+  bool plainRemoval = true;
+  if (coreSolid && split && coreMode != CoreAssignmentMode::Split) {
+    plainRemoval = false;
+    const bool side = split->positiveSide;
+    const SolidPtr ownBox = halfSpaceClipSolid(engine, caseBounds, *split, side, policy.booleanToleranceMm);
+    const SolidPtr otherBox = halfSpaceClipSolid(engine, caseBounds, *split, !side, policy.booleanToleranceMm);
+    const SolidPtr coreOwnSide = engine.intersect(coreSolid, ownBox);
+    const SolidPtr coreOtherSide = engine.intersect(coreSolid, otherBox);
+    (void)coreOtherSide;
+    const bool ownsWholeCore = (coreMode == CoreAssignmentMode::FullNegative && !side) || (coreMode == CoreAssignmentMode::FullPositive && side);
+    if (!coreOwnSide->isEmpty()) {
+      if (kReplicateReferenceCoreDeleteDefect) throw std::runtime_error("Manifold instance already deleted");
+      removal = engine.unionOf({removal, coreOwnSide});
+    }
+    if (ownsWholeCore) withCoreAdded = engine.asOriginal(coreSolid);
+    if (removesAllCore(coreMode, side)) removal = engine.unionOf({removal, engine.asOriginal(coreSolid)});
+  }
+  if (plainRemoval && split) {
+    const SolidPtr ownBox = halfSpaceClipSolid(engine, caseBounds, *split, split->positiveSide, policy.booleanToleranceMm);
+    extendedTarget = engine.intersect(extendedTarget, ownBox);
+    removal = extendedTarget;
+  }
+
+  SolidPtr voidSolid = engine.subtract(pieceSide, removal);
   for (const MasterVentFeature& vent : vents) {
     const double dx = vent.end.x - vent.start.x, dy = vent.end.y - vent.start.y, dz = vent.end.z - vent.start.z;
     const double length = jsHypot3(dx, dy, dz);
@@ -468,6 +535,7 @@ ConstructedPiece constructCasePiece(IMeshGeometryEngine& engine, const MasterCas
         policy.booleanToleranceMm, "Mesh preparation");
     voidSolid = engine.subtract(voidSolid, ventSolid);
   }
+  if (withCoreAdded && !withCoreAdded->isEmpty()) voidSolid = engine.unionOf({voidSolid, withCoreAdded});
 
   if (!voidSolid->isValid() || voidSolid->isEmpty()) throw std::runtime_error(target.moldPartName + ": case piece Boolean construction failed.");
   if (engine.decompose(voidSolid).size() > 1) throw std::runtime_error(target.moldPartName + ": case piece is not a single connected solid.");
@@ -479,7 +547,144 @@ ConstructedPiece constructCasePiece(IMeshGeometryEngine& engine, const MasterCas
   return piece;
 }
 
+MasterToolingPiece pieceFromConstructed(const std::string& pieceId, const std::string& name, const ConstructedPiece& constructed,
+                                        const std::string& releaseDirection, const std::vector<std::string>& regions,
+                                        const std::vector<std::string>& toolingRegistrationFeatureIds, const std::optional<Point3>& directionVector) {
+  const MeshTopologyCounts topology = meshTopology(constructed.mesh);
+  MasterToolingPiece piece;
+  piece.pieceId = pieceId;
+  piece.name = name;
+  piece.mesh = constructed.mesh;
+  piece.bounds = constructed.bounds;
+  piece.volumeMm3 = constructed.volumeMm3;
+  piece.triangleCount = static_cast<int>(constructed.mesh.indices.size() / 3);
+  piece.watertight = topology.openEdgeCount == 0;
+  piece.manifold = topology.openEdgeCount == 0 && topology.nonManifoldEdgeCount == 0;
+  piece.releaseDirection = releaseDirection;
+  piece.regions = regions;
+  piece.toolingRegistrationFeatureIds = toolingRegistrationFeatureIds;
+  piece.fitsBuildVolume = true;
+  piece.directionVector = directionVector;
+  return piece;
+}
+
+// --- tooling registration pins -------------------------------------------------------------------------------------------
+
+namespace {
+
+constexpr double kToolingPinRadiusMm = 2.5;
+constexpr double kToolingPinCornerInset = 0.2;
+constexpr int kToolingPinSegments = 16;
+
+struct PinPlacement {
+  MasterToolingRegistrationFeature feature;
+  MeshPayload payload;
+};
+
+std::pair<std::vector<PinPlacement>, std::optional<std::string>> planToolingRegistrationPinPlacements(
+    const MasterCastTarget& target, MasterDir pourFace, const SplitSpec& split, const MasterToolingParameters& parameters,
+    const std::optional<Bounds3>& functionalBounds) {
+  const Bounds3 caseBounds = caseEnvelopeFor(target.bounds, pourFace, parameters.caseWallThicknessMm, parameters.caseBaseThicknessMm);
+  const double radius = std::min(kToolingPinRadiusMm, parameters.caseWallThicknessMm / 2);
+  if (radius < 1) return {{}, std::string("wall too thin for tooling alignment pins")};
+
+  const bool oblique = split.normal && split.point;
+  const Point3 pinAxis = oblique ? *split.normal : masterDirVector(split.axis);
+  const int splitAxisName = masterDirAxis(split.axis);
+  std::vector<int> sideAxes;
+  for (int a = 0; a < 3; ++a) if (a != splitAxisName) sideAxes.push_back(a);
+  std::vector<Point3> pinCenters;
+  if (oblique) {
+    const Point3 normal = *split.normal;
+    const double planeOffset = normal.x * split.point->x + normal.y * split.point->y + normal.z * split.point->z;
+    const OrthonormalBasis basis = basisAround(normal);
+    const Point3 caseCenter{(caseBounds.min.x + caseBounds.max.x) / 2, (caseBounds.min.y + caseBounds.max.y) / 2, (caseBounds.min.z + caseBounds.max.z) / 2};
+    const double along = normal.x * caseCenter.x + normal.y * caseCenter.y + normal.z * caseCenter.z;
+    const Point3 projected{caseCenter.x + normal.x * (planeOffset - along), caseCenter.y + normal.y * (planeOffset - along),
+                           caseCenter.z + normal.z * (planeOffset - along)};
+    const double diagonal = jsHypot3(caseBounds.max.x - caseBounds.min.x, caseBounds.max.y - caseBounds.min.y, caseBounds.max.z - caseBounds.min.z);
+    const double inset = diagonal * kToolingPinCornerInset;
+    for (int index = 0; index < 2; ++index) {
+      const double sign = index == 0 ? -1 : 1;
+      pinCenters.push_back({projected.x + sign * (basis.u.x + basis.v.x) * inset, projected.y + sign * (basis.u.y + basis.v.y) * inset,
+                            projected.z + sign * (basis.u.z + basis.v.z) * inset});
+    }
+  } else {
+    for (int index = 0; index < 2; ++index) {
+      Point3 point{0, 0, 0};
+      point[splitAxisName] = split.coordinateMm;
+      double insetBase[2], insetTop[2];
+      for (int k = 0; k < 2; ++k) {
+        const int axis = sideAxes[static_cast<std::size_t>(k)];
+        insetBase[k] = caseBounds.min[axis] + (caseBounds.max[axis] - caseBounds.min[axis]) * kToolingPinCornerInset;
+        insetTop[k] = caseBounds.max[axis] - (caseBounds.max[axis] - caseBounds.min[axis]) * kToolingPinCornerInset;
+      }
+      point[sideAxes[0]] = index == 0 ? insetBase[0] : insetTop[0];
+      point[sideAxes[1]] = index == 0 ? insetBase[1] : insetTop[1];
+      pinCenters.push_back(point);
+    }
+  }
+
+  const Bounds3 tb = functionalBounds ? *functionalBounds : target.bounds;
+  bool clear = true;
+  for (const Point3& c : pinCenters) {
+    const double distance = jsHypot3(std::max({tb.min.x - c.x, 0.0, c.x - tb.max.x}), std::max({tb.min.y - c.y, 0.0, c.y - tb.max.y}),
+                                     std::max({tb.min.z - c.z, 0.0, c.z - tb.max.z}));
+    if (!(distance > radius + parameters.geometryToleranceMm)) clear = false;
+  }
+  if (!clear) return {{}, std::string("no interference-safe pin placement on the parting plane")};
+
+  const double pinHeight = parameters.caseWallThicknessMm * 2;
+  std::vector<PinPlacement> placements;
+  for (std::size_t index = 0; index < pinCenters.size(); ++index) {
+    placements.push_back({{"tooling-pin-" + std::string(masterDirName(split.axis)) + "-" + std::to_string(index), "pin", "piece-positive-side", "piece-negative-side"},
+                          cylinderPrismPayload(pinAxis, pinCenters[index], radius, pinHeight, kToolingPinSegments)});
+  }
+  return {placements, std::nullopt};
+}
+
+ConstructedPiece constructedFromSolid(IMeshGeometryEngine& engine, const SolidPtr& solid) {
+  ConstructedPiece piece;
+  piece.mesh = engine.meshFromSolid(solid, {}, "Mesh export");
+  piece.bounds = solid->bounds();
+  piece.volumeMm3 = solid->volume();
+  piece.solid = engine.asOriginal(solid);
+  return piece;
+}
+
 }  // namespace
+
+RegisteredPiecePair applyToolingRegistration(IMeshGeometryEngine& engine, const MasterCastTarget& target, MasterDir pourFace, const SplitSpec& split,
+                                             const MasterToolingParameters& parameters, const std::optional<Bounds3>& functionalBounds,
+                                             const ConstructedPiece& positive, const ConstructedPiece& negative) {
+  auto [placements, reason] = planToolingRegistrationPinPlacements(target, pourFace, split, parameters, functionalBounds);
+  if (placements.empty() || reason) {
+    return {positive, negative, {}, reason ? reason : std::optional<std::string>("no registration placements generated")};
+  }
+  const Bounds3 caseBounds = caseEnvelopeFor(target.bounds, pourFace, parameters.caseWallThicknessMm, parameters.caseBaseThicknessMm);
+  const GeometryTolerancePolicy policy = buildGeometryTolerancePolicy(caseBounds, 0);
+  const double volumeTolerance = std::max(policy.affectedVolumeToleranceMm3, target.volumeMm3 * 1e-3);
+  const int splitAxis = masterDirAxis(split.axis);
+  const double sweepClearance = (target.bounds.max[splitAxis] - target.bounds.min[splitAxis]) * 1.1 + parameters.caseWallThicknessMm * 2;
+
+  SolidPtr positiveSolid = engine.asOriginal(positive.solid);
+  SolidPtr negativeSolid = engine.asOriginal(negative.solid);
+  for (const PinPlacement& placement : placements) {
+    const SolidPtr pin = engine.solidFromMesh(placement.payload, policy.booleanToleranceMm, "Mesh preparation");
+    positiveSolid = engine.unionOf({positiveSolid, pin});
+    negativeSolid = engine.subtract(negativeSolid, pin);
+  }
+  const Point3 sweepDirection = split.normal ? *split.normal : masterDirVector(split.axis);
+  const auto sweep = verifyDemoldTranslationByVector(engine, negativeSolid, positiveSolid, sweepDirection, sweepClearance, policy.surfaceToleranceMm, volumeTolerance);
+  if (!sweep.removable) {
+    return {constructedFromSolid(engine, positiveSolid), constructedFromSolid(engine, negativeSolid), {}, std::string("registered pieces failed the re-verified release sweep")};
+  }
+  RegisteredPiecePair out{constructedFromSolid(engine, positiveSolid), constructedFromSolid(engine, negativeSolid), {}, std::nullopt};
+  for (const PinPlacement& p : placements) out.features.push_back(p.feature);
+  return out;
+}
+
+// --- one-piece case ----------------------------------------------------------------------------------------------------------
 
 OnePieceAttempt attemptOnePiece(IMeshGeometryEngine& engine, const MasterCastTarget& target, MasterDir pourFace,
                                 const MasterToolingParameters& parameters,
@@ -495,17 +700,25 @@ OnePieceAttempt attemptOnePiece(IMeshGeometryEngine& engine, const MasterCastTar
   const SolidPtr targetSolid = engine.solidFromMesh(target.mesh, policy.booleanToleranceMm, "Mesh preparation");
   ConstructedPiece constructed;
   try {
-    constructed = constructCasePiece(engine, target, pourFace, parameters, ventFeatures);
+    constructed = constructCasePiece(engine, target, pourFace, parameters, std::nullopt, nullptr, CoreAssignmentMode::Split, ventFeatures);
   } catch (const std::runtime_error&) {
     return result;
   }
 
   const MasterDir releaseDirection = masterDirFlip(pourFace);
-  const auto sweep = verifyDemoldTranslationByVector(engine, targetSolid, constructed.solid, masterDirVector(releaseDirection), sweepClearanceMm,
-                                                     policy.surfaceToleranceMm, volumeTolerance);
-  if (!sweep.removable) return result;
+  const Point3 releaseVector = masterDirVector(releaseDirection);
+  const auto sweep = verifyDemoldTranslationByVector(engine, targetSolid, constructed.solid, releaseVector, sweepClearanceMm, policy.surfaceToleranceMm, volumeTolerance);
+  if (!sweep.removable) {
+    // Exact lock localization: where the case jams against the target at first contact (seeds the localized-core search).
+    if (sweep.firstCollisionDistanceMm) {
+      const double d = *sweep.firstCollisionDistanceMm;
+      const SolidPtr translated = engine.translate(constructed.solid, releaseVector.x * d, releaseVector.y * d, releaseVector.z * d);
+      const SolidPtr overlap = engine.intersect(targetSolid, translated);
+      if (!overlap->isEmpty()) result.collisionBounds = overlap->bounds();
+    }
+    return result;
+  }
 
-  // validateAssembledNegative for the single piece.
   const double assembledTolerance = std::max(policy.affectedVolumeToleranceMm3, target.volumeMm3 * 1e-4);
   const double overlap = engine.intersect(constructed.solid, targetSolid)->volume();
   const double envelopeVolume = (caseBounds.max.x - caseBounds.min.x) * (caseBounds.max.y - caseBounds.min.y) * (caseBounds.max.z - caseBounds.min.z);
@@ -513,23 +726,11 @@ OnePieceAttempt attemptOnePiece(IMeshGeometryEngine& engine, const MasterCastTar
   if (std::fabs(residual) <= assembledTolerance) residual = 0;
   if (overlap > volumeTolerance || residual < -volumeTolerance || residual > target.volumeMm3) return result;
 
-  MasterToolingPiece piece;
-  piece.pieceId = "piece-1";
-  piece.name = target.moldPartName + " Master Case";
-  piece.mesh = constructed.mesh;
-  piece.bounds = constructed.bounds;
-  piece.volumeMm3 = constructed.volumeMm3;
-  piece.triangleCount = static_cast<int>(constructed.mesh.indices.size() / 3);
-  const MeshTopologyCounts topology = meshTopology(constructed.mesh);
-  piece.watertight = topology.openEdgeCount == 0;
-  piece.manifold = topology.openEdgeCount == 0 && topology.nonManifoldEdgeCount == 0;
-  piece.releaseDirection = masterDirName(releaseDirection);
-  piece.regions = {"one-piece"};
-  piece.fitsBuildVolume = true;
+  const MasterToolingPiece piece = pieceFromConstructed("piece-1", target.moldPartName + " Master Case", constructed, masterDirName(releaseDirection), {"one-piece"});
   result.ok = true;
   result.pieces = {piece};
   result.ventFeatures = ventFeatures;
-  result.releaseSequence = {{0, piece.pieceId, piece.releaseDirection, sweepClearanceMm, true}};
+  result.releaseSequence = {{0, piece.pieceId, piece.releaseDirection, sweepClearanceMm, true, std::nullopt}};
   return result;
 }
 

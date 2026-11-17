@@ -12,6 +12,7 @@
 #include <utility>
 #include <vector>
 
+#include <manifold/cross_section.h>
 #include <manifold/manifold.h>
 
 #include "contracts/Operation.h"
@@ -258,6 +259,20 @@ class ManifoldMeshEngine final : public IMeshGeometryEngine {
 
   SolidPtr translate(const SolidPtr& solid, double dx, double dy, double dz) override {
     return wrap(unwrap(solid).Translate({dx, dy, dz}));
+  }
+
+  SolidPtr rotate(const SolidPtr& solid, double rx, double ry, double rz) override {
+    return wrap(unwrap(solid).Rotate(rx, ry, rz));
+  }
+
+  SolidPtr sphere(double radius, int segments, const Point3& center) override {
+    return wrap(manifold::Manifold::Sphere(radius, segments).Translate({center.x, center.y, center.z}));
+  }
+
+  double sliceOverlapArea(const SolidPtr& a, double za, const SolidPtr& b, double zb) override {
+    const manifold::CrossSection first(unwrap(a).Slice(za), manifold::CrossSection::FillRule::Positive);
+    const manifold::CrossSection second(unwrap(b).Slice(zb), manifold::CrossSection::FillRule::Positive);
+    return (first ^ second).Area();
   }
 
   SolidPtr subtract(const SolidPtr& from, const SolidPtr& tool) override {
