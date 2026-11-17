@@ -256,6 +256,10 @@ class ManifoldMeshEngine final : public IMeshGeometryEngine {
     return wrap(manifold::Manifold::BatchBoolean(parts, manifold::OpType::Add));
   }
 
+  SolidPtr translate(const SolidPtr& solid, double dx, double dy, double dz) override {
+    return wrap(unwrap(solid).Translate({dx, dy, dz}));
+  }
+
   SolidPtr subtract(const SolidPtr& from, const SolidPtr& tool) override {
     return wrap(unwrap(from) - unwrap(tool));
   }

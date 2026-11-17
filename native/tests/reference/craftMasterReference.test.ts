@@ -23,6 +23,7 @@ import { buildSurfaceRegionGraph, summarizeRegionAccessibility, unresolvedSurfac
 import { refineRegionGraphByVisibility } from "@/features/mold-generation/master-mold/planning/regionSubdivision";
 import { analyzeDirectionAccessibility, pruneDirections } from "@/features/mold-generation/master-mold/planning/accessibility";
 import { runAdaptiveDirectionDiscovery } from "@/features/mold-generation/master-mold/planning/adaptiveDirectionDiscovery";
+import { constructWorkingMold } from "@/features/mold-generation/master-mold/planning/workingMoldConstructor";
 import { greedyRegionCover } from "@/features/mold-generation/master-mold/planning/regionSetCover";
 import { candidatePartingThresholds, createWorkingMoldPieceCountSearch, planWorkingMoldDecomposition } from "@/features/mold-generation/master-mold/planning/workingMoldPlanner";
 
@@ -112,7 +113,7 @@ function cubeGrid(segments: number, size: number): { positions: number[]; indice
   return { positions, indices };
 }
 
-function runCase(spec: MeshSpec) {
+async function runCase(spec: MeshSpec) {
   const localBounds = boundsOf(spec.positions);
   const seed = buildMasterMoldSeedSnapshot({
     sourcePartGeometry: {
@@ -173,6 +174,41 @@ function runCase(spec: MeshSpec) {
     steps.push({ pieceCount: step.pieceCount, rejectionReason: step.rejectionReason, diagnostics: step.diagnostics, finalists: step.finalists });
   }
   const plan = planWorkingMoldDecomposition({ planningMesh: planning, analysis: engineAnalysis, maxWorkingMoldPieces: 6 });
+
+  // Planar construction exactly as the engine tries it: finalists in order, count by count, first success wins.
+  const attempts: { pieceCount: number; finalistIndex: number; ok: boolean; error: string | null }[] = [];
+  let construction: Record<string, unknown> | null = null;
+  const constructionSearch = createWorkingMoldPieceCountSearch({ planningMesh: planning, analysis: engineAnalysis, maxWorkingMoldPieces: 6 });
+  outer: for (;;) {
+    const step = constructionSearch.next();
+    if (step === null) break;
+    for (let finalistIndex = 0; finalistIndex < step.finalists.length; finalistIndex += 1) {
+      const finalist = step.finalists[finalistIndex]!;
+      const planarPieces = finalist.candidate.pieces.map((piece) => ({
+        releaseDirection: piece.releaseDirection,
+        plane: piece.prism === null ? null : { direction: engineAnalysis.directions[piece.prism.directionIndex]!.vector, offsetMm: piece.prism.offsetMm },
+      }));
+      try {
+        const built = await constructWorkingMold({
+          sourceMesh: world.sourceMesh,
+          sourceBounds: world.sourceBounds,
+          releaseClearanceMm: world.processProfile.releaseClearanceMm ?? 0,
+          minimumToolingWallMm: world.processProfile.minimumToolingWallMm,
+          pieces: planarPieces,
+        });
+        attempts.push({ pieceCount: step.pieceCount, finalistIndex, ok: true, error: null });
+        construction = {
+          pieces: built.pieces.map((p) => ({ pieceId: p.pieceId, name: p.name, volumeMm3: p.volumeMm3, bounds: p.bounds, triangleCount: p.triangleCount, watertight: p.watertight, manifold: p.manifold, assignedDirection: p.assignedDirection, directionId: p.directionId, releaseOrder: p.releaseOrder, vertexCount: p.mesh.positions.length / 3 })),
+          releaseSequence: built.releaseSequence,
+          registrationPlan: built.registrationPlan,
+          releaseSweepCount: built.releaseSweepCount,
+        };
+        break outer;
+      } catch (error) {
+        attempts.push({ pieceCount: step.pieceCount, finalistIndex, ok: false, error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+  }
   const plannerJson = {
     discovery: { roundsRun: discovery.roundsRun, discovered: discovery.discoveredDirections },
     directionIds: engineAnalysis.directions.map((d) => d.directionId),
@@ -182,6 +218,8 @@ function runCase(spec: MeshSpec) {
     searchRegionCount: search.regionGraph.regions.length,
     steps,
     plan: plan === null ? null : { pieceCount: plan.candidate.pieceCount, score: plan.candidate.score, finalistCount: plan.finalists.length, rejectedPieceCounts: plan.rejectedPieceCounts },
+    constructionAttempts: attempts,
+    construction,
   };
   return {
     planner: plannerJson,
@@ -217,7 +255,7 @@ function runCase(spec: MeshSpec) {
   };
 }
 
-it("writes the master mold foundation reference fixture", () => {
+it("writes the master mold foundation reference fixture", async () => {
   const box = boxMesh(40, 30, 12);
   const bracket = stlSoup(process.env.CRAFT_BRACKET_STL ?? resolve(here, "../fixtures/models/bracket.stl"));
   const grid = cubeGrid(65, 100);
@@ -271,11 +309,14 @@ it("writes the master mold foundation reference fixture", () => {
     { name: "bracket-soup", ...bracket, transform: IDENTITY, printer: null },
     { name: "c-extrusion", positions: cPositions, indices: cIndices, transform: IDENTITY, printer: null },
     { name: "c-assembly", positions: assemblyPositions, indices: assemblyIndices, transform: IDENTITY, printer: null },
+    { name: "tiny-box", ...boxMesh(6, 6, 6), transform: IDENTITY, printer: null },
+    { name: "tiny-slab", ...boxMesh(10, 4, 3), transform: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 3, -2, 1, 1], printer: null },
     { name: "box-open", ...open, transform: IDENTITY, printer: null },
     { name: "box-duplicate-face", ...duplicated, transform: IDENTITY, printer: null },
     { name: "cube-grid-large", positions: grid.positions, indices: grid.indices, transform: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -50, -50, 0, 1], printer: null, recipe: { kind: "cube-grid", segments: 65, size: 100 } },
   ];
-  const cases = specs.map(runCase);
+  const cases = [];
+  for (const spec of specs) cases.push(await runCase(spec));
   const document = {
     schema: "craft.native-master-reference/1",
     generator: "native/tests/reference/craftMasterReference.test.ts",
@@ -285,4 +326,4 @@ it("writes the master mold foundation reference fixture", () => {
   mkdirSync(dirname(outputPath), { recursive: true });
   writeFileSync(outputPath, `${JSON.stringify(document)}\n`, "utf8");
   expect(cases.length).toBe(specs.length);
-}, 120_000);
+}, 900_000);

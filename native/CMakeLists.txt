@@ -91,6 +91,8 @@ add_library(craft_mold STATIC
   core/master/MasterAccessibility.h
   core/master/MasterWorkingMoldPlanner.cpp
   core/master/MasterWorkingMoldPlanner.h
+  core/master/MasterWorkingMoldConstructor.cpp
+  core/master/MasterWorkingMoldConstructor.h
   core/master/MasterPlanning.cpp
     core/master/TriangleIntersection.cpp
     core/master/TriangleIntersection.h

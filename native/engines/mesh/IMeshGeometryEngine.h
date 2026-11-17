@@ -65,6 +65,9 @@ class IMeshGeometryEngine {
   virtual std::pair<SolidPtr, SolidPtr> splitByPlane(const SolidPtr& solid, const Point3& normal,
                                                      double originOffset) = 0;
 
+  /// Rigid translation by (dx, dy, dz) millimeters.
+  virtual SolidPtr translate(const SolidPtr& solid, double dx, double dy, double dz) = 0;
+
   virtual SolidPtr subtract(const SolidPtr& from, const SolidPtr& tool) = 0;
   virtual SolidPtr intersect(const SolidPtr& a, const SolidPtr& b) = 0;
   virtual std::vector<SolidPtr> decompose(const SolidPtr& solid) = 0;

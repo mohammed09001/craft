@@ -190,6 +190,21 @@ reference's long reasons (inaccessible patches, unresolved regions), and the 150
 
 Not done: adaptive direction discovery (the engine runs it between pruning and planning), the working-mold constructor (Manifold booleans over real
 geometry), multi-piece planner, pour face, tooling construction, release verification, engine, worker, store, UI.
+### Session 11: Master Mold adaptive discovery and the planar working-mold constructor
+
+Ported adaptive direction discovery (region-derived candidates, bounded rounds, near-duplicate rejection); the C-assembly now triggers one real round that adds a
+direction. Added `translate` to the kernel seam and ported the PLANAR constructor: half-space prisms, ordered carving, connected-component split, clearance
+offset, pin placement with release re-verification and rollback, exact translation sweeps (32 coarse samples, 12 refinement steps), greedy-order option, assembly
+invariants and piece targets. The generator runs the real TypeScript `constructWorkingMold` the way the engine does (finalists in order, per count, first success
+wins) and records every attempt and its error text. `tst_master_equivalence` now has 31 rows; Debug: 30 passed + 1 skipped; Release: the 11 construction rows all
+pass including the 50,700-triangle part (D-028).
+
+Findings worth remembering: (1) the first native run failed only on error wording ("Not manifold" from the WASM kernel, D-027); (2) a first native run of the heavy
+row looked like a crash (exit 0xC0000409) but was Qt's 300 s watchdog, not a defect; it is a Debug-kernel speed issue; (3) none of the original fixtures placed pins
+(parts too large for the 0.3-span inset to clear the footprint), so two tiny parts were added to exercise pin placement.
+
+Not done: the constructor's fallback modes (height-field, multi-neighbor, simultaneous grid, volumetric, multi-label) and region-direct assignment/construction
+that feed them; multi-piece planner; pour face; tooling construction; release verification of tooling; engine; worker; store; UI.
 ### Next exact step
 1. GPU frame-rate/VRAM measurement, WASM timing for the same inputs, and a visual comparison with the Three.js viewport on real STLs (Phase 2 gate).
 2. Port Master Mold (tooling set generation) and the engineering reports.

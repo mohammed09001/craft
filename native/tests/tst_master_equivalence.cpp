@@ -13,6 +13,8 @@
 
 #include "geometry/MeshAnalysis.h"
 #include "master/MasterAccessibility.h"
+#include "ManifoldMeshEngine.h"
+#include "master/MasterWorkingMoldConstructor.h"
 #include "master/MasterWorkingMoldPlanner.h"
 #include "master/MasterPlanning.h"
 
@@ -449,6 +451,142 @@ class MasterEquivalenceTest : public QObject {
       VERIFY_CLOSE(plan->candidate.score, pr["score"].toDouble());
       QCOMPARE(static_cast<int>(plan->finalists.size()), pr["finalistCount"].toInt());
       QCOMPARE(plan->rejectedPieceCounts.size(), static_cast<std::size_t>(pr["rejectedPieceCounts"].toArray().size()));
+    }
+  }
+
+  void constructionMatchesReference_data() {
+    QTest::addColumn<int>("caseIndex");
+    QFile f(QStringLiteral(CRAFT_REFERENCE_FIXTURE_DIR "/master-reference.json"));
+    f.open(QIODevice::ReadOnly);
+    const QJsonArray cases = QJsonDocument::fromJson(f.readAll()).object()["cases"].toArray();
+    for (int i = 0; i < cases.size(); ++i) QTest::newRow(qPrintable(cases[i].toObject()["name"].toString())) << i;
+  }
+
+  void constructionMatchesReference() {
+    QFETCH(int, caseIndex);
+    const QJsonObject c = document_["cases"].toArray()[caseIndex].toObject();
+    const QJsonObject input = c["input"].toObject();
+    MasterSeedInput seedInput;
+    MasterSeedGeometryInput& g = seedInput.sourcePartGeometry;
+    g.modelId = "model-" + c["name"].toString().toStdString();
+    if (input.contains("recipe")) {
+      cubeGrid(input["recipe"].toObject()["segments"].toInt(), input["recipe"].toObject()["size"].toDouble(), g.positions, g.indices);
+    } else {
+      for (const QJsonValue& v : input["positions"].toArray()) g.positions.push_back(v.toDouble());
+      for (const QJsonValue& v : input["indices"].toArray()) g.indices.push_back(static_cast<std::uint32_t>(v.toInt()));
+    }
+    const QJsonArray transform = input["transform"].toArray();
+    for (int i = 0; i < 16; ++i) g.transform[static_cast<std::size_t>(i)] = transform[i].toDouble();
+    Bounds3 local = emptyBounds();
+    for (std::size_t i = 0; i < g.positions.size(); i += 3)
+      for (int a = 0; a < 3; ++a) {
+        local.min[a] = std::min(local.min[a], g.positions[i + static_cast<std::size_t>(a)]);
+        local.max[a] = std::max(local.max[a], g.positions[i + static_cast<std::size_t>(a)]);
+      }
+    g.localBounds = local;
+    g.geometryVersion = "geom-" + c["name"].toString().toStdString();
+    seedInput.projectRevision = "rev-1";
+    const MasterSeedSnapshot world = worldMeshFromSnapshot(buildMasterMoldSeedSnapshot(seedInput));
+    const PlanningMesh mesh = buildPlanningMesh(world.sourceMesh.positions, world.sourceMesh.indices, world.sourceMesh.bounds, world.sourceGeometryVersion);
+    const auto candidates = generateCandidateDirections(mesh, world.sourceMesh.positions);
+    const AccessibilityAnalysis raw = analyzeDirectionAccessibility(world.sourceMesh.positions, world.sourceMesh.indices, mesh, candidates);
+    const AccessibilityAnalysis analysis =
+        runAdaptiveDirectionDiscovery(mesh, world.sourceMesh.positions, world.sourceMesh.indices, pruneDirections(raw.directions, raw, mesh, 32).analysis).analysis;
+
+    const QJsonObject ref = c["planner"].toObject();
+#ifndef NDEBUG
+    // A 50,000-triangle part makes every translation sweep a full Boolean; the Debug kernel needs minutes where the
+    // optimized reference needs seconds. The Release build runs this row (see EXECUTION_LOG).
+    if (c["name"].toString() == QLatin1String("cube-grid-large")) QSKIP("heavy construction row runs in Release builds only");
+#endif
+    const QJsonArray expectedAttempts = ref["constructionAttempts"].toArray();
+    auto engine = createManifoldMeshEngine();
+    WorkingMoldPieceCountSearch search({mesh, analysis, 6});
+    std::optional<WorkingMoldConstructionOutput> built;
+    qsizetype attemptIndex = 0;
+    for (;;) {
+      auto step = search.next();
+      if (!step) break;
+      for (std::size_t fi = 0; fi < step->finalists.size() && !built; ++fi) {
+        WorkingMoldConstructionInput in;
+        in.sourcePositions = world.sourceMesh.positions;
+        in.sourceIndices = world.sourceMesh.indices;
+        in.sourceBounds = world.sourceBounds;
+        in.releaseClearanceMm = world.processProfile.releaseClearanceMm.value_or(0);
+        in.minimumToolingWallMm = world.processProfile.minimumToolingWallMm;
+        for (const auto& piece : step->finalists[fi].candidate.pieces) {
+          PlannedPieceRegion region;
+          region.releaseDirection = piece.releaseDirection;
+          if (piece.prism) region.plane = PlannedPieceRegion::Plane{analysis.directions[static_cast<std::size_t>(piece.prism->directionIndex)].vector, piece.prism->offsetMm};
+          in.pieces.push_back(region);
+        }
+        QVERIFY2(attemptIndex < expectedAttempts.size(), "native made more construction attempts than the reference");
+        const QJsonObject expected = expectedAttempts[attemptIndex++].toObject();
+        QCOMPARE(step->pieceCount, expected["pieceCount"].toInt());
+        QCOMPARE(static_cast<int>(fi), expected["finalistIndex"].toInt());
+        try {
+          built = constructWorkingMold(*engine, in);
+          QVERIFY2(expected["ok"].toBool(), "native constructed a mold the reference rejected");
+        } catch (const std::runtime_error& error) {
+          QVERIFY2(!expected["ok"].toBool(), qPrintable(QStringLiteral("native rejected a mold the reference built: %1").arg(error.what())));
+          QCOMPARE(QString::fromUtf8(error.what()), expected["error"].toString());
+        }
+      }
+      if (built) break;
+    }
+    QCOMPARE(attemptIndex, expectedAttempts.size());
+    QCOMPARE(built.has_value(), ref["construction"].isObject());
+    if (!built) return;
+
+    const QJsonObject cr = ref["construction"].toObject();
+    const QJsonArray pieces = cr["pieces"].toArray();
+    QCOMPARE(built->pieces.size(), static_cast<std::size_t>(pieces.size()));
+    for (qsizetype i = 0; i < pieces.size(); ++i) {
+      const QJsonObject e = pieces[i].toObject();
+      const WorkingMoldPieceTarget& a = built->pieces[static_cast<std::size_t>(i)];
+      QCOMPARE(q(a.pieceId), e["pieceId"].toString());
+      QCOMPARE(q(a.name), e["name"].toString());
+      VERIFY_CLOSE(a.volumeMm3, e["volumeMm3"].toDouble());
+      QCOMPARE(a.triangleCount, e["triangleCount"].toInt());
+      QCOMPARE(static_cast<int>(a.mesh.vertexCount()), e["vertexCount"].toInt());
+      QCOMPARE(a.watertight, e["watertight"].toBool());
+      QCOMPARE(a.manifold, e["manifold"].toBool());
+      QCOMPARE(a.releaseOrder, e["releaseOrder"].toInt());
+      const Bounds3 eb = boundsOf(e["bounds"]);
+      for (int axis = 0; axis < 3; ++axis) {
+        VERIFY_CLOSE(a.bounds.min[axis], eb.min[axis]);
+        VERIFY_CLOSE(a.bounds.max[axis], eb.max[axis]);
+        VERIFY_CLOSE(a.assignedDirection[axis], pointOf(e["assignedDirection"].toObject())[axis]);
+      }
+    }
+    const QJsonArray steps = cr["releaseSequence"].toArray();
+    QCOMPARE(built->releaseSequence.size(), static_cast<std::size_t>(steps.size()));
+    for (qsizetype i = 0; i < steps.size(); ++i) {
+      const QJsonObject e = steps[i].toObject();
+      const auto& a = built->releaseSequence[static_cast<std::size_t>(i)];
+      QCOMPARE(a.stepIndex, e["stepIndex"].toInt());
+      QCOMPARE(a.pieceIndex, e["pieceIndex"].toInt());
+      VERIFY_CLOSE(a.clearanceDistanceMm, e["clearanceDistanceMm"].toDouble());
+      QCOMPARE(a.collisionVerified, e["collisionVerified"].toBool());
+      for (int axis = 0; axis < 3; ++axis) VERIFY_CLOSE(a.direction[axis], pointOf(e["direction"].toObject())[axis]);
+    }
+    QCOMPARE(built->releaseSweepCount, cr["releaseSweepCount"].toInt());
+    const QJsonObject rp = cr["registrationPlan"].toObject();
+    QCOMPARE(built->registrationPlan.reason.has_value(), !rp["reason"].isNull());
+    if (built->registrationPlan.reason) QCOMPARE(q(*built->registrationPlan.reason), rp["reason"].toString());
+    const QJsonArray features = rp["features"].toArray();
+    QCOMPARE(built->registrationPlan.features.size(), static_cast<std::size_t>(features.size()));
+    for (qsizetype i = 0; i < features.size(); ++i) {
+      const QJsonObject e = features[i].toObject();
+      const auto& a = built->registrationPlan.features[static_cast<std::size_t>(i)];
+      QCOMPARE(q(a.featureId), e["featureId"].toString());
+      QCOMPARE(q(a.interfaceId), e["interfaceId"].toString());
+      QCOMPARE(a.malePieceIndex, e["malePieceIndex"].toInt());
+      QCOMPARE(a.femalePieceIndex, e["femalePieceIndex"].toInt());
+      for (int axis = 0; axis < 3; ++axis) {
+        VERIFY_CLOSE(a.position[axis], pointOf(e["position"].toObject())[axis]);
+        VERIFY_CLOSE(a.direction[axis], pointOf(e["direction"].toObject())[axis]);
+      }
     }
   }
 
