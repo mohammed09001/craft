@@ -67,6 +67,11 @@ double dotv(const Point3& a, const Point3& b) { return a.x * b.x + a.y * b.y + a
 
 }  // namespace
 
+std::string stableJsonQuote(const std::string& text) { return quote(text); }
+std::string stableJsonNumber(double value) { return num(value); }
+std::string stableHashOfJson(const std::string& json) { return hashStable(json); }
+std::string stableJsonVolume(const std::optional<Point3>& volume) { return volumeJson(volume); }
+
 // --- seed ---------------------------------------------------------------------------------------
 
 Bounds3 worldBoundsFromLocal(const Bounds3& l, const std::array<double, 16>& t) {

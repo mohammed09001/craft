@@ -93,6 +93,12 @@ add_library(craft_mold STATIC
   core/master/MasterWorkingMoldPlanner.h
   core/master/MasterWorkingMoldConstructor.cpp
   core/master/MasterWorkingMoldConstructor.h
+  core/master/RayBvh.cpp
+  core/master/RayBvh.h
+  core/master/MasterTooling.cpp
+  core/master/MasterTooling.h
+  core/master/MasterEngine.cpp
+  core/master/MasterEngine.h
   core/master/MasterPlanning.cpp
     core/master/TriangleIntersection.cpp
     core/master/TriangleIntersection.h

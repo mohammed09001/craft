@@ -14,6 +14,7 @@
 #include "geometry/MeshAnalysis.h"
 #include "master/MasterAccessibility.h"
 #include "ManifoldMeshEngine.h"
+#include "master/MasterEngine.h"
 #include "master/MasterWorkingMoldConstructor.h"
 #include "master/MasterWorkingMoldPlanner.h"
 #include "master/MasterPlanning.h"
@@ -587,6 +588,226 @@ class MasterEquivalenceTest : public QObject {
         VERIFY_CLOSE(a.position[axis], pointOf(e["position"].toObject())[axis]);
         VERIFY_CLOSE(a.direction[axis], pointOf(e["direction"].toObject())[axis]);
       }
+    }
+  }
+
+  void engineMatchesReference_data() {
+    QTest::addColumn<int>("caseIndex");
+    QFile f(QStringLiteral(CRAFT_REFERENCE_FIXTURE_DIR "/master-reference.json"));
+    f.open(QIODevice::ReadOnly);
+    const QJsonArray cases = QJsonDocument::fromJson(f.readAll()).object()["cases"].toArray();
+    for (int i = 0; i < cases.size(); ++i) QTest::newRow(qPrintable(cases[i].toObject()["name"].toString())) << i;
+  }
+
+  void engineMatchesReference() {
+    QFETCH(int, caseIndex);
+    const QJsonObject c = document_["cases"].toArray()[caseIndex].toObject();
+    const QJsonObject ref = c["engine"].toObject();
+#ifndef NDEBUG
+    if (c["name"].toString() == QLatin1String("cube-grid-large")) QSKIP("heavy engine row runs in Release builds only");
+#endif
+    const QJsonObject input = c["input"].toObject();
+    MasterSeedInput seedInput;
+    MasterSeedGeometryInput& g = seedInput.sourcePartGeometry;
+    g.modelId = "model-" + c["name"].toString().toStdString();
+    if (input.contains("recipe")) {
+      cubeGrid(input["recipe"].toObject()["segments"].toInt(), input["recipe"].toObject()["size"].toDouble(), g.positions, g.indices);
+    } else {
+      for (const QJsonValue& v : input["positions"].toArray()) g.positions.push_back(v.toDouble());
+      for (const QJsonValue& v : input["indices"].toArray()) g.indices.push_back(static_cast<std::uint32_t>(v.toInt()));
+    }
+    const QJsonArray transform = input["transform"].toArray();
+    for (int i = 0; i < 16; ++i) g.transform[static_cast<std::size_t>(i)] = transform[i].toDouble();
+    Bounds3 local = emptyBounds();
+    for (std::size_t i = 0; i < g.positions.size(); i += 3)
+      for (int a = 0; a < 3; ++a) {
+        local.min[a] = std::min(local.min[a], g.positions[i + static_cast<std::size_t>(a)]);
+        local.max[a] = std::max(local.max[a], g.positions[i + static_cast<std::size_t>(a)]);
+      }
+    g.localBounds = local;
+    g.geometryVersion = "geom-" + c["name"].toString().toStdString();
+    if (input["printer"].isObject()) seedInput.printerBuildVolume = pointOf(input["printer"].toObject());
+    seedInput.projectRevision = "rev-1";
+    const MasterSeedSnapshot seed = worldMeshFromSnapshot(buildMasterMoldSeedSnapshot(seedInput));
+
+    auto engine = createManifoldMeshEngine();
+    const MasterMoldEngineResult result = runMasterMoldEngine(*engine, seed);
+    const bool exact = !result.unportedPathsReached;  // no reference path was skipped
+
+    // failures
+    const QJsonArray failures = ref["failures"].toArray();
+    if (exact || failures.size() > 0) {
+      QCOMPARE(result.failures.size(), static_cast<std::size_t>(failures.size()));
+      for (qsizetype i = 0; i < failures.size(); ++i) {
+        QCOMPARE(q(result.failures[static_cast<std::size_t>(i)].moldPartId), failures[i].toObject()["moldPartId"].toString());
+        QCOMPARE(q(result.failures[static_cast<std::size_t>(i)].reason), failures[i].toObject()["reason"].toString());
+        QCOMPARE(q(result.failures[static_cast<std::size_t>(i)].family), failures[i].toObject()["family"].toString());
+        QCOMPARE(q(result.failures[static_cast<std::size_t>(i)].message), failures[i].toObject()["message"].toString());
+      }
+    }
+    QCOMPARE(result.plan.has_value(), ref["plan"].isObject());
+    QCOMPARE(result.debugSnapshot.has_value(), ref["debugSnapshot"].isObject());
+
+    // planning diagnostics + debug snapshot
+    if (!ref["planningDiagnostics"].toArray().isEmpty()) {
+      const QJsonArray diags = ref["planningDiagnostics"].toArray();
+      QCOMPARE(result.planningDiagnostics.size(), static_cast<std::size_t>(diags.size()));
+      for (qsizetype i = 0; i < diags.size(); ++i) {
+        const QJsonObject d = diags[i].toObject();
+        const auto& a = result.planningDiagnostics[static_cast<std::size_t>(i)];
+        QCOMPARE(a.pieceCount, d["pieceCount"].toInt());
+        QCOMPARE(a.planningCandidatesGenerated, d["planningCandidatesGenerated"].toInt());
+        QCOMPARE(a.planningCandidatesFeasible, d["planningCandidatesFeasible"].toInt());
+        QCOMPARE(a.rejectionReason.has_value(), !d["rejectionReason"].isNull());
+        if (a.rejectionReason) QCOMPARE(q(*a.rejectionReason), d["rejectionReason"].toString());
+      }
+    }
+    if (result.debugSnapshot) {
+      const QJsonObject s = ref["debugSnapshot"].toObject();
+      const auto& a = *result.debugSnapshot;
+      QCOMPARE(q(a.sourceValidity), s["sourceValidity"].toString());
+      QCOMPARE(a.regionCount, s["regionCount"].toInt());
+      QCOMPARE(a.candidateDirectionCount, s["candidateDirectionCount"].toInt());
+      QCOMPARE(a.regionRefinementCount, s["regionRefinementCount"].toInt());
+      QCOMPARE(a.totalRegions, s["coverageMatrixSummary"].toObject()["totalRegions"].toInt());
+      QCOMPARE(a.uncoveredRegionCount, s["coverageMatrixSummary"].toObject()["uncoveredRegionCount"].toInt());
+      QCOMPARE(a.uncoveredRegionIndexes, intsOf(s["uncoveredRegionIndexes"]));
+      QCOMPARE(a.pieceCountAttempts, intsOf(s["pieceCountAttempts"]));
+      if (exact) QCOMPARE(a.exactConstructionAttempts, s["exactConstructionAttempts"].toInt());
+      QCOMPARE(a.selectedPieceCount.has_value(), !s["selectedPieceCount"].isNull());
+      if (a.selectedPieceCount) QCOMPARE(*a.selectedPieceCount, s["selectedPieceCount"].toInt());
+      QCOMPARE(a.releaseSweepCount.has_value(), !s["releaseSweepCount"].isNull());
+      if (a.releaseSweepCount) QCOMPARE(*a.releaseSweepCount, s["releaseSweepCount"].toInt());
+    }
+
+    // budget details (always: planning is fully ported)
+    const QJsonObject bud = ref["budget"].toObject();
+    QCOMPARE(result.budget.planningPatchCount, bud["planningPatchCount"].toInt());
+    QCOMPARE(result.budget.candidateDirectionCount, bud["candidateDirectionCount"].toInt());
+    QCOMPARE(result.budget.workingMoldPlanCandidateCount, bud["workingMoldPlanCandidateCount"].toInt());
+    // Attempt counts include the reference
+    if (exact) {
+      QCOMPARE(result.budget.pourFaceAnalysisAttempts, bud["pourFaceAnalysisAttempts"].toInt());
+      QCOMPARE(result.budget.ventAnalysisAttempts, bud["ventAnalysisAttempts"].toInt());
+      QCOMPARE(result.budget.toolingOnePieceAttempts, bud["toolingOnePieceAttempts"].toInt());
+      QCOMPARE(result.budget.toolingMultiPieceAttempts, bud["toolingMultiPieceAttempts"].toInt());
+      QCOMPARE(result.budget.toolingExactPlanAttempts, bud["toolingExactPlanAttempts"].toInt());
+      QCOMPARE(result.budget.releaseVerificationAttempts, bud["releaseVerificationAttempts"].toInt());
+    }
+
+    // plan
+    std::set<QString> tessellationDiffers;
+    if (result.plan) {
+      const QJsonObject plan = ref["plan"].toObject();
+      const QJsonArray pieces = plan["pieces"].toArray();
+      QCOMPARE(result.plan->moldPieces.size(), static_cast<std::size_t>(pieces.size()));
+      for (qsizetype i = 0; i < pieces.size(); ++i) {
+        const QJsonObject e = pieces[i].toObject();
+        const auto& a = result.plan->moldPieces[static_cast<std::size_t>(i)];
+        QCOMPARE(q(a.pieceId), e["pieceId"].toString());
+        VERIFY_CLOSE(a.volumeMm3, e["volumeMm3"].toDouble());
+        QCOMPARE(a.triangleCount, e["triangleCount"].toInt());
+        QCOMPARE(a.releaseOrder, e["releaseOrder"].toInt());
+        {
+          // Vertex positions must be bit-identical. Triangle connectivity may legitimately differ: the kernel builds
+          // differ in how they triangulate coplanar faces with holes (the pin faces) -- see DECISIONS D-029.
+          const std::vector<double> idx(a.mesh.indices.begin(), a.mesh.indices.end());
+          QCOMPARE(q(finishHash(hashNumericArray(a.mesh.positions))), e["positionsHash"].toString());
+          if (q(finishHash(hashNumericArray(idx))) != e["indicesHash"].toString()) tessellationDiffers.insert(q(a.pieceId));
+        }
+        const Bounds3 eb = boundsOf(e["bounds"]);
+        for (int axis = 0; axis < 3; ++axis) { VERIFY_CLOSE(a.bounds.min[axis], eb.min[axis]); VERIFY_CLOSE(a.bounds.max[axis], eb.max[axis]); }
+      }
+      QCOMPARE(result.plan->partingInterfaces.size(), static_cast<std::size_t>(plan["interfaces"].toArray().size()));
+      QCOMPARE(result.plan->releaseSequence.size(), static_cast<std::size_t>(plan["releaseSequence"].toArray().size()));
+      QCOMPARE(result.plan->registrationPlan.features.size(), static_cast<std::size_t>(plan["registrationPlan"].toObject()["features"].toArray().size()));
+      const QJsonArray planWarnings = plan["warnings"].toArray();
+      QCOMPARE(result.plan->warnings.size(), static_cast<std::size_t>(planWarnings.size()));
+      for (qsizetype i = 0; i < planWarnings.size(); ++i) {
+        QCOMPARE(q(result.plan->warnings[static_cast<std::size_t>(i)].code), planWarnings[i].toObject()["code"].toString());
+        QCOMPARE(q(result.plan->warnings[static_cast<std::size_t>(i)].message), planWarnings[i].toObject()["message"].toString());
+      }
+      QCOMPARE(result.plan->rejectedPieceCounts.size(), static_cast<std::size_t>(plan["rejectedPieceCounts"].toArray().size()));
+    }
+
+    // tooling sets: compared piece by piece; a reference set that needed the multi-piece planner is only
+    // checked to be flagged as an unported path natively.
+    const QJsonArray sets = ref["toolingSets"].toArray();
+    bool referenceNeededUnported = false;
+    for (const QJsonValue& v : sets) if (v.toObject()["releaseMode"].toString() != QLatin1String("one-piece")) referenceNeededUnported = true;
+    if (referenceNeededUnported) QVERIFY2(result.unportedPathsReached, "native did not flag the multi-piece tooling it cannot produce");
+    QCOMPARE(result.toolingSets.size(), static_cast<std::size_t>(sets.size()) - (referenceNeededUnported ? 0u : 0u));
+    for (qsizetype i = 0; i < sets.size(); ++i) {
+      const QJsonObject e = sets[i].toObject();
+      const MasterToolingSet& a = result.toolingSets[static_cast<std::size_t>(i)];
+      QCOMPARE(q(a.moldPartId), e["moldPartId"].toString());
+      QCOMPARE(q(a.moldPartName), e["moldPartName"].toString());
+      const QJsonObject pf = e["pourFaceDecision"].toObject();
+      // Pour-face planning and accessibility never depend on the unported paths.
+      QCOMPARE(a.pourFaceDecision.candidates.size(), static_cast<std::size_t>(pf["candidates"].toArray().size()));
+      for (qsizetype k = 0; k < pf["candidates"].toArray().size(); ++k) {
+        const QJsonObject ce = pf["candidates"].toArray()[k].toObject();
+        const auto& ca = a.pourFaceDecision.candidates[static_cast<std::size_t>(k)];
+        QCOMPARE(QString::fromLatin1(masterDirName(ca.direction)), ce["direction"].toString());
+        QCOMPARE(q(ca.source), ce["source"].toString());
+        QCOMPARE(ca.valid, ce["valid"].toBool());
+        VERIFY_CLOSE(ca.exposedOpeningAreaMm2, ce["exposedOpeningAreaMm2"].toDouble());
+        VERIFY_CLOSE(ca.castingDepthMm, ce["castingDepthMm"].toDouble());
+        QCOMPARE(ca.rejectionReason.has_value(), !ce["rejectionReason"].isNull());
+        if (ca.rejectionReason) QCOMPARE(q(*ca.rejectionReason), ce["rejectionReason"].toString());
+        if (ca.valid) VERIFY_CLOSE(ca.score, ce["score"].toDouble());
+      }
+      QStringList wa, we;
+      for (const auto& w : a.pourFaceDecision.fillabilityWarnings) wa << q(w);
+      for (const QJsonValue& w : pf["fillabilityWarnings"].toArray()) we << w.toString();
+      QCOMPARE(wa, we);
+      const QJsonArray acc = e["accessibility"].toObject()["directions"].toArray();
+      QCOMPARE(a.accessibility.directions.size(), static_cast<std::size_t>(acc.size()));
+      // Accessibility samples individual triangles, so a different triangulation of the same surface moves a
+      // fraction by at most a sample or two; identical meshes must agree to rounding.
+      const bool tessellation = tessellationDiffers.count(q(a.moldPartId)) > 0;
+      for (qsizetype k = 0; k < acc.size(); ++k) {
+        const double nf = a.accessibility.directions[static_cast<std::size_t>(k)].accessibilityFraction, rf = acc[k].toObject()["accessibilityFraction"].toDouble();
+        if (tessellation) {
+          QVERIFY2(std::fabs(nf - rf) <= 0.02, qPrintable(QStringLiteral("accessibility %1 vs %2 (triangulation differs)").arg(nf).arg(rf)));
+        } else {
+          VERIFY_CLOSE(nf, rf);
+          VERIFY_CLOSE(a.accessibility.directions[static_cast<std::size_t>(k)].undercutAreaMm2, acc[k].toObject()["undercutAreaMm2"].toDouble());
+        }
+      }
+      if (!tessellation) QCOMPARE(a.accessibility.onePieceReleaseFeasible, e["accessibility"].toObject()["onePieceReleaseFeasible"].toBool());
+      if (e["releaseMode"].toString() != QLatin1String("one-piece")) continue;
+
+      QCOMPARE(q(a.releaseMode), e["releaseMode"].toString());
+      QCOMPARE(QString::fromLatin1(masterDirName(*a.pourFaceDecision.selected)), pf["selected"].toString());
+      QCOMPARE(q(a.pourFaceDecision.ventPlan.status), pf["ventPlan"].toObject()["status"].toString());
+      QCOMPARE(a.pourFaceDecision.ventPlan.features.size(), static_cast<std::size_t>(pf["ventPlan"].toObject()["features"].toArray().size()));
+      const QJsonArray pieces = e["pieces"].toArray();
+      QCOMPARE(a.assembly.pieces.size(), static_cast<std::size_t>(pieces.size()));
+      for (qsizetype k = 0; k < pieces.size(); ++k) {
+        const QJsonObject pe = pieces[k].toObject();
+        const auto& pa = a.assembly.pieces[static_cast<std::size_t>(k)];
+        QCOMPARE(q(pa.pieceId), pe["pieceId"].toString());
+        QCOMPARE(q(pa.name), pe["name"].toString());
+        VERIFY_CLOSE(pa.volumeMm3, pe["volumeMm3"].toDouble());
+        QCOMPARE(pa.triangleCount, pe["triangleCount"].toInt());
+        QCOMPARE(static_cast<int>(pa.mesh.vertexCount()), pe["vertexCount"].toInt());
+        QCOMPARE(pa.watertight, pe["watertight"].toBool());
+        QCOMPARE(pa.manifold, pe["manifold"].toBool());
+        QCOMPARE(q(pa.releaseDirection), pe["releaseDirection"].toString());
+        const Bounds3 eb = boundsOf(pe["bounds"]);
+        for (int axis = 0; axis < 3; ++axis) { VERIFY_CLOSE(pa.bounds.min[axis], eb.min[axis]); VERIFY_CLOSE(pa.bounds.max[axis], eb.max[axis]); }
+      }
+      const QJsonArray seq = e["releaseSequence"].toArray();
+      QCOMPARE(a.assembly.releaseSequence.size(), static_cast<std::size_t>(seq.size()));
+      for (qsizetype k = 0; k < seq.size(); ++k) {
+        QCOMPARE(q(a.assembly.releaseSequence[static_cast<std::size_t>(k)].direction), seq[k].toObject()["direction"].toString());
+        VERIFY_CLOSE(a.assembly.releaseSequence[static_cast<std::size_t>(k)].clearanceDistanceMm, seq[k].toObject()["clearanceDistanceMm"].toDouble());
+      }
+      QStringList sa, se;
+      for (const auto& w : a.warnings) sa << q(w);
+      for (const QJsonValue& w : e["warnings"].toArray()) se << w.toString();
+      QCOMPARE(sa, se);
     }
   }
 

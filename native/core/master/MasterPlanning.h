@@ -90,6 +90,12 @@ struct MasterSeedSnapshot {
 /// malformed or non-finite geometry.
 MasterSeedSnapshot buildMasterMoldSeedSnapshot(const MasterSeedInput& input);
 
+/// Stable-JSON helpers (insertion order, JS number format) and hashStableValues over a prebuilt JSON text.
+std::string stableJsonQuote(const std::string& text);
+std::string stableJsonNumber(double value);
+std::string stableHashOfJson(const std::string& json);
+std::string stableJsonVolume(const std::optional<Point3>& volume);
+
 /// Rehydrates world positions (identity transforms return the snapshot as is).
 MasterSeedSnapshot worldMeshFromSnapshot(const MasterSeedSnapshot& snapshot);
 

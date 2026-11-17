@@ -24,6 +24,7 @@ import { refineRegionGraphByVisibility } from "@/features/mold-generation/master
 import { analyzeDirectionAccessibility, pruneDirections } from "@/features/mold-generation/master-mold/planning/accessibility";
 import { runAdaptiveDirectionDiscovery } from "@/features/mold-generation/master-mold/planning/adaptiveDirectionDiscovery";
 import { constructWorkingMold } from "@/features/mold-generation/master-mold/planning/workingMoldConstructor";
+import { runMasterMoldEngine } from "@/features/mold-generation/master-mold/engine/masterMoldEngine";
 import { greedyRegionCover } from "@/features/mold-generation/master-mold/planning/regionSetCover";
 import { candidatePartingThresholds, createWorkingMoldPieceCountSearch, planWorkingMoldDecomposition } from "@/features/mold-generation/master-mold/planning/workingMoldPlanner";
 
@@ -221,7 +222,53 @@ async function runCase(spec: MeshSpec) {
     constructionAttempts: attempts,
     construction,
   };
+  // The full engine, end to end, exactly as evaluateMasterMoldGeneration calls it.
+  const engineStarted = Date.now();
+  const engineRun = await runMasterMoldEngine(world, []);
+  const hex = (n: number) => (n >>> 0).toString(16).padStart(8, "0");
+  const meshSummary = (m: { positions: readonly number[]; indices: readonly number[] }) => ({
+    vertexCount: m.positions.length / 3,
+    triangleCount: m.indices.length / 3,
+    positionsHash: hex(hashNumericArray([...m.positions])),
+    // Triangulation-independent: hash of sorted per-triangle vertex-position keys.
+    triangleSetHash: hex(hashNumericArray(Array.from({ length: m.indices.length / 3 }, (_, t) => {
+      const corners = [0, 1, 2].map((k) => `${m.positions[m.indices[t * 3 + k]! * 3]},${m.positions[m.indices[t * 3 + k]! * 3 + 1]},${m.positions[m.indices[t * 3 + k]! * 3 + 2]}`).sort();
+      return corners.join("|");
+    }).sort().map((s) => s.length))),
+    indicesHash: hex(hashNumericArray([...m.indices])),
+  });
+  const engineJson = {
+    seedId: engineRun.seedId,
+    elapsedMs: Date.now() - engineStarted,
+    failures: engineRun.failures,
+    budget: engineRun.budget,
+    planningDiagnostics: engineRun.planningDiagnostics,
+    debugSnapshot: engineRun.debugSnapshot,
+    plan: engineRun.plan === null ? null : {
+      pieces: engineRun.plan.moldPieces.map((p) => ({ pieceId: p.pieceId, name: p.name, volumeMm3: p.volumeMm3, bounds: p.bounds, triangleCount: p.triangleCount, watertight: p.watertight, manifold: p.manifold, releaseOrder: p.releaseOrder, assignedDirection: p.assignedDirection, ...meshSummary(p.mesh) })),
+      interfaces: engineRun.plan.partingInterfaces,
+      releaseSequence: engineRun.plan.releaseSequence,
+      registrationPlan: engineRun.plan.registrationPlan,
+      warnings: engineRun.plan.warnings,
+      score: engineRun.plan.score,
+      rejectedPieceCounts: engineRun.plan.rejectedPieceCounts,
+    },
+    toolingSets: engineRun.toolingSets.map((s) => ({
+      moldPartId: s.moldPartId,
+      moldPartName: s.moldPartName,
+      pourFaceDecision: s.pourFaceDecision,
+      accessibility: s.accessibility,
+      releaseMode: s.releaseMode,
+      partingSurfaceCount: s.partingSurfaces.length,
+      coreMode: s.assembly.coreMode,
+      registrationFeatureCount: s.assembly.registrationFeatures.length,
+      releaseSequence: s.assembly.releaseSequence,
+      pieces: s.assembly.pieces.map((p) => ({ pieceId: p.pieceId, name: p.name, volumeMm3: p.volumeMm3, bounds: p.bounds, triangleCount: p.triangleCount, watertight: p.watertight, manifold: p.manifold, releaseDirection: p.releaseDirection, regions: p.regions, fitsBuildVolume: p.fitsBuildVolume, ...meshSummary(p.mesh) })),
+      warnings: s.warnings,
+    })),
+  };
   return {
+    engine: engineJson,
     planner: plannerJson,
     surface: {
       regions: regionGraph.regions,

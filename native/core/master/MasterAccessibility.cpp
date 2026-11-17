@@ -10,6 +10,7 @@
 #include <unordered_set>
 
 #include "geometry/GeometryTolerance.h"
+#include "master/RayBvh.h"
 
 namespace craft {
 
@@ -354,149 +355,9 @@ RegionSubdivisionResult refineRegionGraphByVisibility(const SurfaceRegionGraph& 
   return {std::move(out), totalSplits};
 }
 
-// --- ray BVH (three.js Ray.intersectTriangle semantics) -----------------------------------------
+// --- accessibility -------------------------------------------------------------------------------------------
 
 namespace {
-struct V3 { double x, y, z; };
-V3 sub(const V3& a, const V3& b) { return {a.x - b.x, a.y - b.y, a.z - b.z}; }
-V3 cross(const V3& a, const V3& b) { return {a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x}; }
-double dot(const V3& a, const V3& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
-
-class RayBvh {
- public:
-  RayBvh(const std::vector<float>& positions, const std::vector<std::uint32_t>& indices) : positions_(positions), indices_(indices) {
-    const std::size_t count = indices.size() / 3;
-    std::vector<int> ids(count);
-    for (std::size_t i = 0; i < count; ++i) ids[i] = static_cast<int>(i);
-    boxes_.resize(count);
-    for (std::size_t t = 0; t < count; ++t) {
-      Bounds3 b = emptyBounds();
-      for (int c = 0; c < 3; ++c) {
-        const std::size_t v = indices[t * 3 + static_cast<std::size_t>(c)];
-        for (int a = 0; a < 3; ++a) {
-          const double value = positions[v * 3 + static_cast<std::size_t>(a)];
-          b.min[a] = std::min(b.min[a], value);
-          b.max[a] = std::max(b.max[a], value);
-        }
-      }
-      boxes_[t] = b;
-    }
-    if (count > 0) build(ids, 0, ids.size());
-    order_ = std::move(ids);
-  }
-
-  /// True when any intersection lies at distance > eps along the ray (DoubleSide, near = eps).
-  bool anyHitBeyond(const V3& origin, const V3& dir, double eps) const {
-    if (nodes_.empty()) return false;
-    std::vector<int> stack{0};
-    while (!stack.empty()) {
-      const Node& n = nodes_[static_cast<std::size_t>(stack.back())];
-      stack.pop_back();
-      if (!rayHitsBox(n.box, origin, dir)) continue;
-      if (n.left < 0) {
-        for (int i = n.start; i < n.start + n.count; ++i) {
-          if (triangleHit(order_[static_cast<std::size_t>(i)], origin, dir, eps)) return true;
-        }
-      } else {
-        stack.push_back(n.left);
-        stack.push_back(n.right);
-      }
-    }
-    return false;
-  }
-
- private:
-  struct Node { Bounds3 box; int left = -1, right = -1, start = 0, count = 0; };
-
-  int build(std::vector<int>& ids, std::size_t begin, std::size_t end) {
-    const int index = static_cast<int>(nodes_.size());
-    nodes_.emplace_back();
-    Bounds3 box = emptyBounds();
-    for (std::size_t i = begin; i < end; ++i)
-      for (int a = 0; a < 3; ++a) {
-        box.min[a] = std::min(box.min[a], boxes_[static_cast<std::size_t>(ids[i])].min[a]);
-        box.max[a] = std::max(box.max[a], boxes_[static_cast<std::size_t>(ids[i])].max[a]);
-      }
-    nodes_[static_cast<std::size_t>(index)].box = box;
-    if (end - begin <= 8) {
-      nodes_[static_cast<std::size_t>(index)].start = static_cast<int>(begin);
-      nodes_[static_cast<std::size_t>(index)].count = static_cast<int>(end - begin);
-      return index;
-    }
-    int axis = 0;
-    double best = box.max.x - box.min.x;
-    if (box.max.y - box.min.y > best) { axis = 1; best = box.max.y - box.min.y; }
-    if (box.max.z - box.min.z > best) axis = 2;
-    const std::size_t mid = (begin + end) / 2;
-    std::nth_element(ids.begin() + static_cast<long>(begin), ids.begin() + static_cast<long>(mid), ids.begin() + static_cast<long>(end),
-                     [&](int a, int b) {
-                       return boxes_[static_cast<std::size_t>(a)].min[axis] + boxes_[static_cast<std::size_t>(a)].max[axis] <
-                              boxes_[static_cast<std::size_t>(b)].min[axis] + boxes_[static_cast<std::size_t>(b)].max[axis];
-                     });
-    const int left = build(ids, begin, mid);
-    const int right = build(ids, mid, end);
-    nodes_[static_cast<std::size_t>(index)].left = left;
-    nodes_[static_cast<std::size_t>(index)].right = right;
-    return index;
-  }
-
-  static bool rayHitsBox(const Bounds3& box, const V3& o, const V3& d) {
-    // Padded slab test: a conservative superset of the exact hits, so no triangle the exact test accepts is skipped.
-    double tmin = 0, tmax = INFINITY;
-    const double pad = 1e-6;
-    const double od[3] = {o.x, o.y, o.z}, dd[3] = {d.x, d.y, d.z};
-    for (int a = 0; a < 3; ++a) {
-      const double lo = box.min[a] - pad, hi = box.max[a] + pad;
-      if (dd[a] == 0) {
-        if (od[a] < lo || od[a] > hi) return false;
-        continue;
-      }
-      double t1 = (lo - od[a]) / dd[a], t2 = (hi - od[a]) / dd[a];
-      if (t1 > t2) std::swap(t1, t2);
-      tmin = std::max(tmin, t1);
-      tmax = std::min(tmax, t2);
-      if (tmin > tmax) return false;
-    }
-    return true;
-  }
-
-  bool triangleHit(int t, const V3& origin, const V3& dir, double eps) const {
-    const auto vertex = [&](int corner) {
-      const std::size_t v = indices_[static_cast<std::size_t>(t) * 3 + static_cast<std::size_t>(corner)];
-      return V3{positions_[v * 3], positions_[v * 3 + 1], positions_[v * 3 + 2]};
-    };
-    const V3 a = vertex(0), b = vertex(1), c = vertex(2);
-    const V3 edge1 = sub(b, a);
-    V3 edge2 = sub(c, a);
-    const V3 normal = cross(edge1, edge2);
-    double DdN = dot(dir, normal);
-    double sign;
-    if (DdN > 0) sign = 1;
-    else if (DdN < 0) { sign = -1; DdN = -DdN; }
-    else return false;
-    const V3 diff = sub(origin, a);
-    edge2 = cross(diff, edge2);
-    const double DdQxE2 = sign * dot(dir, edge2);
-    if (DdQxE2 < 0) return false;
-    const double DdE1xQ = sign * dot(dir, cross(edge1, diff));
-    if (DdE1xQ < 0) return false;
-    if (DdQxE2 + DdE1xQ > DdN) return false;
-    const double QdN = -sign * dot(diff, normal);
-    if (QdN < 0) return false;
-    const double s = QdN / DdN;
-    const V3 point{origin.x + dir.x * s, origin.y + dir.y * s, origin.z + dir.z * s};
-    const double dx = origin.x - point.x, dy = origin.y - point.y, dz = origin.z - point.z;
-    const double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
-    return distance >= eps && distance > eps;  // raycast near = eps, then the caller's filter distance > eps
-  }
-
-  const std::vector<float>& positions_;
-  const std::vector<std::uint32_t>& indices_;
-  std::vector<Bounds3> boxes_;
-  std::vector<Node> nodes_;
-  std::vector<int> order_;
-};
-
 constexpr double kRayEpsilonMm = 1e-7;
 
 double baseProbeOffsetMmFor(const Bounds3& b) {
@@ -522,13 +383,13 @@ AccessibilityAnalysis analyzeDirectionAccessibility(const std::vector<float>& po
     for (std::size_t pi = from; pi < to; ++pi) {
       const PlanningPatch& patch = mesh.patches[pi];
       for (std::size_t d = 0; d < directions.size(); ++d) {
-        const V3 dir{directions[d].vector.x, directions[d].vector.y, directions[d].vector.z};
+        const Point3 dir = directions[d].vector;
         bool results[3];
         const double scales[3] = {1, 4, 16};
         for (int s = 0; s < 3; ++s) {
           const double offset = baseOffset * scales[s];
-          const V3 probe{patch.centroid.x + patch.normal.x * offset, patch.centroid.y + patch.normal.y * offset,
-                         patch.centroid.z + patch.normal.z * offset};
+          const Point3 probe{patch.centroid.x + patch.normal.x * offset, patch.centroid.y + patch.normal.y * offset,
+                           patch.centroid.z + patch.normal.z * offset};
           results[s] = !bvh.anyHitBeyond(probe, dir, kRayEpsilonMm);
         }
         PatchAccessibilityClass cls;

@@ -205,6 +205,23 @@ row looked like a crash (exit 0xC0000409) but was Qt's 300 s watchdog, not a def
 
 Not done: the constructor's fallback modes (height-field, multi-neighbor, simultaneous grid, volumetric, multi-label) and region-direct assignment/construction
 that feed them; multi-piece planner; pour face; tooling construction; release verification of tooling; engine; worker; store; UI.
+### Session 12: Master Mold engine orchestration, pour face and one-piece tooling
+
+Extracted the three.js-faithful ray BVH into a shared `RayBvh` (crossing counts for pour-face pockets, surface accessibility and vent proofs), ported pour face
+(candidate directions, planar exposure, sealed air pockets with 26-connected grouping, scoring), surface accessibility, vent path proofs, `constructCasePiece`
+(one piece), the exact release sweep and assembled-negative check, and the whole engine: preflight, planning, pruning, adaptive discovery, piece-count search,
+planar construction, per-piece tooling, budgets and budget details, debug snapshot, structured failures with their exact text, sacrificial outcome and prior-set
+reuse. The generator now runs the real `runMasterMoldEngine` on every case (cube-grid-large takes 128 s in the TS reference).
+
+`tst_master_equivalence`: 40 rows. Release: 40 passed, 0 skipped. Debug: 38 passed, 2 skipped (the two cube-grid-large rows, D-028). Full Debug ctest: see below.
+
+Findings: (1) piece vertex positions are bit-identical natively and in the reference on all 9 cases; two pin-bearing pieces triangulate differently (D-029), found by
+hashing meshes rather than by loosening a tolerance first. (2) The heavy row's attempt count differed (3 vs 5) only because the reference retries each failed
+finalist with height-field tools; the native engine now flags that instead of pretending (D-031). (3) c-extrusion's second working-mold piece needs the multi-piece
+planner in the reference; native flags it and still matches pour face, accessibility and plan for it.
+
+Not done: multi-piece planner (recursive split, localized removable core, lock evidence), tooling registration pins, planar split case pieces, the engine's
+height-field / region-direct / multi-label construction fallbacks (and the constructor modes behind them), the worker, the store and the UI.
 ### Next exact step
 1. GPU frame-rate/VRAM measurement, WASM timing for the same inputs, and a visual comparison with the Three.js viewport on real STLs (Phase 2 gate).
 2. Port Master Mold (tooling set generation) and the engineering reports.
