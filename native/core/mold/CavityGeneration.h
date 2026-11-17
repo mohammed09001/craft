@@ -141,6 +141,12 @@ struct MoldGenerationRequest {
   double moldClearanceMm = kDefaultReferenceMoldClearanceMm;
   double cavityClearanceMm = kDefaultCavityClearanceMm;
   CavityQualityMode qualityMode = CavityQualityMode::Standard;
+  /// Bodies executed by Segmentation. When non-empty they replace the
+  /// Cut by Face partition: the definition gets segmentation lineage and the
+  /// partition-coverage invariant (an exact partition of the block) is not
+  /// asserted. `moldClearanceMm` must be the automatic segmentation clearance
+  /// the bodies were planned with.
+  std::vector<MoldBody> segmentedBodies;
   /// Enabled planes split the block (Cut by Face); none keeps one whole body.
   std::vector<CuttingPlane> cuttingPlanes;
   int generationVersion = 0;

@@ -60,6 +60,10 @@ class IMeshGeometryEngine {
   virtual SolidPtr cylinder(double radius, double height, int segments, const Point3& axis,
                             const Point3& origin) = 0;
   virtual SolidPtr unionOf(const std::vector<SolidPtr>& solids) = 0;
+  /// Splits by the plane through `originOffset` along `normal` (unit). Returns
+  /// {positive side, negative side}; either may be empty.
+  virtual std::pair<SolidPtr, SolidPtr> splitByPlane(const SolidPtr& solid, const Point3& normal,
+                                                     double originOffset) = 0;
 
   virtual SolidPtr subtract(const SolidPtr& from, const SolidPtr& tool) = 0;
   virtual SolidPtr intersect(const SolidPtr& a, const SolidPtr& b) = 0;

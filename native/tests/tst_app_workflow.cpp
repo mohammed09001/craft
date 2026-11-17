@@ -202,6 +202,85 @@ class WorkflowTest : public QObject {
     QCOMPARE(issues.front().toMap().value("code").toString(), QStringLiteral("registration_interface_not_found"));
   }
 
+  void segmentationPlansCutsKeysAndFeedsTheMoldPipeline() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+
+    // Nothing to plan without a printer volume; invalid volumes are rejected.
+    app->setPrinterVolume(-1, 100, 100);
+    QVERIFY(app->printerVolume().isEmpty());
+
+    // The bracket's automatic block is 240 x 230 x 212 mm (>= 100 mm clearance each side).
+    app->setPrinterVolume(300, 300, 300);
+    app->planSegmentation();
+    QCOMPARE(app->segmentation().value("phase").toString(), QStringLiteral("not-required"));
+
+    app->setPrinterVolume(150, 300, 300);
+    QCOMPARE(app->segmentation().value("phase").toString(), QStringLiteral("idle"));  // volume change reset it
+    app->planSegmentation();
+    QCOMPARE(app->segmentation().value("phase").toString(), QStringLiteral("planned"));
+    QCOMPARE(app->segmentation().value("sectionCount").toULongLong(), qulonglong{2});
+    QCOMPARE(app->segmentation().value("requiredAxes").toStringList(), QStringList{"x"});
+    QCOMPARE(app->segmentation().value("availableAxes").toStringList(), (QStringList{"y", "z"}));
+    QCOMPARE(app->scene()->count(), 3);  // part + two planned sections
+
+    // A user extension on a free axis doubles the sections; a used axis is refused.
+    app->addSegmentationExtension("y");
+    QCOMPARE(app->segmentation().value("sectionCount").toULongLong(), qulonglong{4});
+    QCOMPARE(app->segmentation().value("extensions").toList().size(), 1);
+    app->addSegmentationExtension("x");
+    QCOMPARE(app->segmentation().value("extensions").toList().size(), 1);
+    app->moveSegmentationExtension("y", 500);  // outside the block: invalid, kept and reported
+    QCOMPARE(app->segmentation().value("valid").toBool(), false);
+    QVERIFY(!app->segmentation().value("blockers").toList().isEmpty());
+    QSignalSpy errors(app.get(), &AppController::errorOccurred);
+    app->executeSegmentation();  // refused while invalid
+    QCOMPARE(errors.count(), 1);
+    app->moveSegmentationExtension("y", 0);
+    QCOMPARE(app->segmentation().value("valid").toBool(), true);
+
+    app->executeSegmentation();
+    QVERIFY(waitFor([&] { return app->segmentation().value("phase").toString() != "executing" && !app->busy(); }));
+    QCOMPARE(app->segmentation().value("phase").toString(), QStringLiteral("executed"));
+    QVERIFY(app->segmentationAdopted());
+    QCOMPARE(app->segmentationBodies().size(), std::size_t{4});
+    QCOMPARE(app->scene()->count(), 5);
+    for (const MoldBody& body : app->segmentationBodies()) QVERIFY(meshTopology(body.mesh).closedManifold());
+    const QVariantMap execution = app->segmentation().value("execution").toMap();
+    QCOMPARE(execution.value("bodyCount").toULongLong(), qulonglong{4});
+    QCOMPARE(execution.value("registrationStatus").toString(), QStringLiteral("generated"));
+    QVERIFY(execution.value("keyCount").toULongLong() > 0);
+
+    // Cut by Face is disabled while a segmentation result is adopted.
+    app->setCutFaceEnabled("top", true);
+    QCOMPARE(app->cutFaces().at(4).toMap().value("face").toString(), QStringLiteral("top"));
+    QVERIFY(!app->cutFaces().at(4).toMap().value("enabled").toBool());
+
+    // The mold pipeline runs on the segmented bodies: cavity, then keys with the lineage policy.
+    app->generateMold();
+    QVERIFY(waitFor([&] { return app->moldPhase() == "complete" || app->moldPhase() == "error"; }));
+    QVERIFY2(app->moldPhase() == "complete", qPrintable(app->moldError()));
+    QVERIFY(app->moldResult()->definition.segmentationLineage);
+    QCOMPARE(app->moldResult()->cavity.bodies.size(), std::size_t{4});
+    QCOMPARE(app->moldResult()->definition.clearanceMm, 100.0);
+    QCOMPARE(app->registrationState()->report->tolerancePolicy.maximumFeatureRadiusMm, 15.0);  // automatic sizing: 30 mm / 2
+    QCOMPARE(app->moldSummary().value("registration").toMap().value("status").toString(), QStringLiteral("generated"));
+    QCOMPARE(app->scene()->count(), 5);
+
+    // Changing the clearance used by the block drops the segmentation and the mold.
+    app->setMoldClearanceMm(120);
+    QVERIFY(!app->moldResult().has_value());
+    QVERIFY(!app->segmentationAdopted());
+    QCOMPARE(app->segmentation().value("phase").toString(), QStringLiteral("idle"));
+    QCOMPARE(app->scene()->count(), 1);
+
+    app->planSegmentation();
+    QCOMPARE(app->segmentation().value("moldClearanceMm").toDouble(), 120.0);
+    app->resetSegmentation();
+    QCOMPARE(app->scene()->count(), 1);
+  }
+
   void editingInputsDropsStaleResult() {
     auto app = makeApp();
     app->importStlFile(bracket());

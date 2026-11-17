@@ -99,6 +99,10 @@ add_library(craft_mold STATIC
   core/mold/Registration.h
   core/mold/ReferenceMold.cpp
   core/mold/ReferenceMold.h
+  core/mold/Segmentation.cpp
+  core/mold/Segmentation.h
+  core/mold/SegmentationIdentity.cpp
+  core/mold/SegmentationIdentity.h
   core/mold/SprueGeneration.cpp
   core/mold/SprueGeneration.h
   core/mold/SprueProfile.cpp

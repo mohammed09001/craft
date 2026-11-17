@@ -32,6 +32,8 @@ DerivedMoldEvaluation evaluateDerivedMold(IMeshGeometryEngine& engine, const Mol
   input.cavityMethod = mold.cavity.cavityTool.implementationMethod;
   input.cavityRevision = mold.cavity.sourceSignature;
   input.sprues = derived.sprues.resolvedSprues;
+  // A mold that descends from Segmentation keys with the automatic sizing policy.
+  if (mold.definition.segmentationLineage) input.sizingPolicy = automaticSegmentationRegistrationSizingPolicy();
   derived.registration = generateDerivedRegistration(engine, buildRegistrationDependencySnapshot(input));
   report("registration", 1);
   return derived;

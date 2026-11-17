@@ -91,6 +91,9 @@ struct RegistrationSizingPolicy {
 };
 inline constexpr double kRegistrationManufacturingMinimumWidthMm = 2.4;
 RegistrationSizingPolicy normalMoldRegistrationSizingPolicy();
+/// Sizing used for committed Segmentation results ("-v5": preferred 30 mm,
+/// preferred-first search, cavity-wall-centred placement).
+RegistrationSizingPolicy automaticSegmentationRegistrationSizingPolicy();
 RegistrationTolerancePolicy applyRegistrationSizingToTolerancePolicy(const RegistrationTolerancePolicy& tolerance,
                                                                     const RegistrationSizingPolicy& sizing);
 

@@ -36,6 +36,104 @@ ScrollView {
 
         GroupBox {
             Layout.fillWidth: true
+            title: qsTr("Segmentation")
+            enabled: app.modelPhase === "ready"
+            ColumnLayout {
+                anchors.fill: parent
+                Label {
+                    text: qsTr("Splits an oversized mold into pieces that fit the printer.")
+                    wrapMode: Text.Wrap; Layout.fillWidth: true
+                }
+                RowLayout {
+                    Label { text: qsTr("Printer (mm)") }
+                    SpinBox { id: printerX; from: 10; to: 5000; stepSize: 10; value: app.printerVolume.x || 220; editable: true; implicitWidth: 90 }
+                    SpinBox { id: printerY; from: 10; to: 5000; stepSize: 10; value: app.printerVolume.y || 220; editable: true; implicitWidth: 90 }
+                    SpinBox { id: printerZ; from: 10; to: 5000; stepSize: 10; value: app.printerVolume.z || 250; editable: true; implicitWidth: 90 }
+                }
+                Button {
+                    text: qsTr("Plan segmentation")
+                    Layout.fillWidth: true
+                    enabled: !app.busy
+                    onClicked: { app.setPrinterVolume(printerX.value, printerY.value, printerZ.value); app.planSegmentation() }
+                }
+                Label {
+                    visible: !!app.segmentation.message
+                    text: app.segmentation.message
+                    wrapMode: Text.Wrap; Layout.fillWidth: true
+                    color: app.segmentation.phase === "failed" || app.segmentation.valid === false ? "#e5484d" : palette.text
+                }
+                Label {
+                    visible: app.segmentation.sectionCount !== undefined
+                    text: qsTr("Axes: ") + (app.segmentation.requiredAxes || []).join(", ").toUpperCase()
+                          + qsTr(" · sections: ") + app.segmentation.sectionCount
+                          + (app.segmentation.blockSize ? qsTr(" · block ") + root.fmt(app.segmentation.blockSize.x, 0) + "×"
+                             + root.fmt(app.segmentation.blockSize.y, 0) + "×" + root.fmt(app.segmentation.blockSize.z, 0) + " mm" : "")
+                    wrapMode: Text.Wrap; Layout.fillWidth: true
+                }
+                Repeater {
+                    model: app.segmentation.blockers || []
+                    delegate: Label { required property var modelData; text: "⚠ " + modelData; color: "#e5484d"; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                }
+                Flow {
+                    Layout.fillWidth: true
+                    spacing: 6
+                    visible: app.segmentation.phase === "planned"
+                    Repeater {
+                        model: app.segmentation.availableAxes || []
+                        delegate: Button {
+                            required property var modelData
+                            text: qsTr("Add ") + modelData.toUpperCase() + qsTr(" cut")
+                            onClicked: app.addSegmentationExtension(modelData)
+                        }
+                    }
+                }
+                Repeater {
+                    model: app.segmentation.extensions || []
+                    delegate: RowLayout {
+                        required property var modelData
+                        Label { text: modelData.axis.toUpperCase() + qsTr(" cut at") }
+                        TextField {
+                            text: Number(modelData.coordinateMm).toFixed(2)
+                            inputMethodHints: Qt.ImhFormattedNumbersOnly
+                            implicitWidth: 90
+                            onEditingFinished: app.moveSegmentationExtension(modelData.axis, parseFloat(text))
+                        }
+                        Label { text: "mm" }
+                        ToolButton { text: qsTr("Remove"); onClicked: app.removeSegmentationExtension(modelData.axis) }
+                    }
+                }
+                Button {
+                    visible: app.segmentation.phase === "planned" || app.segmentation.phase === "executing"
+                    text: app.segmentation.phase === "executing" ? qsTr("Cancel") : qsTr("Cut mold into sections")
+                    highlighted: true
+                    Layout.fillWidth: true
+                    enabled: app.segmentation.phase === "executing" || app.segmentation.valid === true
+                    onClicked: app.segmentation.phase === "executing" ? app.cancelCurrentJob() : app.executeSegmentation()
+                }
+                ColumnLayout {
+                    visible: app.segmentation.adopted === true
+                    Label {
+                        text: (app.segmentation.execution ? app.segmentation.execution.bodyCount : 0) + qsTr(" sections")
+                              + (app.segmentation.execution && app.segmentation.execution.keyCount !== undefined
+                                 ? qsTr(", ") + app.segmentation.execution.keyCount + qsTr(" registration keys") : "")
+                        font.bold: true
+                    }
+                    Label {
+                        text: qsTr("Generate the mold to subtract the cavity from every section.")
+                        wrapMode: Text.Wrap; Layout.fillWidth: true
+                    }
+                }
+                Button {
+                    visible: app.segmentation.phase !== undefined && app.segmentation.phase !== "idle"
+                    text: qsTr("Reset segmentation")
+                    Layout.fillWidth: true
+                    onClicked: app.resetSegmentation()
+                }
+            }
+        }
+
+        GroupBox {
+            Layout.fillWidth: true
             title: qsTr("Mold")
             enabled: app.modelPhase === "ready"
             ColumnLayout {

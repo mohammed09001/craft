@@ -420,14 +420,20 @@ MoldGenerationResult generateMold(IMeshGeometryEngine& engine, const MoldGenerat
     result.cutPlanes =
         cuttingPlanesToCutPlaneData(definition.selectionBoxBounds, request.cuttingPlanes);
     for (const CutPlaneData& plane : result.cutPlanes) definition.usedFaces.push_back(plane.sourceFace);
-    if (result.cutPlanes.empty()) {
+    if (!request.segmentedBodies.empty()) {
+      definition.moldBodies = request.segmentedBodies;
+      definition.moldBodiesPartitionReferenceBlock = false;
+      definition.segmentationLineage = true;
+    } else if (result.cutPlanes.empty()) {
       // Same identity the reference gives the unsplit block (splitFace.store.ts).
       definition.moldBodies.push_back(createWholeMoldBody(
           definition.referenceMoldBlockBounds, definition.definitionId + ":whole", "Mold"));
     } else {
       definition.moldBodies = partitionOrthogonalMold(definition, result.cutPlanes).bodies;
     }
-    validateMoldPartitionCoverage(definition.referenceMoldBlockBounds, definition.moldBodies);
+    if (definition.moldBodiesPartitionReferenceBlock) {
+      validateMoldPartitionCoverage(definition.referenceMoldBlockBounds, definition.moldBodies);
+    }
   } catch (const std::invalid_argument& error) {
     throw CodedError("reference_mold_invalid", error.what());
   }

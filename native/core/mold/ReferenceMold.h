@@ -28,7 +28,12 @@ inline constexpr double kMoldGeometryToleranceMm = 1e-6;
 inline constexpr double kCuttingPlaneInsetMm = kMoldGeometryToleranceMm;
 inline constexpr double kCuttingPlaneNormalizedEpsilon = 1e-6;
 
+inline constexpr double kAutomaticSegmentationMinMoldClearanceMm = 100;
+
 double clampReferenceMoldClearance(double clearanceMm);
+
+/// Clearance automatic Segmentation plans with: never below 100 mm.
+double resolveAutomaticSegmentationMoldClearance(double clearanceMm);
 
 /// K1 grown by the clearance; nullopt for invalid bounds or a clearance
 /// outside [min, max].
@@ -109,6 +114,8 @@ struct MoldBody {
   std::string sprueOperationId;  // set on bodies a sprue cut into
 };
 
+/// Reference definition of the whole mold, defined below; declared first so the
+/// automatic-segmentation helper can name the frame type.
 struct ReferenceMoldDefinition {
   int schemaVersion = 1;
   std::string definitionId;
@@ -119,7 +126,16 @@ struct ReferenceMoldDefinition {
   Bounds3 referenceMoldBlockBounds;  // K2
   std::vector<FaceId> usedFaces;
   std::vector<MoldBody> moldBodies;
+  /// False when the bodies come from Segmentation (irregular pieces, not an
+  /// exact partition of the reference block).
+  bool moldBodiesPartitionReferenceBlock = true;
+  /// True once the definition descends from a committed Segmentation result.
+  bool segmentationLineage = false;
 };
+
+/// Frame for automatic Segmentation: the part placed with max(100 mm, clamp(clearance)).
+std::optional<ReferenceMoldFrameBounds> createAutomaticSegmentationMoldFrameBounds(
+    const Bounds3& groundedPartBounds, double requestedClearanceMm);
 
 struct MoldPartitionResult {
   std::vector<MoldBody> bodies;

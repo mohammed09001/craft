@@ -30,6 +30,7 @@ class FailingMinkowskiEngine final : public IMeshGeometryEngine {
   SolidPtr asOriginal(const SolidPtr& s) override { return inner_.asOriginal(s); }
   SolidPtr cylinder(double r, double h, int n, const Point3& a, const Point3& o) override { return inner_.cylinder(r, h, n, a, o); }
   SolidPtr unionOf(const std::vector<SolidPtr>& s) override { return inner_.unionOf(s); }
+  std::pair<SolidPtr, SolidPtr> splitByPlane(const SolidPtr& s, const Point3& n, double o) override { return inner_.splitByPlane(s, n, o); }
   SolidPtr subtract(const SolidPtr& a, const SolidPtr& b) override { return inner_.subtract(a, b); }
   SolidPtr intersect(const SolidPtr& a, const SolidPtr& b) override { return inner_.intersect(a, b); }
   std::vector<SolidPtr> decompose(const SolidPtr& s) override { return inner_.decompose(s); }

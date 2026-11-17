@@ -244,6 +244,12 @@ class ManifoldMeshEngine final : public IMeshGeometryEngine {
     return wrap(std::move(result));
   }
 
+  std::pair<SolidPtr, SolidPtr> splitByPlane(const SolidPtr& solid, const Point3& normal,
+                                             double originOffset) override {
+    auto parts = unwrap(solid).SplitByPlane({normal.x, normal.y, normal.z}, originOffset);
+    return {wrap(std::move(parts.first)), wrap(std::move(parts.second))};
+  }
+
   SolidPtr unionOf(const std::vector<SolidPtr>& solids) override {
     std::vector<manifold::Manifold> parts;
     for (const SolidPtr& s : solids) parts.push_back(unwrap(s));

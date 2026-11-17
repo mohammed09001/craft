@@ -13,6 +13,7 @@
 #include "AppPaths.h"
 #include "AnalysisProtocol.h"
 #include "geometry/MeshAnalysis.h"
+#include "mold/Segmentation.h"
 #include "stl/Stl.h"
 
 Q_LOGGING_CATEGORY(lcApp, "craft.app")
@@ -161,6 +162,7 @@ void AppController::importStlFile(const QString& path) {
 }
 
 void AppController::applyModel(LoadedModel model) {
+  invalidateSegmentation(QString());
   analysis_.cancel(analysisJobId_);
   analysisJobId_.clear();
   analysisPhase_ = QStringLiteral("idle");
@@ -198,6 +200,10 @@ void AppController::setMoldClearanceMm(double value) {
   const double clamped = clampReferenceMoldClearance(value);
   if (clamped == moldClearanceMm_) return;
   moldClearanceMm_ = clamped;
+  // The segmentation block is sized from this clearance: a plan made with another value is stale.
+  if (segmentation_.phase != QStringLiteral("idle")) {
+    invalidateSegmentation(QStringLiteral("Mold clearance changed; plan the segmentation again."));
+  }
   invalidateMoldInputs();
 }
 
@@ -222,6 +228,10 @@ QVariantList AppController::cutFaces() const {
 }
 
 void AppController::setCutFaceEnabled(const QString& face, bool enabled) {
+  if (segmentation_.adopted) {
+    setStatus(QStringLiteral("Reset segmentation to use Cut by Face."));
+    return;
+  }
   const auto id = faceIdFromName(face.toStdString());
   if (!id) return;
   cutFaces_[static_cast<std::size_t>(*id)].enabled = enabled;
@@ -229,6 +239,7 @@ void AppController::setCutFaceEnabled(const QString& face, bool enabled) {
 }
 
 void AppController::setCutFacePosition(const QString& face, double normalizedPosition) {
+  if (segmentation_.adopted) return;
   const auto id = faceIdFromName(face.toStdString());
   if (!id || !std::isfinite(normalizedPosition)) return;
   cutFaces_[static_cast<std::size_t>(*id)].position = std::clamp(normalizedPosition, 1e-6, 1 - 1e-6);
@@ -277,6 +288,7 @@ void AppController::clearMold(const QString& phase) {
   moldPhase_ = phase;
   scene_.clearMoldBodies();
   scene_.setPartOffset({0, 0, 0});
+  if (segmentation_.adopted) showSegmentationBodies();  // the keyed pieces stay visible without a mold
   emit moldChanged();
   emit spruesChanged();
 }
@@ -288,6 +300,8 @@ void AppController::generateMold() {
     return;
   }
   if (busy_) return;
+  // A pending (not executed) segmentation plan is superseded by generating a mold directly.
+  if (!segmentation_.adopted && segmentation_.phase != QStringLiteral("idle")) invalidateSegmentation(QString());
   const quint64 generation = ++moldGeneration_;
   const quint64 inputs = moldInputsRevision_;
 
@@ -295,9 +309,13 @@ void AppController::generateMold() {
   request.modelId = model_->modelId;
   request.partGeometryVersion = model_->geometryVersion;
   request.groundedPart = model_->groundedSoup;
-  request.moldClearanceMm = moldClearanceMm_;
+  request.moldClearanceMm = effectiveMoldClearanceMm();
   request.cavityClearanceMm = cavityClearanceMm_;
-  request.cuttingPlanes = activeCuttingPlanes();
+  if (segmentation_.adopted) {
+    request.segmentedBodies = segmentation_.executedBodies;  // Segmentation replaces Cut by Face
+  } else {
+    request.cuttingPlanes = activeCuttingPlanes();
+  }
   request.generationVersion = ++moldGenerationVersion_;
 
   moldPhase_ = QStringLiteral("generating");
@@ -855,6 +873,306 @@ void AppController::startSprueEvaluation() {
       });
 }
 
+// --- segmentation -----------------------------------------------------------------
+
+double AppController::effectiveMoldClearanceMm() const {
+  return segmentation_.adopted && segmentation_.source ? segmentation_.source->definition.clearanceMm : moldClearanceMm_;
+}
+
+QVariantMap AppController::printerVolume() const {
+  if (!printerVolume_) return {};
+  return {{"x", printerVolume_->x}, {"y", printerVolume_->y}, {"z", printerVolume_->z}};
+}
+
+void AppController::setPrinterVolume(double x, double y, double z) {
+  if (!(std::isfinite(x) && std::isfinite(y) && std::isfinite(z) && x > 0 && y > 0 && z > 0)) {
+    setStatus(QStringLiteral("Printer volume must be finite and positive."));
+    return;
+  }
+  const Point3 next{x, y, z};
+  if (printerVolume_ && *printerVolume_ == next) return;
+  printerVolume_ = next;
+  if (segmentation_.phase != QStringLiteral("idle")) {
+    invalidateSegmentation(QStringLiteral("Printer volume changed; plan the segmentation again."));
+  } else {
+    emit segmentationChanged();
+  }
+}
+
+void AppController::invalidateSegmentation(const QString& message) {
+  const bool wasAdopted = segmentation_.adopted;
+  const quint64 generation = segmentation_.generation + 1;
+  segmentation_ = SegmentationUi{};
+  segmentation_.generation = generation;
+  segmentation_.message = message;
+  if (wasAdopted && moldResult_) {
+    clearMold(model_ ? QStringLiteral("ready") : QStringLiteral("unavailable"));
+  } else if (!moldResult_) {
+    scene_.clearMoldBodies();
+    scene_.setPartOffset({0, 0, 0});
+  }
+  emit segmentationChanged();
+  emit moldInputsChanged();
+}
+
+void AppController::showSegmentationBodies() {
+  std::vector<SceneModel::BodyInput> bodies;
+  for (const MoldBody& body : segmentation_.shownBodies) {
+    bodies.push_back({QString::fromStdString(body.id), QString::fromStdString(body.name),
+                      std::make_shared<MeshPayload>(body.mesh), body.bounds, body.volumeMm3});
+  }
+  scene_.setMoldBodies(bodies);
+  if (segmentation_.source) {
+    const Point3 o = segmentation_.source->definition.partOffset;
+    scene_.setPartOffset({static_cast<float>(o.x), static_cast<float>(o.y), static_cast<float>(o.z)});
+  }
+  scene_.recolor(theme_ == "dark" ? QColor("#9fb4c7") : QColor("#5b7a99"), darkPalette());
+  applySceneColors();
+  refreshSceneFrame(true);
+}
+
+void AppController::rebuildSegmentationPlan() {
+  if (!segmentation_.basePlan || !segmentation_.source) return;
+  SegmentationPlan plan = *segmentation_.basePlan;
+  for (const auto& [axis, coordinate] : segmentation_.extensions) {
+    plan = mergeExtensionBoundary(plan, axis, coordinate, segmentation_.source->snapshot.protectedRegions);
+  }
+  segmentation_.shownBodies.clear();
+  if (plan.validation.status == "planning-valid") {
+    segmentation_.shownBodies = buildSegmentationPlanPreviewBodies(plan, segmentation_.source->definition);
+    segmentation_.message = QStringLiteral("%1 sections planned.").arg(plan.segments.size());
+  } else {
+    segmentation_.message = plan.validation.blockers.empty()
+                                ? QStringLiteral("The plan is not valid.")
+                                : QString::fromStdString(plan.validation.blockers.front().message);
+  }
+  segmentation_.plan = std::move(plan);
+  segmentation_.phase = QStringLiteral("planned");
+  showSegmentationBodies();
+  emit segmentationChanged();
+  setStatus(segmentation_.message);
+}
+
+void AppController::planSegmentation() {
+  if (!model_) {
+    emit errorOccurred(QStringLiteral("Segmentation"), QStringLiteral("Import an STL model first."), QStringLiteral("no_model"));
+    return;
+  }
+  if (!printerVolume_) {
+    emit errorOccurred(QStringLiteral("Segmentation"), QStringLiteral("Set the printer volume first."), QStringLiteral("invalid_printer_volume"));
+    return;
+  }
+  if (busy_) return;
+  invalidateSegmentation(QString());
+  if (moldResult_) clearMold(QStringLiteral("ready"));
+
+  auto preliminary = capturePreliminaryWholeBlockSnapshot(model_->groundedBounds, moldClearanceMm_, model_->modelId);
+  if (!preliminary) {
+    segmentation_.phase = QStringLiteral("failed");
+    segmentation_.message = QStringLiteral("The imported model's bounds cannot produce a valid reference mold envelope.");
+    emit segmentationChanged();
+    return;
+  }
+  segmentation_.source = std::move(*preliminary);
+  const SegmentationRequest request = createSegmentationRequest(segmentation_.source->snapshot, *printerVolume_);
+  const SegmentationPlanningResult result = craft::planSegmentation(request, segmentation_.source->snapshot);
+  if (result.status == "planned") {
+    segmentation_.basePlan = *result.plan;
+    rebuildSegmentationPlan();
+    return;
+  }
+  if (result.status == "not-required") {
+    segmentation_.phase = QStringLiteral("not-required");
+    segmentation_.message = QStringLiteral("The mold block fits the printer volume; no segmentation is needed.");
+  } else {
+    segmentation_.phase = QStringLiteral("failed");
+    segmentation_.message = result.issues.empty() ? QStringLiteral("Segmentation planning failed.")
+                                                  : QString::fromStdString(result.issues.front().message);
+  }
+  emit segmentationChanged();
+  setStatus(segmentation_.message);
+}
+
+void AppController::addSegmentationExtension(const QString& axisText) {
+  if (!segmentation_.basePlan || !segmentation_.source || segmentation_.phase == QStringLiteral("executing")) return;
+  const Axis axis = axisText == "x" ? Axis::X : axisText == "y" ? Axis::Y : Axis::Z;
+  std::vector<Axis> userAxes;
+  for (const auto& e : segmentation_.extensions) userAxes.push_back(e.first);
+  const AxisOwnership ownership = deriveAxisOwnership(segmentation_.basePlan->requiredAxes, userAxes);
+  if (std::find(ownership.availableAxes.begin(), ownership.availableAxes.end(), axis) == ownership.availableAxes.end()) {
+    setStatus(QStringLiteral("The %1 axis is already used by the plan.").arg(axisText.toUpper()));
+    return;
+  }
+  segmentation_.extensions.emplace_back(axis, suggestExtensionAxisPosition(segmentation_.source->snapshot, axis));
+  rebuildSegmentationPlan();
+}
+
+void AppController::moveSegmentationExtension(const QString& axisText, double coordinateMm) {
+  if (!std::isfinite(coordinateMm) || segmentation_.phase == QStringLiteral("executing")) return;
+  const Axis axis = axisText == "x" ? Axis::X : axisText == "y" ? Axis::Y : Axis::Z;
+  for (auto& e : segmentation_.extensions) {
+    if (e.first == axis) {
+      e.second = coordinateMm;  // an invalid position is kept and reported by the plan validation
+      rebuildSegmentationPlan();
+      return;
+    }
+  }
+}
+
+void AppController::removeSegmentationExtension(const QString& axisText) {
+  if (segmentation_.phase == QStringLiteral("executing")) return;
+  const Axis axis = axisText == "x" ? Axis::X : axisText == "y" ? Axis::Y : Axis::Z;
+  auto& ext = segmentation_.extensions;
+  const auto it = std::remove_if(ext.begin(), ext.end(), [&](const auto& e) { return e.first == axis; });
+  if (it == ext.end()) return;
+  ext.erase(it, ext.end());
+  rebuildSegmentationPlan();
+}
+
+void AppController::resetSegmentation() {
+  if (activeCancel_ && segmentation_.phase == QStringLiteral("executing")) activeCancel_->cancel();
+  invalidateSegmentation(QString());
+  setStatus(QStringLiteral("Segmentation reset."));
+}
+
+void AppController::executeSegmentation() {
+  if (!segmentation_.plan || !segmentation_.source || !printerVolume_ || busy_) return;
+  if (segmentation_.plan->validation.status != "planning-valid") {
+    emit errorOccurred(QStringLiteral("Segmentation"), segmentation_.message, QStringLiteral("invalid_plan"));
+    return;
+  }
+  const quint64 generation = ++segmentation_.generation;
+  segmentation_.phase = QStringLiteral("executing");
+  emit segmentationChanged();
+  setBusy(true, QStringLiteral("segmenting"), 0);
+  setStatus(QStringLiteral("Cutting the mold block…"));
+
+  struct SegmentationJob {
+    SegmentationExecutionResult result;
+    std::optional<DerivedRegistrationState> registration;
+  };
+  CancellationToken cancel;
+  activeCancel_ = cancel;
+  auto engine = engine_;
+  const SegmentationPlan plan = *segmentation_.plan;
+  const SegmentationSourceSnapshot snapshot = segmentation_.source->snapshot;
+  const ReferenceMoldDefinition definition = segmentation_.source->definition;
+  const Point3 printer = *printerVolume_;
+  runJob<SegmentationJob>(
+      this, cancel,
+      [engine, plan, snapshot, definition, printer](const CancellationToken& token, const ProgressCallback& progress) {
+        SegmentationJob job;
+        const SegmentationPreflight preflight = createSegmentationExecutionRequest(plan, snapshot, printer);
+        if (!preflight.ok) {
+          job.result = preflight.failure;
+          return job;
+        }
+        if (progress) progress("segmenting", 0.2);
+        job.result = executePlaneSegmentation(*engine, preflight.request, token);
+        if (job.result.status == "executed") {
+          if (progress) progress("registration", 0.8);
+          std::vector<MoldBody> bodies;
+          for (const SegmentationExecutedBody& b : job.result.bodies) bodies.push_back(b.body);
+          job.registration = generateSegmentationRegistration(*engine, plan, snapshot, definition, bodies, "segmentation-registration");
+        }
+        return job;
+      },
+      [this, generation](JobOutcome<SegmentationJob> outcome) {
+        activeCancel_.reset();
+        setBusy(false);
+        if (generation != segmentation_.generation) return;  // superseded
+        const auto fail = [&](const QString& code, const QString& message) {
+          segmentation_.phase = QStringLiteral("failed");
+          segmentation_.message = message;
+          emit segmentationChanged();
+          setStatus(message);
+          if (code != QLatin1String("execution_cancelled")) {
+            emit errorOccurred(QStringLiteral("Segmentation failed"), message, code);
+          }
+        };
+        if (outcome.state != JobState::Succeeded || !outcome.result) {
+          fail(outcome.errorCode.isEmpty() ? QStringLiteral("execution_cancelled") : outcome.errorCode,
+               outcome.errorMessage.isEmpty() ? QStringLiteral("Segmentation was cancelled.") : outcome.errorMessage);
+          return;
+        }
+        SegmentationExecutionResult& result = outcome.result->result;
+        if (result.status != "executed") {
+          fail(QString::fromStdString(result.reasonCode),
+               result.issues.empty() ? QStringLiteral("Segmentation failed.") : QString::fromStdString(result.issues.front().message));
+          return;
+        }
+        segmentation_.executedBodies.clear();
+        for (const SegmentationExecutedBody& b : result.bodies) segmentation_.executedBodies.push_back(b.body);
+        segmentation_.registration = std::move(outcome.result->registration);
+        segmentation_.shownBodies = segmentation_.registration && !segmentation_.registration->bodies.empty()
+                                        ? segmentation_.registration->bodies
+                                        : segmentation_.executedBodies;
+        segmentation_.execution = std::move(result);
+        segmentation_.adopted = true;
+        segmentation_.phase = QStringLiteral("executed");
+        const bool keyed = segmentation_.registration && segmentation_.registration->status == "generated";
+        segmentation_.message = QStringLiteral("%1 mold sections cut%2.")
+                                    .arg(segmentation_.executedBodies.size())
+                                    .arg(keyed ? QStringLiteral(" and keyed") : QStringLiteral(""));
+        showSegmentationBodies();
+        emit segmentationChanged();
+        emit moldInputsChanged();
+        setStatus(segmentation_.message);
+      },
+      [this](QString stage, double fraction) {
+        busyStage_ = stage;
+        busyProgress_ = fraction;
+        emit busyChanged();
+      });
+}
+
+QVariantMap AppController::segmentation() const {
+  QVariantMap m{{"phase", segmentation_.phase}, {"message", segmentation_.message}, {"adopted", segmentation_.adopted}};
+  if (!segmentation_.source) return m;
+  m.insert("moldClearanceMm", segmentation_.source->definition.clearanceMm);
+  m.insert("blockSize", QVariantMap{{"x", segmentation_.source->snapshot.aggregateBounds.size().x},
+                                    {"y", segmentation_.source->snapshot.aggregateBounds.size().y},
+                                    {"z", segmentation_.source->snapshot.aggregateBounds.size().z}});
+  if (!segmentation_.plan) return m;
+  const SegmentationPlan& plan = *segmentation_.plan;
+  QVariantList required;
+  for (Axis a : plan.requiredAxes) required << QString::fromLatin1(axisName(a));
+  m.insert("requiredAxes", required);
+  m.insert("sectionCount", static_cast<qulonglong>(plan.segments.size()));
+  m.insert("valid", plan.validation.status == "planning-valid");
+  QVariantList blockers;
+  for (const SegmentationIssue& i : plan.validation.blockers) blockers << QString::fromStdString(i.message);
+  m.insert("blockers", blockers);
+  QVariantList extensions;
+  std::vector<Axis> userAxes;
+  for (const auto& e : segmentation_.extensions) {
+    userAxes.push_back(e.first);
+    extensions << QVariantMap{{"axis", QString::fromLatin1(axisName(e.first))}, {"coordinateMm", e.second}};
+  }
+  m.insert("extensions", extensions);
+  QVariantList available;
+  if (segmentation_.basePlan) {
+    for (Axis a : deriveAxisOwnership(segmentation_.basePlan->requiredAxes, userAxes).availableAxes) {
+      available << QString::fromLatin1(axisName(a));
+    }
+  }
+  m.insert("availableAxes", available);
+  if (segmentation_.adopted) {
+    QVariantMap execution{{"bodyCount", static_cast<qulonglong>(segmentation_.executedBodies.size())}};
+    if (segmentation_.registration && segmentation_.registration->report) {
+      execution.insert("registrationStatus", QString::fromStdString(segmentation_.registration->status));
+      execution.insert("keyCount", static_cast<qulonglong>(segmentation_.registration->report->features.size()));
+      execution.insert("registrationMessage", QString::fromStdString(segmentation_.registration->report->message));
+    }
+    if (segmentation_.execution && segmentation_.execution->validation) {
+      execution.insert("cutCount", static_cast<qulonglong>(segmentation_.execution->validation->cuts.size()));
+      execution.insert("volumeDeltaMm3", segmentation_.execution->validation->volumeDeltaMm3);
+    }
+    m.insert("execution", execution);
+  }
+  return m;
+}
+
 QVariantMap AppController::stateSummary() const {
   QVariantMap s{{"modelPhase", modelPhase_},
                 {"moldPhase", moldPhase_},
@@ -865,6 +1183,7 @@ QVariantMap AppController::stateSummary() const {
   s.insert("mold", moldSummary());
   s.insert("moldError", moldError_);
   s.insert("sprues", sprues());
+  s.insert("segmentation", segmentation());
   s.insert("analysisError", analysisError_);
   s.insert("analysisStatus", analysisReport_.value("status"));
   return s;

@@ -29,6 +29,7 @@
 #include "model/ModelGrounding.h"
 #include "mold/CavityGeneration.h"
 #include "mold/DerivedMold.h"
+#include "mold/Segmentation.h"
 #include "mold/SprueGeneration.h"
 
 namespace craft::app {
@@ -74,6 +75,8 @@ class AppController : public QObject {
   Q_PROPERTY(QVariantMap moldSummary READ moldSummary NOTIFY moldChanged)
   Q_PROPERTY(QVariantList moldIssues READ moldIssues NOTIFY moldChanged)
 
+  Q_PROPERTY(QVariantMap segmentation READ segmentation NOTIFY segmentationChanged)
+  Q_PROPERTY(QVariantMap printerVolume READ printerVolume NOTIFY segmentationChanged)
   Q_PROPERTY(QVariantList sprues READ sprues NOTIFY spruesChanged)
   Q_PROPERTY(QVariantMap sprueCandidate READ sprueCandidate NOTIFY spruesChanged)
   Q_PROPERTY(QString spruePhase READ spruePhase NOTIFY spruesChanged)
@@ -151,6 +154,23 @@ class AppController : public QObject {
   Q_INVOKABLE void exportMoldBodies(const QUrl& folder);
   void exportMoldBodiesTo(const QString& folderPath);
 
+  // --- segmentation --------------------------------------------------------------
+  QVariantMap segmentation() const;
+  QVariantMap printerVolume() const;
+  /// Printer build volume in millimeters; any change invalidates the plan.
+  Q_INVOKABLE void setPrinterVolume(double x, double y, double z);
+  /// Plans printer-fit sections of the automatic (>= 100 mm clearance) reference block.
+  Q_INVOKABLE void planSegmentation();
+  Q_INVOKABLE void addSegmentationExtension(const QString& axis);
+  Q_INVOKABLE void moveSegmentationExtension(const QString& axis, double coordinateMm);
+  Q_INVOKABLE void removeSegmentationExtension(const QString& axis);
+  /// Cuts the block along the plan and keys the pieces; the result becomes the mold bodies.
+  Q_INVOKABLE void executeSegmentation();
+  Q_INVOKABLE void resetSegmentation();
+  bool segmentationAdopted() const { return segmentation_.adopted; }
+  const SegmentationPlan* segmentationPlan() const { return segmentation_.plan ? &*segmentation_.plan : nullptr; }
+  const std::vector<MoldBody>& segmentationBodies() const { return segmentation_.shownBodies; }
+
   // --- sprues ----------------------------------------------------------------
   QVariantList sprues() const;
   QVariantMap sprueCandidate() const { return sprueCandidate_; }
@@ -227,6 +247,7 @@ class AppController : public QObject {
   void moldChanged();
   void analysisChanged();
   void spruesChanged();
+  void segmentationChanged();
   void themeChanged();
   void viewOptionsChanged();
   void gridChanged();
@@ -254,6 +275,10 @@ class AppController : public QObject {
   std::vector<CuttingPlane> activeCuttingPlanes() const;
   Bounds3 partSelectionBounds() const;
   void connectAnalysis();
+  void rebuildSegmentationPlan();
+  void invalidateSegmentation(const QString& message);
+  void showSegmentationBodies();
+  double effectiveMoldClearanceMm() const;
   void editSprues(const std::function<bool(std::vector<SprueOperationDefinition>&)>& edit);
   void startSprueEvaluation();
   void showFinalBodies(bool refit);
@@ -294,6 +319,23 @@ class AppController : public QObject {
   quint64 moldInputsRevision_ = 0;
   quint64 moldGeneration_ = 0;
   int moldGenerationVersion_ = 0;
+
+  // segmentation
+  struct SegmentationUi {
+    QString phase = QStringLiteral("idle");  // idle | planned | not-required | failed | executing | executed
+    QString message;
+    std::optional<PreliminarySource> source;
+    std::optional<SegmentationPlan> basePlan;
+    std::vector<std::pair<Axis, double>> extensions;
+    std::optional<SegmentationPlan> plan;  // effective plan (extensions merged)
+    std::vector<MoldBody> executedBodies;  // Segmentation output, before registration
+    std::vector<MoldBody> shownBodies;     // planned sections or keyed executed bodies
+    std::optional<DerivedRegistrationState> registration;
+    std::optional<SegmentationExecutionResult> execution;
+    bool adopted = false;
+    quint64 generation = 0;
+  } segmentation_;
+  std::optional<Point3> printerVolume_;
 
   // sprues
   std::vector<SprueOperationDefinition> sprueIntents_;

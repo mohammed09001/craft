@@ -200,6 +200,15 @@ RegistrationTolerancePolicy resolveRegistrationTolerance(const std::optional<Reg
 
 RegistrationSizingPolicy normalMoldRegistrationSizingPolicy() { return RegistrationSizingPolicy{}; }
 
+RegistrationSizingPolicy automaticSegmentationRegistrationSizingPolicy() {
+  RegistrationSizingPolicy policy;
+  policy.policyId = "registration-sizing-automatic-segmentation-v5";
+  policy.preferredNominalWidthMm = 30;
+  policy.profileSearchOrder = ProfileSearchOrder::PreferredFirst;
+  policy.placementStrategy = PlacementStrategy::CavityWallCentered;
+  return policy;
+}
+
 RegistrationTolerancePolicy applyRegistrationSizingToTolerancePolicy(const RegistrationTolerancePolicy& tolerance,
                                                                     const RegistrationSizingPolicy& sizing) {
   RegistrationTolerancePolicy result = tolerance;

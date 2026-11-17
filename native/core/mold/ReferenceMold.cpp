@@ -140,6 +140,15 @@ double clampReferenceMoldClearance(double clearanceMm) {
                                                       : kDefaultReferenceMoldClearanceMm));
 }
 
+double resolveAutomaticSegmentationMoldClearance(double clearanceMm) {
+  return std::max(kAutomaticSegmentationMinMoldClearanceMm, clampReferenceMoldClearance(clearanceMm));
+}
+
+std::optional<ReferenceMoldFrameBounds> createAutomaticSegmentationMoldFrameBounds(
+    const Bounds3& groundedPartBounds, double requestedClearanceMm) {
+  return createReferenceMoldFrameBounds(groundedPartBounds, resolveAutomaticSegmentationMoldClearance(requestedClearanceMm));
+}
+
 std::optional<Bounds3> createReferenceMoldBlockBounds(const Bounds3& inner, double clearanceMm) {
   if (!isFiniteBounds(inner) || inner.min.x >= inner.max.x || inner.min.y >= inner.max.y ||
       inner.min.z >= inner.max.z || !std::isfinite(clearanceMm) ||
