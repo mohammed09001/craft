@@ -87,6 +87,8 @@ target_link_libraries(craft_mesh_api INTERFACE craft_core)
 
 # --- craft_mold: mold-domain algorithms, kernel-agnostic (no Qt) -------------
 add_library(craft_mold STATIC
+  core/master/MasterPlanning.cpp
+  core/master/MasterPlanning.h
   core/mold/CavityGeneration.cpp
   core/mold/CavityGeneration.h
   core/mold/DerivedMold.cpp

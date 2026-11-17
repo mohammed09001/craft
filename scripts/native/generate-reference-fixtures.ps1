@@ -26,8 +26,11 @@ $stage = Join-Path $frontend '.tmp\native-reference'
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
 Copy-Item (Join-Path $referenceDir 'craftReference.test.ts') $stage -Force
 Copy-Item (Join-Path $referenceDir 'craftSegmentationReference.test.ts') $stage -Force
+Copy-Item (Join-Path $referenceDir 'craftMasterReference.test.ts') $stage -Force
 $env:CRAFT_REFERENCE_OUTPUT = Join-Path $repoRoot 'native\tests\fixtures\reference\mold-reference.json'
 $env:CRAFT_SEGMENTATION_OUTPUT = Join-Path $repoRoot 'native\tests\fixtures\reference\segmentation-reference.json'
+$env:CRAFT_BRACKET_STL = Join-Path $repoRoot 'native\tests\fixtures\models\bracket.stl'
+$env:CRAFT_MASTER_OUTPUT = Join-Path $repoRoot 'native\tests\fixtures\reference\master-reference.json'
 
 Push-Location $frontend
 try {
@@ -41,6 +44,8 @@ try {
   Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
   Remove-Item Env:\CRAFT_REFERENCE_OUTPUT -ErrorAction SilentlyContinue
   Remove-Item Env:\CRAFT_SEGMENTATION_OUTPUT -ErrorAction SilentlyContinue
+  Remove-Item Env:\CRAFT_MASTER_OUTPUT -ErrorAction SilentlyContinue
+  Remove-Item Env:\CRAFT_BRACKET_STL -ErrorAction SilentlyContinue
 }
 
 Get-Item (Join-Path $repoRoot 'native\tests\fixtures\reference\*.json') |
