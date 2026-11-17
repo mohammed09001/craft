@@ -179,6 +179,17 @@ passes 11/11 rows. A first fixture had inverted winding (all patches blocked); t
 
 Still not ported: region set cover, working-mold planner/constructor, multi-piece planner, pour face, tooling construction, release verification, engine, worker,
 store, UI.
+### Session 10: Master Mold region set cover and working-mold planner
+
+Ported `core/master/MasterWorkingMoldPlanner.*`: greedy region cover, exact and multi-candidate parting thresholds, region-owned piece ownership, the
+diversity-aware prism beam, finalization with sliding-wall / seam / imbalance scoring, parting-interface curve ordering and simplification, the incremental
+piece-count search with its diagnostics and rejection reasons, and the single-shot plan. The generator now records, per case, thresholds, cover steps, every
+search step (diagnostics + finalists with assignments and interfaces) and the plan summary, on the engine's pruned (keep 32) direction set.
+`tst_master_equivalence` passes 18/18 rows across 7 cases: five cases find finalists from 2 pieces up, the C-assembly is rejected at every count with the
+reference's long reasons (inaccessible patches, unresolved regions), and the 150-patch clustered cube takes the same beam. 
+
+Not done: adaptive direction discovery (the engine runs it between pruning and planning), the working-mold constructor (Manifold booleans over real
+geometry), multi-piece planner, pour face, tooling construction, release verification, engine, worker, store, UI.
 ### Next exact step
 1. GPU frame-rate/VRAM measurement, WASM timing for the same inputs, and a visual comparison with the Three.js viewport on real STLs (Phase 2 gate).
 2. Port Master Mold (tooling set generation) and the engineering reports.

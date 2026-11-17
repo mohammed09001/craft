@@ -22,6 +22,8 @@ import { generateCandidateDirections } from "@/features/mold-generation/master-m
 import { buildSurfaceRegionGraph, summarizeRegionAccessibility, unresolvedSurfaceRegions } from "@/features/mold-generation/master-mold/planning/surfaceRegions";
 import { refineRegionGraphByVisibility } from "@/features/mold-generation/master-mold/planning/regionSubdivision";
 import { analyzeDirectionAccessibility, pruneDirections } from "@/features/mold-generation/master-mold/planning/accessibility";
+import { greedyRegionCover } from "@/features/mold-generation/master-mold/planning/regionSetCover";
+import { candidatePartingThresholds, createWorkingMoldPieceCountSearch, planWorkingMoldDecomposition } from "@/features/mold-generation/master-mold/planning/workingMoldPlanner";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const outputPath = process.env.CRAFT_MASTER_OUTPUT ?? resolve(here, "../fixtures/reference/master-reference.json");
@@ -145,7 +147,40 @@ function runCase(spec: MeshSpec) {
     fractions: Object.fromEntries(s.visibleAreaFractionByDirectionId),
   }));
   const pruned = pruneDirections(directions, accessibility, planning, 6);
+
+  // The engine prunes to the full candidate budget (32) before planning; the search runs on that analysis.
+  const engineAnalysis = pruneDirections(accessibility.directions, accessibility, planning, 32).analysis;
+  const opposingOf = (d: number): readonly number[] => {
+    const v = engineAnalysis.directions[d]!.vector;
+    for (let j = 0; j < engineAnalysis.directions.length; j += 1) {
+      if (j === d) continue;
+      const o = engineAnalysis.directions[j]!.vector;
+      if (v.x * o.x + v.y * o.y + v.z * o.z < -0.999) return engineAnalysis.perDirection[j]!.visible;
+    }
+    return new Array<number>(planning.patches.length).fill(0);
+  };
+  const refinedGraph = refineRegionGraphByVisibility(buildSurfaceRegionGraph(planning), planning, engineAnalysis).regionGraph;
+  const thresholds = engineAnalysis.directions.map((direction, d) => candidatePartingThresholds(planning, engineAnalysis.perDirection[d]!.visible, opposingOf(d), direction.vector, refinedGraph));
+  const cover = greedyRegionCover(refinedGraph, planning, engineAnalysis);
+  const search = createWorkingMoldPieceCountSearch({ planningMesh: planning, analysis: engineAnalysis, maxWorkingMoldPieces: 6 });
+  const steps = [];
+  for (;;) {
+    const step = search.next();
+    if (step === null) break;
+    steps.push({ pieceCount: step.pieceCount, rejectionReason: step.rejectionReason, diagnostics: step.diagnostics, finalists: step.finalists });
+  }
+  const plan = planWorkingMoldDecomposition({ planningMesh: planning, analysis: engineAnalysis, maxWorkingMoldPieces: 6 });
+  const plannerJson = {
+    directionIds: engineAnalysis.directions.map((d) => d.directionId),
+    thresholds,
+    cover,
+    subdividedRegionCount: search.subdividedRegionCount,
+    searchRegionCount: search.regionGraph.regions.length,
+    steps,
+    plan: plan === null ? null : { pieceCount: plan.candidate.pieceCount, score: plan.candidate.score, finalistCount: plan.finalists.length, rejectedPieceCounts: plan.rejectedPieceCounts },
+  };
   return {
+    planner: plannerJson,
     surface: {
       regions: regionGraph.regions,
       regionOfPatch: regionGraph.regionOfPatch,

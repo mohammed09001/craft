@@ -89,6 +89,8 @@ target_link_libraries(craft_mesh_api INTERFACE craft_core)
 add_library(craft_mold STATIC
   core/master/MasterAccessibility.cpp
   core/master/MasterAccessibility.h
+  core/master/MasterWorkingMoldPlanner.cpp
+  core/master/MasterWorkingMoldPlanner.h
   core/master/MasterPlanning.cpp
     core/master/TriangleIntersection.cpp
     core/master/TriangleIntersection.h

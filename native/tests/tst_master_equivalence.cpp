@@ -13,6 +13,7 @@
 
 #include "geometry/MeshAnalysis.h"
 #include "master/MasterAccessibility.h"
+#include "master/MasterWorkingMoldPlanner.h"
 #include "master/MasterPlanning.h"
 
 using namespace craft;
@@ -276,6 +277,167 @@ class MasterEquivalenceTest : public QObject {
     for (const QJsonValue& v : c["pruned"].toArray()) expectedIds << v.toString();
     QCOMPARE(actualIds, expectedIds);
   }
+  void plannerMatchesReference_data() {
+    QTest::addColumn<int>("caseIndex");
+    QFile f(QStringLiteral(CRAFT_REFERENCE_FIXTURE_DIR "/master-reference.json"));
+    f.open(QIODevice::ReadOnly);
+    const QJsonArray cases = QJsonDocument::fromJson(f.readAll()).object()["cases"].toArray();
+    for (int i = 0; i < cases.size(); ++i) QTest::newRow(qPrintable(cases[i].toObject()["name"].toString())) << i;
+  }
+
+  void plannerMatchesReference() {
+    QFETCH(int, caseIndex);
+    const QJsonObject c = document_["cases"].toArray()[caseIndex].toObject();
+    const QJsonObject input = c["input"].toObject();
+    MasterSeedInput seedInput;
+    MasterSeedGeometryInput& g = seedInput.sourcePartGeometry;
+    g.modelId = "model-" + c["name"].toString().toStdString();
+    if (input.contains("recipe")) {
+      cubeGrid(input["recipe"].toObject()["segments"].toInt(), input["recipe"].toObject()["size"].toDouble(), g.positions, g.indices);
+    } else {
+      for (const QJsonValue& v : input["positions"].toArray()) g.positions.push_back(v.toDouble());
+      for (const QJsonValue& v : input["indices"].toArray()) g.indices.push_back(static_cast<std::uint32_t>(v.toInt()));
+    }
+    const QJsonArray transform = input["transform"].toArray();
+    for (int i = 0; i < 16; ++i) g.transform[static_cast<std::size_t>(i)] = transform[i].toDouble();
+    Bounds3 local = emptyBounds();
+    for (std::size_t i = 0; i < g.positions.size(); i += 3)
+      for (int a = 0; a < 3; ++a) {
+        local.min[a] = std::min(local.min[a], g.positions[i + static_cast<std::size_t>(a)]);
+        local.max[a] = std::max(local.max[a], g.positions[i + static_cast<std::size_t>(a)]);
+      }
+    g.localBounds = local;
+    g.geometryVersion = "geom-" + c["name"].toString().toStdString();
+    seedInput.projectRevision = "rev-1";
+    const MasterSeedSnapshot world = worldMeshFromSnapshot(buildMasterMoldSeedSnapshot(seedInput));
+    const PlanningMesh mesh = buildPlanningMesh(world.sourceMesh.positions, world.sourceMesh.indices, world.sourceMesh.bounds, world.sourceGeometryVersion);
+    const auto candidates = generateCandidateDirections(mesh, world.sourceMesh.positions);
+    const AccessibilityAnalysis raw = analyzeDirectionAccessibility(world.sourceMesh.positions, world.sourceMesh.indices, mesh, candidates);
+    const AccessibilityAnalysis analysis = pruneDirections(raw.directions, raw, mesh, 32).analysis;
+
+    const QJsonObject ref = c["planner"].toObject();
+    QStringList ids, expectedIds;
+    for (const auto& d : analysis.directions) ids << q(d.directionId);
+    for (const QJsonValue& v : ref["directionIds"].toArray()) expectedIds << v.toString();
+    QCOMPARE(ids, expectedIds);
+
+    // thresholds per direction
+    const SurfaceRegionGraph refined = refineRegionGraphByVisibility(buildSurfaceRegionGraph(mesh), mesh, analysis).regionGraph;
+    const QJsonArray thresholds = ref["thresholds"].toArray();
+    for (std::size_t d = 0; d < analysis.directions.size(); ++d) {
+      std::vector<std::uint8_t> opposing(mesh.patches.size(), 0);
+      for (std::size_t j = 0; j < analysis.directions.size(); ++j) {
+        if (j == d) continue;
+        const Point3& v = analysis.directions[d].vector;
+        const Point3& o = analysis.directions[j].vector;
+        if (v.x * o.x + v.y * o.y + v.z * o.z < -0.999) { opposing = analysis.perDirection[j].visible; break; }
+      }
+      const auto actual = candidatePartingThresholds(mesh, analysis.perDirection[d].visible, opposing, analysis.directions[d].vector, refined);
+      const QJsonArray expected = thresholds[static_cast<qsizetype>(d)].toArray();
+      QCOMPARE(actual.size(), static_cast<std::size_t>(expected.size()));
+      for (qsizetype i = 0; i < expected.size(); ++i) VERIFY_CLOSE(actual[static_cast<std::size_t>(i)], expected[i].toDouble());
+    }
+
+    // greedy cover
+    const RegionSetCoverResult cover = greedyRegionCover(refined, mesh, analysis);
+    const QJsonObject coverRef = ref["cover"].toObject();
+    QCOMPARE(cover.totalRegionCount, coverRef["totalRegionCount"].toInt());
+    QCOMPARE(cover.uncoveredRegionIndexes, intsOf(coverRef["uncoveredRegionIndexes"]));
+    const QJsonArray coverSteps = coverRef["steps"].toArray();
+    QCOMPARE(cover.steps.size(), static_cast<std::size_t>(coverSteps.size()));
+    for (qsizetype i = 0; i < coverSteps.size(); ++i) {
+      const QJsonObject e = coverSteps[i].toObject();
+      QCOMPARE(q(cover.steps[static_cast<std::size_t>(i)].directionId), e["directionId"].toString());
+      QCOMPARE(cover.steps[static_cast<std::size_t>(i)].newlyCoveredRegionCount, e["newlyCoveredRegionCount"].toInt());
+      QCOMPARE(cover.steps[static_cast<std::size_t>(i)].cumulativeCoveredRegionCount, e["cumulativeCoveredRegionCount"].toInt());
+    }
+
+    // piece-count search
+    WorkingMoldPlannerInput plannerInput{mesh, analysis, 6};
+    WorkingMoldPieceCountSearch search(plannerInput);
+    QCOMPARE(search.subdividedRegionCount(), ref["subdividedRegionCount"].toInt());
+    QCOMPARE(static_cast<int>(search.regionGraph().regions.size()), ref["searchRegionCount"].toInt());
+    const QJsonArray steps = ref["steps"].toArray();
+    for (qsizetype s = 0; s < steps.size(); ++s) {
+      const QJsonObject e = steps[s].toObject();
+      const auto step = search.next();
+      QVERIFY2(step.has_value(), "native search ended early");
+      QCOMPARE(step->pieceCount, e["pieceCount"].toInt());
+      QCOMPARE(step->rejectionReason.has_value(), !e["rejectionReason"].isNull());
+      if (step->rejectionReason) QCOMPARE(q(*step->rejectionReason), e["rejectionReason"].toString());
+      const QJsonObject d = e["diagnostics"].toObject();
+      QCOMPARE(step->diagnostics.planningCandidatesGenerated, d["planningCandidatesGenerated"].toInt());
+      QCOMPARE(step->diagnostics.planningCandidatesFeasible, d["planningCandidatesFeasible"].toInt());
+      QCOMPARE(step->diagnostics.bestUnassignablePatchCount.has_value(), !d["bestUnassignablePatchCount"].isNull());
+      if (step->diagnostics.bestUnassignablePatchCount) QCOMPARE(*step->diagnostics.bestUnassignablePatchCount, d["bestUnassignablePatchCount"].toInt());
+      QCOMPARE(step->diagnostics.bestUnresolvedRegionCount.has_value(), !d["bestUnresolvedRegionCount"].isNull());
+      if (step->diagnostics.bestUnresolvedRegionCount) QCOMPARE(*step->diagnostics.bestUnresolvedRegionCount, d["bestUnresolvedRegionCount"].toInt());
+      QCOMPARE(step->diagnostics.combinationDirectionCountUsed, d["combinationDirectionCountUsed"].toInt());
+      QCOMPARE(step->diagnostics.thresholdCountUsed, d["thresholdCountUsed"].toInt());
+      QCOMPARE(step->diagnostics.beamSizeUsed, d["beamSizeUsed"].toInt());
+      QCOMPARE(step->diagnostics.regionSetCoverUncoveredRegionCount, d["regionSetCoverUncoveredRegionCount"].toInt());
+      QCOMPARE(step->diagnostics.regionSetCoverMinimumPieceEstimate.has_value(), !d["regionSetCoverMinimumPieceEstimate"].isNull());
+
+      const QJsonArray finalists = e["finalists"].toArray();
+      QCOMPARE(step->finalists.size(), static_cast<std::size_t>(finalists.size()));
+      for (qsizetype f = 0; f < finalists.size(); ++f) {
+        const QJsonObject fe = finalists[f].toObject();
+        const WorkingMoldDecompositionFinalist& fa = step->finalists[static_cast<std::size_t>(f)];
+        const QJsonObject ce = fe["candidate"].toObject();
+        QCOMPARE(fa.candidate.pieceCount, ce["pieceCount"].toInt());
+        QCOMPARE(fa.candidate.feasible, ce["feasible"].toBool());
+        QCOMPARE(fa.candidate.unassignablePatchCount, ce["unassignablePatchCount"].toInt());
+        VERIFY_CLOSE(fa.candidate.score, ce["score"].toDouble());
+        const QJsonObject sb = ce["scoreBreakdown"].toObject();
+        VERIFY_CLOSE(fa.candidate.scoreBreakdown.slidingWallAreaMm2, sb["slidingWallAreaMm2"].toDouble());
+        QCOMPARE(fa.candidate.scoreBreakdown.seamCrossingCount, sb["seamCrossingCount"].toInt());
+        VERIFY_CLOSE(fa.candidate.scoreBreakdown.areaImbalance, sb["areaImbalance"].toDouble());
+        QCOMPARE(fa.candidate.scoreBreakdown.interfaceCount, sb["interfaceCount"].toInt());
+        const QJsonArray pieces = ce["pieces"].toArray();
+        QCOMPARE(fa.candidate.pieces.size(), static_cast<std::size_t>(pieces.size()));
+        for (qsizetype p = 0; p < pieces.size(); ++p) {
+          const QJsonObject pe = pieces[p].toObject();
+          const auto& pa = fa.candidate.pieces[static_cast<std::size_t>(p)];
+          QCOMPARE(q(pa.directionId), pe["directionId"].toString());
+          for (int axis = 0; axis < 3; ++axis) VERIFY_CLOSE(pa.releaseDirection[axis], pointOf(pe["releaseDirection"].toObject())[axis]);
+          QCOMPARE(pa.prism.has_value(), pe["prism"].isObject());
+          if (pa.prism) {
+            QCOMPARE(pa.prism->directionIndex, pe["prism"].toObject()["directionIndex"].toInt());
+            VERIFY_CLOSE(pa.prism->offsetMm, pe["prism"].toObject()["offsetMm"].toDouble());
+          }
+        }
+        QCOMPARE(fa.patchAssignment, intsOf(fe["patchAssignment"]));
+        const QJsonArray ifaces = fe["interfaces"].toArray();
+        QCOMPARE(fa.interfaces.size(), static_cast<std::size_t>(ifaces.size()));
+        for (qsizetype i = 0; i < ifaces.size(); ++i) {
+          const QJsonObject ie = ifaces[i].toObject();
+          const auto& ia = fa.interfaces[static_cast<std::size_t>(i)];
+          QCOMPARE(q(ia.interfaceId), ie["interfaceId"].toString());
+          QCOMPARE(ia.pieceAIndex, ie["pieceAIndex"].toInt());
+          QCOMPARE(ia.pieceBIndex, ie["pieceBIndex"].toInt());
+          QCOMPARE(q(ia.kind), ie["kind"].toString());
+          QCOMPARE(ia.selfIntersecting, ie["selfIntersecting"].toBool());
+          const QJsonArray pts = ie["samplePoints"].toArray();
+          QCOMPARE(ia.samplePoints.size(), static_cast<std::size_t>(pts.size()));
+          for (qsizetype k = 0; k < pts.size(); ++k)
+            for (int axis = 0; axis < 3; ++axis) VERIFY_CLOSE(ia.samplePoints[static_cast<std::size_t>(k)][axis], pointOf(pts[k].toObject())[axis]);
+        }
+      }
+    }
+    QVERIFY2(!search.next().has_value(), "native search produced extra steps");
+
+    // single-shot plan
+    const auto plan = planWorkingMoldDecomposition(plannerInput);
+    QCOMPARE(plan.has_value(), ref["plan"].isObject());
+    if (plan) {
+      const QJsonObject pr = ref["plan"].toObject();
+      QCOMPARE(plan->candidate.pieceCount, pr["pieceCount"].toInt());
+      VERIFY_CLOSE(plan->candidate.score, pr["score"].toDouble());
+      QCOMPARE(static_cast<int>(plan->finalists.size()), pr["finalistCount"].toInt());
+      QCOMPARE(plan->rejectedPieceCounts.size(), static_cast<std::size_t>(pr["rejectedPieceCounts"].toArray().size()));
+    }
+  }
+
   void seedRejectsUnusableGeometry() {
     MasterSeedInput input;
     input.projectRevision = "r";
