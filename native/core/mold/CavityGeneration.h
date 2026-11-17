@@ -9,11 +9,9 @@
 //   cavityBody.generator.ts         generateCavityBodies + checks
 //   cavityGeneration.evaluate.ts    staged evaluation, cancellation, progress
 //
-// NOT ported yet (see docs/native-migration/PARITY_MATRIX.md): a positive
-// cavity clearance, which the reference builds with a Minkowski or
-// distance-field offset engine. The native pipeline supports the
-// "exact-zero-clearance" engine only and refuses anything else with the coded
-// error "cavity_offset_not_ported" instead of approximating it.
+// Cavity clearance: zero clearance subtracts the exact part solid; positive
+// clearance builds the tool with the reference engines in CavityOffset.h
+// (direct Minkowski sphere, or the SDF level-set with fallback).
 
 #include <memory>
 #include <string>
@@ -23,6 +21,7 @@
 #include "contracts/Geometry.h"
 #include "contracts/Operation.h"
 #include "geometry/GeometryTolerance.h"
+#include "mold/CavityOffset.h"
 #include "mold/PartSolid.h"
 #include "mold/ReferenceMold.h"
 
@@ -31,13 +30,6 @@ namespace craft {
 inline constexpr int kCavityGenerationSchemaVersion = 1;
 inline constexpr double kDefaultCavityClearanceMm = 0;
 inline constexpr double kDefaultMinimumWallMm = 1;
-
-/// Mirrors CavityToolData.
-struct CavityTool {
-  WatertightPartSolid solid;
-  double clearanceMm = 0;
-  std::string implementationMethod = "exact-watertight-part-solid";
-};
 
 /// Mirrors CavityBodyValidation.
 struct CavityBodyValidation {
@@ -111,6 +103,11 @@ struct CavityGenerationResult {
   std::vector<Issue> warnings;
   CavitySubtractionDiagnostics subtraction;
   std::string selectedEngine = "exact-zero-clearance";
+  std::vector<std::string> engineReasonCodes;
+  std::vector<CavityOffsetAttempt> offsetAttempts;
+  bool usedFallback = false;
+  bool hasDistanceFieldProfile = false;
+  DistanceFieldQualityProfile distanceFieldProfile;
   CavityTimings timings;
 };
 
@@ -143,6 +140,7 @@ struct MoldGenerationRequest {
   std::shared_ptr<const TriangleSoup> groundedPart;
   double moldClearanceMm = kDefaultReferenceMoldClearanceMm;
   double cavityClearanceMm = kDefaultCavityClearanceMm;
+  CavityQualityMode qualityMode = CavityQualityMode::Standard;
   /// Enabled planes split the block (Cut by Face); none keeps one whole body.
   std::vector<CuttingPlane> cuttingPlanes;
   int generationVersion = 0;

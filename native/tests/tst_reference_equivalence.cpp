@@ -137,6 +137,7 @@ class ReferenceEquivalenceTest : public QObject {
                           .toStdString();
     request.partGeometryVersion = partGeometryVersion(*request.groundedPart);
     request.moldClearanceMm = input["moldClearanceMm"].toDouble();
+    request.cavityClearanceMm = input["cavityClearanceMm"].toDouble();
     request.generationVersion = 1;
     for (const QJsonValue& value : input["planes"].toArray()) {
       const QJsonObject plane = value.toObject();
@@ -158,7 +159,7 @@ class ReferenceEquivalenceTest : public QObject {
     QCOMPARE(frame->partOffset.z, expected["partOffset"].toObject()["z"].toDouble());
 
     const GeometryTolerancePolicy policy =
-        buildGeometryTolerancePolicy(frame->referenceMoldBlockBounds, 0);
+        buildGeometryTolerancePolicy(frame->referenceMoldBlockBounds, request.cavityClearanceMm);
     const QJsonObject expectedPolicy = expected["tolerancePolicy"].toObject();
     // Exact: the policy is pure double arithmetic and must not drift at all.
     QCOMPARE(policy.weldToleranceMm, expectedPolicy["weldToleranceMm"].toDouble());
@@ -223,6 +224,15 @@ class ReferenceEquivalenceTest : public QObject {
     // --- cavity tool -----------------------------------------------------------
     const QJsonObject tool = expected["tool"].toObject();
     QCOMPARE(QString::fromStdString(result.cavity.selectedEngine), expected["selectedEngine"].toString());
+    QCOMPARE(result.cavity.engineReasonCodes, stringsOf(expected["engineReasonCodes"]));
+    QCOMPARE(result.cavity.usedFallback, expected["usedFallback"].toBool());
+    {
+      std::vector<std::string> attempts;
+      for (const CavityOffsetAttempt& a : result.cavity.offsetAttempts) {
+        attempts.push_back(std::string(offsetEngineName(a.engine)) + ":" + (a.succeeded ? "succeeded" : "failed"));
+      }
+      QCOMPARE(attempts, stringsOf(expected["attemptStatuses"]));
+    }
     QCOMPARE(QString::fromStdString(result.cavity.cavityTool.implementationMethod),
              tool["implementationMethod"].toString());
     VERIFY_BOUNDS(result.cavity.cavityTool.solid.bounds, boundsOf(tool["bounds"]));

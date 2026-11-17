@@ -61,6 +61,8 @@ class AppController : public QObject {
   Q_PROPERTY(QString statusText READ statusText NOTIFY statusTextChanged)
 
   Q_PROPERTY(double moldClearanceMm READ moldClearanceMm WRITE setMoldClearanceMm NOTIFY moldInputsChanged)
+  Q_PROPERTY(double cavityClearanceMm READ cavityClearanceMm WRITE setCavityClearanceMm NOTIFY moldInputsChanged)
+  Q_PROPERTY(double maxCavityClearanceMm READ maxCavityClearanceMm CONSTANT)
   Q_PROPERTY(double minMoldClearanceMm READ minMoldClearanceMm CONSTANT)
   Q_PROPERTY(double maxMoldClearanceMm READ maxMoldClearanceMm CONSTANT)
   Q_PROPERTY(QVariantList cutFaces READ cutFaces NOTIFY moldInputsChanged)
@@ -124,6 +126,9 @@ class AppController : public QObject {
   // --- mold ----------------------------------------------------------------
   double moldClearanceMm() const { return moldClearanceMm_; }
   void setMoldClearanceMm(double value);
+  double cavityClearanceMm() const { return cavityClearanceMm_; }
+  void setCavityClearanceMm(double value);
+  double maxCavityClearanceMm() const { return 5.0; }  // MAX_CAVITY_CLEARANCE_MM in the reference
   double minMoldClearanceMm() const { return kMinReferenceMoldClearanceMm; }
   double maxMoldClearanceMm() const { return kMaxReferenceMoldClearanceMm; }
   QVariantList cutFaces() const;
@@ -251,6 +256,7 @@ class AppController : public QObject {
 
   // mold
   double moldClearanceMm_ = kDefaultReferenceMoldClearanceMm;
+  double cavityClearanceMm_ = kDefaultCavityClearanceMm;
   std::array<CutFaceState, 6> cutFaces_{};
   QString moldPhase_ = QStringLiteral("unavailable");
   QString moldError_;

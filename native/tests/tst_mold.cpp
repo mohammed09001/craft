@@ -10,12 +10,50 @@
 #include "ManifoldMeshEngine.h"
 #include "TestMeshes.h"
 #include "geometry/MeshAnalysis.h"
+#include "geometry/SignedDistance.h"
 #include "mold/CavityGeneration.h"
 #include "mold/PartSolid.h"
 #include "mold/ReferenceMold.h"
 
 using namespace craft;
 using craft::test::box;
+
+namespace {
+/// Forwards everything to a real engine, but fails Minkowski offsets, to
+/// exercise the direct -> distance-field fallback.
+class FailingMinkowskiEngine final : public IMeshGeometryEngine {
+ public:
+  explicit FailingMinkowskiEngine(IMeshGeometryEngine& inner) : inner_(inner) {}
+  std::string implementation() const override { return inner_.implementation(); }
+  SolidPtr solidFromMesh(const MeshPayload& m, double t, const std::string& o) override { return inner_.solidFromMesh(m, t, o); }
+  SolidPtr box(const Bounds3& b) override { return inner_.box(b); }
+  SolidPtr asOriginal(const SolidPtr& s) override { return inner_.asOriginal(s); }
+  SolidPtr subtract(const SolidPtr& a, const SolidPtr& b) override { return inner_.subtract(a, b); }
+  SolidPtr intersect(const SolidPtr& a, const SolidPtr& b) override { return inner_.intersect(a, b); }
+  std::vector<SolidPtr> decompose(const SolidPtr& s) override { return inner_.decompose(s); }
+  SolidPtr simplify(const SolidPtr& s, double t) override { return inner_.simplify(s, t); }
+  SolidPtr minkowskiSphere(const SolidPtr&, double, int) override {
+    throw CodedError("mesh_kernel_error", "Cavity offset failed: injected.");
+  }
+  SolidPtr levelSet(const std::function<double(const Point3&)>& f, const Bounds3& b, double e, double l, double t) override {
+    return inner_.levelSet(f, b, e, l, t);
+  }
+  MeshPayload meshFromSolid(const SolidPtr& s, const std::map<std::int64_t, FaceRole>& r, const std::string& o) override {
+    return inner_.meshFromSolid(s, r, o);
+  }
+ private:
+  IMeshGeometryEngine& inner_;
+};
+
+MeshPayload twoCubes() {
+  MeshPayload mesh = test::cubeMesh(box(-30, -10, 0, -10, 10, 20));
+  const MeshPayload second = test::cubeMesh(box(10, -10, 0, 30, 10, 20));
+  const auto offset = static_cast<std::uint32_t>(mesh.vertexCount());
+  mesh.positions.insert(mesh.positions.end(), second.positions.begin(), second.positions.end());
+  for (std::uint32_t i : second.indices) mesh.indices.push_back(i + offset);
+  return mesh;
+}
+}  // namespace
 
 namespace {
 
@@ -504,8 +542,8 @@ class MoldTest : public QObject {
     QCOMPARE(codeOf([&] { generateMold(*engine_, thin); }), std::string("reference_mold_invalid"));
 
     MoldGenerationRequest offset = request;
-    offset.cavityClearanceMm = 0.4;
-    QCOMPARE(codeOf([&] { generateMold(*engine_, offset); }), std::string("cavity_offset_not_ported"));
+    offset.cavityClearanceMm = -1;
+    QCOMPARE(codeOf([&] { generateMold(*engine_, offset); }), std::string("cavity_offset_failed"));
 
     MoldGenerationRequest empty = request;
     empty.groundedPart = std::make_shared<TriangleSoup>();
@@ -537,6 +575,153 @@ class MoldTest : public QObject {
     QCOMPARE(last, 1.0);
   }
 
+
+  // --- positive cavity clearance (cavityEngine.selector.ts and engines) -----
+  void selectorMatchesReferenceRules() {
+    CavityComplexityMetrics m;
+    m.triangleCount = 12; m.connectedComponentCount = 1; m.boundsDiagonalMm = 34.6;
+    m.smallestDimensionMm = 20; m.volumeMm3 = 8000;
+    m.requestedClearanceMm = 0;
+    QCOMPARE(selectCavityOffsetEngine(m).engine, OffsetEngineKind::ExactZeroClearance);
+    m.requestedClearanceMm = 0.5;
+    auto d = selectCavityOffsetEngine(m);
+    QCOMPARE(d.engine, OffsetEngineKind::DirectMinkowski);
+    QCOMPARE(d.reasonCodes.front(), std::string("positive_clearance_requested"));
+    QCOMPARE(d.reasonCodes.back(), std::string("complexity_score_direct"));
+    m.connectedComponentCount = 2;
+    QCOMPARE(selectCavityOffsetEngine(m).engine, OffsetEngineKind::DistanceField);
+    m.connectedComponentCount = 1; m.triangleCount = 50'001;
+    QCOMPARE(selectCavityOffsetEngine(m).engine, OffsetEngineKind::DistanceField);
+    m.triangleCount = 12; m.smallestDimensionMm = 1;  // diagonal/smallest = 34.6 > 20
+    d = selectCavityOffsetEngine(m);
+    QCOMPARE(d.engine, OffsetEngineKind::DistanceField);
+    QVERIFY(std::find(d.reasonCodes.begin(), d.reasonCodes.end(), "extreme_aspect_ratio") != d.reasonCodes.end());
+  }
+
+  void adaptivePolicyAndProfileMatchReference() {
+    auto p = buildAdaptiveClearancePolicy(1000, 2, 1e-6, CavityQualityMode::Standard);
+    QVERIFY(!p.simplify); QCOMPARE(p.sphereSegments, 16);
+    p = buildAdaptiveClearancePolicy(1000, 2, 1e-6, CavityQualityMode::High);
+    QCOMPARE(p.sphereSegments, 32);
+    p = buildAdaptiveClearancePolicy(60'000, 2, 1e-6, CavityQualityMode::Standard);
+    QVERIFY(p.simplify); QCOMPARE(p.simplificationToleranceMm, 1.0); QCOMPARE(p.sphereSegments, 8);
+
+    WatertightPartSolid solid; solid.bounds = box(0, 0, 0, 20, 20, 20);
+    const auto profile = buildDistanceFieldQualityProfile(solid, 1.0, CavityQualityMode::Standard, 1e-6);
+    QCOMPARE(profile.targetEdgeLengthMm, 1.0);
+    QCOMPARE(profile.effectiveEdgeLengthMm, 1.0);
+    QCOMPARE(profile.boundsPaddingMm, 3.0);
+    QCOMPARE(profile.bounds, box(-3, -3, -3, 23, 23, 23));
+    QCOMPARE(profile.estimatedGridCellCount, 26.0 * 26 * 26);
+    QCOMPARE(profile.surfaceToleranceMm, 0.25);
+    QVERIFY(!profile.exceedsGridBudget);
+  }
+
+  void signedDistanceOfCube() {
+    SignedDistanceField field(test::cubeMesh(box(0, 0, 0, 10, 10, 10)));
+    QVERIFY(std::fabs(field.signedDistance({5, 5, 5}) - 5.0) < 1e-9);    // inside: positive
+    QVERIFY(std::fabs(field.signedDistance({5, 5, 12}) + 2.0) < 1e-9);   // outside: negative
+    QVERIFY(std::fabs(field.signedDistance({13, 14, 10}) + 5.0) < 1e-9); // edge distance 3-4-5
+    QCOMPARE(field.signedDistance({5, 5, 10}), 0.0);                     // on the surface
+    QVERIFY(field.isInside({1, 1, 1}));
+    QVERIFY(!field.isInside({-1, 5, 5}));
+  }
+
+  void minkowskiOffsetMatchesAnalyticVolume() {
+    const auto prepared = validateSoupOf(test::cubeMesh(box(-10, -10, 0, 10, 10, 20)));
+    QVERIFY(prepared.ok);
+    const CavityTool tool = createCavityTool(*engine_, prepared.prepared, 2.0, CavityQualityMode::Standard, 1e-6);
+    QCOMPARE(tool.implementationMethod, std::string("manifold-minkowski-sphere"));
+    // a^3 + 6 a^2 r + 3 pi a r^2 + 4/3 pi r^3, a = 20, r = 2 (a 16-segment sphere is a bit smaller).
+    const double analytic = 8000 + 4800 + 3 * M_PI * 20 * 4 + 4.0 / 3 * M_PI * 8;
+    QVERIFY(tool.solid.volumeMm3 < analytic && tool.solid.volumeMm3 > 0.97 * analytic);
+    QCOMPARE(tool.solid.bounds, box(-12, -12, -2, 12, 12, 22));
+    QVERIFY(meshTopology(tool.solid.mesh).closedManifold());
+  }
+
+  void moldWithPositiveClearanceRemovesTheOffsetTool() {
+    MoldGenerationRequest request = requestFor(test::cubeMesh(groundedCube_));
+    request.cavityClearanceMm = 2.0;
+    request.cuttingPlanes = {createCuttingPlane(FaceId::Top, 0.5)};
+    const MoldGenerationResult result = generateMold(*engine_, request);
+    QCOMPARE(result.cavity.selectedEngine, std::string("direct-minkowski"));
+    QCOMPARE(result.cavity.cavityTool.implementationMethod, std::string("manifold-minkowski-sphere"));
+    QVERIFY(!result.cavity.usedFallback);
+    QCOMPARE(result.cavity.offsetAttempts.size(), std::size_t{1});
+    QVERIFY(result.cavity.subtraction.removedVolumeMm3 > 8000);
+    QVERIFY(approx(result.cavity.subtraction.removedVolumeMm3, result.cavity.cavityTool.solid.volumeMm3, 1e-3));
+    QCOMPARE(result.cavity.cavityTool.solid.bounds, box(-12, -12, 8, 12, 12, 32));
+    for (const CavityMoldBody& body : result.cavity.bodies) {
+      QVERIFY(meshTopology(body.body.mesh).closedManifold());
+      QVERIFY(approx(signedVolume(body.body.mesh), body.body.volumeMm3, body.body.volumeMm3 * 1e-9));
+    }
+  }
+
+  void cavityBreakingThroughTheBlockIsRejected() {
+    MoldGenerationRequest request = requestFor(test::cubeMesh(groundedCube_));
+    request.moldClearanceMm = 3;
+    request.cavityClearanceMm = 3;  // tool reaches the block wall
+    QCOMPARE(codeOf([&] { generateMold(*engine_, request); }), std::string("cavity_boolean_failed"));
+  }
+
+  void multiComponentPartUsesTheDistanceField() {
+    MoldGenerationRequest request = requestFor(twoCubes());
+    request.moldClearanceMm = 20;
+    request.cavityClearanceMm = 1.0;
+    const MoldGenerationResult result = generateMold(*engine_, request);
+    QCOMPARE(result.cavity.selectedEngine, std::string("distance-field"));
+    QCOMPARE(result.cavity.cavityTool.implementationMethod, std::string("manifold-level-set-sdf"));
+    QCOMPARE(result.cavity.cavityTool.solid.connectedComponentCount, std::size_t{2});
+    QVERIFY(result.cavity.hasDistanceFieldProfile);
+    // Offset volume of two separated 20x20x20 cubes by 1 mm (analytic ~ 2 * 10 100 mm^3);
+    // the 1 mm level-set grid should land within a few percent.
+    const double analytic = 2 * (8000 + 6 * 400 * 1 + 3 * M_PI * 20 + 4.0 / 3 * M_PI);
+    QVERIFY(approx(result.cavity.cavityTool.solid.volumeMm3, analytic, 0.05 * analytic));
+    QVERIFY(meshTopology(result.cavity.cavityTool.solid.mesh).closedManifold());
+    for (const CavityMoldBody& body : result.cavity.bodies) {
+      QVERIFY(meshTopology(body.body.mesh).closedManifold());
+    }
+  }
+
+  void directFailureFallsBackToTheDistanceField() {
+    FailingMinkowskiEngine failing(*engine_);
+    MoldGenerationRequest request = requestFor(test::cubeMesh(groundedCube_));
+    request.cavityClearanceMm = 1.0;
+    const MoldGenerationResult result = generateMold(failing, request);
+    QVERIFY(result.cavity.usedFallback);
+    QCOMPARE(result.cavity.selectedEngine, std::string("direct-minkowski"));
+    QCOMPARE(result.cavity.offsetAttempts.size(), std::size_t{2});
+    QVERIFY(!result.cavity.offsetAttempts[0].succeeded);
+    QVERIFY(result.cavity.offsetAttempts[1].succeeded);
+    QCOMPARE(result.cavity.cavityTool.implementationMethod, std::string("manifold-level-set-sdf"));
+    QVERIFY(result.cavity.subtraction.removedVolumeMm3 > 8000);
+  }
+
+  void distanceFieldCanBeCancelled() {
+    WatertightPartSolid prepared = validateSoupOf(twoCubes()).prepared;
+    CancellationToken cancel;
+    cancel.cancel();
+    QCOMPARE(codeOf([&] {
+               createDistanceFieldCavityTool(*engine_, prepared, 1.0, CavityQualityMode::Standard, 1e-6, cancel);
+             }),
+             std::string("cavity_cancelled"));
+  }
+
+  void distanceFieldRefusesAnOversizedGrid() {
+    WatertightPartSolid prepared;
+    prepared.bounds = box(0, 0, 0, 5000, 5000, 5000);  // 256-cell cap -> too many cells
+    prepared.watertight = prepared.manifold = true;
+    prepared.mesh = test::cubeMesh(prepared.bounds);
+    prepared.triangleCount = 12;
+    const auto profile = buildDistanceFieldQualityProfile(prepared, 1.0, CavityQualityMode::Standard, 1e-6);
+    QVERIFY(profile.estimatedGridCellCount > 0);
+    // 5000 mm / 256 = 19.5 mm cells -> ~260^3 = 17.6 M cells > 12 M budget.
+    QVERIFY(profile.exceedsGridBudget);
+    QCOMPARE(codeOf([&] {
+               createDistanceFieldCavityTool(*engine_, prepared, 1.0, CavityQualityMode::Standard, 1e-6);
+             }),
+             std::string("cavity_offset_failed"));
+  }
   void misalignedToolIsRejected() {
     // Direct generator call with a tool outside the block.
     CavityGenerationInput input;
@@ -556,7 +741,7 @@ class MoldTest : public QObject {
     tool.solid.mesh = test::cubeMesh(box(-20, -10, 10, 10, 10, 30));
     tool.solid.bounds = box(-20, -10, 10, 10, 10, 30);
     QCOMPARE(codeOf([&] { generateCavityBodies(*engine_, input, tool); }),
-             std::string("cavity_outer_breakthrough"));
+             std::string("cavity_boolean_failed"));
   }
 };
 

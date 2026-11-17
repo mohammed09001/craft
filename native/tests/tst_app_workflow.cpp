@@ -84,6 +84,20 @@ class WorkflowTest : public QObject {
     QCOMPARE(QDir(dir.path()).entryList({"*.stl"}).size(), 2);
   }
 
+  void positiveCavityClearanceRunsEndToEnd() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->setCavityClearanceMm(1.0);
+    app->generateMold();
+    QVERIFY(waitFor([&] { return app->moldPhase() == "complete" || app->moldPhase() == "error"; }));
+    QVERIFY2(app->moldPhase() == "complete", qPrintable(app->moldError()));
+    QCOMPARE(app->moldSummary().value("offsetEngine").toString(), QStringLiteral("direct-minkowski"));
+    // Offset tool is larger than the 7200 mm^3 part.
+    QVERIFY(app->moldSummary().value("removedVolumeMm3").toDouble() > 7200.0);
+    QCOMPARE(app->moldSummary().value("cavityClearanceMm").toDouble(), 1.0);
+  }
+
   void editingInputsDropsStaleResult() {
     auto app = makeApp();
     app->importStlFile(bracket());

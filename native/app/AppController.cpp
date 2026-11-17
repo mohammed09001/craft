@@ -198,6 +198,13 @@ void AppController::setMoldClearanceMm(double value) {
   invalidateMoldInputs();
 }
 
+void AppController::setCavityClearanceMm(double value) {
+  const double clamped = std::isfinite(value) ? std::clamp(value, 0.0, maxCavityClearanceMm()) : 0.0;
+  if (clamped == cavityClearanceMm_) return;
+  cavityClearanceMm_ = clamped;
+  invalidateMoldInputs();
+}
+
 QVariantList AppController::cutFaces() const {
   QVariantList list;
   for (FaceId face : kFaceIds) {
@@ -278,6 +285,7 @@ void AppController::generateMold() {
   request.partGeometryVersion = model_->geometryVersion;
   request.groundedPart = model_->groundedSoup;
   request.moldClearanceMm = moldClearanceMm_;
+  request.cavityClearanceMm = cavityClearanceMm_;
   request.cuttingPlanes = activeCuttingPlanes();
   request.generationVersion = ++moldGenerationVersion_;
 
@@ -362,6 +370,10 @@ QVariantMap AppController::moldSummary() const {
   }
   const auto& d = r.cavity.subtraction;
   return {{"implementation", QString::fromStdString(r.cavity.implementation)},
+          {"offsetEngine", QString::fromStdString(r.cavity.selectedEngine)},
+          {"offsetMethod", QString::fromStdString(r.cavity.cavityTool.implementationMethod)},
+          {"usedFallback", r.cavity.usedFallback},
+          {"cavityClearanceMm", r.cavity.cavityTool.clearanceMm},
           {"operationId", QString::fromStdString(r.cavity.operationId)},
           {"signature", QString::fromStdString(r.cavity.sourceSignature)},
           {"referenceBlock", boundsMap(r.definition.referenceMoldBlockBounds)},

@@ -137,7 +137,9 @@ CavityGenerationResult generateCavityBodies(IMeshGeometryEngine& engine,
   assertCavityCoordinateAlignment(input, tool);
   const CavityContainment containment = validateCavityContainment(input, tool);
   if (!containment.blockers.empty()) {
-    throw CodedError(containment.blockers.front().reasonCode, containment.blockers.front().message);
+    // The reference throws a plain Error here, which evaluate() reports as
+    // cavity_boolean_failed; the blocker code stays in the message context.
+    throw CodedError("cavity_boolean_failed", containment.blockers.front().message);
   }
 
   const GeometryTolerancePolicy& policy = input.tolerancePolicy;
@@ -391,12 +393,6 @@ MoldGenerationResult generateMold(IMeshGeometryEngine& engine, const MoldGenerat
     throw CodedError("cavity_offset_failed",
                      "Cavity clearance must be a non-negative millimeter value.");
   }
-  if (request.cavityClearanceMm > 0) {
-    throw CodedError("cavity_offset_not_ported",
-                     "A positive cavity clearance needs the Minkowski / distance-field offset "
-                     "engines, which are not ported to the native application yet. Use 0 mm.");
-  }
-
   report("validating", 0.05);
   const auto validationStarted = Clock::now();
 
@@ -487,28 +483,27 @@ MoldGenerationResult generateMold(IMeshGeometryEngine& engine, const MoldGenerat
   const double validationMs = elapsedMs(validationStarted);
   throwIfCancelled(cancel);
 
-  // Offset stage: exact-zero-clearance engine (createCavityTool with 0 mm).
+  // Offset stage: reference engine selection (exact / direct Minkowski /
+  // distance field with fallback).
   report("auditing", 0.2);
   report("building-offset", 0.3);
   const auto offsetStarted = Clock::now();
-  CavityTool tool;
-  {
-    const SolidPtr toolSolid = engine.solidFromMesh(validation.prepared.mesh,
-                                                    input.tolerancePolicy.booleanToleranceMm,
-                                                    "Mesh preparation");
-    tool.solid = validation.prepared;
-    tool.solid.mesh = engine.meshFromSolid(toolSolid, {}, "Mesh export");
-    tool.solid.bounds = toolSolid->bounds();
-    tool.solid.volumeMm3 = toolSolid->volume();
-    tool.solid.triangleCount = tool.solid.mesh.triangleCount();
-    tool.clearanceMm = request.cavityClearanceMm;
-  }
+  AutomaticCavityOffsetResult offset =
+      createAutomaticCavityTool(engine, validation.prepared, request.cavityClearanceMm,
+                                request.qualityMode, input.tolerancePolicy.booleanToleranceMm, cancel);
+  CavityTool tool = std::move(offset.tool);
   const double offsetMs = elapsedMs(offsetStarted);
   throwIfCancelled(cancel);
 
   report("subtracting-body", 0.65);
   const auto booleanStarted = Clock::now();
   result.cavity = generateCavityBodies(engine, input, tool, cancel);
+  result.cavity.selectedEngine = offsetEngineName(offset.decision.engine);
+  result.cavity.engineReasonCodes = offset.decision.reasonCodes;
+  result.cavity.offsetAttempts = offset.attempts;
+  result.cavity.usedFallback = offset.usedFallback;
+  result.cavity.hasDistanceFieldProfile = offset.hasDistanceFieldProfile;
+  result.cavity.distanceFieldProfile = offset.distanceFieldProfile;
   if (result.cavity.subtraction.affectedBodyCount < 1 ||
       result.cavity.subtraction.removedVolumeMm3 <=
           input.tolerancePolicy.affectedVolumeToleranceMm3) {

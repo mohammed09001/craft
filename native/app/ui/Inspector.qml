@@ -49,6 +49,15 @@ ScrollView {
                         onValueModified: app.moldClearanceMm = value
                     }
                 }
+                RowLayout {
+                    Label { text: qsTr("Cavity clearance: ") + root.fmt(app.cavityClearanceMm, 1) + " mm" }
+                    Slider {
+                        Layout.fillWidth: true
+                        from: 0; to: app.maxCavityClearanceMm; stepSize: 0.1
+                        value: app.cavityClearanceMm
+                        onMoved: app.cavityClearanceMm = value
+                    }
+                }
                 Label { text: qsTr("Cut by face"); font.bold: true }
                 Repeater {
                     model: app.cutFaces
@@ -90,7 +99,12 @@ ScrollView {
             title: qsTr("Mold result")
             ColumnLayout {
                 anchors.fill: parent
-                Label { text: qsTr("Engine: ") + app.moldSummary.implementation }
+                Label { text: qsTr("Kernel: ") + app.moldSummary.implementation }
+                Label {
+                    text: qsTr("Offset: ") + app.moldSummary.offsetEngine
+                          + (app.moldSummary.usedFallback ? qsTr(" (fell back to distance field)") : "")
+                    wrapMode: Text.Wrap; Layout.fillWidth: true
+                }
                 Label { text: qsTr("Block: ") + root.size(app.moldSummary.referenceBlock) }
                 Label { text: qsTr("Removed: ") + root.fmt(app.moldSummary.removedVolumeMm3, 1) + " mm³" }
                 Label { text: qsTr("Time: ") + root.fmt(app.moldSummary.elapsedMs, 0) + " ms" }

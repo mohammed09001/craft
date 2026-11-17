@@ -102,7 +102,12 @@ function wedgeSoup(): number[] {
 /** Drops the last `count` triangles to create open-mesh defects. */
 const withoutLastTriangles = (positions: readonly number[], count: number) => positions.slice(0, positions.length - count * 9);
 
+function twoCubesSoup(): number[] {
+  return [...boxSoup([-30, -10, 0], [-10, 10, 20]), ...boxSoup([10, -10, 0], [30, 10, 20])];
+}
+
 const parts: Record<string, number[]> = {
+  twoCubes: twoCubesSoup(),
   cube20: boxSoup([-10, -10, 0], [10, 10, 20]),
   block30x20x10: boxSoup([-15, -10, 0], [15, 10, 10]),
   sphereR10: sphereSoup([0, 0, 10], 10, 24, 12),
@@ -112,7 +117,7 @@ const parts: Record<string, number[]> = {
 };
 
 interface PlaneSpec { face: PartBoundingBoxFaceId; normalizedPosition: number | null }
-interface CaseSpec { name: string; part: string; moldClearanceMm: number; planes: PlaneSpec[] }
+interface CaseSpec { name: string; part: string; moldClearanceMm: number; cavityClearanceMm?: number; planes: PlaneSpec[] }
 
 const cases: CaseSpec[] = [
   { name: "cube whole block", part: "cube20", moldClearanceMm: 10, planes: [] },
@@ -126,6 +131,13 @@ const cases: CaseSpec[] = [
   { name: "wedge two-axis split", part: "wedge", moldClearanceMm: 10, planes: [{ face: "top", normalizedPosition: 0.5 }, { face: "left", normalizedPosition: 0.25 }] },
   { name: "wedge thin shell, default bottom + back", part: "wedge", moldClearanceMm: 3, planes: [{ face: "bottom", normalizedPosition: null }, { face: "back", normalizedPosition: 0.6 }] },
   { name: "cube with one missing triangle is repaired", part: "cubeMissingTriangle", moldClearanceMm: 10, planes: [{ face: "top", normalizedPosition: 0.5 }] },
+  { name: "cube direct offset 2mm, mid split", part: "cube20", moldClearanceMm: 10, cavityClearanceMm: 2, planes: [{ face: "top", normalizedPosition: 0.5 }] },
+  { name: "cube direct offset 0.5mm, whole block", part: "cube20", moldClearanceMm: 10, cavityClearanceMm: 0.5, planes: [] },
+  { name: "sphere direct offset 1mm, equator split", part: "sphereR10", moldClearanceMm: 10, cavityClearanceMm: 1, planes: [{ face: "top", normalizedPosition: 0.5 }] },
+  { name: "wedge direct offset 1.5mm, two-axis split", part: "wedge", moldClearanceMm: 10, cavityClearanceMm: 1.5, planes: [{ face: "top", normalizedPosition: 0.5 }, { face: "left", normalizedPosition: 0.25 }] },
+  { name: "two cubes distance-field offset 1mm", part: "twoCubes", moldClearanceMm: 20, cavityClearanceMm: 1, planes: [] },
+  { name: "two cubes distance-field offset 1mm, split between", part: "twoCubes", moldClearanceMm: 20, cavityClearanceMm: 1, planes: [{ face: "right", normalizedPosition: 0.5 }] },
+  { name: "offset reaching the block wall is rejected", part: "cube20", moldClearanceMm: 3, cavityClearanceMm: 3, planes: [] },
   { name: "cube with a missing face is rejected", part: "cubeMissingFace", moldClearanceMm: 10, planes: [] },
 ];
 
@@ -207,7 +219,7 @@ async function runCase(spec: CaseSpec) {
     partOffset: frame.partOffset,
     selectionBoxBounds: frame.selectionBoxBounds,
     referenceMoldBlockBounds: frame.referenceMoldBlockBounds,
-    tolerancePolicy: buildGeometryTolerancePolicy(frame.referenceMoldBlockBounds, 0),
+    tolerancePolicy: buildGeometryTolerancePolicy(frame.referenceMoldBlockBounds, spec.cavityClearanceMm ?? 0),
     cutPlanes: cutPlanes.map((plane) => ({ axis: plane.axis, coordinate: plane.coordinate, sourceFace: plane.sourceFace, order: plane.order })),
     sourceBodies: moldBodies.map(describeBody),
   };
@@ -217,13 +229,16 @@ async function runCase(spec: CaseSpec) {
       sourcePartMesh,
       definition,
       cuttingPlanes,
-      cavityClearanceMm: 0,
+      cavityClearanceMm: spec.cavityClearanceMm ?? 0,
       qualityMode: "standard",
       generationVersion: 1,
     });
     const { result, validationWarnings } = await evaluateCavityGeneration(input);
     expected.outcome = "ok";
     expected.selectedEngine = result.diagnostics?.selectedEngine;
+    expected.engineReasonCodes = result.diagnostics?.engineReasonCodes;
+    expected.usedFallback = result.diagnostics?.usedFallback;
+    expected.attemptStatuses = result.diagnostics?.attempts.map((a) => `${a.engine}:${a.status}`);
     expected.tool = {
       bounds: result.cavityTool.bounds,
       volumeMm3: result.cavityTool.volumeMm3,
@@ -254,7 +269,7 @@ async function runCase(spec: CaseSpec) {
     };
   }
 
-  return { name: spec.name, input: { part: spec.part, moldClearanceMm: spec.moldClearanceMm, planes: spec.planes }, expected };
+  return { name: spec.name, input: { part: spec.part, moldClearanceMm: spec.moldClearanceMm, cavityClearanceMm: spec.cavityClearanceMm ?? 0, planes: spec.planes }, expected };
 }
 
 it("writes the native-migration reference fixtures", async () => {

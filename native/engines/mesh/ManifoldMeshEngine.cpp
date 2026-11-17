@@ -62,6 +62,7 @@ class ManifoldSolid final : public ISolid {
     return solid_.Status() == manifold::Manifold::Error::NoError;
   }
   std::int64_t originalId() const override { return solid_.OriginalID(); }
+  std::size_t triangleCount() const override { return solid_.NumTri(); }
 
   const manifold::Manifold& manifold() const { return solid_; }
 
@@ -126,6 +127,27 @@ class ManifoldMeshEngine final : public IMeshGeometryEngine {
     std::vector<SolidPtr> parts;
     for (auto& part : unwrap(solid).Decompose()) parts.push_back(wrap(std::move(part)));
     return parts;
+  }
+
+  SolidPtr simplify(const SolidPtr& solid, double tolerance) override {
+    return wrap(unwrap(solid).Simplify(tolerance));
+  }
+
+  SolidPtr minkowskiSphere(const SolidPtr& solid, double radius, int segments) override {
+    const manifold::Manifold sphere = manifold::Manifold::Sphere(radius, segments);
+    manifold::Manifold result = unwrap(solid).MinkowskiSum(sphere);
+    assertStatus(result, "Cavity offset");
+    return wrap(std::move(result));
+  }
+
+  SolidPtr levelSet(const std::function<double(const Point3&)>& sdf, const Bounds3& bounds,
+                    double edgeLength, double level, double tolerance) override {
+    const manifold::Box box({bounds.min.x, bounds.min.y, bounds.min.z},
+                            {bounds.max.x, bounds.max.y, bounds.max.z});
+    manifold::Manifold result = manifold::Manifold::LevelSet(
+        [&sdf](manifold::vec3 p) { return sdf(Point3{p.x, p.y, p.z}); }, box, edgeLength, level,
+        tolerance, /*canParallel=*/false);
+    return wrap(std::move(result));
   }
 
   MeshPayload meshFromSolid(const SolidPtr& solid, const std::map<std::int64_t, FaceRole>& roles,

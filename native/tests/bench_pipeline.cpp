@@ -3,6 +3,7 @@
 // Run from a Release build; Debug numbers are not meaningful.
 
 #include <chrono>
+#include <cstdlib>
 #include <cstdio>
 #include <filesystem>
 
@@ -39,6 +40,7 @@ int main(int argc, char** argv) {
   const std::filesystem::path dir = argc > 1 ? argv[1] : std::filesystem::temp_directory_path();
   struct Size { int segments, rings; };
   const Size sizes[] = {{48, 24}, {160, 80}, {360, 180}, {700, 350}};
+  const double cavityClearance = argc > 2 ? std::atof(argv[2]) : 0.0;  // 2nd arg: cavity clearance mm
   auto engine = createManifoldMeshEngine();
 
   std::printf("| triangles | STL MiB | read+validate ms | ground ms | render buffers ms | edge buffers ms | mold (1 split) ms | bodies | peak RSS MiB |\n");
@@ -76,10 +78,13 @@ int main(int argc, char** argv) {
     request.groundedPart = grounded;
     request.partGeometryVersion = partGeometryVersion(*grounded);
     request.cuttingPlanes = {createCuttingPlane(FaceId::Top, 0.5)};
+    request.cavityClearanceMm = cavityClearance;
     t = Clock::now();
     std::size_t bodies = 0;
     try {
-      bodies = generateMold(*engine, request).cavity.bodies.size();
+      const auto result = generateMold(*engine, request);
+      bodies = result.cavity.bodies.size();
+      std::fprintf(stderr, "  [%zu tris] offset engine: %s\n", sphere.triangleCount(), result.cavity.selectedEngine.c_str());
     } catch (const CodedError& e) {
       std::fprintf(stderr, "mold failed: %s %s\n", e.code().c_str(), e.what());
     }

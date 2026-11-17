@@ -61,6 +61,8 @@ add_library(craft_core STATIC
   core/geometry/MeshAnalysis.h
   core/geometry/RayPicking.cpp
   core/geometry/RayPicking.h
+  core/geometry/SignedDistance.cpp
+  core/geometry/SignedDistance.h
   core/model/ModelGrounding.cpp
   core/model/ModelGrounding.h
   core/view/ViewPose.cpp
@@ -87,6 +89,8 @@ target_link_libraries(craft_mesh_api INTERFACE craft_core)
 add_library(craft_mold STATIC
   core/mold/CavityGeneration.cpp
   core/mold/CavityGeneration.h
+  core/mold/CavityOffset.cpp
+  core/mold/CavityOffset.h
   core/mold/PartSolid.cpp
   core/mold/PartSolid.h
   core/mold/ReferenceMold.cpp

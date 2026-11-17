@@ -9,6 +9,7 @@
 // kernel type ever reaches the UI or the renderer.
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory>
 #include <string>
@@ -30,6 +31,7 @@ class ISolid {
   virtual bool isValid() const = 0;
   /// Provenance id assigned by IMeshGeometryEngine::asOriginal, or -1.
   virtual std::int64_t originalId() const = 0;
+  virtual std::size_t triangleCount() const = 0;
 };
 
 using SolidPtr = std::shared_ptr<const ISolid>;
@@ -53,6 +55,18 @@ class IMeshGeometryEngine {
   virtual SolidPtr subtract(const SolidPtr& from, const SolidPtr& tool) = 0;
   virtual SolidPtr intersect(const SolidPtr& a, const SolidPtr& b) = 0;
   virtual std::vector<SolidPtr> decompose(const SolidPtr& solid) = 0;
+
+  /// Kernel simplification within `tolerance` millimeters.
+  virtual SolidPtr simplify(const SolidPtr& solid, double tolerance) = 0;
+  /// Minkowski sum of `solid` with a sphere of `radius` (an outward offset
+  /// with `segments` circular segments). Throws CodedError on kernel failure.
+  virtual SolidPtr minkowskiSphere(const SolidPtr& solid, double radius, int segments) = 0;
+  /// Marching-tetrahedra level set of `sdf` over `bounds`. The surface is
+  /// where sdf == level, with sdf >= level kept as material (Manifold
+  /// convention). `sdf` is called from the calling thread only and may throw
+  /// to abort. Throws CodedError on kernel failure.
+  virtual SolidPtr levelSet(const std::function<double(const Point3&)>& sdf, const Bounds3& bounds,
+                            double edgeLength, double level, double tolerance) = 0;
 
   /// Exports an indexed mesh. Faces whose provenance id appears in `roles`
   /// get that role; every other face run is FaceRole::OuterMold.

@@ -57,7 +57,34 @@ Reading: import and buffer building stay under half a second even at ~490k trian
 stage (about 4 s at 490k) and already runs on a worker thread, so the UI stays responsive.
 NOT measured: GPU frame rate, VRAM, the equivalent timings of the TypeScript/WASM pipeline, and a visual comparison with
 the Three.js viewport (needs a browser run). Spheres only; no real-world STL beyond the small bracket.
+### Session 3: positive cavity clearance
+
+Ported (`native/core/mold/CavityOffset.*`, `native/core/geometry/SignedDistance.*`, engine seam extended with `simplify`,
+`minkowskiSphere`, `levelSet`): engine selector and complexity score, adaptive Minkowski policy (simplify above 50k triangles,
+sphere segments 16/32/8/16), distance-field quality profile and grid budget, own BVH signed distance (closest point + 3-ray
+parity vote, float32-quantized like three-mesh-bvh), Manifold level set, direct-to-distance-field fallback, cancellation.
+The app has a cavity-clearance slider (0 to 5 mm, as in the reference) and shows the engine used.
+
+Evidence: `tst_mold` 47 passed (selector rules, policy/profile numbers, SDF values, Minkowski volume vs analytic formula,
+distance field on two cubes vs analytic, injected-failure fallback, cancellation, grid-budget refusal);
+`tst_reference_equivalence` 24 passed: 7 new reference cases (4 direct Minkowski, 2 distance-field including a multi-body
+split, 1 outer-breakthrough rejection) reproduce the TypeScript/WASM results including exact triangle and vertex counts and
+volumes to 1e-9 relative. Full `ctest` 8/8. Corrected during this work: the reference reports an outer-breakthrough as
+`cavity_boolean_failed` (plain Error), native now does the same.
+
+Performance (Release, 1 mm clearance, one split, single thread):
+
+| triangles | engine | mold ms | peak RSS MiB |
+|---|---|---|---|
+| 2,208 | direct Minkowski | 64 | 17 |
+| 25,280 | direct Minkowski | 531 | 80 |
+| 128,880 | distance field | 146,059 | 137 |
+| 488,600 | distance field | 267,806 | 336 |
+
+The distance field is the bottleneck (single-threaded SDF evaluation, see RISKS.md). No WASM timing for comparison.
+High quality mode is implemented and unit-tested but not exposed in the UI. Parity check of the UI path: `tst_app_workflow`.
+
 ### Next exact step
 1. GPU frame-rate/VRAM measurement, WASM timing for the same inputs, and a visual comparison with the Three.js viewport on real STLs (Phase 2 gate).
-2. Port positive cavity clearance (offset engines), then sprue, registration, segmentation, Master Mold.
+2. Parallelize/accelerate the distance-field SDF; then port sprue, registration, segmentation, Master Mold.
 3. `.craft` project format with atomic save/load; bundled Python runtime; installer; macOS CI job on a real runner.
