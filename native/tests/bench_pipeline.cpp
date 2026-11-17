@@ -84,7 +84,10 @@ int main(int argc, char** argv) {
     try {
       const auto result = generateMold(*engine, request);
       bodies = result.cavity.bodies.size();
-      std::fprintf(stderr, "  [%zu tris] offset engine: %s\n", sphere.triangleCount(), result.cavity.selectedEngine.c_str());
+      std::fprintf(stderr, "  [%zu tris] offset engine: %s | validate %.0f ms, offset %.0f ms, boolean+checks %.0f ms, tool %zu tris\n",
+                   sphere.triangleCount(), result.cavity.selectedEngine.c_str(), result.cavity.timings.validationMs,
+                   result.cavity.timings.offsetMs, result.cavity.timings.booleanMs,
+                   result.cavity.cavityTool.solid.triangleCount);
     } catch (const CodedError& e) {
       std::fprintf(stderr, "mold failed: %s %s\n", e.code().c_str(), e.what());
     }

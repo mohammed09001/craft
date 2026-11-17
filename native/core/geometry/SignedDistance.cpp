@@ -195,7 +195,8 @@ struct SignedDistanceField::Impl {
   }
 
   int uniqueForwardCrossings(const V& o, const V& d) const {
-    std::vector<double> hits;
+    thread_local std::vector<double> hits;  // reused: avoids an allocation per ray
+    hits.clear();
     collectHits(0, o, d, hits);
     std::sort(hits.begin(), hits.end());
     int unique = 0;
@@ -253,11 +254,32 @@ double SignedDistanceField::distanceToSurface(const Point3& p) const {
 }
 
 bool SignedDistanceField::isInside(const Point3& p) const {
-  int votes = 0;
-  for (const V& d : rayDirections()) {
-    if (impl_->uniqueForwardCrossings({p.x, p.y, p.z}, d) % 2 == 1) ++votes;
+  // A point outside the mesh bounding box is outside: every ray crosses the
+  // surface an even number of times, so no vote can be "inside".
+  const Aabb& root = impl_->nodes[0].box;
+  if (p.x < root.lo.x || p.x > root.hi.x || p.y < root.lo.y || p.y > root.hi.y || p.z < root.lo.z ||
+      p.z > root.hi.z) {
+    return false;
   }
-  return votes > 1;  // majority of three
+  // Majority of three: once two rays agree the third cannot change the result.
+  const auto& dirs = rayDirections();
+  const V origin{p.x, p.y, p.z};
+  const bool first = impl_->uniqueForwardCrossings(origin, dirs[0]) % 2 == 1;
+  const bool second = impl_->uniqueForwardCrossings(origin, dirs[1]) % 2 == 1;
+  if (first == second) return first;
+  return impl_->uniqueForwardCrossings(origin, dirs[2]) % 2 == 1;
+}
+
+double SignedDistanceField::signedDistanceBanded(const Point3& p, double band) const {
+  if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z)) {
+    throw std::invalid_argument("Signed-distance query point is invalid.");
+  }
+  double best = band * band;
+  impl_->closest(0, {p.x, p.y, p.z}, best);
+  if (best >= band * band) return isInside(p) ? band : -band;  // nothing within the band
+  const double distance = std::sqrt(best);
+  if (distance <= impl_->epsilon) return 0;
+  return isInside(p) ? distance : -distance;
 }
 
 double SignedDistanceField::signedDistance(const Point3& p) const {

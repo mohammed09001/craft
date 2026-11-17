@@ -84,7 +84,25 @@ Performance (Release, 1 mm clearance, one split, single thread):
 The distance field is the bottleneck (single-threaded SDF evaluation, see RISKS.md). No WASM timing for comparison.
 High quality mode is implemented and unit-tested but not exposed in the UI. Parity check of the UI path: `tst_app_workflow`.
 
+### Session 4: distance-field speed-up
+
+Profile first: prefill of the sampling lattice was ~90% of the time and the closest-point query cost 55 us/point (inside test 3 us) because
+points deep inside or far from the part had to scan almost every triangle. Changes (all keep the output identical):
+1. Engine pre-evaluates the exact lattice Manifold samples, on all cores, into a dense cache (`LatticeCache` in `ManifoldMeshEngine.cpp`).
+2. Inside test shortcuts: point outside the mesh bounding box is outside; the third ray is skipped when two agree; ray-hit buffer reused.
+3. Banded signed distance (`SignedDistanceField::signedDistanceBanded`): closest-point search is capped at clearance + 4 lattice steps.
+
+Result (Release, 1 mm clearance, 8 cores), mold stage total / offset stage:
+
+| triangles | before | threads only | threads + banded |
+|---|---|---|---|
+| 128,880 | 146.1 s | 33.0 s | 8.6 s (offset 7.5 s) |
+| 488,600 | 267.8 s | 62.6 s | 12.8 s (offset 10.3 s) |
+
+After the change `ctest` is still 8/8 and `tst_reference_equivalence` is still 24/24 (identical triangle counts, volumes to 1e-9).
+Not measured: WASM timing for the same inputs; on fewer cores the thread-level gain shrinks. `CRAFT_TRACE_LEVELSET=1` prints prefill/total time and cache hits.
+
 ### Next exact step
 1. GPU frame-rate/VRAM measurement, WASM timing for the same inputs, and a visual comparison with the Three.js viewport on real STLs (Phase 2 gate).
-2. Parallelize/accelerate the distance-field SDF; then port sprue, registration, segmentation, Master Mold.
+2. Port sprue, registration, segmentation, Master Mold.
 3. `.craft` project format with atomic save/load; bundled Python runtime; installer; macOS CI job on a real runner.

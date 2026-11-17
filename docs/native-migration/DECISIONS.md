@@ -6,6 +6,7 @@
 - D-004 Native STL size cap is 512 MiB (reference 25 MiB, a browser limit).
 - D-005 Geometry-version tokens hash bounds as float64 rather than JSON text; stable on native, not string-equal to reference tokens.
 - D-006 (superseded in session 3) Positive cavity clearance is now ported; the only intentional deviation is that a cavity-outer-breakthrough blocker is reported with the reference's observable code `cavity_boolean_failed`.
-- D-009 Level-set SDF evaluation is single-threaded (Manifold built without TBB); cancellation is polled every 4096 SDF evaluations by throwing from the callback.
+- D-009 Manifold stays built without TBB. Level-set sampling is parallelised by the engine itself: the lattice Manifold samples is pre-evaluated on all cores into a dense cache (bit-exact position match, otherwise falls back to the SDF). Cancellation is polled every 1024 SDF evaluations by throwing from the callback; the first exception is rethrown after the workers join.
+- D-010 The offset SDF is evaluated with a distance band (clearance + 4 lattice steps): beyond it only the sign is computed. LevelSet uses exact values only near the offset surface, and the equivalence tests confirm identical output.
 - D-007 Analysis cancel/timeout kills the worker process; it restarts lazily.
 - D-008 QML lives in `native/app/ui` (qmlcache cannot handle `../` paths).

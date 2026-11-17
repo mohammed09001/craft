@@ -1,6 +1,7 @@
 #include "mold/CavityOffset.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <functional>
 
@@ -230,14 +231,17 @@ DistanceFieldToolResult createDistanceFieldCavityTool(IMeshGeometryEngine& engin
   }
 
   SignedDistanceField field(prepared.mesh, tolerance);
-  std::size_t evaluations = 0;
+  // Exact distances are only needed near the offset surface; one lattice step
+  // is profile.effectiveEdgeLengthMm, so 4 steps beyond the clearance is ample.
+  const double band = clearanceMm + 4 * profile.effectiveEdgeLengthMm;
+  std::atomic<std::size_t> evaluations{0};
   const auto sdf = [&](const Point3& p) {
-    if ((++evaluations & 0xFFF) == 0 && cancel.isCancelled()) {
+    if (((evaluations.fetch_add(1, std::memory_order_relaxed) + 1) & 0x3FF) == 0 && cancel.isCancelled()) {
       throw CodedError("cavity_cancelled", "Cavity generation was cancelled.");
     }
     // Manifold keeps sdf >= level; material is positive inside, and the
     // negative level -clearance outsets the surface.
-    return field.signedDistance(p);
+    return field.signedDistanceBanded(p, band);
   };
 
   SolidPtr levelSet;

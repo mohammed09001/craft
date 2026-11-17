@@ -61,3 +61,8 @@ add_executable(bench_pipeline bench_pipeline.cpp)
 target_link_libraries(bench_pipeline PRIVATE craft_mold craft_mesh_manifold craft_io craft_viewport)
 target_include_directories(bench_pipeline PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 craft_target_defaults(bench_pipeline)
+
+add_executable(bench_sdf bench_sdf.cpp)
+target_link_libraries(bench_sdf PRIVATE craft_core)
+target_include_directories(bench_sdf PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+craft_target_defaults(bench_sdf)

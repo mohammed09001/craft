@@ -7,4 +7,4 @@
 - Pre-existing frontend failure: `scripts/checkBundleBudget.test.mjs` does not load on Windows (shebang parse error).
 - Two analysis implementations (TS pull-direction vs Python) remain unreconciled.
 - Manifold GitHub fetch happens at configure time; offline builds need a pre-populated `FETCHCONTENT_BASE_DIR`.
-- Distance-field cavity offset (parts over 50k triangles, multi-component parts, extreme aspect ratios) is single-threaded here: about 146 s at 129k triangles and 268 s at 489k (1 mm clearance, Release). Not compared with the WASM timing. It is cancellable but slow; parallel SDF evaluation is the obvious fix.
+- Distance-field cavity offset: 8.6 s at 129k triangles and 12.8 s at 489k (1 mm clearance, Release, 8 cores). The banded distance shortcut relies on the offset surface being sampled at lattice spacing h and band = clearance + 4h; it is verified against the reference on 7 cases, not proven for every geometry. Dense lattice cache costs about 16 bytes per grid cell (up to ~200 MB at the 12M-cell budget). Not compared with the WASM timing.

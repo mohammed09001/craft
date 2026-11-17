@@ -627,6 +627,14 @@ class MoldTest : public QObject {
     QVERIFY(!field.isInside({-1, 5, 5}));
   }
 
+  void bandedSignedDistanceAgreesWithinTheBand() {
+    SignedDistanceField field(test::cubeMesh(box(0, 0, 0, 10, 10, 10)));
+    QCOMPARE(field.signedDistanceBanded({5, 5, 12}, 4.0), field.signedDistance({5, 5, 12}));  // inside band: exact
+    QCOMPARE(field.signedDistanceBanded({5, 5, 5}, 4.0), 4.0);     // deep inside: +band
+    QCOMPARE(field.signedDistanceBanded({5, 5, 30}, 4.0), -4.0);   // far outside: -band
+    QCOMPARE(field.signedDistanceBanded({5, 5, 10}, 4.0), 0.0);    // surface
+  }
+
   void minkowskiOffsetMatchesAnalyticVolume() {
     const auto prepared = validateSoupOf(test::cubeMesh(box(-10, -10, 0, 10, 10, 20)));
     QVERIFY(prepared.ok);

@@ -36,6 +36,12 @@ class SignedDistanceField {
   double distanceToSurface(const Point3& p) const;
   bool isInside(const Point3& p) const;
   double signedDistance(const Point3& p) const;
+  /// Like signedDistance, but exact only within `band` millimeters of the
+  /// surface; farther points return +band (inside) or -band (outside). The
+  /// closest-point search stops at the band, which makes far points cheap.
+  /// Valid whenever the consumer only needs the sign of far samples (a level
+  /// set at offset c sampled at spacing h needs band >= c + a few h).
+  double signedDistanceBanded(const Point3& p, double band) const;
 
  private:
   struct Impl;

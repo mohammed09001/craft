@@ -63,8 +63,10 @@ class IMeshGeometryEngine {
   virtual SolidPtr minkowskiSphere(const SolidPtr& solid, double radius, int segments) = 0;
   /// Marching-tetrahedra level set of `sdf` over `bounds`. The surface is
   /// where sdf == level, with sdf >= level kept as material (Manifold
-  /// convention). `sdf` is called from the calling thread only and may throw
-  /// to abort. Throws CodedError on kernel failure.
+  /// convention). `sdf` MUST be safe to call concurrently: the engine
+  /// evaluates the sampling lattice on all cores. It may throw to abort (the
+  /// first exception is rethrown to the caller). Throws CodedError on kernel
+  /// failure.
   virtual SolidPtr levelSet(const std::function<double(const Point3&)>& sdf, const Bounds3& bounds,
                             double edgeLength, double level, double tolerance) = 0;
 

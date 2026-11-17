@@ -1,7 +1,16 @@
 #include "ManifoldMeshEngine.h"
 
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <cmath>
+#include <exception>
+#include <mutex>
+#include <thread>
 #include <utility>
+#include <vector>
 
 #include <manifold/manifold.h>
 
@@ -48,6 +57,108 @@ void assertStatus(const manifold::Manifold& solid, const std::string& operation)
   }
 }
 
+// Manifold's LevelSet samples the SDF at every vertex of two interleaved
+// lattices (integer and half-integer offsets) before it refines the surface.
+// Those positions are fully determined by (bounds, edgeLength), so they can be
+// evaluated up front on all cores. Positions are reproduced with exactly the
+// arithmetic of Manifold's sdf.cpp and every lookup verifies bit-equality, so
+// a hit returns precisely what the SDF would have returned; anything else
+// (surface refinement probes, a lattice mismatch) falls through to the SDF.
+class LatticeCache {
+ public:
+  LatticeCache(const Bounds3& bounds, double edgeLength) {
+    const Point3 dim = bounds.size();
+    for (int a = 0; a < 3; ++a) {
+      origin_[a] = bounds.min[a];
+      size_[a] = static_cast<int>(dim[a] / edgeLength + 1.0);
+      spacing_[a] = dim[a] / static_cast<double>(size_[a] - 1);
+    }
+  }
+
+  double position(int axis, int index, int w) const {
+    return origin_[axis] + spacing_[axis] * (static_cast<double>(index) + (w == 1 ? 0.0 : -0.5));
+  }
+  // Valid indices per axis: w == 1 -> [0, size-1], w == 0 -> [0, size].
+  int count(int axis, int w) const { return size_[axis] + (w == 1 ? 0 : 1); }
+  std::size_t flat(int w, int x, int y, int z) const {
+    return (static_cast<std::size_t>(x) * count(1, w) + y) * count(2, w) + z;
+  }
+
+  void prefill(const std::function<double(const Point3&)>& sdf) {
+    for (int w = 0; w < 2; ++w) {
+      values_[w].assign(static_cast<std::size_t>(count(0, w)) * count(1, w) * count(2, w), 0.0);
+    }
+    const unsigned threads = std::max(1u, std::min(std::thread::hardware_concurrency(), 16u));
+    std::atomic<int> nextSlab{0};
+    std::atomic<bool> abort{false};
+    std::exception_ptr failure;
+    std::mutex failureMutex;
+    for (int w = 0; w < 2; ++w) {
+      nextSlab = 0;
+      const auto worker = [&] {
+        try {
+          for (;;) {
+            const int x = nextSlab.fetch_add(1);
+            if (x >= count(0, w) || abort.load(std::memory_order_relaxed)) return;
+            for (int y = 0; y < count(1, w); ++y) {
+              for (int z = 0; z < count(2, w); ++z) {
+                values_[w][flat(w, x, y, z)] =
+                    sdf({position(0, x, w), position(1, y, w), position(2, z, w)});
+              }
+            }
+          }
+        } catch (...) {
+          abort = true;
+          std::lock_guard<std::mutex> lock(failureMutex);
+          if (!failure) failure = std::current_exception();
+        }
+      };
+      std::vector<std::thread> pool;
+      for (unsigned i = 1; i < threads; ++i) pool.emplace_back(worker);
+      worker();
+      for (std::thread& t : pool) t.join();
+      if (failure) std::rethrow_exception(failure);
+    }
+    ready_ = true;
+  }
+
+  std::size_t hits() const { return hits_; }
+  std::size_t misses() const { return misses_; }
+
+  bool lookup(const Point3& p, double& value) const {
+    const bool found = lookupImpl(p, value);
+    ++(found ? hits_ : misses_);
+    return found;
+  }
+
+ private:
+  bool lookupImpl(const Point3& p, double& value) const {
+    if (!ready_) return false;
+    const double coordinates[3] = {p.x, p.y, p.z};
+    int w = 1;
+    int index[3];
+    for (int a = 0; a < 3; ++a) {
+      const double k = (coordinates[a] - origin_[a]) / spacing_[a];
+      if (!std::isfinite(k)) return false;
+      if (a == 0) {
+        const double nearest = std::round(k);
+        w = std::fabs(k - nearest) < 1e-6 ? 1 : 0;
+      }
+      index[a] = static_cast<int>(std::lround(w == 1 ? k : k + 0.5));
+      if (index[a] < 0 || index[a] >= count(a, w)) return false;
+      if (position(a, index[a], w) != coordinates[a]) return false;  // bit-exact or miss
+    }
+    value = values_[w][flat(w, index[0], index[1], index[2])];
+    return true;
+  }
+
+ private:
+  mutable std::size_t hits_ = 0, misses_ = 0;
+  double origin_[3]{}, spacing_[3]{};
+  int size_[3]{};
+  std::vector<double> values_[2];
+  bool ready_ = false;
+};
 class ManifoldSolid final : public ISolid {
  public:
   explicit ManifoldSolid(manifold::Manifold solid) : solid_(std::move(solid)) {}
@@ -144,12 +255,22 @@ class ManifoldMeshEngine final : public IMeshGeometryEngine {
                     double edgeLength, double level, double tolerance) override {
     const manifold::Box box({bounds.min.x, bounds.min.y, bounds.min.z},
                             {bounds.max.x, bounds.max.y, bounds.max.z});
+    LatticeCache cache(bounds, edgeLength);
+    const auto t0 = std::chrono::steady_clock::now();
+    cache.prefill(sdf);
+    if (std::getenv("CRAFT_TRACE_LEVELSET")) {
+      std::fprintf(stderr, "levelSet prefill %.0f ms\n",
+                   std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
+    }
     manifold::Manifold result = manifold::Manifold::LevelSet(
-        [&sdf](manifold::vec3 p) { return sdf(Point3{p.x, p.y, p.z}); }, box, edgeLength, level,
-        tolerance, /*canParallel=*/false);
+        [&](manifold::vec3 p) {
+          const Point3 point{p.x, p.y, p.z};
+          double value = 0;
+          return cache.lookup(point, value) ? value : sdf(point);
+        },
+        box, edgeLength, level, tolerance, /*canParallel=*/false);
     return wrap(std::move(result));
   }
-
   MeshPayload meshFromSolid(const SolidPtr& solid, const std::map<std::int64_t, FaceRole>& roles,
                             const std::string& operation) override {
     const manifold::Manifold& source = unwrap(solid);
