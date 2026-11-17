@@ -313,9 +313,23 @@ class MasterEquivalenceTest : public QObject {
     const PlanningMesh mesh = buildPlanningMesh(world.sourceMesh.positions, world.sourceMesh.indices, world.sourceMesh.bounds, world.sourceGeometryVersion);
     const auto candidates = generateCandidateDirections(mesh, world.sourceMesh.positions);
     const AccessibilityAnalysis raw = analyzeDirectionAccessibility(world.sourceMesh.positions, world.sourceMesh.indices, mesh, candidates);
-    const AccessibilityAnalysis analysis = pruneDirections(raw.directions, raw, mesh, 32).analysis;
-
+    const AccessibilityAnalysis pruned32 = pruneDirections(raw.directions, raw, mesh, 32).analysis;
     const QJsonObject ref = c["planner"].toObject();
+    const AdaptiveDirectionDiscoveryResult discovery =
+        runAdaptiveDirectionDiscovery(mesh, world.sourceMesh.positions, world.sourceMesh.indices, pruned32);
+    const AccessibilityAnalysis analysis = discovery.analysis;
+    const QJsonObject discoveryRef = ref["discovery"].toObject();
+    QCOMPARE(discovery.roundsRun, discoveryRef["roundsRun"].toInt());
+    const QJsonArray discovered = discoveryRef["discovered"].toArray();
+    QCOMPARE(discovery.discoveredDirections.size(), static_cast<std::size_t>(discovered.size()));
+    for (qsizetype i = 0; i < discovered.size(); ++i) {
+      const QJsonObject e = discovered[i].toObject();
+      const auto& a = discovery.discoveredDirections[static_cast<std::size_t>(i)];
+      QCOMPARE(q(a.directionId), e["directionId"].toString());
+      QCOMPARE(q(a.origin), e["origin"].toString());
+      for (int axis = 0; axis < 3; ++axis) VERIFY_CLOSE(a.vector[axis], pointOf(e["vector"].toObject())[axis]);
+    }
+
     QStringList ids, expectedIds;
     for (const auto& d : analysis.directions) ids << q(d.directionId);
     for (const QJsonValue& v : ref["directionIds"].toArray()) expectedIds << v.toString();

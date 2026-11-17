@@ -660,4 +660,102 @@ std::optional<WorkingMoldDecompositionPlan> planWorkingMoldDecomposition(const W
   return preferred;
 }
 
+// --- adaptive direction discovery ---------------------------------------------------------------------------
+
+namespace {
+constexpr int kMaxAdaptiveRounds = 3;
+constexpr int kMaxAdaptiveRegionsPerRound = 4;
+constexpr int kMaxAdaptiveDirectionsPerRegion = 4;
+constexpr double kDedupAngleDeg = 10;
+
+Point3 canonicalPolarity(const Point3& v) {
+  const double ax = std::fabs(v.x), ay = std::fabs(v.y), az = std::fabs(v.z);
+  const bool flip = ax >= ay && ax >= az ? v.x < 0 : ay >= az ? v.y < 0 : v.z < 0;
+  return flip ? Point3{-v.x, -v.y, -v.z} : v;
+}
+
+std::optional<Point3> localPcaAxis(const SurfaceRegion& region, const PlanningMesh& mesh) {
+  if (region.patchIndexes.size() < 3) return std::nullopt;
+  std::vector<Point3> points;
+  for (int p : region.patchIndexes) points.push_back(mesh.patches[static_cast<std::size_t>(p)].centroid);
+  const double n = static_cast<double>(points.size());
+  double mx = 0, my = 0, mz = 0;
+  for (const Point3& p : points) { mx += p.x; my += p.y; mz += p.z; }
+  mx /= n; my /= n; mz /= n;
+  double xx = 0, xy = 0, xz = 0, yy = 0, yz = 0, zz = 0;
+  for (const Point3& p : points) {
+    const double dx = p.x - mx, dy = p.y - my, dz = p.z - mz;
+    xx += dx * dx; xy += dx * dy; xz += dx * dz; yy += dy * dy; yz += dy * dz; zz += dz * dz;
+  }
+  const auto axes = principalAxesOfCovariance({xx, xy, xz, xy, yy, yz, xz, yz, zz});
+  if (axes.empty()) return std::nullopt;
+  return normalizeDirection(axes[0]);
+}
+
+std::vector<PlanningCandidateDirection> candidatesFromRegion(const SurfaceRegion& region, const SurfaceRegionGraph& graph, const PlanningMesh& mesh) {
+  std::vector<PlanningCandidateDirection> generated;
+  const auto push = [&](const std::optional<Point3>& vector, const std::string& sub) {
+    if (!vector) return;
+    const auto unitVector = normalizeDirection(*vector);
+    if (!unitVector) return;
+    generated.push_back({"adaptive:region-" + std::to_string(region.regionIndex) + ":" + sub, *unitVector, "adaptive-region",
+                         "adaptive-region-" + std::to_string(region.regionIndex) + "-" + sub});
+  };
+  push(region.averageNormal, "average-normal");
+  int extremePatch = -1;
+  double extremeAngle = -1;
+  for (int p : region.patchIndexes) {
+    const double angle = angleBetweenDeg(mesh.patches[static_cast<std::size_t>(p)].normal, region.averageNormal);
+    if (angle > extremeAngle) { extremeAngle = angle; extremePatch = p; }
+  }
+  if (extremePatch >= 0 && extremeAngle > 1) push(mesh.patches[static_cast<std::size_t>(extremePatch)].normal, "cone-extremum");
+  push(localPcaAxis(region, mesh), "local-pca");
+  for (std::size_t k = 0; k < std::min<std::size_t>(2, region.adjacentRegionIndexes.size()); ++k) {
+    const int neighborIndex = region.adjacentRegionIndexes[k];
+    if (neighborIndex < 0 || neighborIndex >= static_cast<int>(graph.regions.size())) continue;
+    const Point3& a = region.averageNormal;
+    const Point3& b = graph.regions[static_cast<std::size_t>(neighborIndex)].averageNormal;
+    push(Point3{a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x}, "ridge-tangent-" + std::to_string(neighborIndex));
+  }
+  if (static_cast<int>(generated.size()) > kMaxAdaptiveDirectionsPerRegion) generated.resize(kMaxAdaptiveDirectionsPerRegion);
+  for (auto& d : generated) d.vector = canonicalPolarity(d.vector);
+  return generated;
+}
+
+bool isNearDuplicate(const Point3& vector, const std::vector<PlanningCandidateDirection>& existing) {
+  return std::any_of(existing.begin(), existing.end(), [&](const auto& c) { return angleBetweenDeg(c.vector, vector) <= kDedupAngleDeg; });
+}
+}  // namespace
+
+AdaptiveDirectionDiscoveryResult runAdaptiveDirectionDiscovery(const PlanningMesh& mesh, const std::vector<float>& positions,
+                                                               const std::vector<std::uint32_t>& indices, const AccessibilityAnalysis& input) {
+  AdaptiveDirectionDiscoveryResult result;
+  result.analysis = input;
+  const SurfaceRegionGraph graph = buildSurfaceRegionGraph(mesh);
+  if (graph.regions.empty()) return result;
+  for (int round = 0; round < kMaxAdaptiveRounds; ++round) {
+    const auto summaries = summarizeRegionAccessibility(graph, mesh, result.analysis);
+    std::vector<int> unresolved = unresolvedSurfaceRegionIndexes(summaries);
+    std::stable_sort(unresolved.begin(), unresolved.end(), [&](int a, int b) {
+      return graph.regions[static_cast<std::size_t>(b)].areaMm2 < graph.regions[static_cast<std::size_t>(a)].areaMm2;
+    });
+    if (static_cast<int>(unresolved.size()) > kMaxAdaptiveRegionsPerRound) unresolved.resize(kMaxAdaptiveRegionsPerRound);
+    if (unresolved.empty()) break;
+
+    std::vector<PlanningCandidateDirection> fresh;
+    for (int r : unresolved) {
+      for (const auto& candidate : candidatesFromRegion(graph.regions[static_cast<std::size_t>(r)], graph, mesh)) {
+        if (isNearDuplicate(candidate.vector, result.analysis.directions) || isNearDuplicate(candidate.vector, fresh)) continue;
+        fresh.push_back(candidate);
+      }
+    }
+    if (fresh.empty()) break;
+    ++result.roundsRun;
+    const AccessibilityAnalysis additional = analyzeDirectionAccessibility(positions, indices, mesh, fresh);
+    result.analysis.directions.insert(result.analysis.directions.end(), fresh.begin(), fresh.end());
+    result.analysis.perDirection.insert(result.analysis.perDirection.end(), additional.perDirection.begin(), additional.perDirection.end());
+    result.discoveredDirections.insert(result.discoveredDirections.end(), fresh.begin(), fresh.end());
+  }
+  return result;
+}
 }  // namespace craft

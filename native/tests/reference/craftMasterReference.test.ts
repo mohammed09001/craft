@@ -22,6 +22,7 @@ import { generateCandidateDirections } from "@/features/mold-generation/master-m
 import { buildSurfaceRegionGraph, summarizeRegionAccessibility, unresolvedSurfaceRegions } from "@/features/mold-generation/master-mold/planning/surfaceRegions";
 import { refineRegionGraphByVisibility } from "@/features/mold-generation/master-mold/planning/regionSubdivision";
 import { analyzeDirectionAccessibility, pruneDirections } from "@/features/mold-generation/master-mold/planning/accessibility";
+import { runAdaptiveDirectionDiscovery } from "@/features/mold-generation/master-mold/planning/adaptiveDirectionDiscovery";
 import { greedyRegionCover } from "@/features/mold-generation/master-mold/planning/regionSetCover";
 import { candidatePartingThresholds, createWorkingMoldPieceCountSearch, planWorkingMoldDecomposition } from "@/features/mold-generation/master-mold/planning/workingMoldPlanner";
 
@@ -149,7 +150,9 @@ function runCase(spec: MeshSpec) {
   const pruned = pruneDirections(directions, accessibility, planning, 6);
 
   // The engine prunes to the full candidate budget (32) before planning; the search runs on that analysis.
-  const engineAnalysis = pruneDirections(accessibility.directions, accessibility, planning, 32).analysis;
+  const prunedForEngine = pruneDirections(accessibility.directions, accessibility, planning, 32).analysis;
+  const discovery = runAdaptiveDirectionDiscovery({ planningMesh: planning, sourceMesh: { positions: world.sourceMesh.positions, indices: world.sourceMesh.indices }, analysis: prunedForEngine });
+  const engineAnalysis = discovery.analysis;
   const opposingOf = (d: number): readonly number[] => {
     const v = engineAnalysis.directions[d]!.vector;
     for (let j = 0; j < engineAnalysis.directions.length; j += 1) {
@@ -171,6 +174,7 @@ function runCase(spec: MeshSpec) {
   }
   const plan = planWorkingMoldDecomposition({ planningMesh: planning, analysis: engineAnalysis, maxWorkingMoldPieces: 6 });
   const plannerJson = {
+    discovery: { roundsRun: discovery.roundsRun, discovered: discovery.discoveredDirections },
     directionIds: engineAnalysis.directions.map((d) => d.directionId),
     thresholds,
     cover,

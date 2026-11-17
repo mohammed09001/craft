@@ -183,4 +183,13 @@ class WorkingMoldPieceCountSearch {
 
 std::optional<WorkingMoldDecompositionPlan> planWorkingMoldDecomposition(const WorkingMoldPlannerInput& input);
 
+// --- adaptive direction discovery (planning/adaptiveDirectionDiscovery.ts) ------------------------------
+struct AdaptiveDirectionDiscoveryResult {
+  AccessibilityAnalysis analysis;
+  std::vector<PlanningCandidateDirection> discoveredDirections;
+  int roundsRun = 0;
+};
+AdaptiveDirectionDiscoveryResult runAdaptiveDirectionDiscovery(const PlanningMesh& mesh, const std::vector<float>& positions,
+                                                               const std::vector<std::uint32_t>& indices, const AccessibilityAnalysis& analysis);
+
 }  // namespace craft
