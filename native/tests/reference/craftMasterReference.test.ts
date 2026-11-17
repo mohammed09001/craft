@@ -25,6 +25,9 @@ import { analyzeDirectionAccessibility, pruneDirections } from "@/features/mold-
 import { runAdaptiveDirectionDiscovery } from "@/features/mold-generation/master-mold/planning/adaptiveDirectionDiscovery";
 import { constructWorkingMold } from "@/features/mold-generation/master-mold/planning/workingMoldConstructor";
 import { getManifoldModule, payloadFromManifold } from "@/features/mold-generation/geometry/manifold";
+import { evaluateMasterMoldGeneration } from "@/features/mold-generation/master-mold/masterMoldGeneration.evaluate";
+import { deriveMasterMoldUiState, hasRenderableToolingGeometry, overallStatusOfSets, summarizeGeneration } from "@/features/mold-generation/master-mold/masterMold.contracts";
+import { selectRenderableMasterMoldBodies } from "@/features/mold-generation/master-mold/masterMoldViewportAdapter";
 import { runMasterMoldEngine } from "@/features/mold-generation/master-mold/engine/masterMoldEngine";
 import { greedyRegionCover } from "@/features/mold-generation/master-mold/planning/regionSetCover";
 import { candidatePartingThresholds, createWorkingMoldPieceCountSearch, planWorkingMoldDecomposition } from "@/features/mold-generation/master-mold/planning/workingMoldPlanner";
@@ -268,7 +271,25 @@ async function runCase(spec: MeshSpec) {
       warnings: s.warnings,
     })),
   };
+  // Worker-side mapping + store derivations, from the real evaluate() (skipped for the heaviest part: a second 128 s engine run).
+  let storeJson: unknown = null;
+  if (spec.name !== "cube-grid-large") {
+    const evaluated = await evaluateMasterMoldGeneration({ operationId: "master-mold:1", generationVersion: 1, seed, priorSets: [] });
+    const status = overallStatusOfSets(evaluated.sets);
+    storeJson = {
+      sets: evaluated.sets.map((s) => ({ moldPartId: s.moldPartId, moldPartName: s.moldPartName, status: s.status, contentVersion: s.contentVersion, failureMessage: s.failureMessage, failureFamily: s.failureFamily ?? null, hasSet: s.set !== null, releaseMode: s.set?.releaseMode ?? null })),
+      workingMoldPieceCount: evaluated.workingMoldPieceCount,
+      warningCount: evaluated.warningCount,
+      overallStatus: status,
+      summary: summarizeGeneration(evaluated.sets, evaluated.workingMoldPieceCount, evaluated.warningCount),
+      uiState: deriveMasterMoldUiState({ status, sets: evaluated.sets, lastError: null }),
+      hasRenderable: hasRenderableToolingGeometry(evaluated.sets),
+      renderable: selectRenderableMasterMoldBodies(evaluated.sets, {}).map((b) => ({ id: b.id, name: b.name, visible: b.visible, stale: b.stale, triangleCount: b.triangleCount, geometryIdentityPiece: b.geometryIdentity.split(":").slice(-1)[0] })),
+      staleRenderable: selectRenderableMasterMoldBodies(evaluated.sets.map((s) => ({ ...s, status: "stale" as const })), { [evaluated.sets[0] ? `${evaluated.sets[0].moldPartId}:${evaluated.sets[0].set?.assembly.pieces[0]?.pieceId ?? ""}` : ""]: false }).map((b) => ({ id: b.id, visible: b.visible, stale: b.stale })),
+    };
+  }
   return {
+    store: storeJson,
     engine: engineJson,
     planner: plannerJson,
     surface: {

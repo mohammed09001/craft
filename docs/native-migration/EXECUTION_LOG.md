@@ -240,6 +240,19 @@ a double-delete defect in the reference core modes (D-032). Native reproduces th
 
 Not done: the constructor fallback modes (height-field / multi-neighbor / simultaneous grid / volumetric / multi-label) and region-direct assignment that feed them,
 the worker, the store and the UI.
+### Session 14: Master Mold worker, store and UI
+
+Core (`core/master/MasterMoldStore.*`, Qt-free): the store state machine as a two-phase generate (begin/commit/fail), the engine-result mapping the reference worker applies,
+the shared UI-state derivation, summaries, overall status and renderable-body selection with composite (set, piece) keys. App (`app/AppControllerMaster.cpp`): the seed from the
+grounded part, the generation job with progress stages, a 180 s timeout and cooperative cancel, staleness on printer-volume change, reset on model change, scene display
+(stale pieces gray), per-piece visibility and isolate, the panel model (banner, summary lines, sets, scope notice) and the QML "Master Mold" group in the inspector.
+
+Evidence: `tst_master_store` 17 passed (hand-derived from the TS store: reuse, supersede, reset race, stale idempotence, commit-time identity mismatch, composite visibility keys,
+UI-state kinds); the TS `evaluate` + contracts + viewport adapter were run on 12 cases and the native mapping/derivations match (status, failure family, summary, ui state,
+renderable ids and visibility, stale path); `tst_app_workflow` adds generation -> display -> visibility -> reuse -> printer-change stale -> regenerate -> reset, cancellation -> error
+status, and the no-model refusal. Full Debug ctest 14/14.
+
+Not done: tooling-piece export, Master toolbar entry, alpha ghosting for stale pieces, the constructor fallback modes, region-direct assignment.
 ### Next exact step
 1. GPU frame-rate/VRAM measurement, WASM timing for the same inputs, and a visual comparison with the Three.js viewport on real STLs (Phase 2 gate).
 2. Port Master Mold (tooling set generation) and the engineering reports.

@@ -162,6 +162,7 @@ void AppController::importStlFile(const QString& path) {
 }
 
 void AppController::applyModel(LoadedModel model) {
+  clearMasterRun(true);
   invalidateSegmentation(QString());
   analysis_.cancel(analysisJobId_);
   analysisJobId_.clear();
@@ -287,8 +288,10 @@ void AppController::clearMold(const QString& phase) {
   moldErrorCode_.clear();
   moldPhase_ = phase;
   scene_.clearMoldBodies();
+  masterShown_ = false;
   scene_.setPartOffset({0, 0, 0});
   if (segmentation_.adopted) showSegmentationBodies();  // the keyed pieces stay visible without a mold
+  else if (masterStore_.seedIdentity()) showMasterBodies();  // so do generated master tooling pieces
   emit moldChanged();
   emit spruesChanged();
 }
@@ -379,6 +382,7 @@ std::vector<MoldBody> AppController::finalBodies() const {
 }
 
 void AppController::showFinalBodies(bool refit) {
+  masterShown_ = false;
   std::vector<SceneModel::BodyInput> bodies;
   for (const MoldBody& body : finalBodies()) {
     bodies.push_back({QString::fromStdString(body.id), QString::fromStdString(body.name),
@@ -892,6 +896,7 @@ void AppController::setPrinterVolume(double x, double y, double z) {
   const Point3 next{x, y, z};
   if (printerVolume_ && *printerVolume_ == next) return;
   printerVolume_ = next;
+  refreshMasterStaleness();
   if (segmentation_.phase != QStringLiteral("idle")) {
     invalidateSegmentation(QStringLiteral("Printer volume changed; plan the segmentation again."));
   } else {
@@ -916,6 +921,7 @@ void AppController::invalidateSegmentation(const QString& message) {
 }
 
 void AppController::showSegmentationBodies() {
+  masterShown_ = false;
   std::vector<SceneModel::BodyInput> bodies;
   for (const MoldBody& body : segmentation_.shownBodies) {
     bodies.push_back({QString::fromStdString(body.id), QString::fromStdString(body.name),
@@ -1184,6 +1190,7 @@ QVariantMap AppController::stateSummary() const {
   s.insert("moldError", moldError_);
   s.insert("sprues", sprues());
   s.insert("segmentation", segmentation());
+  s.insert("masterMold", masterMold());
   s.insert("analysisError", analysisError_);
   s.insert("analysisStatus", analysisReport_.value("status"));
   return s;

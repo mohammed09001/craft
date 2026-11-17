@@ -101,6 +101,8 @@ add_library(craft_mold STATIC
   core/master/MasterEngine.h
   core/master/MasterMultiPiece.cpp
   core/master/MasterMultiPiece.h
+  core/master/MasterMoldStore.cpp
+  core/master/MasterMoldStore.h
   core/master/MasterPlanning.cpp
     core/master/TriangleIntersection.cpp
     core/master/TriangleIntersection.h

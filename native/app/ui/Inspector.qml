@@ -134,6 +134,108 @@ ScrollView {
 
         GroupBox {
             Layout.fillWidth: true
+            title: qsTr("Master Mold")
+            visible: app.modelPhase === "ready"
+            ColumnLayout {
+                anchors.fill: parent
+                Label {
+                    text: qsTr("Plans printable master tooling straight from the part. No mold, cut or cavity is needed.")
+                    wrapMode: Text.Wrap; Layout.fillWidth: true
+                }
+                Button {
+                    id: masterButton
+                    Layout.fillWidth: true
+                    highlighted: app.masterMold.uiKind === "success"
+                    enabled: app.masterMold.generating || app.masterMold.canGenerate
+                    text: app.masterMold.generating ? qsTr("Cancel Master Mold") : qsTr("Generate Master Mold")
+                    onClicked: app.masterMold.generating ? app.cancelCurrentJob() : app.generateMasterMold()
+                }
+                Label {
+                    visible: app.masterMold.generating && !!app.masterMold.progressLabel
+                    text: app.masterMold.progressLabel
+                    Layout.fillWidth: true
+                }
+                ProgressBar {
+                    visible: app.masterMold.generating
+                    Layout.fillWidth: true
+                    from: 0; to: 1
+                    value: app.busyProgress
+                }
+                Label {
+                    visible: !!app.masterMold.banner
+                    text: app.masterMold.banner
+                    wrapMode: Text.Wrap; Layout.fillWidth: true
+                    color: app.masterMold.bannerIsError ? "#e5484d" : palette.text
+                }
+                Label {
+                    visible: !!app.masterMold.incompleteNote
+                    text: app.masterMold.incompleteNote
+                    wrapMode: Text.Wrap; Layout.fillWidth: true
+                    font.italic: true
+                }
+                Repeater {
+                    model: app.masterMold.summaryLines || []
+                    delegate: Label { required property var modelData; text: modelData; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                }
+                ColumnLayout {
+                    visible: app.masterMold.showPieces === true
+                    Layout.fillWidth: true
+                    RowLayout {
+                        Label {
+                            text: qsTr("Working mold: ") + app.masterMold.workingMoldPieceCount
+                            font.bold: true
+                        }
+                        Item { Layout.fillWidth: true }
+                        ToolButton { text: qsTr("Show all"); onClicked: app.showAllMasterPieces() }
+                    }
+                    Repeater {
+                        model: app.masterMold.sets || []
+                        delegate: ColumnLayout {
+                            required property var modelData
+                            Layout.fillWidth: true
+                            RowLayout {
+                                Label {
+                                    text: modelData.name + (modelData.releaseMode ? " · " + modelData.releaseMode : "")
+                                    font.bold: true
+                                    color: modelData.status === "stale" ? "#8a8f98" : palette.text
+                                }
+                                Item { Layout.fillWidth: true }
+                                ToolButton {
+                                    visible: modelData.canIsolate
+                                    text: qsTr("Isolate")
+                                    onClicked: app.isolateMasterSet(modelData.id)
+                                }
+                            }
+                            Repeater {
+                                model: modelData.pieces
+                                delegate: CheckBox {
+                                    required property var modelData
+                                    text: modelData.name
+                                    checked: modelData.visible
+                                    onToggled: app.toggleMasterPiece(modelData.key)
+                                }
+                            }
+                            Label {
+                                visible: modelData.status === "blocked" && !!modelData.failureMessage
+                                text: modelData.failureMessage
+                                wrapMode: Text.Wrap; Layout.fillWidth: true
+                                color: "#e5484d"
+                            }
+                        }
+                    }
+                }
+                Button {
+                    visible: app.masterMold.status !== "unavailable"
+                    text: qsTr("Reset Master Mold")
+                    Layout.fillWidth: true
+                    enabled: !app.masterMold.generating
+                    onClicked: app.resetMasterMold()
+                }
+            }
+        }
+
+        GroupBox {
+            Layout.fillWidth: true
             title: qsTr("Mold")
             enabled: app.modelPhase === "ready"
             ColumnLayout {

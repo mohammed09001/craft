@@ -281,6 +281,87 @@ class WorkflowTest : public QObject {
     QCOMPARE(app->scene()->count(), 1);
   }
 
+  void masterMoldGeneratesShowsGhostsAndResets() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    const int partRows = app->scene()->count();
+    QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("unavailable"));
+
+    app->generateMasterMold();
+    QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("generating"));
+    QVERIFY(app->busy());
+    QVERIFY(waitFor([&] { return app->masterMold().value("status").toString() != "generating" && !app->busy(); }, 120000));
+    QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("current"));
+    QCOMPARE(app->masterMold().value("uiKind").toString(), QStringLiteral("success"));
+    const QVariantList sets = app->masterMold().value("sets").toList();
+    QCOMPARE(sets.size(), 2);
+    QVERIFY(app->masterMold().value("showPieces").toBool());
+    QVERIFY(!app->masterMold().value("summaryLines").toStringList().isEmpty());
+    // Tooling pieces are drawn next to the part.
+    QCOMPARE(app->scene()->count(), partRows + 2);
+
+    // Piece visibility goes through the store and reaches the scene rows.
+    const QString key = sets.at(0).toMap().value("pieces").toList().at(0).toMap().value("key").toString();
+    app->toggleMasterPiece(key);
+    QVERIFY(!app->masterMold().value("sets").toList().at(0).toMap().value("pieces").toList().at(0).toMap().value("visible").toBool());
+    app->isolateMasterSet(sets.at(1).toMap().value("id").toString());
+    QVERIFY(!app->masterMold().value("sets").toList().at(0).toMap().value("pieces").toList().at(0).toMap().value("visible").toBool());
+    QVERIFY(app->masterMold().value("sets").toList().at(1).toMap().value("pieces").toList().at(0).toMap().value("visible").toBool());
+    app->showAllMasterPieces();
+    QVERIFY(app->masterMold().value("sets").toList().at(0).toMap().value("pieces").toList().at(0).toMap().value("visible").toBool());
+
+    // Generating again with identical inputs reuses the result without running.
+    const int version = app->masterMold().value("generationVersion").toInt();
+    app->generateMasterMold();
+    QVERIFY(!app->busy());
+    QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("current"));
+    QCOMPARE(app->masterMold().value("generationVersion").toInt(), version + 1);
+
+    // A printer build-volume change is a Master input: the result stays visible but is flagged stale.
+    app->setPrinterVolume(500, 500, 500);
+    QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("stale"));
+    QCOMPARE(app->masterMold().value("uiKind").toString(), QStringLiteral("stale"));
+    QVERIFY(app->masterMold().value("banner").toString().contains("needs regeneration"));
+    QCOMPARE(app->scene()->count(), partRows + 2);
+
+    // Regenerating clears the stale flag.
+    app->generateMasterMold();
+    QVERIFY(waitFor([&] { return app->masterMold().value("status").toString() != "generating" && !app->busy(); }, 120000));
+    QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("current"));
+
+    app->resetMasterMold();
+    QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("unavailable"));
+    QCOMPARE(app->scene()->count(), partRows);
+  }
+
+  void masterMoldCancellationAndModelChange() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->generateMasterMold();
+    app->cancelCurrentJob();
+    QVERIFY(waitFor([&] { return app->masterMold().value("status").toString() != "generating" && !app->busy(); }, 120000));
+    // Cancellation surfaces as the reference does: an error status with the cancelled message.
+    QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("error"));
+    QVERIFY(app->masterMold().value("banner").toString().contains("cancelled"));
+    QVERIFY(app->masterMold().value("bannerIsError").toBool());
+
+    // Re-importing a model resets Master Mold entirely.
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready" && !app->busy(); }));
+    QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("unavailable"));
+  }
+
+  void masterMoldWithoutAModelIsRefused() {
+    auto app = makeApp();
+    QSignalSpy errors(app.get(), &AppController::errorOccurred);
+    app->generateMasterMold();
+    QCOMPARE(errors.count(), 1);
+    QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("unavailable"));
+    QVERIFY(!app->masterMold().value("canGenerate").toBool());
+  }
+
   void editingInputsDropsStaleResult() {
     auto app = makeApp();
     app->importStlFile(bracket());

@@ -15,6 +15,7 @@
 #include "master/MasterAccessibility.h"
 #include "ManifoldMeshEngine.h"
 #include "master/MasterEngine.h"
+#include "master/MasterMoldStore.h"
 #include "master/MasterWorkingMoldConstructor.h"
 #include "master/MasterWorkingMoldPlanner.h"
 #include "master/MasterPlanning.h"
@@ -705,6 +706,64 @@ class MasterEquivalenceTest : public QObject {
       QCOMPARE(result.budget.toolingMultiPieceAttempts, bud["toolingMultiPieceAttempts"].toInt());
       QCOMPARE(result.budget.toolingExactPlanAttempts, bud["toolingExactPlanAttempts"].toInt());
       QCOMPARE(result.budget.releaseVerificationAttempts, bud["releaseVerificationAttempts"].toInt());
+    }
+
+    // worker-side mapping + store derivations (evaluate / contracts / viewport adapter)
+    if (ref.contains("store") || !c["store"].isNull()) {
+      const QJsonObject store = c["store"].toObject();
+      MasterMoldRequest request;
+      request.operationId = "master-mold:1";
+      request.generationVersion = 1;
+      request.seed.seedId = seed.seedId;
+      const MasterMoldResult mapped = mapEngineResult(request, result);
+      const QJsonArray sets = store["sets"].toArray();
+      QCOMPARE(mapped.sets.size(), static_cast<std::size_t>(sets.size()));
+      for (qsizetype i = 0; i < sets.size(); ++i) {
+        const QJsonObject e = sets[i].toObject();
+        const auto& a = mapped.sets[static_cast<std::size_t>(i)];
+        QCOMPARE(q(a.moldPartId), e["moldPartId"].toString());
+        QCOMPARE(q(a.moldPartName), e["moldPartName"].toString());
+        QCOMPARE(q(a.status), e["status"].toString());
+        QCOMPARE(a.set.has_value(), e["hasSet"].toBool());
+        QCOMPARE(a.failureMessage.has_value(), !e["failureMessage"].isNull() && !e["failureMessage"].isUndefined());
+        if (exact && a.failureMessage) QCOMPARE(q(*a.failureMessage), e["failureMessage"].toString());
+        QCOMPARE(a.failureFamily.has_value(), !e["failureFamily"].isNull());
+        if (a.failureFamily) QCOMPARE(q(*a.failureFamily), e["failureFamily"].toString());
+      }
+      QCOMPARE(mapped.workingMoldPieceCount, store["workingMoldPieceCount"].toInt());
+      QCOMPARE(mapped.warningCount, store["warningCount"].toInt());
+      QCOMPARE(q(overallStatusOfSets(mapped.sets)), store["overallStatus"].toString());
+      const MasterMoldSummary summary = summarizeGeneration(mapped.sets, mapped.workingMoldPieceCount, mapped.warningCount);
+      const QJsonObject sj = store["summary"].toObject();
+      QCOMPARE(summary.masterToolingPieceCount, sj["masterToolingPieceCount"].toInt());
+      QCOMPARE(summary.onePieceCases, sj["onePieceCases"].toInt());
+      QCOMPARE(summary.multiPieceCases, sj["multiPieceCases"].toInt());
+      QCOMPARE(summary.allReleasesVerified, sj["allReleasesVerified"].toBool());
+      const MasterMoldUiState ui = deriveMasterMoldUiState(overallStatusOfSets(mapped.sets), mapped.sets, std::nullopt);
+      const QJsonObject uj = store["uiState"].toObject();
+      QCOMPARE(q(ui.kind), uj["kind"].toString());
+      QCOMPARE(hasRenderableToolingGeometry(mapped.sets), store["hasRenderable"].toBool());
+      const auto bodies = selectRenderableMasterMoldBodies(mapped.sets, {});
+      const QJsonArray rj = store["renderable"].toArray();
+      QCOMPARE(bodies.size(), static_cast<std::size_t>(rj.size()));
+      for (qsizetype i = 0; i < rj.size(); ++i) {
+        QCOMPARE(q(bodies[static_cast<std::size_t>(i)].id), rj[i].toObject()["id"].toString());
+        QCOMPARE(q(bodies[static_cast<std::size_t>(i)].name), rj[i].toObject()["name"].toString());
+        QCOMPARE(bodies[static_cast<std::size_t>(i)].visible, rj[i].toObject()["visible"].toBool());
+        QCOMPARE(bodies[static_cast<std::size_t>(i)].triangleCount, rj[i].toObject()["triangleCount"].toInt());
+      }
+      // The stale/hidden presentation path: every set stale, the first piece hidden.
+      std::vector<MasterToolingSetState> stale = mapped.sets;
+      for (auto& s : stale) s.status = "stale";
+      std::map<std::string, bool> visibility;
+      if (!stale.empty() && stale[0].set && !stale[0].set->assembly.pieces.empty()) visibility[stale[0].moldPartId + ":" + stale[0].set->assembly.pieces[0].pieceId] = false;
+      const auto staleBodies = selectRenderableMasterMoldBodies(stale, visibility);
+      const QJsonArray sr = store["staleRenderable"].toArray();
+      QCOMPARE(staleBodies.size(), static_cast<std::size_t>(sr.size()));
+      for (qsizetype i = 0; i < sr.size(); ++i) {
+        QCOMPARE(staleBodies[static_cast<std::size_t>(i)].visible, sr[i].toObject()["visible"].toBool());
+        QCOMPARE(staleBodies[static_cast<std::size_t>(i)].stale, sr[i].toObject()["stale"].toBool());
+      }
     }
 
     // plan

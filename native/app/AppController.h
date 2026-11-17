@@ -29,6 +29,7 @@
 #include "model/ModelGrounding.h"
 #include "mold/CavityGeneration.h"
 #include "mold/DerivedMold.h"
+#include "master/MasterMoldStore.h"
 #include "mold/Segmentation.h"
 #include "mold/SprueGeneration.h"
 
@@ -75,6 +76,7 @@ class AppController : public QObject {
   Q_PROPERTY(QVariantMap moldSummary READ moldSummary NOTIFY moldChanged)
   Q_PROPERTY(QVariantList moldIssues READ moldIssues NOTIFY moldChanged)
 
+  Q_PROPERTY(QVariantMap masterMold READ masterMold NOTIFY masterMoldChanged)
   Q_PROPERTY(QVariantMap segmentation READ segmentation NOTIFY segmentationChanged)
   Q_PROPERTY(QVariantMap printerVolume READ printerVolume NOTIFY segmentationChanged)
   Q_PROPERTY(QVariantList sprues READ sprues NOTIFY spruesChanged)
@@ -153,6 +155,17 @@ class AppController : public QObject {
   /// Writes one binary STL per mold body into `folder`.
   Q_INVOKABLE void exportMoldBodies(const QUrl& folder);
   void exportMoldBodiesTo(const QString& folderPath);
+
+  // --- master mold -----------------------------------------------------------------
+  /// Everything the Master Mold panel shows: status, derived UI state, banner, summary, sets and pieces.
+  QVariantMap masterMold() const;
+  /// Plans and verifies printable master tooling straight from the imported part (no mold, cut or cavity needed).
+  Q_INVOKABLE void generateMasterMold();
+  Q_INVOKABLE void resetMasterMold();
+  Q_INVOKABLE void toggleMasterPiece(const QString& pieceKey);
+  Q_INVOKABLE void isolateMasterSet(const QString& moldPartId);
+  Q_INVOKABLE void showAllMasterPieces();
+  const MasterMoldStore& masterMoldStore() const { return masterStore_; }
 
   // --- segmentation --------------------------------------------------------------
   QVariantMap segmentation() const;
@@ -248,6 +261,7 @@ class AppController : public QObject {
   void analysisChanged();
   void spruesChanged();
   void segmentationChanged();
+  void masterMoldChanged();
   void themeChanged();
   void viewOptionsChanged();
   void gridChanged();
@@ -280,6 +294,10 @@ class AppController : public QObject {
   void showSegmentationBodies();
   double effectiveMoldClearanceMm() const;
   void editSprues(const std::function<bool(std::vector<SprueOperationDefinition>&)>& edit);
+  std::optional<std::string> masterLiveIdentity() const;
+  void refreshMasterStaleness();
+  void showMasterBodies();
+  void clearMasterRun(bool resetStore);
   void startSprueEvaluation();
   void showFinalBodies(bool refit);
   std::optional<SpruePlacement> placementAt(qreal x, qreal y, qreal w, qreal h) const;
@@ -336,6 +354,14 @@ class AppController : public QObject {
     quint64 generation = 0;
   } segmentation_;
   std::optional<Point3> printerVolume_;
+
+  // master mold
+  MasterMoldStore masterStore_;
+  bool masterShown_ = false;
+  bool masterTimedOut_ = false;
+  bool masterRunning_ = false;
+  std::vector<std::string> masterUnportedPaths_;
+  QString masterTimeoutMessage_;
 
   // sprues
   std::vector<SprueOperationDefinition> sprueIntents_;
