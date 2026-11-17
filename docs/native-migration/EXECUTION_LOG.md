@@ -169,6 +169,16 @@ world positions hash, preflight issues and messages, every patch and adjacency l
 
 Not done: the preflight self-intersection pass (D-022), surface regions, accessibility, the working-mold planner and constructor, the multi-piece planner,
 pour face selection, tooling construction, release verification, the engine, the worker, the store and the UI. Master Mold is NOT usable in the app yet.
+### Session 9: Master Mold surface regions and accessibility
+
+Ported `core/master/MasterAccessibility.*` (region graph with seed-anchored growth, visibility-driven subdivision, per-direction accessibility with
+three-offset probes and undercut grouping, region summaries, `pruneDirections`) and `TriangleIntersection.*` (three-mesh-bvh triangle test) and wired the
+bounded self-intersection pass into the preflight, closing D-022. The generator gained a C-shaped extrusion and a tessellated C-assembly (overlapping boxes
+with a partial lip): the assembly yields 18 refined regions from 16, unresolved regions, and the reference's self_intersection issue. `tst_master_equivalence`
+passes 11/11 rows. A first fixture had inverted winding (all patches blocked); that was caught by inspecting fixture statistics, not by the test.
+
+Still not ported: region set cover, working-mold planner/constructor, multi-piece planner, pour face, tooling construction, release verification, engine, worker,
+store, UI.
 ### Next exact step
 1. GPU frame-rate/VRAM measurement, WASM timing for the same inputs, and a visual comparison with the Three.js viewport on real STLs (Phase 2 gate).
 2. Port Master Mold (tooling set generation) and the engineering reports.

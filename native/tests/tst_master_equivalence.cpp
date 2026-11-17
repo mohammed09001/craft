@@ -12,6 +12,7 @@
 #include <cmath>
 
 #include "geometry/MeshAnalysis.h"
+#include "master/MasterAccessibility.h"
 #include "master/MasterPlanning.h"
 
 using namespace craft;
@@ -56,11 +57,54 @@ void cubeGrid(int segments, double size, std::vector<double>& positions, std::ve
   }
 }
 
+std::vector<int> intsOf(const QJsonValue& v) {
+  std::vector<int> out;
+  for (const QJsonValue& x : v.toArray()) out.push_back(x.toInt());
+  return out;
+}
+
 }  // namespace
 
 class MasterEquivalenceTest : public QObject {
   Q_OBJECT
   QJsonObject document_;
+
+  void compareRegions(const SurfaceRegionGraph& actual, const QJsonObject& expected) {
+    const QJsonArray regions = expected["regions"].toArray();
+    QCOMPARE(actual.regions.size(), static_cast<std::size_t>(regions.size()));
+    QCOMPARE(actual.regionOfPatch, intsOf(expected["regionOfPatch"]));
+    for (qsizetype i = 0; i < regions.size(); ++i) {
+      const QJsonObject e = regions[i].toObject();
+      const SurfaceRegion& a = actual.regions[static_cast<std::size_t>(i)];
+      QCOMPARE(q(a.regionId), e["regionId"].toString());
+      QCOMPARE(a.regionIndex, e["regionIndex"].toInt());
+      QCOMPARE(a.sourceTriangleIds, intsOf(e["sourceTriangleIds"]));
+      QCOMPARE(a.patchIndexes, intsOf(e["patchIndexes"]));
+      QCOMPARE(a.boundaryPatchIndexes, intsOf(e["boundaryPatchIndexes"]));
+      QCOMPARE(a.adjacentRegionIndexes, intsOf(e["adjacentRegionIndexes"]));
+      QCOMPARE(a.hasSharpBoundary, e["hasSharpBoundary"].toBool());
+      VERIFY_CLOSE(a.areaMm2, e["areaMm2"].toDouble());
+      VERIFY_CLOSE(a.normalConeHalfAngleDeg, e["normalConeHalfAngleDeg"].toDouble());
+      for (int axis = 0; axis < 3; ++axis) {
+        VERIFY_CLOSE(a.centroid[axis], pointOf(e["centroid"].toObject())[axis]);
+        VERIFY_CLOSE(a.averageNormal[axis], pointOf(e["averageNormal"].toObject())[axis]);
+      }
+    }
+  }
+
+  void compareSummaries(const std::vector<SurfaceRegionAccessibilitySummary>& actual, const QJsonArray& expected) {
+    QCOMPARE(actual.size(), static_cast<std::size_t>(expected.size()));
+    for (qsizetype i = 0; i < expected.size(); ++i) {
+      const QJsonObject e = expected[i].toObject();
+      const auto& a = actual[static_cast<std::size_t>(i)];
+      QCOMPARE(a.regionIndex, e["regionIndex"].toInt());
+      QCOMPARE(a.hasBestDirection ? q(a.bestDirectionId) : QString(), e["bestDirectionId"].isNull() ? QString() : e["bestDirectionId"].toString());
+      VERIFY_CLOSE(a.bestVisibleAreaFraction, e["bestVisibleAreaFraction"].toDouble());
+      const QJsonObject fractions = e["fractions"].toObject();
+      QCOMPARE(a.visibleAreaFractionByDirectionId.size(), static_cast<std::size_t>(fractions.size()));
+      for (const auto& [id, value] : a.visibleAreaFractionByDirectionId) VERIFY_CLOSE(value, fractions[q(id)].toDouble());
+    }
+  }
 
  private slots:
   void initTestCase() {
@@ -133,6 +177,7 @@ class MasterEquivalenceTest : public QObject {
     QCOMPARE(preflight.triangleCount, pf["triangleCount"].toInt());
     QCOMPARE(preflight.vertexCount, pf["vertexCount"].toInt());
     QCOMPARE(preflight.componentCount, pf["componentCount"].toInt());
+    QCOMPARE(preflight.selfIntersectionChecked, pf["selfIntersectionChecked"].toBool());
     VERIFY_CLOSE(preflight.volumeMm3, pf["volumeMm3"].toDouble());
     const QJsonArray issues = pf["issues"].toArray();
     QCOMPARE(preflight.issues.size(), static_cast<std::size_t>(issues.size()));
@@ -183,8 +228,54 @@ class MasterEquivalenceTest : public QObject {
       QCOMPARE(q(a.origin), e["origin"].toString());
       for (int axis = 0; axis < 3; ++axis) VERIFY_CLOSE(a.vector[axis], pointOf(e["vector"].toObject())[axis]);
     }
-  }
 
+    // --- accessibility ---------------------------------------------------------------------------
+    const QJsonObject accRef = c["accessibility"].toObject();
+    const AccessibilityAnalysis analysis =
+        analyzeDirectionAccessibility(world.sourceMesh.positions, world.sourceMesh.indices, mesh, candidates);
+    const QJsonArray perDirection = accRef["perDirection"].toArray();
+    QCOMPARE(analysis.perDirection.size(), static_cast<std::size_t>(perDirection.size()));
+    for (qsizetype d = 0; d < perDirection.size(); ++d) {
+      const QJsonObject e = perDirection[d].toObject();
+      const DirectionAccessibility& a = analysis.perDirection[static_cast<std::size_t>(d)];
+      QCOMPARE(q(a.directionId), e["directionId"].toString());
+      const QJsonArray visible = e["visible"].toArray(), classes = e["classification"].toArray();
+      QCOMPARE(a.visible.size(), static_cast<std::size_t>(visible.size()));
+      int mismatches = 0;
+      for (qsizetype p = 0; p < visible.size(); ++p) {
+        if (a.visible[static_cast<std::size_t>(p)] != visible[p].toInt() ||
+            QLatin1String(patchAccessibilityClassName(a.classification[static_cast<std::size_t>(p)])) != classes[p].toString()) ++mismatches;
+      }
+      QVERIFY2(mismatches == 0, qPrintable(QStringLiteral("direction %1: %2 patch results differ").arg(q(a.directionId)).arg(mismatches)));
+      VERIFY_CLOSE(a.accessibleAreaMm2, e["accessibleAreaMm2"].toDouble());
+      VERIFY_CLOSE(a.inaccessibleAreaMm2, e["inaccessibleAreaMm2"].toDouble());
+      QCOMPARE(a.undercutRegionCount, e["undercutRegionCount"].toInt());
+      VERIFY_CLOSE(a.largestUndercutAreaMm2, e["largestUndercutAreaMm2"].toDouble());
+    }
+    QCOMPARE(analysis.dominantPatchOrder, intsOf(accRef["dominantPatchOrder"]));
+
+    // --- surface regions -------------------------------------------------------------------------
+    const QJsonObject surface = c["surface"].toObject();
+    const SurfaceRegionGraph graph = buildSurfaceRegionGraph(mesh);
+    compareRegions(graph, surface);
+    const auto summaries = summarizeRegionAccessibility(graph, mesh, analysis);
+    compareSummaries(summaries, surface["summaries"].toArray());
+    QCOMPARE(unresolvedSurfaceRegionIndexes(summaries), intsOf(surface["unresolved"]));
+    const QJsonObject refinedRef = surface["refined"].toObject();
+    const RegionSubdivisionResult refined = refineRegionGraphByVisibility(graph, mesh, analysis);
+    QCOMPARE(refined.subdividedRegionCount, refinedRef["subdividedRegionCount"].toInt());
+    compareRegions(refined.regionGraph, refinedRef);
+    compareSummaries(summarizeRegionAccessibility(refined.regionGraph, mesh, analysis), refinedRef["summaries"].toArray());
+
+    // --- direction pruning -----------------------------------------------------------------------
+    const PrunedDirections pruned = pruneDirections(candidates, analysis, mesh, 6);
+    std::vector<std::string> prunedIds;
+    for (const auto& d : pruned.directions) prunedIds.push_back(d.directionId);
+    QStringList actualIds, expectedIds;
+    for (const auto& id : prunedIds) actualIds << q(id);
+    for (const QJsonValue& v : c["pruned"].toArray()) expectedIds << v.toString();
+    QCOMPARE(actualIds, expectedIds);
+  }
   void seedRejectsUnusableGeometry() {
     MasterSeedInput input;
     input.projectRevision = "r";

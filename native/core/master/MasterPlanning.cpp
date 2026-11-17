@@ -9,6 +9,7 @@
 
 #include "geometry/GeometryTolerance.h"
 #include "geometry/MeshAnalysis.h"
+#include "master/TriangleIntersection.h"
 #include "mold/Registration.h"  // jsNumberToString
 
 namespace craft {
@@ -384,6 +385,54 @@ MeshPreflightResult runMeshPreflight(const std::vector<float>& positions, const 
                         "computed enclosed volume (" + toFixed4(r.volumeMm3) +
                             " mm^3) is not a valid positive solid -- the mesh may be open, inverted, or degenerate.",
                         1});
+  }
+
+  // Bounded exact self-intersection count (reference: BVH self-cast, skipping pairs that share a welded vertex).
+  if (triangleCount <= 20000) {
+    r.selfIntersectionChecked = true;
+    struct Box { double lo[3], hi[3]; };
+    std::vector<Box> boxes(triangleCount);
+    std::vector<IntersectTriangle> tris(triangleCount);
+    for (std::size_t t = 0; t < triangleCount; ++t) {
+      TriVec v[3];
+      for (int c = 0; c < 3; ++c) {
+        const std::size_t i = indices[t * 3 + static_cast<std::size_t>(c)];
+        v[c] = {positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]};
+      }
+      tris[t] = {v[0], v[1], v[2]};
+      for (int a = 0; a < 3; ++a) {
+        const double values[3] = {a == 0 ? v[0].x : a == 1 ? v[0].y : v[0].z, a == 0 ? v[1].x : a == 1 ? v[1].y : v[1].z,
+                                  a == 0 ? v[2].x : a == 1 ? v[2].y : v[2].z};
+        boxes[t].lo[a] = std::min({values[0], values[1], values[2]}) - 1e-6;
+        boxes[t].hi[a] = std::max({values[0], values[1], values[2]}) + 1e-6;
+      }
+    }
+    std::vector<std::size_t> order(triangleCount);
+    for (std::size_t t = 0; t < triangleCount; ++t) order[t] = t;
+    std::sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) { return boxes[a].lo[0] < boxes[b].lo[0]; });
+    std::vector<bool> offending(triangleCount, false);
+    const auto sharesVertex = [&](std::size_t a, std::size_t b) {
+      for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j)
+          if (weldId[indices[a * 3 + static_cast<std::size_t>(i)]] == weldId[indices[b * 3 + static_cast<std::size_t>(j)]]) return true;
+      return false;
+    };
+    for (std::size_t i = 0; i < order.size(); ++i) {
+      const std::size_t a = order[i];
+      for (std::size_t j = i + 1; j < order.size() && boxes[order[j]].lo[0] <= boxes[a].hi[0]; ++j) {
+        const std::size_t b = order[j];
+        if (boxes[b].lo[1] > boxes[a].hi[1] || boxes[a].lo[1] > boxes[b].hi[1] || boxes[b].lo[2] > boxes[a].hi[2] ||
+            boxes[a].lo[2] > boxes[b].hi[2])
+          continue;
+        if (sharesVertex(a, b)) continue;
+        if (trianglesIntersect(tris[a], tris[b])) { offending[a] = true; offending[b] = true; }
+      }
+    }
+    const int count = static_cast<int>(std::count(offending.begin(), offending.end(), true));
+    if (count > 0) {
+      r.issues.push_back({"self_intersection", "error",
+                          std::to_string(count) + " triangle(s) intersect non-adjacent geometry elsewhere on the same surface.", count});
+    }
   }
 
   bool hasError = false, hasWarning = false;

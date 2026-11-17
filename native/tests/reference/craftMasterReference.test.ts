@@ -19,6 +19,9 @@ import {
 import { runMeshPreflight } from "@/features/mold-generation/master-mold/planning/meshPreflight";
 import { buildPlanningMesh } from "@/features/mold-generation/master-mold/planning/planningMesh";
 import { generateCandidateDirections } from "@/features/mold-generation/master-mold/planning/candidateDirections";
+import { buildSurfaceRegionGraph, summarizeRegionAccessibility, unresolvedSurfaceRegions } from "@/features/mold-generation/master-mold/planning/surfaceRegions";
+import { refineRegionGraphByVisibility } from "@/features/mold-generation/master-mold/planning/regionSubdivision";
+import { analyzeDirectionAccessibility, pruneDirections } from "@/features/mold-generation/master-mold/planning/accessibility";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const outputPath = process.env.CRAFT_MASTER_OUTPUT ?? resolve(here, "../fixtures/reference/master-reference.json");
@@ -130,7 +133,28 @@ function runCase(spec: MeshSpec) {
     sourceGeometryVersion: world.sourceGeometryVersion,
   });
   const directions = generateCandidateDirections(planning, world.sourceMesh.positions);
+  const accessibility = analyzeDirectionAccessibility({ positions: world.sourceMesh.positions, indices: world.sourceMesh.indices }, planning, directions);
+  const regionGraph = buildSurfaceRegionGraph(planning);
+  const summaries = summarizeRegionAccessibility(regionGraph, planning, accessibility);
+  const refined = refineRegionGraphByVisibility(regionGraph, planning, accessibility);
+  const refinedSummaries = summarizeRegionAccessibility(refined.regionGraph, planning, accessibility);
+  const summaryJson = (list: typeof summaries) => list.map((s) => ({
+    regionIndex: s.regionIndex,
+    bestDirectionId: s.bestDirectionId,
+    bestVisibleAreaFraction: s.bestVisibleAreaFraction,
+    fractions: Object.fromEntries(s.visibleAreaFractionByDirectionId),
+  }));
+  const pruned = pruneDirections(directions, accessibility, planning, 6);
   return {
+    surface: {
+      regions: regionGraph.regions,
+      regionOfPatch: regionGraph.regionOfPatch,
+      summaries: summaryJson(summaries),
+      unresolved: unresolvedSurfaceRegions(summaries, regionGraph).map((r) => r.regionIndex),
+      refined: { regions: refined.regionGraph.regions, regionOfPatch: refined.regionGraph.regionOfPatch, subdividedRegionCount: refined.subdividedRegionCount, summaries: summaryJson(refinedSummaries) },
+    },
+    accessibility: { perDirection: accessibility.perDirection, dominantPatchOrder: accessibility.dominantPatchOrder },
+    pruned: pruned.directions.map((d) => d.directionId),
     name: spec.name,
     input: spec.recipe
       ? { recipe: spec.recipe, transform: spec.transform, printer: spec.printer }
@@ -142,7 +166,7 @@ function runCase(spec: MeshSpec) {
       worldPositionsHash: (hashNumericArray(Array.from(world.sourceMesh.positions)) >>> 0).toString(16).padStart(8, "0"),
       stalenessIdentity: masterSeedStalenessIdentity(seed),
     },
-    preflight: { ...preflight, selfIntersectionChecked: undefined },
+    preflight,
     planningMesh: {
       patches: planning.patches,
       adjacency: planning.adjacency,
@@ -161,9 +185,53 @@ it("writes the master mold foundation reference fixture", () => {
   // An open box (one triangle removed) and a box with a duplicated face exercise the preflight issues.
   const open = { positions: box.positions, indices: box.indices.slice(3) };
   const duplicated = { positions: box.positions, indices: [...box.indices, 0, 2, 1] };
+  // C-shaped extrusion: the inner faces of the arms are undercuts along z, open along +x.
+  const poly = [[0, 0], [30, 0], [30, 10], [10, 10], [10, 20], [30, 20], [30, 30], [0, 30]] as const;
+  const cPositions: number[] = [];
+  for (const y of [0, 20]) for (const [px, pz] of poly) cPositions.push(px, y, pz);
+  const cIndices: number[] = [];
+  for (const [a, b, c] of [[0, 1, 2], [0, 2, 3], [0, 3, 4], [0, 4, 7], [4, 5, 6], [4, 6, 7]] as const) {
+    cIndices.push(a + 8, c + 8, b + 8); // y = 20 cap, normal +y
+    cIndices.push(a, b, c); // y = 0 cap, normal -y
+  }
+  for (let i = 0; i < 8; i += 1) {
+    const j = (i + 1) % 8;
+    cIndices.push(i, j + 8, j, i, i + 8, j + 8);
+  }
+  // Tessellated boxes (n x n quads per face, outward winding), unioned as a soup of parts: spine, two arms and a lip that
+  // covers only half of the top arm, so the ceiling region is partly visible along +x.
+  const tessBox = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, n: number, positions: number[], indices: number[]) => {
+    const lo = [x0, y0, z0], hi = [x1, y1, z1];
+    for (let axis = 0; axis < 3; axis += 1) {
+      const u = (axis + 1) % 3, v = (axis + 2) % 3;
+      for (const positive of [true, false]) {
+        const base = positions.length / 3;
+        for (let i = 0; i <= n; i += 1) for (let j = 0; j <= n; j += 1) {
+          const p = [0, 0, 0];
+          p[axis] = positive ? hi[axis]! : lo[axis]!;
+          p[u] = lo[u]! + ((hi[u]! - lo[u]!) * i) / n;
+          p[v] = lo[v]! + ((hi[v]! - lo[v]!) * j) / n;
+          positions.push(p[0]!, p[1]!, p[2]!);
+        }
+        const at = (i: number, j: number) => base + i * (n + 1) + j;
+        for (let i = 0; i < n; i += 1) for (let j = 0; j < n; j += 1) {
+          if (positive) indices.push(at(i, j), at(i + 1, j), at(i + 1, j + 1), at(i, j), at(i + 1, j + 1), at(i, j + 1));
+          else indices.push(at(i, j), at(i + 1, j + 1), at(i + 1, j), at(i, j), at(i, j + 1), at(i + 1, j + 1));
+        }
+      }
+    }
+  };
+  const assemblyPositions: number[] = [];
+  const assemblyIndices: number[] = [];
+  tessBox(0, 0, 0, 10, 20, 30, 3, assemblyPositions, assemblyIndices);
+  tessBox(10, 0, 0, 30, 20, 10, 3, assemblyPositions, assemblyIndices);
+  tessBox(10, 0, 20, 30, 20, 30, 3, assemblyPositions, assemblyIndices);
+  tessBox(26, 0, 12, 30, 10, 20, 2, assemblyPositions, assemblyIndices);
   const specs: MeshSpec[] = [
     { name: "box-rotated-translated", ...box, transform: [0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1, 0, 10, 20, 5, 1], printer: { x: 220, y: 220, z: 250 } },
     { name: "bracket-soup", ...bracket, transform: IDENTITY, printer: null },
+    { name: "c-extrusion", positions: cPositions, indices: cIndices, transform: IDENTITY, printer: null },
+    { name: "c-assembly", positions: assemblyPositions, indices: assemblyIndices, transform: IDENTITY, printer: null },
     { name: "box-open", ...open, transform: IDENTITY, printer: null },
     { name: "box-duplicate-face", ...duplicated, transform: IDENTITY, printer: null },
     { name: "cube-grid-large", positions: grid.positions, indices: grid.indices, transform: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -50, -50, 0, 1], printer: null, recipe: { kind: "cube-grid", segments: 65, size: 100 } },

@@ -87,7 +87,11 @@ target_link_libraries(craft_mesh_api INTERFACE craft_core)
 
 # --- craft_mold: mold-domain algorithms, kernel-agnostic (no Qt) -------------
 add_library(craft_mold STATIC
+  core/master/MasterAccessibility.cpp
+  core/master/MasterAccessibility.h
   core/master/MasterPlanning.cpp
+    core/master/TriangleIntersection.cpp
+    core/master/TriangleIntersection.h
   core/master/MasterPlanning.h
   core/mold/CavityGeneration.cpp
   core/mold/CavityGeneration.h
