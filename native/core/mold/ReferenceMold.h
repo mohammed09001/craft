@@ -106,6 +106,7 @@ struct MoldBody {
   bool watertight = true;
   MeshPayload mesh;
   std::string geometryVersion;
+  std::string sprueOperationId;  // set on bodies a sprue cut into
 };
 
 struct ReferenceMoldDefinition {

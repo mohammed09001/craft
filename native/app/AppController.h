@@ -17,6 +17,7 @@
 #include <QVariantMap>
 
 #include <array>
+#include <functional>
 #include <memory>
 #include <optional>
 
@@ -27,6 +28,7 @@
 #include "ViewportCamera.h"
 #include "model/ModelGrounding.h"
 #include "mold/CavityGeneration.h"
+#include "mold/SprueGeneration.h"
 
 namespace craft::app {
 
@@ -71,6 +73,9 @@ class AppController : public QObject {
   Q_PROPERTY(QVariantMap moldSummary READ moldSummary NOTIFY moldChanged)
   Q_PROPERTY(QVariantList moldIssues READ moldIssues NOTIFY moldChanged)
 
+  Q_PROPERTY(QVariantList sprues READ sprues NOTIFY spruesChanged)
+  Q_PROPERTY(QVariantMap sprueCandidate READ sprueCandidate NOTIFY spruesChanged)
+  Q_PROPERTY(QString spruePhase READ spruePhase NOTIFY spruesChanged)
   Q_PROPERTY(QString analysisPhase READ analysisPhase NOTIFY analysisChanged)
   Q_PROPERTY(QString analysisError READ analysisError NOTIFY analysisChanged)
   Q_PROPERTY(QString analysisStage READ analysisStage NOTIFY analysisChanged)
@@ -145,6 +150,23 @@ class AppController : public QObject {
   Q_INVOKABLE void exportMoldBodies(const QUrl& folder);
   void exportMoldBodiesTo(const QString& folderPath);
 
+  // --- sprues ----------------------------------------------------------------
+  QVariantList sprues() const;
+  QVariantMap sprueCandidate() const { return sprueCandidate_; }
+  QString spruePhase() const { return spruePhase_; }
+  /// Placement preview under a viewport pixel (status/inspector only).
+  Q_INVOKABLE void previewSprueAt(qreal x, qreal y, qreal viewportWidth, qreal viewportHeight);
+  /// Creates a sprue where the pixel meets the mold top face over the cavity.
+  Q_INVOKABLE bool placeSprueAt(qreal x, qreal y, qreal viewportWidth, qreal viewportHeight);
+  Q_INVOKABLE void removeSprue(const QString& operationId);
+  Q_INVOKABLE void resizeSprue(const QString& operationId, double diameterMm);
+  Q_INVOKABLE void resizeSprueEntryNeck(const QString& operationId, double diameterMm);
+  Q_INVOKABLE void moveSprue(const QString& operationId, double x, double y);
+  const std::vector<SprueOperationDefinition>& sprueIntents() const { return sprueIntents_; }
+  const std::optional<SprueEvaluation>& sprueEvaluation() const { return sprueEvaluation_; }
+  /// Mold bodies as displayed/exported: cavity bodies with sprues applied.
+  std::vector<MoldBody> finalBodies() const;
+
   // --- analysis ------------------------------------------------------------
   QString analysisPhase() const { return analysisPhase_; }
   QString analysisError() const { return analysisError_; }
@@ -202,6 +224,7 @@ class AppController : public QObject {
   void moldInputsChanged();
   void moldChanged();
   void analysisChanged();
+  void spruesChanged();
   void themeChanged();
   void viewOptionsChanged();
   void gridChanged();
@@ -222,13 +245,17 @@ class AppController : public QObject {
   void applyModel(LoadedModel model);
   void clearMold(const QString& phase);
   void invalidateMoldInputs();
-  void applyMoldResult(MoldGenerationResult result);
+  void applyMoldResult(MoldGenerationResult result, std::optional<SprueEvaluation> sprues);
   void refreshSceneFrame(bool refit);
   void rebuildGrid();
   void applySceneColors();
   std::vector<CuttingPlane> activeCuttingPlanes() const;
   Bounds3 partSelectionBounds() const;
   void connectAnalysis();
+  void editSprues(const std::function<bool(std::vector<SprueOperationDefinition>&)>& edit);
+  void startSprueEvaluation();
+  void showFinalBodies(bool refit);
+  std::optional<SpruePlacement> placementAt(qreal x, qreal y, qreal w, qreal h) const;
 
   std::shared_ptr<IMeshGeometryEngine> engine_;
   analysis::WorkerClient analysis_;
@@ -265,6 +292,14 @@ class AppController : public QObject {
   quint64 moldInputsRevision_ = 0;
   quint64 moldGeneration_ = 0;
   int moldGenerationVersion_ = 0;
+
+  // sprues
+  std::vector<SprueOperationDefinition> sprueIntents_;
+  std::optional<SprueEvaluation> sprueEvaluation_;
+  QString spruePhase_ = QStringLiteral("idle");
+  QVariantMap sprueCandidate_;
+  quint64 sprueGeneration_ = 0;
+  int nextSprueNumber_ = 1;
 
   // analysis
   QString analysisPhase_ = QStringLiteral("idle");

@@ -19,6 +19,7 @@
 #include "ManifoldMeshEngine.h"
 #include "geometry/MeshAnalysis.h"
 #include "model/ModelGrounding.h"
+#include "mold/SprueGeneration.h"
 #include "mold/CavityGeneration.h"
 #include "view/ViewPose.h"
 
@@ -290,6 +291,110 @@ class ReferenceEquivalenceTest : public QObject {
 
     QCOMPARE(codesOf(result.cavity.warnings), stringsOf(expected["warningCodes"]));
     QCOMPARE(codesOf(result.validationWarnings), stringsOf(expected["validationWarningCodes"]));
+
+    if (expected.contains("sprues")) verifySprues(input, expected["sprues"].toObject(), result, *frame);
+  }
+
+  void verifySprues(const QJsonObject& input, const QJsonObject& expected, const MoldGenerationResult& mold,
+                    const ReferenceMoldFrameBounds& frame) {
+    const QJsonArray specs = input["sprues"].toArray();
+    const QJsonArray designs = expected["designs"].toArray();
+    const QJsonArray results = expected["results"].toArray();
+    QCOMPARE(specs.size(), designs.size());
+
+    std::vector<SprueOperationDefinition> definitions;
+    const Bounds3& tool = mold.cavity.cavityTool.solid.bounds;
+    for (qsizetype i = 0; i < specs.size(); ++i) {
+      const QJsonObject spec = specs[i].toObject();
+      SprueOperationDefinition definition;
+      definition.operationId = QStringLiteral("sprue:test-%1").arg(i + 1).toStdString();
+      definition.creationOrder = static_cast<int>(i);
+      definition.position = {spec["x"].toDouble(), spec["y"].toDouble(),
+                             frame.referenceMoldBlockBounds.max.z + spec["zOffset"].toDouble(0)};
+      if (spec.contains("profile")) {
+        const QJsonObject p = spec["profile"].toObject();
+        definition.profileDesign.profile = {p["mainDiameterMm"].toDouble(), p["entryNeckDiameterMm"].toDouble(),
+                                            p["entryNeckLengthMm"].toDouble()};
+        definition.profileDesign.source = "fallback";
+      } else {
+        const Point3 s = tool.size();
+        definition.profileDesign = resolveSprueIntegration({mold.cavity.cavityTool.solid.volumeMm3,
+                                                            {s.x, s.y, s.z}, spec["stemLengthMm"].toDouble()})
+                                       .design;
+      }
+      // Profile design equals the reference design (exact: pure arithmetic).
+      const QJsonObject d = designs[i].toObject();
+      QCOMPARE(QString::fromStdString(definition.profileDesign.source), d["source"].toString());
+      QCOMPARE(definition.profileDesign.profile.mainDiameterMm, d["profile"].toObject()["mainDiameterMm"].toDouble());
+      QCOMPARE(definition.profileDesign.profile.entryNeckDiameterMm, d["profile"].toObject()["entryNeckDiameterMm"].toDouble());
+      QCOMPARE(definition.profileDesign.profile.entryNeckLengthMm, d["profile"].toObject()["entryNeckLengthMm"].toDouble());
+      if (!d["main"].isNull()) {
+        QCOMPARE(QString(sprueDesignSourceName(definition.profileDesign.mainSection->source)),
+                 d["main"].toObject()["source"].toString());
+        QCOMPARE(definition.profileDesign.mainSection->unconstrainedValueMm,
+                 d["main"].toObject()["unconstrainedValueMm"].toDouble());
+        QCOMPARE(QString(sprueDesignSourceName(definition.profileDesign.entryNeckLength->source)),
+                 d["neckLength"].toObject()["source"].toString());
+      }
+      definitions.push_back(std::move(definition));
+    }
+
+    std::vector<MoldBody> cavityBodies;
+    for (const CavityMoldBody& b : mold.cavity.bodies) cavityBodies.push_back(b.body);
+    const SprueEvaluation evaluation =
+        evaluateSprues(*engine_, cavityBodies, mold.cavity.cavityTool.solid.mesh, mold.cavity.sourceSignature,
+                       mold.definition.definitionId + ":z-up", definitions);
+
+    // Per-sprue outcome, in creation order.
+    QCOMPARE(evaluation.definitions.size(), static_cast<std::size_t>(results.size()));
+    std::size_t resolvedIndex = 0;
+    for (qsizetype i = 0; i < results.size(); ++i) {
+      const QJsonObject r = results[i].toObject();
+      const SprueOperationDefinition& actual = evaluation.definitions[static_cast<std::size_t>(i)];
+      QCOMPARE(QString::fromStdString(actual.operationId), r["operationId"].toString());
+      if (r["status"].toString() == QLatin1String("failure")) {
+        QCOMPARE(QString::fromStdString(actual.validation.status), QStringLiteral("invalid"));
+        QCOMPARE(QString::fromStdString(actual.validation.reasonCode), r["reasonCode"].toString());
+        QCOMPARE(QString::fromStdString(actual.validation.message), r["message"].toString());
+        continue;
+      }
+      QCOMPARE(QString::fromStdString(actual.validation.status), QStringLiteral("resolved"));
+      QVERIFY(resolvedIndex < evaluation.resolvedSprues.size());
+      const SprueDefinition& sprue = evaluation.resolvedSprues[resolvedIndex++];
+      QCOMPARE(sprue.depthMm, r["depthMm"].toDouble());
+      QCOMPARE(sprue.inwardDirection.z, r["inwardDirection"].toObject()["z"].toDouble());
+      QCOMPARE(sprue.profile.mainDiameterMm, r["profile"].toObject()["mainDiameterMm"].toDouble());
+      const QJsonObject tp = r["tolerancePolicy"].toObject();
+      QCOMPARE(sprue.tolerancePolicy.linearToleranceMm, tp["linearToleranceMm"].toDouble());
+      QCOMPARE(sprue.tolerancePolicy.volumeToleranceMm3, tp["volumeToleranceMm3"].toDouble());
+      QCOMPARE(sprue.tolerancePolicy.meaningfulVolumeMm3, tp["meaningfulVolumeMm3"].toDouble());
+      QCOMPARE(sprue.tolerancePolicy.surfaceToleranceMm, tp["surfaceToleranceMm"].toDouble());
+      QCOMPARE(sprue.tolerancePolicy.outsideMarginMm, tp["outsideMarginMm"].toDouble());
+      QCOMPARE(sprue.tolerancePolicy.beyondMarginMm, tp["beyondMarginMm"].toDouble());
+      QCOMPARE(sprue.targetBodyIds, stringsOf(r["targetBodyIds"]));
+    }
+    QCOMPARE(evaluation.warnings, stringsOf(expected["warnings"]));
+
+    // Final bodies after every sprue: geometry, provenance and face roles.
+    const QJsonArray finalBodies = expected["finalBodies"].toArray();
+    QCOMPARE(evaluation.bodies.size(), static_cast<std::size_t>(finalBodies.size()));
+    for (qsizetype i = 0; i < finalBodies.size(); ++i) {
+      const QJsonObject b = finalBodies[i].toObject();
+      const MoldBody& actual = evaluation.bodies[static_cast<std::size_t>(i)];
+      QCOMPARE(QString::fromStdString(actual.id), b["id"].toString());
+      VERIFY_CLOSE(actual.volumeMm3, b["volumeMm3"].toDouble());
+      VERIFY_BOUNDS(actual.bounds, boundsOf(b["bounds"]));
+      QCOMPARE(actual.triangleCount, static_cast<std::size_t>(b["triangleCount"].toInt()));
+      QCOMPARE(actual.mesh.vertexCount(), static_cast<std::size_t>(b["vertexCount"].toInt()));
+      QCOMPARE(b["sprueOperationId"].isNull() ? QString() : b["sprueOperationId"].toString(),
+               QString::fromStdString(actual.sprueOperationId));
+      std::size_t funnel = 0;
+      for (const MeshFaceRun& run : actual.mesh.faceRuns) {
+        if (run.role == FaceRole::SprueFunnel) funnel += run.triangleCount;
+      }
+      QCOMPARE(funnel, static_cast<std::size_t>(b["funnelTriangleCount"].toInt()));
+      QVERIFY(meshTopology(actual.mesh).closedManifold());
+    }
   }
 
   void grounding() {

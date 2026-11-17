@@ -226,6 +226,30 @@ class ManifoldMeshEngine final : public IMeshGeometryEngine {
 
   SolidPtr asOriginal(const SolidPtr& solid) override { return wrap(unwrap(solid).AsOriginal()); }
 
+  SolidPtr cylinder(double radius, double height, int segments, const Point3& axis,
+                    const Point3& origin) override {
+    const bool nearVertical = std::fabs(axis.z) >= 0.9;
+    const double ref[3] = {0, nearVertical ? 1.0 : 0.0, nearVertical ? 0.0 : 1.0};
+    double x[3] = {ref[1] * axis.z - ref[2] * axis.y, ref[2] * axis.x - ref[0] * axis.z,
+                   ref[0] * axis.y - ref[1] * axis.x};
+    const double xl = std::sqrt(x[0] * x[0] + x[1] * x[1] + x[2] * x[2]);
+    for (double& v : x) v /= xl;
+    const double y[3] = {axis.y * x[2] - axis.z * x[1], axis.z * x[0] - axis.x * x[2],
+                         axis.x * x[1] - axis.y * x[0]};
+    const manifold::mat3x4 transform({x[0], x[1], x[2]}, {y[0], y[1], y[2]}, {axis.x, axis.y, axis.z},
+                                     {origin.x, origin.y, origin.z});
+    manifold::Manifold canonical = manifold::Manifold::Cylinder(height, radius, radius, segments, false);
+    manifold::Manifold result = canonical.Transform(transform);
+    assertStatus(result, "Sprue cylinder construction");
+    return wrap(std::move(result));
+  }
+
+  SolidPtr unionOf(const std::vector<SolidPtr>& solids) override {
+    std::vector<manifold::Manifold> parts;
+    for (const SolidPtr& s : solids) parts.push_back(unwrap(s));
+    return wrap(manifold::Manifold::BatchBoolean(parts, manifold::OpType::Add));
+  }
+
   SolidPtr subtract(const SolidPtr& from, const SolidPtr& tool) override {
     return wrap(unwrap(from) - unwrap(tool));
   }

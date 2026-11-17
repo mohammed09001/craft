@@ -28,6 +28,8 @@ class FailingMinkowskiEngine final : public IMeshGeometryEngine {
   SolidPtr solidFromMesh(const MeshPayload& m, double t, const std::string& o) override { return inner_.solidFromMesh(m, t, o); }
   SolidPtr box(const Bounds3& b) override { return inner_.box(b); }
   SolidPtr asOriginal(const SolidPtr& s) override { return inner_.asOriginal(s); }
+  SolidPtr cylinder(double r, double h, int n, const Point3& a, const Point3& o) override { return inner_.cylinder(r, h, n, a, o); }
+  SolidPtr unionOf(const std::vector<SolidPtr>& s) override { return inner_.unionOf(s); }
   SolidPtr subtract(const SolidPtr& a, const SolidPtr& b) override { return inner_.subtract(a, b); }
   SolidPtr intersect(const SolidPtr& a, const SolidPtr& b) override { return inner_.intersect(a, b); }
   std::vector<SolidPtr> decompose(const SolidPtr& s) override { return inner_.decompose(s); }

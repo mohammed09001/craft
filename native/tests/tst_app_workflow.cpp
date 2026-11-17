@@ -98,6 +98,67 @@ class WorkflowTest : public QObject {
     QCOMPARE(app->moldSummary().value("cavityClearanceMm").toDouble(), 1.0);
   }
 
+  void sprueWorkflowPlaceEditRegenerateRemove() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->generateMold();
+    QVERIFY(waitFor([&] { return app->moldPhase() == "complete"; }));
+    const double volumeBefore = app->moldSummary().value("bodies").toList().front().toMap().value("volumeMm3").toDouble();
+
+    // Top view, then scan for a pixel over the cavity (the part's L shape).
+    app->camera()->setViewportSize(800, 600);
+    app->camera()->lookFrom("top");
+    app->setTool("sprue");
+    QVERIFY(!app->placeSprueAt(2, 2, 800, 600));  // empty space: nothing to place on
+    int placedAt = -1;
+    for (int x = 100; x <= 700 && placedAt < 0; x += 10) {
+      app->previewSprueAt(x, 300, 800, 600);
+      if (app->sprueCandidate().value("valid").toBool() && app->placeSprueAt(x, 300, 800, 600)) placedAt = x;
+    }
+    QVERIFY2(placedAt > 0, "no pixel over the cavity found");
+    QVERIFY(waitFor([&] { return app->spruePhase() == "idle" && app->sprueEvaluation().has_value(); }));
+    QCOMPARE(app->sprueIntents().size(), std::size_t{1});
+    QCOMPARE(app->sprueIntents().front().validation.status, std::string("resolved"));
+    QCOMPARE(app->sprueEvaluation()->resolvedSprues.size(), std::size_t{1});
+    const double volumeAfter = app->moldSummary().value("bodies").toList().front().toMap().value("volumeMm3").toDouble();
+    QVERIFY(volumeAfter < volumeBefore);
+    QCOMPARE(app->moldSummary().value("sprueCount").toULongLong(), qulonglong{1});
+    QCOMPARE(app->scene()->count(), 2);  // part + one body
+
+    // Resizing re-evaluates only the sprue stage and removes more material.
+    const std::string id = app->sprueIntents().front().operationId;
+    app->resizeSprue(QString::fromStdString(id), 6.0);
+    QVERIFY(waitFor([&] { return app->spruePhase() == "idle" && !app->busy(); }));
+    QCOMPARE(app->sprueIntents().front().profileDesign.profile.mainDiameterMm, 6.0);
+    const double volumeResized = app->moldSummary().value("bodies").toList().front().toMap().value("volumeMm3").toDouble();
+    QVERIFY(volumeResized < volumeAfter);
+
+    // The intent survives a cavity regeneration and is resolved again.
+    app->setCavityClearanceMm(0.5);
+    QVERIFY(!app->moldResult().has_value());
+    QCOMPARE(app->sprueIntents().front().validation.status, std::string("pending"));
+    app->generateMold();
+    QVERIFY(waitFor([&] { return app->moldPhase() == "complete" || app->moldPhase() == "error"; }));
+    QVERIFY2(app->moldPhase() == "complete", qPrintable(app->moldError()));
+    QCOMPARE(app->sprueIntents().front().validation.status, std::string("resolved"));
+
+    // Export carries the sprue cut.
+    QTemporaryDir dir;
+    app->exportMoldBodiesTo(dir.path());
+    QCOMPARE(QDir(dir.path()).entryList({"*.stl"}).size(), 1);
+
+    app->removeSprue(QString::fromStdString(id));
+    QVERIFY(waitFor([&] { return app->sprueIntents().empty() && !app->busy(); }));
+    QCOMPARE(app->moldSummary().value("sprueCount").toULongLong(), qulonglong{0});
+
+    // A new import discards sprue intents.
+    app->setTool("select");
+    app->importStlFile(fixtureStl("closed_tetrahedron_ascii.stl"));
+    QVERIFY(waitFor([&] { return app->model()->fileName == "closed_tetrahedron_ascii.stl"; }));
+    QVERIFY(app->sprueIntents().empty());
+  }
+
   void editingInputsDropsStaleResult() {
     auto app = makeApp();
     app->importStlFile(bracket());

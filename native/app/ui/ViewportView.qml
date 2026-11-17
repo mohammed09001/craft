@@ -114,7 +114,10 @@ Item {
         property real pressY: 0
         property bool moved: false
         onPressed: (e) => { lastX = pressX = e.x; lastY = pressY = e.y; moved = false }
+        hoverEnabled: true
+        cursorShape: app.tool === "sprue" ? Qt.CrossCursor : Qt.ArrowCursor
         onPositionChanged: (e) => {
+            if (app.tool === "sprue" && e.buttons === 0) app.previewSprueAt(e.x, e.y, width, height)
             const dx = e.x - lastX, dy = e.y - lastY
             lastX = e.x; lastY = e.y
             if (Math.abs(e.x - pressX) + Math.abs(e.y - pressY) > 4) moved = true

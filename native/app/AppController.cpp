@@ -168,6 +168,9 @@ void AppController::applyModel(LoadedModel model) {
   analysisError_.clear();
   emit analysisChanged();
 
+  sprueIntents_.clear();
+  nextSprueNumber_ = 1;
+  sprueCandidate_.clear();
   clearMold(QStringLiteral("ready"));
   model_ = std::move(model);
   modelPhase_ = QStringLiteral("ready");
@@ -261,6 +264,12 @@ void AppController::invalidateMoldInputs() {
 }
 
 void AppController::clearMold(const QString& phase) {
+  ++sprueGeneration_;
+  sprueEvaluation_.reset();
+  spruePhase_ = QStringLiteral("idle");
+  for (SprueOperationDefinition& intent : sprueIntents_) {
+    intent.validation = {"pending", {}, "Mold changed; sprue requires revalidation."};
+  }
   moldResult_.reset();
   moldError_.clear();
   moldErrorCode_.clear();
@@ -268,6 +277,7 @@ void AppController::clearMold(const QString& phase) {
   scene_.clearMoldBodies();
   scene_.setPartOffset({0, 0, 0});
   emit moldChanged();
+  emit spruesChanged();
 }
 
 void AppController::generateMold() {
@@ -298,17 +308,31 @@ void AppController::generateMold() {
   CancellationToken cancel;
   activeCancel_ = cancel;
   auto engine = engine_;
-  runJob<MoldGenerationResult>(
+  struct MoldJobResult {
+    MoldGenerationResult mold;
+    std::optional<SprueEvaluation> sprues;
+  };
+  runJob<MoldJobResult>(
       this, cancel,
-      [engine, request](const CancellationToken& token, const ProgressCallback& progress) {
-        return craft::generateMold(*engine, request, token, progress);
+      [engine, request, intents = sprueIntents_](const CancellationToken& token, const ProgressCallback& progress) {
+        MoldJobResult job;
+        job.mold = craft::generateMold(*engine, request, token, progress);
+        if (!intents.empty()) {
+          if (progress) progress("sprues", 0.95);
+          std::vector<MoldBody> bodies;
+          for (const CavityMoldBody& b : job.mold.cavity.bodies) bodies.push_back(b.body);
+          job.sprues = evaluateSprues(*engine, bodies, job.mold.cavity.cavityTool.solid.mesh,
+                                      job.mold.cavity.sourceSignature,
+                                      job.mold.definition.definitionId + ":z-up", intents);
+        }
+        return job;
       },
-      [this, generation, inputs](JobOutcome<MoldGenerationResult> outcome) {
+      [this, generation, inputs](JobOutcome<MoldJobResult> outcome) {
         activeCancel_.reset();
         setBusy(false);
         if (generation != moldGeneration_ || inputs != moldInputsRevision_) return;  // stale
         if (outcome.state == JobState::Succeeded && outcome.result) {
-          applyMoldResult(std::move(*outcome.result));
+          applyMoldResult(std::move(outcome.result->mold), std::move(outcome.result->sprues));
           return;
         }
         moldResult_.reset();
@@ -332,44 +356,78 @@ void AppController::generateMold() {
       });
 }
 
-void AppController::applyMoldResult(MoldGenerationResult result) {
-  std::vector<SceneModel::BodyInput> bodies;
-  for (const CavityMoldBody& body : result.cavity.bodies) {
-    bodies.push_back({QString::fromStdString(body.body.id), QString::fromStdString(body.body.name),
-                      std::make_shared<MeshPayload>(body.body.mesh), body.body.bounds,
-                      body.body.volumeMm3});
+std::vector<MoldBody> AppController::finalBodies() const {
+  if (sprueEvaluation_) return sprueEvaluation_->bodies;
+  std::vector<MoldBody> bodies;
+  if (moldResult_) {
+    for (const CavityMoldBody& body : moldResult_->cavity.bodies) bodies.push_back(body.body);
   }
-  moldResult_ = std::move(result);
-  // The part now sits inside the block, lifted by the clearance (mold frame).
-  const Point3 offset = moldResult_->definition.partOffset;
-  scene_.setPartOffset({static_cast<float>(offset.x), static_cast<float>(offset.y), static_cast<float>(offset.z)});
+  return bodies;
+}
+
+void AppController::showFinalBodies(bool refit) {
+  std::vector<SceneModel::BodyInput> bodies;
+  for (const MoldBody& body : finalBodies()) {
+    bodies.push_back({QString::fromStdString(body.id), QString::fromStdString(body.name),
+                      std::make_shared<MeshPayload>(body.mesh), body.bounds, body.volumeMm3});
+  }
   scene_.setMoldBodies(bodies);
   scene_.recolor(theme_ == "dark" ? QColor("#9fb4c7") : QColor("#5b7a99"), darkPalette());
   applySceneColors();
-  moldPhase_ = QStringLiteral("complete");
-  refreshSceneFrame(true);
-  emit moldChanged();
-  setStatus(QStringLiteral("Mold generated: %1 bodies, %2 mm³ removed")
-                .arg(moldResult_->cavity.bodies.size())
-                .arg(moldResult_->cavity.subtraction.removedVolumeMm3, 0, 'f', 1));
+  refreshSceneFrame(refit);
 }
 
+void AppController::applyMoldResult(MoldGenerationResult result, std::optional<SprueEvaluation> sprues) {
+  moldResult_ = std::move(result);
+  sprueEvaluation_ = std::move(sprues);
+  if (sprueEvaluation_) {
+    for (const SprueOperationDefinition& resolved : sprueEvaluation_->definitions) {
+      for (SprueOperationDefinition& intent : sprueIntents_) {
+        if (intent.operationId == resolved.operationId) intent.validation = resolved.validation;
+      }
+    }
+  }
+  // The part now sits inside the block, lifted by the clearance (mold frame).
+  const Point3 offset = moldResult_->definition.partOffset;
+  scene_.setPartOffset({static_cast<float>(offset.x), static_cast<float>(offset.y), static_cast<float>(offset.z)});
+  showFinalBodies(true);
+  moldPhase_ = QStringLiteral("complete");
+  spruePhase_ = QStringLiteral("idle");
+  emit moldChanged();
+  emit spruesChanged();
+  QString status = QStringLiteral("Mold generated: %1 bodies, %2 mm³ removed")
+                       .arg(moldResult_->cavity.bodies.size())
+                       .arg(moldResult_->cavity.subtraction.removedVolumeMm3, 0, 'f', 1);
+  if (sprueEvaluation_ && !sprueEvaluation_->warnings.empty()) {
+    status += QStringLiteral(" (%1 sprue warning(s))").arg(sprueEvaluation_->warnings.size());
+  }
+  setStatus(status);
+}
 QVariantMap AppController::moldSummary() const {
   if (!moldResult_) return {};
   const MoldGenerationResult& r = *moldResult_;
   QVariantList bodies;
-  for (const CavityMoldBody& b : r.cavity.bodies) {
-    bodies.push_back(QVariantMap{{"id", QString::fromStdString(b.body.id)},
-                                 {"name", QString::fromStdString(b.body.name)},
-                                 {"volumeMm3", b.body.volumeMm3},
-                                 {"triangleCount", static_cast<qulonglong>(b.body.triangleCount)},
+  for (const CavityMoldBody& cb : r.cavity.bodies) {
+    const MoldBody* shown = &cb.body;
+    if (sprueEvaluation_) {
+      for (const MoldBody& s : sprueEvaluation_->bodies) {
+        if (s.id == cb.body.id) shown = &s;
+      }
+    }
+    const CavityMoldBody& b = cb;
+    bodies.push_back(QVariantMap{{"id", QString::fromStdString(shown->id)},
+                                 {"name", QString::fromStdString(shown->name)},
+                                 {"volumeMm3", shown->volumeMm3},
+                                 {"sprueOperationId", QString::fromStdString(shown->sprueOperationId)},
+                                 {"triangleCount", static_cast<qulonglong>(shown->triangleCount)},
                                  {"cavityAffected", b.cavityAffected},
                                  {"watertight", b.validation.watertight && b.validation.openEdgeCount == 0},
                                  {"minimumWallMm", b.validation.minimumWallMm},
                                  {"bounds", boundsMap(b.body.bounds)}});
   }
   const auto& d = r.cavity.subtraction;
-  return {{"implementation", QString::fromStdString(r.cavity.implementation)},
+  return {{"sprueCount", static_cast<qulonglong>(sprueEvaluation_ ? sprueEvaluation_->resolvedSprues.size() : 0)},
+          {"implementation", QString::fromStdString(r.cavity.implementation)},
           {"offsetEngine", QString::fromStdString(r.cavity.selectedEngine)},
           {"offsetMethod", QString::fromStdString(r.cavity.cavityTool.implementationMethod)},
           {"usedFallback", r.cavity.usedFallback},
@@ -406,12 +464,12 @@ void AppController::exportMoldBodiesTo(const QString& folderPath) {
   try {
     QDir().mkpath(folderPath);
     int index = 1;
-    for (const CavityMoldBody& body : moldResult_->cavity.bodies) {
+    for (const MoldBody& body : finalBodies()) {
       const QString name = QStringLiteral("%1_mold_%2.stl")
                                .arg(QFileInfo(model_ ? model_->fileName : QStringLiteral("part")).completeBaseName())
                                .arg(index++);
       const QString path = QDir(folderPath).filePath(name);
-      stl::writeBinary(std::filesystem::path(path.toStdWString()), body.body.mesh,
+      stl::writeBinary(std::filesystem::path(path.toStdWString()), body.mesh,
                        "op=" + moldResult_->cavity.operationId);
       files << path;
     }
@@ -552,6 +610,7 @@ void AppController::setTool(const QString& tool) {
 
 bool AppController::pickAt(qreal x, qreal y, qreal w, qreal h) {
   camera_.setViewportSize(w, h);
+  if (tool_ == "sprue") return placeSprueAt(x, y, w, h);
   const auto hit = scene_.pick(camera_.pose().rayThroughPixel(x, y, w, h));
   if (!hit) {
     if (tool_ == "select") clearSelection();
@@ -593,6 +652,198 @@ void AppController::clearSelection() {
   emit selectionChanged();
 }
 
+// --- sprues ----------------------------------------------------------------
+
+QVariantList AppController::sprues() const {
+  QVariantList list;
+  for (const SprueOperationDefinition& s : sprueIntents_) {
+    QVariantMap m{{"operationId", QString::fromStdString(s.operationId)},
+                  {"x", s.position.x}, {"y", s.position.y}, {"z", s.position.z},
+                  {"mainDiameterMm", s.profileDesign.profile.mainDiameterMm},
+                  {"entryNeckDiameterMm", s.profileDesign.profile.entryNeckDiameterMm},
+                  {"entryNeckLengthMm", s.profileDesign.profile.entryNeckLengthMm},
+                  {"status", QString::fromStdString(s.validation.status)},
+                  {"reasonCode", QString::fromStdString(s.validation.reasonCode)},
+                  {"message", QString::fromStdString(s.validation.message)}};
+    if (sprueEvaluation_) {
+      for (const SprueDefinition& resolved : sprueEvaluation_->resolvedSprues) {
+        if (resolved.operationId == s.operationId) m.insert("depthMm", resolved.depthMm);
+      }
+    }
+    list.push_back(m);
+  }
+  return list;
+}
+
+std::optional<SpruePlacement> AppController::placementAt(qreal x, qreal y, qreal w, qreal h) const {
+  if (!moldResult_) return std::nullopt;
+  const std::vector<MoldBody> bodies = finalBodies();
+  const MeshPayload& cavityMesh = moldResult_->cavity.cavityTool.solid.mesh;
+  const SprueCavityFacts facts{&cavityMesh, moldResult_->cavity.cavityTool.solid.volumeMm3,
+                               moldResult_->cavity.cavityTool.solid.bounds};
+  return computeSpruePlacement(camera_.pose().rayThroughPixel(x, y, w, h), bodies,
+                               moldResult_->definition.referenceMoldBlockBounds.max.z, facts);
+}
+
+void AppController::previewSprueAt(qreal x, qreal y, qreal w, qreal h) {
+  camera_.setViewportSize(w, h);
+  QVariantMap candidate;
+  if (const auto placement = placementAt(x, y, w, h)) {
+    candidate = {{"onTopFace", true},
+                 {"valid", placement->valid},
+                 {"x", placement->topPoint.x}, {"y", placement->topPoint.y}, {"z", placement->topPoint.z},
+                 {"stemLengthMm", placement->stemLengthMm},
+                 {"mainDiameterMm", placement->profileDesign.profile.mainDiameterMm},
+                 {"entryNeckDiameterMm", placement->profileDesign.profile.entryNeckDiameterMm},
+                 {"entryNeckLengthMm", placement->profileDesign.profile.entryNeckLengthMm}};
+  }
+  if (candidate != sprueCandidate_) {
+    sprueCandidate_ = candidate;
+    emit spruesChanged();
+  }
+}
+
+bool AppController::placeSprueAt(qreal x, qreal y, qreal w, qreal h) {
+  if (moldPhase_ != "complete") {
+    setStatus(QStringLiteral("Generate a mold before placing a sprue."));
+    return false;
+  }
+  const auto placement = placementAt(x, y, w, h);
+  if (!placement) {
+    setStatus(QStringLiteral("Click the top face of the mold to place a sprue."));
+    return false;
+  }
+  if (!placement->valid) {
+    setStatus(QStringLiteral("The sprue axis at this point does not reach the cavity."));
+    return false;
+  }
+  SprueOperationDefinition intent;
+  intent.operationId = "sprue:" + std::to_string(nextSprueNumber_++);
+  intent.position = placement->topPoint;
+  intent.inwardDirection = placement->inwardDirection;
+  intent.profileDesign = placement->profileDesign;
+  intent.validation = {"pending", {}, {}};
+  editSprues([&](std::vector<SprueOperationDefinition>& intents) {
+    intent.creationOrder = static_cast<int>(intents.size());
+    intents.push_back(intent);
+    return true;
+  });
+  return true;
+}
+
+void AppController::removeSprue(const QString& operationId) {
+  editSprues([&](std::vector<SprueOperationDefinition>& intents) {
+    const auto it = std::remove_if(intents.begin(), intents.end(), [&](const auto& s) {
+      return s.operationId == operationId.toStdString();
+    });
+    if (it == intents.end()) return false;
+    intents.erase(it, intents.end());
+    for (std::size_t i = 0; i < intents.size(); ++i) intents[i].creationOrder = static_cast<int>(i);
+    return true;
+  });
+}
+
+void AppController::resizeSprue(const QString& operationId, double diameterMm) {
+  editSprues([&](std::vector<SprueOperationDefinition>& intents) {
+    for (SprueOperationDefinition& s : intents) {
+      if (s.operationId != operationId.toStdString()) continue;
+      const auto normalized = normalizeSprueDiameterMm(diameterMm, s.profileDesign.profile.entryNeckDiameterMm);
+      if (!normalized || *normalized == s.profileDesign.profile.mainDiameterMm) return false;
+      s.profileDesign.profile.mainDiameterMm = *normalized;
+      return true;
+    }
+    return false;
+  });
+}
+
+void AppController::resizeSprueEntryNeck(const QString& operationId, double diameterMm) {
+  editSprues([&](std::vector<SprueOperationDefinition>& intents) {
+    for (SprueOperationDefinition& s : intents) {
+      if (s.operationId != operationId.toStdString()) continue;
+      const auto normalized = normalizeSprueEntryNeckDiameterMm(diameterMm, s.profileDesign.profile.mainDiameterMm);
+      if (!normalized || *normalized == s.profileDesign.profile.entryNeckDiameterMm) return false;
+      s.profileDesign.profile.entryNeckDiameterMm = *normalized;
+      return true;
+    }
+    return false;
+  });
+}
+
+void AppController::moveSprue(const QString& operationId, double x, double y) {
+  if (!std::isfinite(x) || !std::isfinite(y) || !moldResult_) return;
+  const double topZ = moldResult_->definition.referenceMoldBlockBounds.max.z;
+  editSprues([&](std::vector<SprueOperationDefinition>& intents) {
+    for (SprueOperationDefinition& s : intents) {
+      if (s.operationId != operationId.toStdString()) continue;
+      s.position = {x, y, topZ};
+      return true;
+    }
+    return false;
+  });
+}
+
+/// Applies an intent edit and re-evaluates only the sprue stage on the
+/// existing cavity result (the cavity is not regenerated).
+void AppController::editSprues(const std::function<bool(std::vector<SprueOperationDefinition>&)>& edit) {
+  if (busy_ && spruePhase_ != "evaluating") return;
+  if (!edit(sprueIntents_)) return;
+  for (SprueOperationDefinition& s : sprueIntents_) s.validation = {"pending", {}, {}};
+  startSprueEvaluation();
+}
+
+void AppController::startSprueEvaluation() {
+  const quint64 generation = ++sprueGeneration_;
+  if (!moldResult_) {
+    emit spruesChanged();
+    return;
+  }
+  if (activeCancel_ && spruePhase_ == "evaluating") activeCancel_->cancel();
+  spruePhase_ = QStringLiteral("evaluating");
+  emit spruesChanged();
+  setBusy(true, QStringLiteral("sprues"), 0);
+  setStatus(QStringLiteral("Evaluating sprues…"));
+
+  std::vector<MoldBody> bodies;
+  for (const CavityMoldBody& b : moldResult_->cavity.bodies) bodies.push_back(b.body);
+  const MeshPayload cavityMesh = moldResult_->cavity.cavityTool.solid.mesh;
+  const std::string signature = moldResult_->cavity.sourceSignature;
+  const std::string frameId = moldResult_->definition.definitionId + ":z-up";
+  const quint64 moldGeneration = moldGeneration_;
+  auto engine = engine_;
+  CancellationToken cancel;
+  activeCancel_ = cancel;
+  runJob<SprueEvaluation>(
+      this, cancel,
+      [engine, bodies, cavityMesh, signature, frameId, intents = sprueIntents_](const CancellationToken&,
+                                                                                 const ProgressCallback&) {
+        return evaluateSprues(*engine, bodies, cavityMesh, signature, frameId, intents);
+      },
+      [this, generation, moldGeneration](JobOutcome<SprueEvaluation> outcome) {
+        activeCancel_.reset();
+        setBusy(false);
+        if (generation != sprueGeneration_ || moldGeneration != moldGeneration_ || !moldResult_) return;  // stale
+        spruePhase_ = QStringLiteral("idle");
+        if (outcome.state != JobState::Succeeded || !outcome.result) {
+          setStatus(QStringLiteral("Sprue evaluation failed: %1").arg(outcome.errorMessage));
+          emit errorOccurred(QStringLiteral("Sprue evaluation failed"), outcome.errorMessage, outcome.errorCode);
+          emit spruesChanged();
+          return;
+        }
+        sprueEvaluation_ = std::move(*outcome.result);
+        for (const SprueOperationDefinition& resolved : sprueEvaluation_->definitions) {
+          for (SprueOperationDefinition& intent : sprueIntents_) {
+            if (intent.operationId == resolved.operationId) intent.validation = resolved.validation;
+          }
+        }
+        showFinalBodies(false);
+        emit moldChanged();
+        emit spruesChanged();
+        setStatus(sprueEvaluation_->warnings.empty()
+                      ? QStringLiteral("%1 sprue(s) applied.").arg(sprueEvaluation_->resolvedSprues.size())
+                      : QStringLiteral("Sprue warning: %1").arg(QString::fromStdString(sprueEvaluation_->warnings.front())));
+      });
+}
+
 QVariantMap AppController::stateSummary() const {
   QVariantMap s{{"modelPhase", modelPhase_},
                 {"moldPhase", moldPhase_},
@@ -602,6 +853,7 @@ QVariantMap AppController::stateSummary() const {
   s.insert("model", modelInfo());
   s.insert("mold", moldSummary());
   s.insert("moldError", moldError_);
+  s.insert("sprues", sprues());
   s.insert("analysisError", analysisError_);
   s.insert("analysisStatus", analysisReport_.value("status"));
   return s;

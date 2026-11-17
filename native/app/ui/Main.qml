@@ -92,6 +92,11 @@ ApplicationWindow {
             ToolSeparator {}
             ToolButton { text: qsTr("Select"); checkable: true; checked: app.tool === "select"; onClicked: app.tool = "select" }
             ToolButton { text: qsTr("Measure"); checkable: true; checked: app.tool === "measure"; onClicked: app.tool = "measure" }
+            ToolButton {
+                text: qsTr("Sprue"); checkable: true; checked: app.tool === "sprue"
+                enabled: app.moldPhase === "complete"
+                onClicked: app.tool = "sprue"
+            }
             ToolSeparator {}
             ToolButton { action: fitAction }
             ToolButton { action: resetAction }

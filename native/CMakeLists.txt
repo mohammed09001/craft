@@ -95,6 +95,10 @@ add_library(craft_mold STATIC
   core/mold/PartSolid.h
   core/mold/ReferenceMold.cpp
   core/mold/ReferenceMold.h
+  core/mold/SprueGeneration.cpp
+  core/mold/SprueGeneration.h
+  core/mold/SprueProfile.cpp
+  core/mold/SprueProfile.h
 )
 target_link_libraries(craft_mold PUBLIC craft_core craft_mesh_api)
 craft_target_defaults(craft_mold)

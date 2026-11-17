@@ -35,6 +35,11 @@ import {
 import { calculateModelGroundingTransform } from "@/features/viewport/runtime/modelGrounding";
 import { deriveAdaptiveGridConfig } from "@/features/viewport/runtime/adaptiveGrid";
 import { calculateFitDistance } from "@/features/viewport/runtime/viewPose";
+import {
+  SprueGenerationService,
+  type SprueSourceBody,
+} from "@/features/mold-generation/sprue-generation";
+import { resolveSprueIntegration } from "@/features/mold-generation/sprue-generation/sprueIntegration";
 
 type Vec = readonly [number, number, number];
 type Bounds = { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } };
@@ -117,7 +122,15 @@ const parts: Record<string, number[]> = {
 };
 
 interface PlaneSpec { face: PartBoundingBoxFaceId; normalizedPosition: number | null }
-interface CaseSpec { name: string; part: string; moldClearanceMm: number; cavityClearanceMm?: number; planes: PlaneSpec[] }
+interface SprueSpec {
+  x: number; y: number;
+  /** Offset from the mold block top (negative = below it, to provoke SPRUE_NOT_ON_TOP_FACE). */
+  zOffset?: number;
+  /** Stem length fed to the profile designer; ignored when `profile` is given. */
+  stemLengthMm?: number;
+  profile?: { mainDiameterMm: number; entryNeckDiameterMm: number; entryNeckLengthMm: number };
+}
+interface CaseSpec { name: string; part: string; moldClearanceMm: number; cavityClearanceMm?: number; planes: PlaneSpec[]; sprues?: SprueSpec[] }
 
 const cases: CaseSpec[] = [
   { name: "cube whole block", part: "cube20", moldClearanceMm: 10, planes: [] },
@@ -138,6 +151,18 @@ const cases: CaseSpec[] = [
   { name: "two cubes distance-field offset 1mm", part: "twoCubes", moldClearanceMm: 20, cavityClearanceMm: 1, planes: [] },
   { name: "two cubes distance-field offset 1mm, split between", part: "twoCubes", moldClearanceMm: 20, cavityClearanceMm: 1, planes: [{ face: "right", normalizedPosition: 0.5 }] },
   { name: "offset reaching the block wall is rejected", part: "cube20", moldClearanceMm: 3, cavityClearanceMm: 3, planes: [] },
+  { name: "sprue: cube whole block", part: "cube20", moldClearanceMm: 10, planes: [], sprues: [{ x: 0, y: 0, stemLengthMm: 10 }] },
+  { name: "sprue: cube mid split", part: "cube20", moldClearanceMm: 10, planes: [{ face: "top", normalizedPosition: 0.5 }], sprues: [{ x: 0, y: 0, stemLengthMm: 10 }] },
+  { name: "sprue: sphere equator split", part: "sphereR10", moldClearanceMm: 10, planes: [{ face: "top", normalizedPosition: 0.5 }], sprues: [{ x: 0, y: 0, stemLengthMm: 10 }] },
+  { name: "sprue: two sprues in sequence", part: "cube20", moldClearanceMm: 10, planes: [], sprues: [{ x: -5, y: 0, stemLengthMm: 10 }, { x: 5, y: 3, stemLengthMm: 10 }] },
+  { name: "sprue: large explicit profile", part: "cube20", moldClearanceMm: 10, planes: [], sprues: [{ x: 0, y: 0, profile: { mainDiameterMm: 8, entryNeckDiameterMm: 4, entryNeckLengthMm: 6 } }] },
+  { name: "sprue: after positive cavity offset", part: "cube20", moldClearanceMm: 10, cavityClearanceMm: 1, planes: [{ face: "top", normalizedPosition: 0.5 }], sprues: [{ x: 0, y: 0, stemLengthMm: 9 }] },
+  { name: "sprue: wedge two-axis split", part: "wedge", moldClearanceMm: 10, planes: [{ face: "top", normalizedPosition: 0.5 }, { face: "left", normalizedPosition: 0.25 }], sprues: [{ x: 0, y: 0, stemLengthMm: 8 }] },
+  { name: "sprue: two cubes distance-field cavity", part: "twoCubes", moldClearanceMm: 20, cavityClearanceMm: 1, planes: [], sprues: [{ x: -20, y: 0, stemLengthMm: 19 }] },
+  { name: "sprue: beside the cavity does not reach it", part: "cube20", moldClearanceMm: 10, planes: [], sprues: [{ x: 15, y: 0, stemLengthMm: 5 }] },
+  { name: "sprue: inlet hanging over the block edge", part: "cube20", moldClearanceMm: 10, planes: [], sprues: [{ x: 19.5, y: 0, stemLengthMm: 5 }] },
+  { name: "sprue: not on the top face", part: "cube20", moldClearanceMm: 10, planes: [], sprues: [{ x: 0, y: 0, zOffset: -1, stemLengthMm: 10 }] },
+  { name: "sprue: one valid then one beside the cavity", part: "cube20", moldClearanceMm: 10, planes: [], sprues: [{ x: 0, y: 0, stemLengthMm: 10 }, { x: 15, y: 0, stemLengthMm: 5 }] },
   { name: "cube with a missing face is rejected", part: "cubeMissingFace", moldClearanceMm: 10, planes: [] },
 ];
 
@@ -158,6 +183,90 @@ const describeBody = (body: MoldBodyData) => ({
   triangleCount: body.triangleCount,
   vertexCount: body.mesh.positions.length / 3,
 });
+
+const describeSprueBody = (body: SprueSourceBody & { sprueOperationId?: string }) => ({
+  id: body.id,
+  volumeMm3: body.volumeMm3,
+  bounds: body.bounds,
+  triangleCount: body.triangleCount,
+  vertexCount: body.mesh.positions.length / 3,
+  sprueOperationId: body.sprueOperationId ?? null,
+  funnelTriangleCount: (body.mesh.faceRuns ?? [])
+    .filter((run) => run.role === "sprue-funnel")
+    .reduce((sum, run) => sum + run.triangleCount, 0),
+});
+
+/** Runs the real TypeScript SprueGenerationService the way evaluateDerivedMold does (minus registration). */
+async function runSprues(
+  spec: CaseSpec,
+  definition: ReferenceMoldDefinition,
+  cavity: Awaited<ReturnType<typeof evaluateCavityGeneration>>["result"],
+  blockTopZ: number,
+) {
+  const service = new SprueGenerationService();
+  let bodies: SprueSourceBody[] = cavity.bodies.map((body) => ({ ...body }));
+  const designs: unknown[] = [];
+  const results: unknown[] = [];
+  const warnings: string[] = [];
+  const toolBounds = cavity.cavityTool.bounds;
+  for (const [index, sprueSpec] of spec.sprues!.entries()) {
+    const design = sprueSpec.profile !== undefined
+      ? { profile: sprueSpec.profile, source: "fallback" as const, mainSection: null, entryNeckDiameter: null, entryNeckLength: null, warnings: [] }
+      : resolveSprueIntegration({
+          cavityVolumeMm3: cavity.cavityTool.volumeMm3,
+          cavityBounds: {
+            xLengthMm: toolBounds.max.x - toolBounds.min.x,
+            yLengthMm: toolBounds.max.y - toolBounds.min.y,
+            zLengthMm: toolBounds.max.z - toolBounds.min.z,
+          },
+          totalSprueLengthMm: sprueSpec.stemLengthMm!,
+        }).design;
+    designs.push({
+      profile: design.profile,
+      source: design.source,
+      main: design.mainSection,
+      neckDiameter: design.entryNeckDiameter,
+      neckLength: design.entryNeckLength,
+      warnings: design.warnings,
+    });
+    const operationId = `sprue:test-${index + 1}`;
+    const moldRevision = `${cavity.sourceSignature}:${bodies.map((body) => `${body.id}:${body.geometryVersion}`).join("|")}`;
+    const outcome = await service.generate({
+      request: {
+        operationId,
+        position: { x: sprueSpec.x, y: sprueSpec.y, z: blockTopZ + (sprueSpec.zOffset ?? 0) },
+        profileDesign: design,
+        moldRevision,
+      },
+      targetBodies: bodies,
+      cavity: cavity.cavityTool.mesh,
+      moldFrame: {
+        frameId: `${definition.definitionId}:z-up`, units: "millimeters",
+        origin: { x: 0, y: 0, z: 0 }, xAxis: { x: 1, y: 0, z: 0 },
+        yAxis: { x: 0, y: 1, z: 0 }, zAxis: { x: 0, y: 0, z: 1 },
+      },
+      geometryToleranceMm: 1e-6,
+    });
+    if (outcome.status === "failure") {
+      warnings.push(`${operationId}: ${outcome.message}`);
+      results.push({ operationId, status: "failure", reasonCode: outcome.reasonCode, message: outcome.message });
+      continue;
+    }
+    const replacements = new Map(outcome.updatedBodies.map((body) => [body.id, body]));
+    bodies = bodies.map((body) => replacements.get(body.id) ?? body);
+    results.push({
+      operationId,
+      status: "success",
+      depthMm: outcome.sprue.depthMm,
+      targetBodyIds: outcome.sprue.targetBodyIds,
+      profile: outcome.sprue.profile,
+      inwardDirection: outcome.sprue.inwardDirection,
+      tolerancePolicy: outcome.sprue.tolerancePolicy,
+      updatedBodies: outcome.updatedBodies.map(describeSprueBody),
+    });
+  }
+  return { designs, results, warnings, finalBodies: bodies.map(describeSprueBody) };
+}
 
 async function runCase(spec: CaseSpec) {
   const positions = parts[spec.part]!;
@@ -259,6 +368,7 @@ async function runCase(spec: CaseSpec) {
     }));
     expected.subtraction = result.diagnostics?.subtraction;
     expected.warningCodes = result.warnings.map((warning) => warning.reasonCode);
+    if (spec.sprues !== undefined) expected.sprues = await runSprues(spec, definition, result, frame.referenceMoldBlockBounds.max.z);
     expected.validationWarningCodes = validationWarnings.map((warning) => warning.reasonCode);
   } catch (error) {
     expected.outcome = "error";
@@ -269,7 +379,7 @@ async function runCase(spec: CaseSpec) {
     };
   }
 
-  return { name: spec.name, input: { part: spec.part, moldClearanceMm: spec.moldClearanceMm, cavityClearanceMm: spec.cavityClearanceMm ?? 0, planes: spec.planes }, expected };
+  return { name: spec.name, input: { part: spec.part, moldClearanceMm: spec.moldClearanceMm, cavityClearanceMm: spec.cavityClearanceMm ?? 0, planes: spec.planes, sprues: spec.sprues ?? [] }, expected };
 }
 
 it("writes the native-migration reference fixtures", async () => {

@@ -134,6 +134,71 @@ ScrollView {
 
         GroupBox {
             Layout.fillWidth: true
+            visible: app.moldPhase === "complete"
+            title: qsTr("Sprues")
+            ColumnLayout {
+                anchors.fill: parent
+                Label {
+                    visible: app.tool !== "sprue" && app.sprues.length === 0
+                    text: qsTr("Choose the Sprue tool and click the top face over the cavity.")
+                    wrapMode: Text.Wrap; Layout.fillWidth: true
+                }
+                Label {
+                    visible: app.tool === "sprue"
+                    wrapMode: Text.Wrap; Layout.fillWidth: true
+                    text: app.sprueCandidate.onTopFace
+                          ? (app.sprueCandidate.valid
+                             ? qsTr("Click to place: stem ") + root.fmt(app.sprueCandidate.stemLengthMm, 1) + " mm, Ø"
+                               + root.fmt(app.sprueCandidate.mainDiameterMm, 1) + " / Ø" + root.fmt(app.sprueCandidate.entryNeckDiameterMm, 1)
+                               + " × " + root.fmt(app.sprueCandidate.entryNeckLengthMm, 1) + " mm neck"
+                             : qsTr("This point does not reach the cavity."))
+                          : qsTr("Move over the top face of the mold.")
+                }
+                Repeater {
+                    model: app.sprues
+                    delegate: ColumnLayout {
+                        required property var modelData
+                        Layout.fillWidth: true
+                        RowLayout {
+                            Label { text: modelData.operationId; font.bold: true }
+                            Label {
+                                text: modelData.status
+                                color: modelData.status === "resolved" ? "#46a758" : modelData.status === "invalid" ? "#e5484d" : "#ffb224"
+                            }
+                            Item { Layout.fillWidth: true }
+                            ToolButton { text: qsTr("Remove"); onClicked: app.removeSprue(modelData.operationId) }
+                        }
+                        Label {
+                            visible: modelData.status === "invalid"
+                            text: modelData.message; color: "#e5484d"; wrapMode: Text.Wrap; Layout.fillWidth: true
+                        }
+                        Label {
+                            text: qsTr("at ") + root.fmt(modelData.x, 1) + ", " + root.fmt(modelData.y, 1) + " mm"
+                                  + (modelData.depthMm !== undefined ? qsTr(" · depth ") + root.fmt(modelData.depthMm, 1) + " mm" : "")
+                        }
+                        RowLayout {
+                            Label { text: qsTr("Main Ø ") + root.fmt(modelData.mainDiameterMm, 1) }
+                            Slider {
+                                Layout.fillWidth: true; from: 2; to: 50
+                                value: modelData.mainDiameterMm
+                                onMoved: app.resizeSprue(modelData.operationId, value)
+                            }
+                        }
+                        RowLayout {
+                            Label { text: qsTr("Neck Ø ") + root.fmt(modelData.entryNeckDiameterMm, 1) }
+                            Slider {
+                                Layout.fillWidth: true; from: 2; to: Math.max(2.1, modelData.mainDiameterMm)
+                                value: modelData.entryNeckDiameterMm
+                                onMoved: app.resizeSprueEntryNeck(modelData.operationId, value)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        GroupBox {
+            Layout.fillWidth: true
             title: qsTr("Import analysis (Python)")
             enabled: app.modelPhase === "ready"
             ColumnLayout {

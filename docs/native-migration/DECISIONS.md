@@ -10,3 +10,6 @@
 - D-010 The offset SDF is evaluated with a distance band (clearance + 4 lattice steps): beyond it only the sign is computed. LevelSet uses exact values only near the offset surface, and the equivalence tests confirm identical output.
 - D-007 Analysis cancel/timeout kills the worker process; it restarts lazily.
 - D-008 QML lives in `native/app/ui` (qmlcache cannot handle `../` paths).
+- D-011 The derived body geometry-version token after a sprue is a native FNV hash over (upstream version, operation id, position, profile, mold revision); it is stable and input-sensitive but not string-equal to the reference token.
+- D-012 A sprue can only be created where the placement ray reaches the cavity (the reference preview shows an invalid, red placement and the store would accept it; the native app refuses it with a status message).
+- D-013 Sprue intents live in the controller, survive cavity regeneration (marked pending, re-resolved in the same job) and are dropped on a new import. The reference per-sprue result cache is not ported; sprue re-evaluation after an edit reruns every sprue.

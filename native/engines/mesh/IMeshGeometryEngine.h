@@ -52,6 +52,15 @@ class IMeshGeometryEngine {
   /// Tags a solid so faces it contributes to later results can be identified.
   virtual SolidPtr asOriginal(const SolidPtr& solid) = 0;
 
+  /// Right circular cylinder of `radius` and `height` with `segments` sides.
+  /// Its base disc centre is `origin` and its axis is the unit vector `axis`;
+  /// the cross-section frame follows the reference sprue construction
+  /// (x = normalize(cross(reference, axis)), reference = +Z, or +Y when the
+  /// axis is near vertical).
+  virtual SolidPtr cylinder(double radius, double height, int segments, const Point3& axis,
+                            const Point3& origin) = 0;
+  virtual SolidPtr unionOf(const std::vector<SolidPtr>& solids) = 0;
+
   virtual SolidPtr subtract(const SolidPtr& from, const SolidPtr& tool) = 0;
   virtual SolidPtr intersect(const SolidPtr& a, const SolidPtr& b) = 0;
   virtual std::vector<SolidPtr> decompose(const SolidPtr& solid) = 0;
