@@ -41,7 +41,23 @@ performance comparison). Gate 3 MET for zero-clearance molds. Gate 4 MET for imp
 
 Disk: C: free 125.8 GB (126.9 GB at start; the ~1 GB drop was not attributed, this work routes TEMP/caches to D:); D: build/tool footprint ~1.25 GB under D:\CraftNative plus Qt additions.
 
+### Session 2: CPU pipeline benchmark (Release/RelWithDebInfo, 8 logical cores, 15.9 GB RAM)
+
+`native/tests/bench_pipeline.cpp` (target `bench_pipeline`, not in CTest; run from `D:\CraftNative\build\windows-release`).
+Generated spheres, Z=0 grounded, one mid-height Cut by Face split, zero clearance, stages timed on one thread:
+
+| triangles | STL MiB | read+validate ms | ground ms | render buffers ms | feature-edge buffers ms | mold ms | bodies | peak RSS MiB |
+|---|---|---|---|---|---|---|---|---|
+| 2,208 | 0.1 | 0 | 0 | 0 | 1 | 19 | 2 | 13 |
+| 25,280 | 1.2 | 3 | 0 | 1 | 16 | 197 | 2 | 29 |
+| 128,880 | 6.1 | 15 | 1 | 5 | 107 | 1,034 | 2 | 103 |
+| 488,600 | 23.3 | 56 | 5 | 18 | 448 | 4,174 | 2 | 362 |
+
+Reading: import and buffer building stay under half a second even at ~490k triangles; the mold operation is the heavy
+stage (about 4 s at 490k) and already runs on a worker thread, so the UI stays responsive.
+NOT measured: GPU frame rate, VRAM, the equivalent timings of the TypeScript/WASM pipeline, and a visual comparison with
+the Three.js viewport (needs a browser run). Spheres only; no real-world STL beyond the small bracket.
 ### Next exact step
-1. Visual and performance comparison with the Three.js viewport on real STLs (Phase 2 gate).
+1. GPU frame-rate/VRAM measurement, WASM timing for the same inputs, and a visual comparison with the Three.js viewport on real STLs (Phase 2 gate).
 2. Port positive cavity clearance (offset engines), then sprue, registration, segmentation, Master Mold.
 3. `.craft` project format with atomic save/load; bundled Python runtime; installer; macOS CI job on a real runner.
