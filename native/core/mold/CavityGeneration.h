@@ -149,6 +149,7 @@ struct MoldGenerationRequest {
 struct MoldGenerationResult {
   ReferenceMoldDefinition definition;  // moldBodies = pre-cavity source bodies
   std::vector<CutPlaneData> cutPlanes;
+  std::vector<CuttingPlane> cuttingPlanes;  // the enabled plane records the mold was cut with
   CavityGenerationResult cavity;
   std::vector<Issue> validationWarnings;
 };

@@ -28,6 +28,7 @@
 #include "ViewportCamera.h"
 #include "model/ModelGrounding.h"
 #include "mold/CavityGeneration.h"
+#include "mold/DerivedMold.h"
 #include "mold/SprueGeneration.h"
 
 namespace craft::app {
@@ -164,6 +165,7 @@ class AppController : public QObject {
   Q_INVOKABLE void moveSprue(const QString& operationId, double x, double y);
   const std::vector<SprueOperationDefinition>& sprueIntents() const { return sprueIntents_; }
   const std::optional<SprueEvaluation>& sprueEvaluation() const { return sprueEvaluation_; }
+  const std::optional<DerivedRegistrationState>& registrationState() const { return registration_; }
   /// Mold bodies as displayed/exported: cavity bodies with sprues applied.
   std::vector<MoldBody> finalBodies() const;
 
@@ -245,7 +247,7 @@ class AppController : public QObject {
   void applyModel(LoadedModel model);
   void clearMold(const QString& phase);
   void invalidateMoldInputs();
-  void applyMoldResult(MoldGenerationResult result, std::optional<SprueEvaluation> sprues);
+  void applyMoldResult(MoldGenerationResult result, DerivedMoldEvaluation derived);
   void refreshSceneFrame(bool refit);
   void rebuildGrid();
   void applySceneColors();
@@ -296,6 +298,7 @@ class AppController : public QObject {
   // sprues
   std::vector<SprueOperationDefinition> sprueIntents_;
   std::optional<SprueEvaluation> sprueEvaluation_;
+  std::optional<DerivedRegistrationState> registration_;
   QString spruePhase_ = QStringLiteral("idle");
   QVariantMap sprueCandidate_;
   quint64 sprueGeneration_ = 0;

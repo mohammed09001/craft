@@ -40,6 +40,11 @@ import {
   type SprueSourceBody,
 } from "@/features/mold-generation/sprue-generation";
 import { resolveSprueIntegration } from "@/features/mold-generation/sprue-generation/sprueIntegration";
+import {
+  buildRegistrationDependencySnapshot,
+  generateDerivedRegistration,
+} from "@/features/mold-generation/registration";
+import type { SprueDefinition } from "@/features/mold-generation/sprue-generation";
 
 type Vec = readonly [number, number, number];
 type Bounds = { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } };
@@ -206,6 +211,7 @@ async function runSprues(
   const service = new SprueGenerationService();
   let bodies: SprueSourceBody[] = cavity.bodies.map((body) => ({ ...body }));
   const designs: unknown[] = [];
+  const resolved: SprueDefinition[] = [];
   const results: unknown[] = [];
   const warnings: string[] = [];
   const toolBounds = cavity.cavityTool.bounds;
@@ -252,6 +258,7 @@ async function runSprues(
       results.push({ operationId, status: "failure", reasonCode: outcome.reasonCode, message: outcome.message });
       continue;
     }
+    resolved.push(outcome.sprue);
     const replacements = new Map(outcome.updatedBodies.map((body) => [body.id, body]));
     bodies = bodies.map((body) => replacements.get(body.id) ?? body);
     results.push({
@@ -265,7 +272,52 @@ async function runSprues(
       updatedBodies: outcome.updatedBodies.map(describeSprueBody),
     });
   }
-  return { designs, results, warnings, finalBodies: bodies.map(describeSprueBody) };
+  return { designs, results, warnings, finalBodies: bodies.map(describeSprueBody), internal: { bodies, resolved } };
+}
+
+/** Runs the real TypeScript registration the way evaluateDerivedMold does, after the sprue stage. */
+async function runRegistration(
+  definition: ReferenceMoldDefinition,
+  cuttingPlanes: Parameters<typeof buildRegistrationDependencySnapshot>[0]["cuttingPlanes"],
+  cavity: Awaited<ReturnType<typeof evaluateCavityGeneration>>["result"],
+  bodies: readonly SprueSourceBody[],
+  resolved: readonly SprueDefinition[],
+) {
+  const snapshot = buildRegistrationDependencySnapshot({
+    bodies, definition, cuttingPlanes, cavityTool: cavity.cavityTool, cavityRevision: cavity.sourceSignature,
+    sprues: resolved, manufacturingProfile: null,
+  });
+  const state = await generateDerivedRegistration(snapshot);
+  const report = state.report!;
+  return {
+    status: state.status,
+    reasonCode: report.reasonCode,
+    message: report.message,
+    tolerancePolicy: report.tolerancePolicy,
+    snapshotInterfaceIds: snapshot.interfaces.map((i) => i.id),
+    protectedRegionIds: snapshot.protectedRegions.map((r) => r.id),
+    interfaces: report.interfaces.map((i) => ({
+      id: i.id, bodyAId: i.bodyAId, bodyBId: i.bodyBId, axis: i.axis,
+      planeCoordinateMm: i.planeCoordinateMm, matingBounds: i.matingBounds,
+    })),
+    features: report.features.map((f) => ({
+      id: f.id, interfaceId: f.interfaceId, logicalKeyId: f.logicalKeyId, segmentIndex: f.segmentIndex, side: f.side,
+      maleBodyId: f.maleBodyId, femaleBodyId: f.femaleBodyId, startPoint: f.startPoint, endPoint: f.endPoint,
+      anchor: f.anchor, direction: f.direction, normal: f.normal, geometry: f.geometry,
+      clearanceMm: f.clearanceMm, status: f.status,
+    })),
+    attempts: report.attempts,
+    bodies: (state.bodies ?? []).map((body) => ({
+      id: body.id,
+      volumeMm3: body.volumeMm3,
+      bounds: body.bounds,
+      triangleCount: body.triangleCount,
+      vertexCount: body.mesh.positions.length / 3,
+      keyTriangleCount: (body.mesh.faceRuns ?? [])
+        .filter((run) => run.role === "registration-key")
+        .reduce((sum, run) => sum + run.triangleCount, 0),
+    })),
+  };
 }
 
 async function runCase(spec: CaseSpec) {
@@ -368,7 +420,15 @@ async function runCase(spec: CaseSpec) {
     }));
     expected.subtraction = result.diagnostics?.subtraction;
     expected.warningCodes = result.warnings.map((warning) => warning.reasonCode);
-    if (spec.sprues !== undefined) expected.sprues = await runSprues(spec, definition, result, frame.referenceMoldBlockBounds.max.z);
+    let stageBodies: readonly SprueSourceBody[] = result.bodies;
+    let resolvedSprues: readonly SprueDefinition[] = [];
+    if (spec.sprues !== undefined) {
+      const { internal, ...recorded } = await runSprues(spec, definition, result, frame.referenceMoldBlockBounds.max.z);
+      expected.sprues = recorded;
+      stageBodies = internal.bodies;
+      resolvedSprues = internal.resolved;
+    }
+    expected.registration = await runRegistration(definition, cuttingPlanes, result, stageBodies, resolvedSprues);
     expected.validationWarningCodes = validationWarnings.map((warning) => warning.reasonCode);
   } catch (error) {
     expected.outcome = "error";

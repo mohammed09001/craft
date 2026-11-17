@@ -19,6 +19,7 @@
 #include "ManifoldMeshEngine.h"
 #include "geometry/MeshAnalysis.h"
 #include "model/ModelGrounding.h"
+#include "mold/Registration.h"
 #include "mold/SprueGeneration.h"
 #include "mold/CavityGeneration.h"
 #include "view/ViewPose.h"
@@ -292,11 +293,137 @@ class ReferenceEquivalenceTest : public QObject {
     QCOMPARE(codesOf(result.cavity.warnings), stringsOf(expected["warningCodes"]));
     QCOMPARE(codesOf(result.validationWarnings), stringsOf(expected["validationWarningCodes"]));
 
-    if (expected.contains("sprues")) verifySprues(input, expected["sprues"].toObject(), result, *frame);
+    std::optional<SprueEvaluation> sprueEvaluation;
+    if (expected.contains("sprues")) {
+      SprueEvaluation evaluation;
+      verifySprues(input, expected["sprues"].toObject(), result, *frame, evaluation);
+      sprueEvaluation = std::move(evaluation);
+    }
+    verifyRegistration(expected["registration"].toObject(), result, sprueEvaluation, request.cuttingPlanes);
+  }
+
+  static std::vector<std::string> idsOf(const QJsonArray& array) {
+    std::vector<std::string> ids;
+    for (const QJsonValue& v : array) ids.push_back(v.toString().toStdString());
+    return ids;
+  }
+
+  void verifyRegistration(const QJsonObject& expected, const MoldGenerationResult& mold,
+                          const std::optional<SprueEvaluation>& sprues, const std::vector<CuttingPlane>& planes) {
+    RegistrationDependencyInput input;
+    if (sprues) {
+      input.bodies = sprues->bodies;
+      input.sprues = sprues->resolvedSprues;
+    } else {
+      for (const CavityMoldBody& b : mold.cavity.bodies) input.bodies.push_back(b.body);
+    }
+    input.definitionId = mold.definition.definitionId;
+    input.selectionBoxBounds = mold.definition.selectionBoxBounds;
+    input.referenceBlockBounds = mold.definition.referenceMoldBlockBounds;
+    input.referenceBlockClearanceMm = mold.definition.clearanceMm;
+    input.cuttingPlanes = planes;
+    input.cavityMesh = &mold.cavity.cavityTool.solid.mesh;
+    input.cavityBounds = mold.cavity.cavityTool.solid.bounds;
+    input.cavityClearanceMm = mold.cavity.cavityTool.clearanceMm;
+    input.cavityMethod = mold.cavity.cavityTool.implementationMethod;
+    input.cavityRevision = mold.cavity.sourceSignature;
+
+    const RegistrationDependencySnapshot snapshot = buildRegistrationDependencySnapshot(input);
+    std::vector<std::string> snapshotIds, regionIds;
+    for (const auto& i : snapshot.interfaces) snapshotIds.push_back(i.id);
+    for (const auto& r : snapshot.protectedRegions) regionIds.push_back(r.id);
+    QCOMPARE(snapshotIds, idsOf(expected["snapshotInterfaceIds"].toArray()));
+    QCOMPARE(regionIds, idsOf(expected["protectedRegionIds"].toArray()));
+
+    const DerivedRegistrationState state = generateDerivedRegistration(*engine_, snapshot);
+    QVERIFY(state.report.has_value());
+    const RegistrationReport& report = *state.report;
+    QCOMPARE(QString::fromStdString(state.status), expected["status"].toString());
+    QCOMPARE(QString::fromStdString(report.reasonCode), expected["reasonCode"].toString());
+    QCOMPARE(QString::fromStdString(report.message), expected["message"].toString());
+
+    const QJsonObject tp = expected["tolerancePolicy"].toObject();
+    QCOMPARE(QString::fromStdString(report.tolerancePolicy.policyId), tp["policyId"].toString());
+    QCOMPARE(report.tolerancePolicy.radialClearanceMm, tp["radialClearanceMm"].toDouble());
+    QCOMPARE(report.tolerancePolicy.booleanToleranceMm, tp["booleanToleranceMm"].toDouble());
+    QCOMPARE(report.tolerancePolicy.minimumWallMm, tp["minimumWallMm"].toDouble());
+    QCOMPARE(report.tolerancePolicy.cavitySafetyMarginMm, tp["cavitySafetyMarginMm"].toDouble());
+    QCOMPARE(report.tolerancePolicy.outerEdgeMarginMm, tp["outerEdgeMarginMm"].toDouble());
+    QCOMPARE(report.tolerancePolicy.minimumFeatureRadiusMm, tp["minimumFeatureRadiusMm"].toDouble());
+    QCOMPARE(report.tolerancePolicy.maximumFeatureRadiusMm, tp["maximumFeatureRadiusMm"].toDouble());
+
+    const QJsonArray interfaces = expected["interfaces"].toArray();
+    QCOMPARE(report.interfaces.size(), static_cast<std::size_t>(interfaces.size()));
+    for (qsizetype i = 0; i < interfaces.size(); ++i) {
+      const QJsonObject e = interfaces[i].toObject();
+      const RegistrationInterface& a = report.interfaces[static_cast<std::size_t>(i)];
+      QCOMPARE(QString::fromStdString(a.id), e["id"].toString());
+      QCOMPARE(QString::fromStdString(a.bodyAId), e["bodyAId"].toString());
+      QCOMPARE(QString::fromStdString(a.bodyBId), e["bodyBId"].toString());
+      QCOMPARE(QLatin1String(axisName(a.axis)), e["axis"].toString());
+      QCOMPARE(a.planeCoordinateMm, e["planeCoordinateMm"].toDouble());
+      QCOMPARE(a.matingBounds, boundsOf(e["matingBounds"]));
+    }
+
+    const QJsonArray features = expected["features"].toArray();
+    QCOMPARE(report.features.size(), static_cast<std::size_t>(features.size()));
+    for (qsizetype i = 0; i < features.size(); ++i) {
+      const QJsonObject e = features[i].toObject();
+      const RegistrationFeature& f = report.features[static_cast<std::size_t>(i)];
+      QCOMPARE(QString::fromStdString(f.id), e["id"].toString());
+      QCOMPARE(QString::fromStdString(f.interfaceId), e["interfaceId"].toString());
+      QCOMPARE(QString::fromStdString(f.logicalKeyId), e["logicalKeyId"].toString());
+      QCOMPARE(f.segmentIndex, e["segmentIndex"].toInt());
+      QCOMPARE(QLatin1String(keySideName(f.side)), e["side"].toString());
+      QCOMPARE(QString::fromStdString(f.maleBodyId), e["maleBodyId"].toString());
+      QCOMPARE(QString::fromStdString(f.femaleBodyId), e["femaleBodyId"].toString());
+      QCOMPARE(f.startPoint, pointOf(e["startPoint"].toObject()));
+      QCOMPARE(f.endPoint, pointOf(e["endPoint"].toObject()));
+      QCOMPARE(f.anchor, pointOf(e["anchor"].toObject()));
+      QCOMPARE(f.direction, pointOf(e["direction"].toObject()));
+      QCOMPARE(f.normal, pointOf(e["normal"].toObject()));
+      const QJsonObject g = e["geometry"].toObject();
+      QCOMPARE(f.geometry.widthMm, g["widthMm"].toDouble());
+      QCOMPARE(f.geometry.depthMm, g["depthMm"].toDouble());
+      QCOMPARE(f.geometry.lengthMm, g["lengthMm"].toDouble());
+      QCOMPARE(f.geometry.taperAngleDeg, g["taperAngleDeg"].toDouble());
+      QCOMPARE(f.geometry.leadInMm, g["leadInMm"].toDouble());
+      QCOMPARE(f.geometry.rootFilletMm, g["rootFilletMm"].toDouble());
+      QCOMPARE(f.clearanceMm, e["clearanceMm"].toDouble());
+      QCOMPARE(QString::fromStdString(f.status), e["status"].toString());
+    }
+
+    const QJsonArray attempts = expected["attempts"].toArray();
+    QCOMPARE(report.attempts.size(), static_cast<std::size_t>(attempts.size()));
+    for (qsizetype i = 0; i < attempts.size(); ++i) {
+      const QJsonObject e = attempts[i].toObject();
+      const auto& a = report.attempts[static_cast<std::size_t>(i)];
+      QCOMPARE(a.radiusMm, e["radiusMm"].toDouble());
+      QCOMPARE(a.requestedCount, static_cast<std::size_t>(e["requestedCount"].toInt()));
+      QCOMPARE(a.selectedCount, static_cast<std::size_t>(e["selectedCount"].toInt()));
+    }
+
+    const QJsonArray bodies = expected["bodies"].toArray();
+    QCOMPARE(state.bodies.size(), static_cast<std::size_t>(bodies.size()));
+    for (qsizetype i = 0; i < bodies.size(); ++i) {
+      const QJsonObject e = bodies[i].toObject();
+      const MoldBody& b = state.bodies[static_cast<std::size_t>(i)];
+      QCOMPARE(QString::fromStdString(b.id), e["id"].toString());
+      VERIFY_CLOSE(b.volumeMm3, e["volumeMm3"].toDouble());
+      VERIFY_BOUNDS(b.bounds, boundsOf(e["bounds"]));
+      QCOMPARE(b.triangleCount, static_cast<std::size_t>(e["triangleCount"].toInt()));
+      QCOMPARE(b.mesh.vertexCount(), static_cast<std::size_t>(e["vertexCount"].toInt()));
+      std::size_t keys = 0;
+      for (const MeshFaceRun& run : b.mesh.faceRuns) {
+        if (run.role == FaceRole::RegistrationKey) keys += run.triangleCount;
+      }
+      QCOMPARE(keys, static_cast<std::size_t>(e["keyTriangleCount"].toInt()));
+      QVERIFY(meshTopology(b.mesh).closedManifold());
+    }
   }
 
   void verifySprues(const QJsonObject& input, const QJsonObject& expected, const MoldGenerationResult& mold,
-                    const ReferenceMoldFrameBounds& frame) {
+                    const ReferenceMoldFrameBounds& frame, SprueEvaluation& out) {
     const QJsonArray specs = input["sprues"].toArray();
     const QJsonArray designs = expected["designs"].toArray();
     const QJsonArray results = expected["results"].toArray();
@@ -395,6 +522,7 @@ class ReferenceEquivalenceTest : public QObject {
       QCOMPARE(funnel, static_cast<std::size_t>(b["funnelTriangleCount"].toInt()));
       QVERIFY(meshTopology(actual.mesh).closedManifold());
     }
+    out = evaluation;
   }
 
   void grounding() {

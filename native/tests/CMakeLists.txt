@@ -25,6 +25,7 @@ craft_add_test(tst_core SOURCES tst_core.cpp LIBS craft_core)
 craft_add_test(tst_stl SOURCES tst_stl.cpp LIBS craft_io)
 craft_add_test(tst_mold SOURCES tst_mold.cpp LIBS craft_mold craft_mesh_manifold)
 craft_add_test(tst_sprue SOURCES tst_sprue.cpp LIBS craft_mold craft_mesh_manifold)
+craft_add_test(tst_registration SOURCES tst_registration.cpp LIBS craft_mold craft_mesh_manifold)
 craft_add_test(tst_reference_equivalence
   SOURCES tst_reference_equivalence.cpp
   LIBS craft_mold craft_mesh_manifold Qt6::Core)

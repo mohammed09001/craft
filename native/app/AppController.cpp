@@ -266,6 +266,7 @@ void AppController::invalidateMoldInputs() {
 void AppController::clearMold(const QString& phase) {
   ++sprueGeneration_;
   sprueEvaluation_.reset();
+  registration_.reset();
   spruePhase_ = QStringLiteral("idle");
   for (SprueOperationDefinition& intent : sprueIntents_) {
     intent.validation = {"pending", {}, "Mold changed; sprue requires revalidation."};
@@ -310,21 +311,14 @@ void AppController::generateMold() {
   auto engine = engine_;
   struct MoldJobResult {
     MoldGenerationResult mold;
-    std::optional<SprueEvaluation> sprues;
+    DerivedMoldEvaluation derived;
   };
   runJob<MoldJobResult>(
       this, cancel,
       [engine, request, intents = sprueIntents_](const CancellationToken& token, const ProgressCallback& progress) {
         MoldJobResult job;
         job.mold = craft::generateMold(*engine, request, token, progress);
-        if (!intents.empty()) {
-          if (progress) progress("sprues", 0.95);
-          std::vector<MoldBody> bodies;
-          for (const CavityMoldBody& b : job.mold.cavity.bodies) bodies.push_back(b.body);
-          job.sprues = evaluateSprues(*engine, bodies, job.mold.cavity.cavityTool.solid.mesh,
-                                      job.mold.cavity.sourceSignature,
-                                      job.mold.definition.definitionId + ":z-up", intents);
-        }
+        job.derived = evaluateDerivedMold(*engine, job.mold, intents, progress);
         return job;
       },
       [this, generation, inputs](JobOutcome<MoldJobResult> outcome) {
@@ -332,7 +326,7 @@ void AppController::generateMold() {
         setBusy(false);
         if (generation != moldGeneration_ || inputs != moldInputsRevision_) return;  // stale
         if (outcome.state == JobState::Succeeded && outcome.result) {
-          applyMoldResult(std::move(outcome.result->mold), std::move(outcome.result->sprues));
+          applyMoldResult(std::move(outcome.result->mold), std::move(outcome.result->derived));
           return;
         }
         moldResult_.reset();
@@ -357,6 +351,7 @@ void AppController::generateMold() {
 }
 
 std::vector<MoldBody> AppController::finalBodies() const {
+  if (registration_ && !registration_->bodies.empty()) return registration_->bodies;
   if (sprueEvaluation_) return sprueEvaluation_->bodies;
   std::vector<MoldBody> bodies;
   if (moldResult_) {
@@ -377,9 +372,10 @@ void AppController::showFinalBodies(bool refit) {
   refreshSceneFrame(refit);
 }
 
-void AppController::applyMoldResult(MoldGenerationResult result, std::optional<SprueEvaluation> sprues) {
+void AppController::applyMoldResult(MoldGenerationResult result, DerivedMoldEvaluation derived) {
   moldResult_ = std::move(result);
-  sprueEvaluation_ = std::move(sprues);
+  sprueEvaluation_ = std::move(derived.sprues);
+  registration_ = std::move(derived.registration);
   if (sprueEvaluation_) {
     for (const SprueOperationDefinition& resolved : sprueEvaluation_->definitions) {
       for (SprueOperationDefinition& intent : sprueIntents_) {
@@ -401,18 +397,20 @@ void AppController::applyMoldResult(MoldGenerationResult result, std::optional<S
   if (sprueEvaluation_ && !sprueEvaluation_->warnings.empty()) {
     status += QStringLiteral(" (%1 sprue warning(s))").arg(sprueEvaluation_->warnings.size());
   }
+  if (registration_ && registration_->status == "generated") {
+    status += QStringLiteral(", %1 registration key(s)").arg(registration_->report->features.size());
+  }
   setStatus(status);
 }
 QVariantMap AppController::moldSummary() const {
   if (!moldResult_) return {};
   const MoldGenerationResult& r = *moldResult_;
   QVariantList bodies;
+  const std::vector<MoldBody> shownBodies = finalBodies();
   for (const CavityMoldBody& cb : r.cavity.bodies) {
     const MoldBody* shown = &cb.body;
-    if (sprueEvaluation_) {
-      for (const MoldBody& s : sprueEvaluation_->bodies) {
-        if (s.id == cb.body.id) shown = &s;
-      }
+    for (const MoldBody& s : shownBodies) {
+      if (s.id == cb.body.id) shown = &s;
     }
     const CavityMoldBody& b = cb;
     bodies.push_back(QVariantMap{{"id", QString::fromStdString(shown->id)},
@@ -426,7 +424,18 @@ QVariantMap AppController::moldSummary() const {
                                  {"bounds", boundsMap(b.body.bounds)}});
   }
   const auto& d = r.cavity.subtraction;
-  return {{"sprueCount", static_cast<qulonglong>(sprueEvaluation_ ? sprueEvaluation_->resolvedSprues.size() : 0)},
+  QVariantMap registration{{"status", QStringLiteral("unavailable")}};
+  if (registration_ && registration_->report) {
+    const RegistrationReport& rr = *registration_->report;
+    registration = {{"status", QString::fromStdString(registration_->status)},
+                    {"reasonCode", QString::fromStdString(rr.reasonCode)},
+                    {"message", QString::fromStdString(rr.message)},
+                    {"interfaceCount", static_cast<qulonglong>(rr.interfaces.size())},
+                    {"featureCount", static_cast<qulonglong>(rr.features.size())},
+                    {"keyed", registration_->status == "generated"}};
+  }
+  return {{"registration", registration},
+          {"sprueCount", static_cast<qulonglong>(sprueEvaluation_ ? sprueEvaluation_->resolvedSprues.size() : 0)},
           {"implementation", QString::fromStdString(r.cavity.implementation)},
           {"offsetEngine", QString::fromStdString(r.cavity.selectedEngine)},
           {"offsetMethod", QString::fromStdString(r.cavity.cavityTool.implementationMethod)},
@@ -450,6 +459,12 @@ QVariantList AppController::moldIssues() const {
   if (!moldResult_) return list;
   for (const Issue& i : moldResult_->validationWarnings) list.push_back(issueMap(i));
   for (const Issue& i : moldResult_->cavity.warnings) list.push_back(issueMap(i));
+  // Same rule as the reference: any registration that is not generated is a warning.
+  if (registration_ && registration_->report && registration_->status != "generated") {
+    list.push_back(QVariantMap{{"severity", "warning"},
+                               {"code", QString::fromStdString(registration_->report->reasonCode)},
+                               {"message", QString::fromStdString(registration_->report->message)}});
+  }
   return list;
 }
 
@@ -803,22 +818,17 @@ void AppController::startSprueEvaluation() {
   setBusy(true, QStringLiteral("sprues"), 0);
   setStatus(QStringLiteral("Evaluating sprues…"));
 
-  std::vector<MoldBody> bodies;
-  for (const CavityMoldBody& b : moldResult_->cavity.bodies) bodies.push_back(b.body);
-  const MeshPayload cavityMesh = moldResult_->cavity.cavityTool.solid.mesh;
-  const std::string signature = moldResult_->cavity.sourceSignature;
-  const std::string frameId = moldResult_->definition.definitionId + ":z-up";
+  const MoldGenerationResult moldCopy = *moldResult_;
   const quint64 moldGeneration = moldGeneration_;
   auto engine = engine_;
   CancellationToken cancel;
   activeCancel_ = cancel;
-  runJob<SprueEvaluation>(
+  runJob<DerivedMoldEvaluation>(
       this, cancel,
-      [engine, bodies, cavityMesh, signature, frameId, intents = sprueIntents_](const CancellationToken&,
-                                                                                 const ProgressCallback&) {
-        return evaluateSprues(*engine, bodies, cavityMesh, signature, frameId, intents);
+      [engine, moldCopy, intents = sprueIntents_](const CancellationToken&, const ProgressCallback& progress) {
+        return evaluateDerivedMold(*engine, moldCopy, intents, progress);
       },
-      [this, generation, moldGeneration](JobOutcome<SprueEvaluation> outcome) {
+      [this, generation, moldGeneration](JobOutcome<DerivedMoldEvaluation> outcome) {
         activeCancel_.reset();
         setBusy(false);
         if (generation != sprueGeneration_ || moldGeneration != moldGeneration_ || !moldResult_) return;  // stale
@@ -829,7 +839,8 @@ void AppController::startSprueEvaluation() {
           emit spruesChanged();
           return;
         }
-        sprueEvaluation_ = std::move(*outcome.result);
+        sprueEvaluation_ = std::move(outcome.result->sprues);
+        registration_ = std::move(outcome.result->registration);
         for (const SprueOperationDefinition& resolved : sprueEvaluation_->definitions) {
           for (SprueOperationDefinition& intent : sprueIntents_) {
             if (intent.operationId == resolved.operationId) intent.validation = resolved.validation;

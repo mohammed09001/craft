@@ -416,6 +416,7 @@ MoldGenerationResult generateMold(IMeshGeometryEngine& engine, const MoldGenerat
   definition.referenceMoldBlockBounds = frame->referenceMoldBlockBounds;
 
   try {
+    result.cuttingPlanes = request.cuttingPlanes;
     result.cutPlanes =
         cuttingPlanesToCutPlaneData(definition.selectionBoxBounds, request.cuttingPlanes);
     for (const CutPlaneData& plane : result.cutPlanes) definition.usedFaces.push_back(plane.sourceFace);

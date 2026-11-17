@@ -108,6 +108,13 @@ ScrollView {
                 Label { text: qsTr("Block: ") + root.size(app.moldSummary.referenceBlock) }
                 Label { text: qsTr("Removed: ") + root.fmt(app.moldSummary.removedVolumeMm3, 1) + " mm³" }
                 Label { text: qsTr("Time: ") + root.fmt(app.moldSummary.elapsedMs, 0) + " ms" }
+                Label {
+                    text: app.moldSummary.registration.keyed
+                          ? qsTr("Registration: ") + app.moldSummary.registration.featureCount + qsTr(" keys across ")
+                            + app.moldSummary.registration.interfaceCount + qsTr(" interface(s)")
+                          : qsTr("Registration: not applied")
+                    wrapMode: Text.Wrap; Layout.fillWidth: true
+                }
                 Repeater {
                     model: app.moldSummary.bodies || []
                     delegate: Label {

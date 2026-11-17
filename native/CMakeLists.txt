@@ -89,10 +89,14 @@ target_link_libraries(craft_mesh_api INTERFACE craft_core)
 add_library(craft_mold STATIC
   core/mold/CavityGeneration.cpp
   core/mold/CavityGeneration.h
+  core/mold/DerivedMold.cpp
+  core/mold/DerivedMold.h
   core/mold/CavityOffset.cpp
   core/mold/CavityOffset.h
   core/mold/PartSolid.cpp
   core/mold/PartSolid.h
+  core/mold/Registration.cpp
+  core/mold/Registration.h
   core/mold/ReferenceMold.cpp
   core/mold/ReferenceMold.h
   core/mold/SprueGeneration.cpp

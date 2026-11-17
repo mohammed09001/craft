@@ -8,6 +8,7 @@
 #include "AppController.h"
 #include "AppPaths.h"
 #include "ManifoldMeshEngine.h"
+#include "geometry/MeshAnalysis.h"
 
 using namespace craft;
 using namespace craft::app;
@@ -157,6 +158,48 @@ class WorkflowTest : public QObject {
     app->importStlFile(fixtureStl("closed_tetrahedron_ascii.stl"));
     QVERIFY(waitFor([&] { return app->model()->fileName == "closed_tetrahedron_ascii.stl"; }));
     QVERIFY(app->sprueIntents().empty());
+  }
+
+  void splitMoldIsKeyedWithRegistration() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->setCutFaceEnabled("top", true);
+    app->setCutFacePosition("top", 0.5);
+    app->generateMold();
+    QVERIFY(waitFor([&] { return app->moldPhase() == "complete" || app->moldPhase() == "error"; }));
+    QVERIFY2(app->moldPhase() == "complete", qPrintable(app->moldError()));
+
+    const QVariantMap registration = app->moldSummary().value("registration").toMap();
+    QVERIFY2(registration.value("status").toString() == "generated", qPrintable(registration.value("message").toString()));
+    QCOMPARE(registration.value("interfaceCount").toULongLong(), qulonglong{1});
+    QVERIFY(registration.value("featureCount").toULongLong() >= 2);
+    QVERIFY(app->registrationState().has_value());
+    QCOMPARE(app->registrationState()->bodies.size(), std::size_t{2});
+    std::size_t keyTriangles = 0;
+    for (const MoldBody& body : app->finalBodies()) {
+      QVERIFY(meshTopology(body.mesh).closedManifold());
+      for (const MeshFaceRun& run : body.mesh.faceRuns) {
+        if (run.role == FaceRole::RegistrationKey) keyTriangles += run.triangleCount;
+      }
+    }
+    QVERIFY(keyTriangles > 0);
+    // Registration and the sprue stage compose: a sprue edit re-keys the mold.
+    QVERIFY(app->moldIssues().isEmpty());
+  }
+
+  void unsplitMoldReportsRegistrationAsAWarning() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->generateMold();
+    QVERIFY(waitFor([&] { return app->moldPhase() == "complete"; }));
+    const QVariantMap registration = app->moldSummary().value("registration").toMap();
+    QCOMPARE(registration.value("status").toString(), QStringLiteral("blocked"));
+    QCOMPARE(registration.value("reasonCode").toString(), QStringLiteral("registration_interface_not_found"));
+    const QVariantList issues = app->moldIssues();
+    QCOMPARE(issues.size(), 1);
+    QCOMPARE(issues.front().toMap().value("code").toString(), QStringLiteral("registration_interface_not_found"));
   }
 
   void editingInputsDropsStaleResult() {
