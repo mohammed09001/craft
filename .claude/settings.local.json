@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(echo \"\\(exit $?\\)\")",
+      "Bash(echo \"\\(exit $?, empty output expected since file is untracked\\)\")",
+      "WebFetch(domain:docs.claude.com)"
+    ]
+  }
+}
