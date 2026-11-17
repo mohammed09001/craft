@@ -28,6 +28,8 @@ import { getManifoldModule, payloadFromManifold } from "@/features/mold-generati
 import { evaluateMasterMoldGeneration } from "@/features/mold-generation/master-mold/masterMoldGeneration.evaluate";
 import { deriveMasterMoldUiState, hasRenderableToolingGeometry, overallStatusOfSets, summarizeGeneration } from "@/features/mold-generation/master-mold/masterMold.contracts";
 import { selectRenderableMasterMoldBodies } from "@/features/mold-generation/master-mold/masterMoldViewportAdapter";
+import { buildRegionDirectAssignment } from "@/features/mold-generation/master-mold/planning/regionDirectAssignment";
+import { buildDirectAssignmentConstructionPieces, buildMultiLabelConstructionPieces } from "@/features/mold-generation/master-mold/planning/regionDirectConstruction";
 import { runMasterMoldEngine } from "@/features/mold-generation/master-mold/engine/masterMoldEngine";
 import { greedyRegionCover } from "@/features/mold-generation/master-mold/planning/regionSetCover";
 import { candidatePartingThresholds, createWorkingMoldPieceCountSearch, planWorkingMoldDecomposition } from "@/features/mold-generation/master-mold/planning/workingMoldPlanner";
@@ -226,6 +228,76 @@ async function runCase(spec: MeshSpec) {
     constructionAttempts: attempts,
     construction,
   };
+  // Constructor-level fallback modes: the region-direct builders and each construction mode run directly, on every part where they apply.
+  let fallbackModes: unknown = null;
+  if (preflight.status !== "invalid-for-master-mold" && spec.name !== "cube-grid-large") {
+    const refinedForFallback = refineRegionGraphByVisibility(buildSurfaceRegionGraph(planning), planning, engineAnalysis).regionGraph;
+    const fbCover = greedyRegionCover(refinedForFallback, planning, engineAnalysis);
+    const summarize = (out: Awaited<ReturnType<typeof constructWorkingMold>>) => ({
+      ok: true as const,
+      pieces: out.pieces.map((p) => ({ pieceId: p.pieceId, volumeMm3: p.volumeMm3, bounds: p.bounds, triangleCount: p.triangleCount, watertight: p.watertight, manifold: p.manifold, releaseOrder: p.releaseOrder, assignedDirection: p.assignedDirection })),
+      releaseSequence: out.releaseSequence,
+      registrationPlan: out.registrationPlan,
+      releaseSweepCount: out.releaseSweepCount,
+    });
+    const run = async (pieces: Parameters<typeof constructWorkingMold>[0]["pieces"], extra?: readonly { x: number; y: number; z: number }[]) => {
+      try {
+        return summarize(await constructWorkingMold({ sourceMesh: world.sourceMesh, sourceBounds: world.sourceBounds, releaseClearanceMm: 0, minimumToolingWallMm: world.processProfile.minimumToolingWallMm, pieces, ...(extra === undefined ? {} : { extraReleaseDirections: extra }) }));
+      } catch (error) {
+        return { ok: false as const, error: error instanceof Error ? error.message : String(error) };
+      }
+    };
+    const describe = (built: { pieces: readonly { releaseDirection: unknown; plane?: unknown; grid?: { ownPoints: readonly unknown[]; otherPoints: readonly unknown[]; ownPatchRadiusMm: number } | null; multiLabel?: { ownTriangleIndices: readonly number[] } | null }[]; interfaces: readonly { interfaceId: string; pieceAIndex: number; pieceBIndex: number; kind: string; selfIntersecting: boolean; samplePoints: readonly unknown[] }[] } | null) =>
+      built === null ? null : {
+        pieces: built.pieces.map((p) => ({ releaseDirection: p.releaseDirection, plane: p.plane ?? null, gridOwn: p.grid?.ownPoints.length ?? null, gridOther: p.grid?.otherPoints.length ?? null, ownPatchRadiusMm: p.grid?.ownPatchRadiusMm ?? null, triangles: p.multiLabel?.ownTriangleIndices.length ?? null, triangleSum: p.multiLabel === null || p.multiLabel === undefined ? null : p.multiLabel.ownTriangleIndices.reduce((s, v) => s + v, 0) })),
+        interfaces: built.interfaces.map((i) => ({ interfaceId: i.interfaceId, pieceAIndex: i.pieceAIndex, pieceBIndex: i.pieceBIndex, kind: i.kind, selfIntersecting: i.selfIntersecting, pointCount: i.samplePoints.length })),
+      };
+    const usable = fbCover.uncoveredRegionIndexes.length === 0 && fbCover.steps.length >= 2;
+    let direct: Record<string, unknown> | null = null;
+    if (usable) {
+      const assignment = buildRegionDirectAssignment(refinedForFallback, planning, engineAnalysis, fbCover.steps);
+      const directBuilt = assignment.unassignedPatchCount === 0 ? buildDirectAssignmentConstructionPieces(planning, engineAnalysis, assignment) : null;
+      const labelBuilt = assignment.unassignedPatchCount === 0 ? buildMultiLabelConstructionPieces(planning, engineAnalysis, assignment) : null;
+      direct = {
+        coverSteps: fbCover.steps.length,
+        assignment: Array.from(assignment.assignment),
+        pieceDirectionIndexes: assignment.pieceDirectionIndexes,
+        unassignedPatchCount: assignment.unassignedPatchCount,
+        alternativeCount: assignment.alternativePiecesByPatch.reduce((s, a) => s + a.length, 0),
+        gridBuilt: describe(directBuilt),
+        labelBuilt: describe(labelBuilt),
+        gridResult: directBuilt === null ? null : await run(directBuilt.pieces),
+        labelResult: labelBuilt === null ? null : await run(labelBuilt.pieces, engineAnalysis.directions.map((d) => d.vector)),
+      };
+    }
+    // Height-field retry on the first finalist (in search order) that has an eligible piece.
+    let heightField: Record<string, unknown> | null = null;
+    const fbSearch = createWorkingMoldPieceCountSearch({ planningMesh: planning, analysis: engineAnalysis, maxWorkingMoldPieces: 6 });
+    hf: for (;;) {
+      const step = fbSearch.next();
+      if (step === null) break;
+      for (let finalistIndex = 0; finalistIndex < step.finalists.length; finalistIndex += 1) {
+        const finalist = step.finalists[finalistIndex]!;
+        const planar = finalist.candidate.pieces.map((p) => ({ releaseDirection: p.releaseDirection, plane: p.prism === null ? null : { direction: engineAnalysis.directions[p.prism.directionIndex]!.vector, offsetMm: p.prism.offsetMm } }));
+        const byPiece = new Map<number, typeof finalist.interfaces[number][]>();
+        for (const face of finalist.interfaces) for (const index of [face.pieceAIndex, face.pieceBIndex]) { const list = byPiece.get(index) ?? []; list.push(face); byPiece.set(index, list); }
+        let eligible = 0;
+        const pieces = planar.map((piece, index) => {
+          if (piece.plane === null) return piece;
+          const touching = byPiece.get(index);
+          if (touching === undefined || touching.length === 0) return piece;
+          if (touching.some((face) => face.selfIntersecting || face.samplePoints.length < 3)) return piece;
+          eligible += 1;
+          return { releaseDirection: piece.releaseDirection, plane: piece.plane, curve: touching.map((face) => face.samplePoints) };
+        });
+        if (eligible === 0) continue;
+        heightField = { pieceCount: step.pieceCount, finalistIndex, eligible, curvePointCounts: pieces.map((p) => ("curve" in p && p.curve ? p.curve.map((c) => c.length) : null)), result: await run(pieces) };
+        break hf;
+      }
+    }
+    fallbackModes = { usable, direct, heightField };
+  }
+
   // The full engine, end to end, exactly as evaluateMasterMoldGeneration calls it.
   const engineStarted = Date.now();
   const engineRun = await runMasterMoldEngine(world, []);
@@ -290,6 +362,7 @@ async function runCase(spec: MeshSpec) {
   }
   return {
     store: storeJson,
+    fallbackModes,
     engine: engineJson,
     planner: plannerJson,
     surface: {
@@ -406,6 +479,13 @@ it("writes the master mold foundation reference fixture", async () => {
     const section = module.CrossSection.circle(5, 24).translate([14, 0]);
     kernelSpecs.push(toSpec("torus", module.Manifold.revolve(section, 40).rotate(90, 0, 0)));
   }
+  {
+    // Parts whose planar search fails while the region set-cover is complete: these reach the direct-assignment and
+    // multi-label construction fallbacks.
+    kernelSpecs.push(toSpec("sphere-three-through-holes", module.Manifold.sphere(16, 32).subtract(cyl(4, 50)).subtract(cyl(4, 50).rotate(90, 0, 0)).subtract(cyl(4, 50).rotate(0, 90, 0))));
+    const leg = (rx: number, ry: number) => cyl(4, 36).translate(0, 0, 18).rotate(rx, ry, 0);
+    kernelSpecs.push(toSpec("tripod", module.Manifold.sphere(8, 24).add(leg(35, 0)).add(leg(-35, 20)).add(leg(-35, -20))));
+  }
   const specs: MeshSpec[] = [
     { name: "box-rotated-translated", ...box, transform: [0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1, 0, 10, 20, 5, 1], printer: { x: 220, y: 220, z: 250 } },
     { name: "bracket-soup", ...bracket, transform: IDENTITY, printer: null },
@@ -433,4 +513,4 @@ it("writes the master mold foundation reference fixture", async () => {
   mkdirSync(dirname(outputPath), { recursive: true });
   writeFileSync(outputPath, `${JSON.stringify(document)}\n`, "utf8");
   expect(cases.length).toBe(specs.length);
-}, 900_000);
+}, 3_600_000);

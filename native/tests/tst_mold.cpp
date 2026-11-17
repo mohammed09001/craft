@@ -34,6 +34,8 @@ class FailingMinkowskiEngine final : public IMeshGeometryEngine {
   SolidPtr translate(const SolidPtr& s, double x, double y, double z) override { return inner_.translate(s, x, y, z); }
   SolidPtr rotate(const SolidPtr& s, double x, double y, double z) override { return inner_.rotate(s, x, y, z); }
   SolidPtr sphere(double r, int n, const Point3& c) override { return inner_.sphere(r, n, c); }
+  SolidPtr extrudePolygon(const std::vector<std::pair<double, double>>& p, double h, bool c) override { return inner_.extrudePolygon(p, h, c); }
+  SolidPtr transform(const SolidPtr& s, const std::array<double, 12>& m) override { return inner_.transform(s, m); }
   double sliceOverlapArea(const SolidPtr& a, double za, const SolidPtr& b, double zb) override { return inner_.sliceOverlapArea(a, za, b, zb); }
   SolidPtr subtract(const SolidPtr& a, const SolidPtr& b) override { return inner_.subtract(a, b); }
   SolidPtr intersect(const SolidPtr& a, const SolidPtr& b) override { return inner_.intersect(a, b); }

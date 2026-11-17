@@ -257,3 +257,13 @@ Not done: tooling-piece export, Master toolbar entry, alpha ghosting for stale p
 1. GPU frame-rate/VRAM measurement, WASM timing for the same inputs, and a visual comparison with the Three.js viewport on real STLs (Phase 2 gate).
 2. Port Master Mold (tooling set generation) and the engineering reports.
 3. `.craft` project format with atomic save/load; bundled Python runtime; installer; macOS CI job on a real runner.
+### Session 15: Master Mold construction fallbacks
+
+Ported: height-field and multi-neighbor parting tools (ruled surface via the new `extrudePolygon`/`transform` seam), the simultaneous grid partition (local-bounded assignment, stolen-material exclusions), region-direct assignment with small-component absorption and physical pieces, the multi-label partition (ICM relaxation, escape corridors, cavity vote, per-label level set), and the engine cascade with the reference bookkeeping and messages.
+
+Evidence: fixtures gained `sphere-three-through-holes` and `tripod` (planar search fails, set cover complete) plus a `fallbackModes` section per part (region-direct builders, grid/multi-label construction, height-field retry). Release `fallbackModesMatchReference` 12/12; cross-blind-holes and torus engine rows now match attempt counts and failure text exactly. Reference generator timeout raised to 60 min (the fixture run takes ~22 min).
+
+Debug: `fallbackModesMatchReference` took 3346 s (multi-label voxel stage), so it is Release-only (QSKIP in Debug); the other Debug rows stay under the 300 s ctest limit (construction 114 s, planner 30 s). Release full suite: 75 passed, 0 failed.
+
+Not verified: the reference multi-label construction fails on every fixture, so only its failure path is compared. Volumetric mode not ported (engine never reaches it).
+### Next exact step (superseded list above still applies)

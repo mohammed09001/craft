@@ -13,6 +13,7 @@
 #include "geometry/MeshAnalysis.h"
 #include "master/MasterAccessibility.h"
 #include "master/MasterMultiPiece.h"
+#include "master/MasterRegionDirect.h"
 #include "master/MasterPlanning.h"
 #include "mold/Registration.h"  // jsNumberToString
 
@@ -76,23 +77,10 @@ std::vector<MasterMoldBudgetLineItem> buildBudgetDetails(int rawDirectionCount, 
   return items;
 }
 
-/// heightFieldFallbackPieces eligibility: the reference retries a failed finalist with curve-following parting tools when at
-/// least one prism piece has only usable (non-self-intersecting, >= 3 point) interfaces. The retry itself is not ported.
-bool heightFieldFallbackWouldBeTried(const WorkingMoldDecompositionFinalist& finalist) {
-  int eligible = 0;
-  for (std::size_t index = 0; index < finalist.candidate.pieces.size(); ++index) {
-    if (!finalist.candidate.pieces[index].prism) continue;
-    bool any = false, usable = true;
-    for (const auto& face : finalist.interfaces) {
-      if (face.pieceAIndex != static_cast<int>(index) && face.pieceBIndex != static_cast<int>(index)) continue;
-      any = true;
-      if (face.selfIntersecting || face.samplePoints.size() < 3) usable = false;
-    }
-    if (any && usable) ++eligible;
-  }
-  return eligible > 0;
+/// Cancellation must pass through the generic std::runtime_error handlers used for construction failures.
+void rethrowIfCancelled(const CodedError& error) {
+  if (error.code() == "cancelled") throw error;
 }
-
 std::string toolingSetInputSignature(const MasterSeedSnapshot& seed, const std::string& pieceId, const std::string& geometryVersion) {
   return stableHashOfJson("{\"seedId\":" + stableJsonQuote(seed.seedId) + ",\"pieceId\":" + stableJsonQuote(pieceId) +
                           ",\"pieceGeometryVersion\":" + stableJsonQuote(geometryVersion) +
@@ -357,6 +345,7 @@ MasterMoldEngineResult runMasterMoldEngine(IMeshGeometryEngine& engine, const Ma
   std::optional<WorkingMoldConstructionOutput> construction;
   std::optional<WorkingMoldDecompositionFinalist> constructionFinalist;
   std::optional<std::string> constructionError;
+  int partingSurfaceCandidateAttempts = 0;
 
   for (;;) {
     auto step = search.next();
@@ -385,29 +374,117 @@ MasterMoldEngineResult runMasterMoldEngine(IMeshGeometryEngine& engine, const Ma
         if (piece.prism) region.plane = PlannedPieceRegion::Plane{analysis.directions[static_cast<std::size_t>(piece.prism->directionIndex)].vector, piece.prism->offsetMm};
         in.pieces.push_back(region);
       }
+      std::vector<PlannedPieceRegion> planarPieces = in.pieces;
       try {
-        construction = constructWorkingMold(engine, in);
+        construction = constructWorkingMold(engine, in, hooks.cancel);
         constructionFinalist = finalist;
         break;
+      } catch (const CodedError& error) {
+        rethrowIfCancelled(error);
+        countError = error.what();
       } catch (const std::runtime_error& error) {
         countError = error.what();
       }
-      // The reference now retries with height-field cutting tools for eligible finalists (not ported).
-      if (heightFieldFallbackWouldBeTried(finalist)) {
-        result.unportedPathsReached = true;
-        result.unportedPaths.push_back("height-field construction retry for a failed " + std::to_string(step->pieceCount) + "-piece finalist");
+      // The flat planes are not the only way to realise this finalist's assignment: retry with parting tools that follow its own
+      // real parting curves (one curve per neighbour a piece borders).
+      if (auto heightField = heightFieldFallbackPieces(finalist, planarPieces)) {
+        throwIfCancelled(hooks);
+        budget.workingMoldConstructionAttempts += 1;
+        partingSurfaceCandidateAttempts += 1;
+        WorkingMoldConstructionInput fallback = in;
+        fallback.pieces = std::move(*heightField);
+        try {
+          construction = constructWorkingMold(engine, fallback, hooks.cancel);
+          constructionFinalist = finalist;
+          break;
+        } catch (const CodedError& error) {
+          rethrowIfCancelled(error);
+          countError = error.what();
+        } catch (const std::runtime_error& error) {
+          countError = error.what();
+        }
       }
-    }
-    if (construction) break;
+    }    if (construction) break;
     constructionError = countError;
     rejectedPieceCounts.push_back({step->pieceCount, "all " + std::to_string(step->finalists.size()) + " planning finalist(s) failed exact construction: " +
                                                          countError.value_or("unknown")});
   }
+  // Last resorts after the ordinary search exhausted every piece count: assign every patch straight from the region set-cover proof
+  // (a grid partition of physical pieces), then a joint multi-label reconstruction of the same assignment.
+  const auto makeInput = [&](std::vector<PlannedPieceRegion> pieces) {
+    WorkingMoldConstructionInput in;
+    in.sourcePositions = seed.sourceMesh.positions;
+    in.sourceIndices = seed.sourceMesh.indices;
+    in.sourceBounds = seed.sourceBounds;
+    in.releaseClearanceMm = seed.processProfile.releaseClearanceMm.value_or(0);
+    in.minimumToolingWallMm = seed.processProfile.minimumToolingWallMm;
+    in.pieces = std::move(pieces);
+    return in;
+  };
+  const auto syntheticFinalist = [&](const DirectConstruction& built, const RegionSetCoverResult& cover, const RegionDirectAssignmentResult& assignment)
+      -> std::optional<WorkingMoldDecompositionFinalist> {
+    const int pieceCount = static_cast<int>(built.pieces.size());
+    WorkingMoldDecompositionFinalist f;
+    for (std::size_t i = 0; i < built.pieces.size(); ++i) {
+      if (i >= cover.steps.size()) return std::nullopt;  // the reference reads `steps[index].directionId` of a missing step and throws
+      f.candidate.pieces.push_back({built.pieces[i].releaseDirection, cover.steps[i].directionId, std::nullopt});
+    }
+    f.candidate.pieceCount = pieceCount;
+    f.candidate.feasible = true;
+    f.candidate.unassignablePatchCount = 0;
+    f.candidate.score = pieceCount * 0.1;
+    f.candidate.scoreBreakdown = {0, 0, 0, pieceCount - 1, pieceCount * 0.1};
+    f.patchAssignment = assignment.assignment;
+    f.interfaces = built.interfaces;
+    return f;
+  };
   if (!construction) {
-    result.unportedPathsReached = true;
-    result.unportedPaths.push_back("height-field, region-direct and multi-label construction fallbacks");
+    const SurfaceRegionGraph refinedRegionGraph = refineRegionGraphByVisibility(buildSurfaceRegionGraph(planningMesh), planningMesh, analysis).regionGraph;
+    const RegionSetCoverResult directCover = greedyRegionCover(refinedRegionGraph, planningMesh, analysis);
+    const bool coverUsable = directCover.uncoveredRegionIndexes.empty() && directCover.steps.size() >= 2 && static_cast<int>(directCover.steps.size()) <= maxPieces;
+    if (coverUsable) {
+      const RegionDirectAssignmentResult directAssignment = buildRegionDirectAssignment(refinedRegionGraph, planningMesh, analysis, directCover.steps);
+      std::optional<DirectConstruction> directBuilt;
+      if (directAssignment.unassignedPatchCount == 0) directBuilt = buildDirectAssignmentConstructionPieces(planningMesh, analysis, directAssignment);
+      if (directBuilt) {
+        throwIfCancelled(hooks);
+        budget.workingMoldConstructionAttempts += 1;
+        partingSurfaceCandidateAttempts += 1;
+        try {
+          construction = constructWorkingMold(engine, makeInput(directBuilt->pieces), hooks.cancel);
+          constructionFinalist = syntheticFinalist(*directBuilt, directCover, directAssignment);
+          if (!constructionFinalist) throw std::runtime_error("Cannot read properties of undefined (reading 'directionId')");
+        } catch (const std::exception& error) {
+          if (const auto* coded = dynamic_cast<const CodedError*>(&error)) rethrowIfCancelled(*coded);
+          constructionError = "region-set-cover-driven direct assignment (" + std::to_string(directCover.steps.size()) +
+                              " directions, proven full region coverage) reached real exact construction but failed: " + error.what();
+          rejectedPieceCounts.push_back({static_cast<int>(directBuilt->pieces.size()), *constructionError});
+        }
+      }
+    }
+    if (!construction && coverUsable) {
+      const RegionDirectAssignmentResult directAssignment = buildRegionDirectAssignment(refinedRegionGraph, planningMesh, analysis, directCover.steps);
+      std::optional<DirectConstruction> multiLabelBuilt;
+      if (directAssignment.unassignedPatchCount == 0) multiLabelBuilt = buildMultiLabelConstructionPieces(planningMesh, analysis, directAssignment);
+      if (multiLabelBuilt) {
+        throwIfCancelled(hooks);
+        budget.workingMoldConstructionAttempts += 1;
+        partingSurfaceCandidateAttempts += 1;
+        try {
+          WorkingMoldConstructionInput in = makeInput(multiLabelBuilt->pieces);
+          for (const auto& d : analysis.directions) in.extraReleaseDirections.push_back(d.vector);
+          construction = constructWorkingMold(engine, in, hooks.cancel);
+          constructionFinalist = syntheticFinalist(*multiLabelBuilt, directCover, directAssignment);
+          if (!constructionFinalist) throw std::runtime_error("Cannot read properties of undefined (reading 'directionId')");
+        } catch (const std::exception& error) {
+          if (const auto* coded = dynamic_cast<const CodedError*>(&error)) rethrowIfCancelled(*coded);
+          constructionError = "region-set-cover-driven multi-label reconstruction (" + std::to_string(directCover.steps.size()) +
+                              " directions, proven full region coverage) reached real exact construction but failed: " + error.what();
+          rejectedPieceCounts.push_back({static_cast<int>(multiLabelBuilt->pieces.size()), *constructionError});
+        }
+      }
+    }
   }
-
   budget.budgetDetails = buildBudgetDetails(rawDirectionCount, static_cast<int>(analysis.directions.size()), planningDiagnostics, maxPieces,
                                             budget.workingMoldConstructionAttempts);
 
@@ -424,7 +501,7 @@ MasterMoldEngineResult runMasterMoldEngine(IMeshGeometryEngine& engine, const Ma
     snapshot.pieceCountAttempts.push_back(d.pieceCount);
     snapshot.thresholdAttemptsByPieceCount.emplace_back(d.pieceCount, d.thresholdCountUsed);
   }
-  snapshot.partingSurfaceCandidateCount = 0;
+  snapshot.partingSurfaceCandidateCount = partingSurfaceCandidateAttempts;
   snapshot.exactConstructionAttempts = budget.workingMoldConstructionAttempts;
   if (constructionFinalist) snapshot.selectedPieceCount = constructionFinalist->candidate.pieceCount;
   if (construction) snapshot.releaseSweepCount = construction->releaseSweepCount;

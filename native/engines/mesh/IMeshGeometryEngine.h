@@ -8,6 +8,7 @@
 // the kernel can be replaced or mocked without touching mold logic, and no
 // kernel type ever reaches the UI or the renderer.
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -70,6 +71,10 @@ class IMeshGeometryEngine {
 
   /// Rotation by (rx, ry, rz) degrees about the origin (Manifold convention: x, then y, then z).
   virtual SolidPtr rotate(const SolidPtr& solid, double rxDeg, double ryDeg, double rzDeg) = 0;
+  /// Extrudes one simple polygon (x, y pairs; NonZero fill rule) by `height` along +Z; `center` shifts it to z = -height/2..height/2.
+  virtual SolidPtr extrudePolygon(const std::vector<std::pair<double, double>>& polygon, double height, bool center) = 0;
+  /// Affine transform from a column-major 3x4 matrix (the first 12 entries of a column-major 4x4).
+  virtual SolidPtr transform(const SolidPtr& solid, const std::array<double, 12>& columnMajor3x4) = 0;
   /// UV sphere of `radius` with `segments` circular segments, centred on `center`.
   virtual SolidPtr sphere(double radius, int segments, const Point3& center) = 0;
   /// Area of (slice of `a` at z = za) intersected with (slice of `b` at z = zb), both with the positive fill rule.

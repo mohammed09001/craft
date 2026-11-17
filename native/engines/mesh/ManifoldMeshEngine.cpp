@@ -265,6 +265,21 @@ class ManifoldMeshEngine final : public IMeshGeometryEngine {
     return wrap(unwrap(solid).Rotate(rx, ry, rz));
   }
 
+  SolidPtr extrudePolygon(const std::vector<std::pair<double, double>>& polygon, double height, bool center) override {
+    manifold::SimplePolygon simple;
+    for (const auto& [x, y] : polygon) simple.push_back({x, y});
+    const manifold::CrossSection cross({simple}, manifold::CrossSection::FillRule::NonZero);
+    manifold::Manifold solid = manifold::Manifold::Extrude(cross.ToPolygons(), height, 0, 0, {1.0, 1.0});
+    if (center) solid = solid.Translate({0, 0, -height / 2.0});
+    assertStatus(solid, "Ruled parting-surface extrusion");
+    return wrap(std::move(solid));
+  }
+
+  SolidPtr transform(const SolidPtr& solid, const std::array<double, 12>& m) override {
+    const manifold::mat3x4 matrix({m[0], m[1], m[2]}, {m[3], m[4], m[5]}, {m[6], m[7], m[8]}, {m[9], m[10], m[11]});
+    return wrap(unwrap(solid).Transform(matrix));
+  }
+
   SolidPtr sphere(double radius, int segments, const Point3& center) override {
     return wrap(manifold::Manifold::Sphere(radius, segments).Translate({center.x, center.y, center.z}));
   }

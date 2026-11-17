@@ -7,16 +7,17 @@
 // with alignment pins, release-verified by exact translation sweeps and
 // checked against the assembly invariants.
 //
-// NOT ported (they need Manifold CrossSection / level-set partitions and are
-// the engine's fallbacks for hard parts): height-field and multi-neighbor
-// parting tools, the simultaneous grid partition, volumetric and multi-label
-// partitions. PlannedPieceRegion therefore carries only the planar plane.
+// Also ported: the engine's fallback construction modes for hard parts -- height-field and
+// multi-neighbor parting tools, the simultaneous grid partition and the
+// multi-label partition. NOT ported: the volumetric partition (the engine
+// never reaches it).
 
 #include <optional>
 #include <string>
 #include <vector>
 
 #include "IMeshGeometryEngine.h"
+#include "contracts/Operation.h"
 #include "master/MasterPlanning.h"
 
 namespace craft {
@@ -26,6 +27,13 @@ struct PlannedPieceRegion {
   /// Piece occupies dot(p, direction) >= offsetMm minus earlier pieces; none = catch-all remainder.
   struct Plane { Point3 direction; double offsetMm = 0; };
   std::optional<Plane> plane;
+  /// Height-field cutting tool: one curve group per neighbour this piece borders (`plane` must also be set).
+  std::optional<std::vector<std::vector<Point3>>> curve;
+  /// Simultaneous grid partition: this piece's own patch centroids and every other piece's.
+  struct Grid { std::vector<Point3> ownPoints, otherPoints; double ownPatchRadiusMm = 0; };
+  std::optional<Grid> grid;
+  /// Multi-label partition: this piece's own source triangles (every piece must carry this).
+  std::optional<std::vector<int>> multiLabelTriangles;
 };
 
 struct WorkingMoldConstructionInput {
@@ -103,7 +111,17 @@ DemoldVerificationResult verifyDemoldTranslationByVector(IMeshGeometryEngine& en
                                                          const Point3& direction, double clearanceDistanceMm, double toleranceMm,
                                                          double volumeToleranceMm3, int coarseSampleCount = 32);
 
+/// Height-field cutting tool following one piece's parting curve near the part and exactly flat beyond `outerRadiusMm`.
+SolidPtr heightFieldPartingSolid(IMeshGeometryEngine& engine, const std::vector<Point3>& curvePoints, const Point3& flatDirection, double flatOffsetMm,
+                                 const Bounds3& bounds, double toleranceMm, std::optional<double> outerRadiusMm = std::nullopt);
+SolidPtr multiNeighborHeightFieldSolid(IMeshGeometryEngine& engine, const std::vector<std::vector<Point3>>& curveGroups, const Point3& flatDirection,
+                                       double flatOffsetMm, const Bounds3& bounds, double toleranceMm);
+SolidPtr localBoundedAssignmentSolid(IMeshGeometryEngine& engine, const std::vector<Point3>& ownPoints, const std::vector<Point3>& otherPoints,
+                                     const Point3& direction, const Bounds3& bounds, double toleranceMm, double ownPatchRadiusMm);
+
 /// Throws std::runtime_error with the reference's messages on any construction or verification failure.
-WorkingMoldConstructionOutput constructWorkingMold(IMeshGeometryEngine& engine, const WorkingMoldConstructionInput& input);
+/// A cancelled `cancel` token raises CodedError("cancelled") from the long multi-label stage.
+WorkingMoldConstructionOutput constructWorkingMold(IMeshGeometryEngine& engine, const WorkingMoldConstructionInput& input,
+                                                   const CancellationToken& cancel = {});
 
 }  // namespace craft

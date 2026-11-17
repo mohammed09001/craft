@@ -7,6 +7,7 @@
 
 #include "geometry/GeometryTolerance.h"
 #include "geometry/MeshAnalysis.h"
+#include "master/MasterMultiLabel.h"
 #include "mold/Registration.h"  // jsNumberToString
 
 namespace craft {
@@ -324,7 +325,238 @@ WorkingMoldRegistrationPlan placeRegistration(IMeshGeometryEngine& engine, const
 
 // --- construction ---------------------------------------------------------------------------------------------
 
-WorkingMoldConstructionOutput constructWorkingMold(IMeshGeometryEngine& engine, const WorkingMoldConstructionInput& input) {
+// --- height-field parting tools ---------------------------------------------------------------------------------------
+
+namespace {
+
+/// Extruded simple polygon (the curve projected onto the plane perpendicular to `direction`), spanning the envelope along it.
+SolidPtr ruledPartingSurfaceSolid(IMeshGeometryEngine& engine, const std::vector<Point3>& curvePoints, const Point3& direction, const Bounds3& bounds) {
+  if (curvePoints.size() < 3) fail("a ruled parting surface needs at least 3 curve points.");
+  const OrthonormalBasis basis = basisAround(direction);
+  const Point3 &u = basis.u, &v = basis.v, &w = basis.w;
+  const double diagonal = jsHypot3(bounds.max.x - bounds.min.x, bounds.max.y - bounds.min.y, bounds.max.z - bounds.min.z);
+  const double height = diagonal * 1.5 + 2;
+  std::vector<std::pair<double, double>> polygon;
+  for (const Point3& p : curvePoints) polygon.emplace_back(p.x * u.x + p.y * u.y + p.z * u.z, p.x * v.x + p.y * v.y + p.z * v.z);
+  const SolidPtr extruded = engine.extrudePolygon(polygon, height, true);
+  return engine.transform(extruded, {u.x, u.y, u.z, v.x, v.y, v.z, w.x, w.y, w.z, 0, 0, 0});
+}
+
+}  // namespace
+
+SolidPtr heightFieldPartingSolid(IMeshGeometryEngine& engine, const std::vector<Point3>& curvePoints, const Point3& flatDirection, double flatOffsetMm,
+                                 const Bounds3& bounds, double toleranceMm, std::optional<double> outerRadiusMm) {
+  if (curvePoints.size() < 3) fail("a height-field parting surface needs at least 3 curve points.");
+  const OrthonormalBasis basis = basisAround(flatDirection);
+  const Point3 &u = basis.u, &v = basis.v, &w = basis.w;
+  struct Local { double pu, pv, h; };
+  std::vector<Local> local;
+  for (const Point3& p : curvePoints) {
+    local.push_back({p.x * u.x + p.y * u.y + p.z * u.z, p.x * v.x + p.y * v.y + p.z * v.z, p.x * w.x + p.y * w.y + p.z * w.z - flatOffsetMm});
+  }
+  double sumU = 0, sumV = 0, sumH = 0;
+  for (const Local& l : local) { sumU += l.pu; }
+  for (const Local& l : local) { sumV += l.pv; }
+  for (const Local& l : local) { sumH += l.h; }
+  const double n0 = static_cast<double>(local.size());
+  const double centroidU = sumU / n0, centroidV = sumV / n0, centroidH = sumH / n0;
+
+  std::vector<Local> sorted = local;
+  std::stable_sort(sorted.begin(), sorted.end(), [&](const Local& a, const Local& b) {
+    return std::atan2(a.pv - centroidV, a.pu - centroidU) - std::atan2(b.pv - centroidV, b.pu - centroidU) < 0;
+  });
+  double maxCurveRadius = 0;
+  for (const Local& l : sorted) maxCurveRadius = std::max(maxCurveRadius, jsHypot3(l.pu - centroidU, l.pv - centroidV, 0));
+
+  const double diagonal = jsHypot3(bounds.max.x - bounds.min.x, bounds.max.y - bounds.min.y, bounds.max.z - bounds.min.z);
+  const double outerRadius = outerRadiusMm ? *outerRadiusMm : diagonal + maxCurveRadius + 1;
+  if (outerRadius <= maxCurveRadius) fail("a height-field parting surface's outer radius must comfortably exceed the curve's own extent.");
+  const double depth = diagonal * 1.5 + 2;
+
+  MeshPayload mesh;
+  const auto pushVertex = [&](double pu, double pv, double hRelative) {
+    const double height = flatOffsetMm + hRelative;
+    mesh.positions.push_back(u.x * pu + v.x * pv + w.x * height);
+    mesh.positions.push_back(u.y * pu + v.y * pv + w.y * height);
+    mesh.positions.push_back(u.z * pu + v.z * pv + w.z * height);
+    return static_cast<std::uint32_t>(mesh.positions.size() / 3 - 1);
+  };
+  const std::uint32_t centerIndex = pushVertex(centroidU, centroidV, centroidH);
+  const std::size_t n = sorted.size();
+  std::vector<std::uint32_t> curveIdx(n), outerIdx(n), ceilingIdx(n);
+  std::vector<double> angles(n);
+  for (std::size_t i = 0; i < n; ++i) {
+    angles[i] = std::atan2(sorted[i].pv - centroidV, sorted[i].pu - centroidU);
+    curveIdx[i] = pushVertex(sorted[i].pu, sorted[i].pv, sorted[i].h);
+  }
+  for (std::size_t i = 0; i < n; ++i) {
+    const double outerU = centroidU + std::cos(angles[i]) * outerRadius;
+    const double outerV = centroidV + std::sin(angles[i]) * outerRadius;
+    outerIdx[i] = pushVertex(outerU, outerV, 0);
+    ceilingIdx[i] = pushVertex(outerU, outerV, depth);
+  }
+  const std::uint32_t ceilingCenter = pushVertex(centroidU, centroidV, depth);
+  const auto tri = [&](std::uint32_t a, std::uint32_t b, std::uint32_t c) { mesh.indices.insert(mesh.indices.end(), {a, b, c}); };
+  const auto quad = [&](std::uint32_t a, std::uint32_t b, std::uint32_t c, std::uint32_t d) { tri(a, b, c); tri(a, c, d); };
+  for (std::size_t i = 0; i < n; ++i) {
+    const std::size_t next = (i + 1) % n;
+    tri(centerIndex, curveIdx[next], curveIdx[i]);
+    quad(curveIdx[i], curveIdx[next], outerIdx[next], outerIdx[i]);
+    quad(outerIdx[i], outerIdx[next], ceilingIdx[next], ceilingIdx[i]);
+    tri(ceilingCenter, ceilingIdx[i], ceilingIdx[next]);
+  }
+  SolidPtr solid = engine.solidFromMesh(mesh, toleranceMm, "Height-field parting-surface construction");
+  if (!solid->isValid()) fail("Height-field parting-surface construction failed: invalid solid.");
+  if (solid->volume() < 0) fail("height-field parting surface produced an inward-facing (negative-volume) solid.");
+  return solid;
+}
+
+SolidPtr multiNeighborHeightFieldSolid(IMeshGeometryEngine& engine, const std::vector<std::vector<Point3>>& curveGroups, const Point3& flatDirection,
+                                       double flatOffsetMm, const Bounds3& bounds, double toleranceMm) {
+  if (curveGroups.empty()) fail("multiNeighborHeightFieldSolid needs at least one curve.");
+  const OrthonormalBasis basis = basisAround(flatDirection);
+  const Point3 &u = basis.u, &v = basis.v;
+  constexpr int kCircleSegments = 32;
+  constexpr double kPi = 3.14159265358979323846;
+  SolidPtr tool = engine.solidFromMesh(halfSpacePrismPayload(flatDirection, flatOffsetMm, bounds), toleranceMm, "Mesh preparation");
+  for (const std::vector<Point3>& curvePoints : curveGroups) {
+    if (curvePoints.size() < 3) fail("a height-field parting surface needs at least 3 curve points.");
+    struct Local { double pu, pv; };
+    std::vector<Local> local;
+    for (const Point3& p : curvePoints) local.push_back({p.x * u.x + p.y * u.y + p.z * u.z, p.x * v.x + p.y * v.y + p.z * v.z});
+    double sumU = 0, sumV = 0;
+    for (const Local& l : local) sumU += l.pu;
+    for (const Local& l : local) sumV += l.pv;
+    const double centroidU = sumU / static_cast<double>(local.size()), centroidV = sumV / static_cast<double>(local.size());
+    double maxCurveRadius = 0;
+    for (const Local& l : local) maxCurveRadius = std::max(maxCurveRadius, jsHypot3(l.pu - centroidU, l.pv - centroidV, 0));
+    const double localRadius = maxCurveRadius * 2 + toleranceMm * 8 + 1;
+    std::vector<Point3> footprint;
+    for (int index = 0; index < kCircleSegments; ++index) {
+      const double angle = (static_cast<double>(index) / kCircleSegments) * kPi * 2;
+      const double pu = centroidU + std::cos(angle) * localRadius, pv = centroidV + std::sin(angle) * localRadius;
+      footprint.push_back({u.x * pu + v.x * pv, u.y * pu + v.y * pv, u.z * pu + v.z * pv});
+    }
+    const SolidPtr footprintSolid = ruledPartingSurfaceSolid(engine, footprint, flatDirection, bounds);
+    const SolidPtr localHeightField = heightFieldPartingSolid(engine, curvePoints, flatDirection, flatOffsetMm, bounds, toleranceMm, localRadius);
+    const SolidPtr toolMinusFootprint = engine.subtract(tool, footprintSolid);
+    const SolidPtr composed = engine.unionOf({toolMinusFootprint, localHeightField});
+    if (!composed->isValid()) fail("Multi-neighbor height-field composition failed: invalid solid.");
+    tool = composed;
+  }
+  return tool;
+}
+
+// --- simultaneous grid partition tools ----------------------------------------------------------------------------------------
+
+namespace {
+
+SolidPtr applyStolenMaterialExclusions(IMeshGeometryEngine& engine, SolidPtr tool, const std::vector<Point3>& otherPoints, const Point3& direction,
+                                       double flatOffsetMm, const Bounds3& bounds, double toleranceMm) {
+  const OrthonormalBasis basis = basisAround(direction);
+  const Point3 &u = basis.u, &v = basis.v, &w = basis.w;
+  struct P { double pu, pv, h; };
+  std::vector<P> stolen;
+  for (const Point3& p : otherPoints) {
+    const P q{p.x * u.x + p.y * u.y + p.z * u.z, p.x * v.x + p.y * v.y + p.z * v.z, p.x * w.x + p.y * w.y + p.z * w.z};
+    if (q.h >= flatOffsetMm) stolen.push_back(q);
+  }
+  if (stolen.empty()) return tool;
+
+  double uMin = INFINITY, uMax = -INFINITY, vMin = INFINITY, vMax = -INFINITY;
+  for (const P& p : stolen) { uMin = std::min(uMin, p.pu); uMax = std::max(uMax, p.pu); vMin = std::min(vMin, p.pv); vMax = std::max(vMax, p.pv); }
+  const double area = std::max(uMax - uMin, 1e-6) * std::max(vMax - vMin, 1e-6);
+  const double spacing = std::sqrt(area / static_cast<double>(stolen.size()));
+  const double linkRadius = std::max({spacing * 4, toleranceMm * 16, 1e-3});
+  const double linkSq = linkRadius * linkRadius;
+
+  std::vector<std::size_t> parent(stolen.size());
+  for (std::size_t i = 0; i < parent.size(); ++i) parent[i] = i;
+  const auto find = [&](std::size_t index) {
+    std::size_t root = index;
+    while (parent[root] != root) root = parent[root];
+    std::size_t current = index;
+    while (parent[current] != root) { const std::size_t next = parent[current]; parent[current] = root; current = next; }
+    return root;
+  };
+  for (std::size_t i = 0; i < stolen.size(); ++i)
+    for (std::size_t j = i + 1; j < stolen.size(); ++j) {
+      const double du = stolen[i].pu - stolen[j].pu, dv = stolen[i].pv - stolen[j].pv;
+      if (du * du + dv * dv <= linkSq) { const std::size_t ra = find(i), rb = find(j); if (ra != rb) parent[ra] = rb; }
+    }
+  std::vector<std::pair<std::size_t, std::vector<P>>> clusters;  // insertion ordered by first appearance of each root
+  for (std::size_t i = 0; i < stolen.size(); ++i) {
+    const std::size_t root = find(i);
+    auto it = std::find_if(clusters.begin(), clusters.end(), [&](const auto& c) { return c.first == root; });
+    if (it == clusters.end()) { clusters.emplace_back(root, std::vector<P>{}); it = clusters.end() - 1; }
+    it->second.push_back(stolen[i]);
+  }
+
+  const double diagonal = jsHypot3(bounds.max.x - bounds.min.x, bounds.max.y - bounds.min.y, bounds.max.z - bounds.min.z);
+  for (const auto& [root, cluster] : clusters) {
+    (void)root;
+    double sumU = 0, sumV = 0;
+    for (const P& p : cluster) sumU += p.pu;
+    for (const P& p : cluster) sumV += p.pv;
+    const double centroidU = sumU / static_cast<double>(cluster.size()), centroidV = sumV / static_cast<double>(cluster.size());
+    double maxRadius = 0, hMin = INFINITY, hMax = -INFINITY;
+    for (const P& p : cluster) {
+      maxRadius = std::max(maxRadius, jsHypot3(p.pu - centroidU, p.pv - centroidV, 0));
+      hMin = std::min(hMin, p.h);
+      hMax = std::max(hMax, p.h);
+    }
+    const double radiusMm = maxRadius + toleranceMm * 8 + 1e-3;
+    const double marginH = std::max({toleranceMm * 8, (hMax - hMin) * 0.2, 1e-3});
+    const double hLow = hMin - marginH;
+    const double hHigh = flatOffsetMm + diagonal * 1.5 + 2;
+    const double centerAlong = (hLow + hHigh) / 2;
+    const double lengthMm = hHigh - hLow;
+    const Point3 centerPoint{u.x * centroidU + v.x * centroidV + w.x * centerAlong, u.y * centroidU + v.y * centroidV + w.y * centerAlong,
+                             u.z * centroidU + v.z * centroidV + w.z * centerAlong};
+    const SolidPtr exclusion = engine.solidFromMesh(cylinderPrismPayload(direction, centerPoint, radiusMm, lengthMm, 24), toleranceMm, "Mesh preparation");
+    const SolidPtr next = engine.subtract(tool, exclusion);
+    if (!next->isValid()) fail("Assignment-exclusion parting-surface subtraction failed: invalid solid.");
+    tool = next;
+  }
+  return tool;
+}
+
+}  // namespace
+
+SolidPtr localBoundedAssignmentSolid(IMeshGeometryEngine& engine, const std::vector<Point3>& ownPoints, const std::vector<Point3>& otherPoints,
+                                     const Point3& direction, const Bounds3& bounds, double toleranceMm, double ownPatchRadiusMm) {
+  if (ownPoints.empty()) fail("a local-bounded assignment solid needs at least one own patch point.");
+  const OrthonormalBasis basis = basisAround(direction);
+  const Point3 &u = basis.u, &v = basis.v, &w = basis.w;
+  struct P { double pu, pv, h; };
+  std::vector<P> own;
+  for (const Point3& p : ownPoints) own.push_back({p.x * u.x + p.y * u.y + p.z * u.z, p.x * v.x + p.y * v.y + p.z * v.z, p.x * w.x + p.y * w.y + p.z * w.z});
+  double sumU = 0, sumV = 0;
+  for (const P& p : own) sumU += p.pu;
+  for (const P& p : own) sumV += p.pv;
+  const double centroidU = sumU / static_cast<double>(own.size()), centroidV = sumV / static_cast<double>(own.size());
+  double maxRadius = 0, flatOffsetMm = INFINITY;
+  for (const P& p : own) {
+    maxRadius = std::max(maxRadius, jsHypot3(p.pu - centroidU, p.pv - centroidV, 0));
+    flatOffsetMm = std::min(flatOffsetMm, p.h);
+  }
+  flatOffsetMm -= 1e-4;
+  const double footprintRadius = maxRadius + ownPatchRadiusMm * 2 + toleranceMm * 8 + std::max(maxRadius * 0.15, 1e-3);
+  const double diagonal = jsHypot3(bounds.max.x - bounds.min.x, bounds.max.y - bounds.min.y, bounds.max.z - bounds.min.z);
+  const Point3 boundsCenter{(bounds.min.x + bounds.max.x) / 2, (bounds.min.y + bounds.max.y) / 2, (bounds.min.z + bounds.max.z) / 2};
+  const double centerAlong = boundsCenter.x * w.x + boundsCenter.y * w.y + boundsCenter.z * w.z;
+  const Point3 footprintCenter{u.x * centroidU + v.x * centroidV + w.x * centerAlong, u.y * centroidU + v.y * centroidV + w.y * centerAlong,
+                               u.z * centroidU + v.z * centroidV + w.z * centerAlong};
+  const SolidPtr footprint = engine.solidFromMesh(cylinderPrismPayload(direction, footprintCenter, footprintRadius, diagonal * 4 + 4, 24), toleranceMm, "Mesh preparation");
+  const SolidPtr flat = engine.solidFromMesh(halfSpacePrismPayload(direction, flatOffsetMm, bounds), toleranceMm, "Mesh preparation");
+  const SolidPtr base = engine.intersect(footprint, flat);
+  if (!base->isValid()) fail("Local-bounded assignment footprint intersection failed: invalid solid.");
+  return applyStolenMaterialExclusions(engine, base, otherPoints, direction, flatOffsetMm, bounds, toleranceMm);
+}
+
+// --- construction ---------------------------------------------------------------------------------------------
+
+WorkingMoldConstructionOutput constructWorkingMold(IMeshGeometryEngine& engine, const WorkingMoldConstructionInput& input, const CancellationToken& cancel) {
   const double wall = workingMoldEnvelopeWallMm(input.sourceBounds, input.minimumToolingWallMm);
   Envelope env;
   env.bounds = inflatedBounds(input.sourceBounds, wall);
@@ -345,22 +577,80 @@ WorkingMoldConstructionOutput constructWorkingMold(IMeshGeometryEngine& engine, 
   SolidPtr negativeTool = part;
   if (input.releaseClearanceMm > 0) negativeTool = engine.minkowskiSphere(part, input.releaseClearanceMm, 16);
 
-  std::vector<SolidPtr> pieceSolids;
-  SolidPtr remainder = engine.box(env.bounds);
-  for (const PlannedPieceRegion& piece : input.pieces) {
-    if (!piece.plane) {
-      pieceSolids.push_back(remainder);
-      remainder.reset();
-      break;
+  // Construction MODE: multi-label (every piece carries triangles), simultaneous grid (every non-last piece carries a
+  // grid and the last is the catch-all), otherwise sequential half-space / curve carving. (The volumetric mode is never
+  // reached by the engine and is not ported.)
+  const bool isMultiLabel = input.pieces.size() >= 2 && std::all_of(input.pieces.begin(), input.pieces.end(), [](const auto& p) { return p.multiLabelTriangles.has_value(); });
+  const bool isSimultaneous = !isMultiLabel && input.pieces.size() >= 2 &&
+                              std::all_of(input.pieces.begin(), input.pieces.end() - 1, [](const auto& p) { return p.grid.has_value(); }) && !input.pieces.back().plane;
+
+  // Keeps the first region a later one claims; any residue between independently built claims is resolved in order.
+  const auto resolveOverlaps = [&](std::vector<SolidPtr>& claims, const char* what) {
+    SolidPtr claimedSoFar;
+    for (std::size_t index = 0; index < claims.size(); ++index) {
+      if (claimedSoFar) {
+        claims[index] = engine.subtract(claims[index], claimedSoFar);
+        if (!claims[index]->isValid()) fail(std::string(what) + " overlap resolution failed: invalid solid.");
+      }
+      claimedSoFar = claimedSoFar ? engine.unionOf({claimedSoFar, claims[index]}) : engine.asOriginal(claims[index]);
     }
-    const SolidPtr cutting = engine.solidFromMesh(halfSpacePrismPayload(piece.plane->direction, piece.plane->offsetMm, env.bounds),
-                                                  env.policy.booleanToleranceMm, "Mesh preparation");
-    const SolidPtr region = engine.intersect(remainder, cutting);
-    remainder = engine.subtract(remainder, cutting);
-    pieceSolids.push_back(region);
+    return claimedSoFar;
+  };
+
+  std::vector<SolidPtr> pieceSolids;
+  if (isMultiLabel) {
+    const double diagonal = jsHypot3(env.bounds.max.x - env.bounds.min.x, env.bounds.max.y - env.bounds.min.y, env.bounds.max.z - env.bounds.min.z);
+    const double voxel = diagonal / 60;
+    MultiLabelPartitionInput ml;
+    for (const auto& piece : input.pieces) ml.pieceTriangleIndices.push_back(*piece.multiLabelTriangles);
+    ml.positions = &input.sourcePositions;
+    ml.indices = &input.sourceIndices;
+    ml.bounds = env.bounds;
+    ml.voxelSizeMm = voxel;
+    ml.smoothnessWeight = voxel * 2;
+    ml.maxIterations = 15;
+    MultiLabelPartitionResult labelled = buildMultiLabelPartitionSolids(engine, ml, cancel);
+    pieceSolids = std::move(labelled.solids);
+    resolveOverlaps(pieceSolids, "Multi-label partition");
+  } else if (isSimultaneous) {
+    const SolidPtr envelopeBlank = engine.box(env.bounds);
+    std::vector<SolidPtr> claims;
+    for (std::size_t i = 0; i + 1 < input.pieces.size(); ++i) {
+      const PlannedPieceRegion& piece = input.pieces[i];
+      const SolidPtr localTool = localBoundedAssignmentSolid(engine, piece.grid->ownPoints, piece.grid->otherPoints, piece.releaseDirection, env.bounds,
+                                                             env.policy.booleanToleranceMm, piece.grid->ownPatchRadiusMm);
+      const SolidPtr claim = engine.intersect(envelopeBlank, localTool);
+      if (!claim->isValid()) fail("Simultaneous-partition raw claim failed: invalid solid.");
+      claims.push_back(claim);
+    }
+    const SolidPtr claimedSoFar = resolveOverlaps(claims, "Simultaneous-partition");
+    pieceSolids = claims;
+    const SolidPtr catchAll = claimedSoFar ? engine.subtract(envelopeBlank, claimedSoFar) : engine.asOriginal(envelopeBlank);
+    if (!catchAll->isValid()) fail("Simultaneous-partition catch-all failed: invalid solid.");
+    pieceSolids.push_back(catchAll);
+  } else {
+    SolidPtr remainder = engine.box(env.bounds);
+    for (const PlannedPieceRegion& piece : input.pieces) {
+      if (!piece.plane) {
+        pieceSolids.push_back(remainder);
+        remainder.reset();
+        break;
+      }
+      if (piece.curve) {
+        if (piece.curve->empty()) fail("a height-field cutting tool needs at least one curve group.");
+        for (const auto& group : *piece.curve) if (group.size() < 3) fail("a height-field cutting tool needs at least 3 curve points per neighbor group.");
+      }
+      const SolidPtr cutting = piece.curve
+          ? (piece.curve->size() == 1
+                 ? heightFieldPartingSolid(engine, (*piece.curve)[0], piece.plane->direction, piece.plane->offsetMm, env.bounds, env.policy.booleanToleranceMm)
+                 : multiNeighborHeightFieldSolid(engine, *piece.curve, piece.plane->direction, piece.plane->offsetMm, env.bounds, env.policy.booleanToleranceMm))
+          : engine.solidFromMesh(halfSpacePrismPayload(piece.plane->direction, piece.plane->offsetMm, env.bounds), env.policy.booleanToleranceMm, "Mesh preparation");
+      const SolidPtr region = engine.intersect(remainder, cutting);
+      remainder = engine.subtract(remainder, cutting);
+      pieceSolids.push_back(region);
+    }
   }
   if (pieceSolids.size() != input.pieces.size()) fail("working mold partition did not produce one region per planned piece.");
-
   // Split fragmented regions into their connected components (each keeps its parent's plan entry).
   std::vector<SolidPtr> expanded;
   std::vector<PlannedPieceRegion> expandedPieces;
@@ -378,8 +668,10 @@ WorkingMoldConstructionOutput constructWorkingMold(IMeshGeometryEngine& engine, 
 
   WorkingMoldConstructionOutput output;
   output.registrationPlan = placeRegistration(engine, expandedInput, env, part, carved);
-  ReleaseResult release = verifyWorkingMoldRelease(engine, expandedInput, env, part, carved, input.extraReleaseDirections,
-                                                   input.useGreedyReleaseOrder);
+  std::vector<Point3> extraDirections;
+  if (isMultiLabel) for (const auto& piece : input.pieces) extraDirections.push_back(piece.releaseDirection);
+  extraDirections.insert(extraDirections.end(), input.extraReleaseDirections.begin(), input.extraReleaseDirections.end());
+  ReleaseResult release = verifyWorkingMoldRelease(engine, expandedInput, env, part, carved, extraDirections, input.useGreedyReleaseOrder);
   output.releaseSequence = release.steps;
   output.releaseSweepCount = release.candidatesSwept;
 
