@@ -225,6 +225,47 @@ ScrollView {
                     }
                 }
                 Button {
+                    id: masterExportButton
+                    visible: app.masterMold.showPieces === true
+                    text: app.masterMold.exporting ? qsTr("Exporting…") : qsTr("Export Master tooling…")
+                    Layout.fillWidth: true
+                    enabled: app.masterMold.canExport === true
+                    onClicked: window.exportMasterTooling()
+                }
+                Label {
+                    visible: app.masterMold.showPieces === true && app.masterMold.canExport === true && !app.masterMold.lastExport.folder
+                    text: qsTr("Exports %1 STL file(s) and a manifest into a new folder; nothing is overwritten. Stale or blocked parts are skipped.")
+                              .arg(app.masterMold.exportablePieceCount)
+                    wrapMode: Text.Wrap; Layout.fillWidth: true
+                    color: "#8a8f98"
+                }
+                ColumnLayout {
+                    visible: !!app.masterMold.lastExport.folder
+                    Layout.fillWidth: true
+                    Label {
+                        text: qsTr("Exported %1 file(s) to:").arg(app.masterMold.lastExport.fileCount || 0)
+                        font.bold: true
+                        wrapMode: Text.Wrap; Layout.fillWidth: true
+                    }
+                    Label {
+                        text: app.masterMold.lastExport.folder || ""
+                        wrapMode: Text.WrapAnywhere; Layout.fillWidth: true
+                        textFormat: Text.PlainText
+                    }
+                    Button {
+                        text: qsTr("Show folder")
+                        onClicked: Qt.openUrlExternally(app.fileUrl(app.masterMold.lastExport.folder))
+                    }
+                    Repeater {
+                        model: app.masterMold.lastExport.warnings || []
+                        delegate: Label { required property var modelData; text: "⚠ " + modelData; wrapMode: Text.Wrap; Layout.fillWidth: true; color: "#c98a4f" }
+                    }
+                    Repeater {
+                        model: app.masterMold.lastExport.excluded || []
+                        delegate: Label { required property var modelData; text: qsTr("Skipped: ") + modelData; wrapMode: Text.Wrap; Layout.fillWidth: true; color: "#8a8f98" }
+                    }
+                }
+                Button {
                     visible: app.masterMold.status !== "unavailable"
                     text: qsTr("Reset Master Mold")
                     Layout.fillWidth: true

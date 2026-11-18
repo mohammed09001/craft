@@ -3,6 +3,9 @@
 // and the model the QML panel binds to. The product logic itself lives in the
 // Qt-free core (master/MasterMoldStore).
 
+#include <QDateTime>
+#include <QDir>
+#include <QFileInfo>
 #include <QLoggingCategory>
 #include <QTimer>
 
@@ -96,6 +99,7 @@ void AppController::generateMasterMold() {
   masterRunning_ = true;
   masterTimedOut_ = false;
   masterUnportedPaths_.clear();
+  lastMasterExport_.clear();  // it described the previous generation
   emit masterMoldChanged();
   setBusy(true, QStringLiteral("master-mold"), 0);
   setStatus(QStringLiteral("Planning master tooling…"));
@@ -170,6 +174,7 @@ void AppController::clearMasterRun(bool resetStore) {
   masterRunning_ = false;
   if (resetStore) masterStore_.reset();
   masterUnportedPaths_.clear();
+  lastMasterExport_.clear();
   if (masterShown_) {
     scene_.clearMoldBodies();
     masterShown_ = false;
@@ -251,6 +256,86 @@ void AppController::showMasterBodies() {
   refreshSceneFrame(true);
 }
 
+// --- export ------------------------------------------------------------------------------------------------------------------------
+
+void AppController::exportMasterTooling(const QUrl& folder) { exportMasterToolingTo(folder.toLocalFile()); }
+
+void AppController::exportMasterToolingTo(const QString& folderPath) {
+  if (masterExporting_) {
+    setStatus(QStringLiteral("A Master tooling export is already running."));
+    return;
+  }
+  if (masterStore_.status() == "generating") {
+    setStatus(QStringLiteral("Wait for the Master Mold to finish generating before exporting."));
+    return;
+  }
+  if (folderPath.isEmpty()) {
+    emit errorOccurred(QStringLiteral("Export Master tooling"), QStringLiteral("No export folder was chosen."), QStringLiteral("master_export_write_failed"));
+    return;
+  }
+
+  // The job owns a copy of the sets (shared, not copied again), so regenerating or resetting while it runs is safe.
+  const auto sets = std::make_shared<const std::vector<MasterToolingSetState>>(masterStore_.sets());
+  toolingexport::MasterExportOptions options;
+  options.modelName = model_ ? model_->fileName.toStdString() : std::string("part");
+  options.appVersion = applicationVersion().toStdString();
+  options.exportedAtUtc = QDateTime::currentDateTimeUtc().toString(Qt::ISODate).toStdString();
+  options.generationVersion = masterStore_.generationVersion();
+  options.unportedPathsReached = !masterUnportedPaths_.empty();
+  options.unportedPaths = masterUnportedPaths_;
+
+  struct Exported {
+    QString folder;
+    QStringList files;
+    QStringList warnings;
+    QStringList excluded;
+    qulonglong bytes = 0;
+  };
+  masterExporting_ = true;
+  emit masterMoldChanged();
+  setStatus(QStringLiteral("Exporting Master tooling…"));
+  runJob<Exported>(
+      this, CancellationToken(),
+      [sets, options, folderPath](const CancellationToken& cancel, const ProgressCallback&) {
+        const toolingexport::MasterExportPlan plan = toolingexport::planMasterToolingExport(*sets, options.modelName);
+        const toolingexport::MasterExportResult written =
+            toolingexport::writeMasterToolingExport(plan, std::filesystem::path(folderPath.toStdWString()), options, cancel);
+        Exported out;
+        out.folder = QString::fromStdWString(written.folder.wstring());
+        for (const auto& file : written.files) out.files << QString::fromStdWString(file.wstring());
+        for (const std::string& warning : written.warnings) out.warnings << QString::fromStdString(warning);
+        for (const toolingexport::ExcludedItem& item : written.excluded) {
+          out.excluded << QStringLiteral("%1%2: %3")
+                              .arg(QString::fromStdString(item.moldPartName),
+                                   item.pieceId.empty() ? QString() : QStringLiteral(" / ") + QString::fromStdString(item.pieceId),
+                                   QString::fromStdString(item.reason));
+        }
+        out.bytes = written.totalBytes;
+        return out;
+      },
+      [this](JobOutcome<Exported> outcome) {
+        masterExporting_ = false;
+        if (outcome.state == JobState::Succeeded && outcome.result) {
+          const Exported& r = *outcome.result;
+          lastMasterExport_ = QVariantMap{{"folder", r.folder},
+                                          {"fileCount", static_cast<int>(r.files.size())},
+                                          {"totalBytes", r.bytes},
+                                          {"warnings", r.warnings},
+                                          {"excluded", r.excluded}};
+          emit masterMoldChanged();
+          const QString message = QStringLiteral("Exported %1 Master tooling piece(s) to %2").arg(r.files.size()).arg(r.folder);
+          setStatus(message);
+          emit exportFinished(true, message, r.files);
+          return;
+        }
+        emit masterMoldChanged();
+        const QString message = outcome.state == JobState::Cancelled ? QStringLiteral("The Master tooling export was cancelled.") : outcome.errorMessage;
+        setStatus(QStringLiteral("Master tooling export failed: %1").arg(message));
+        emit exportFinished(false, message, {});
+        if (outcome.state != JobState::Cancelled) emit errorOccurred(QStringLiteral("Export Master tooling"), message, outcome.errorCode);
+      });
+}
+
 // --- panel model -----------------------------------------------------------------------------------------------------------------
 
 QVariantMap AppController::masterMold() const {
@@ -325,6 +410,19 @@ QVariantMap AppController::masterMold() const {
   m.insert("showPieces", hasRenderableToolingGeometry(store.sets()) && ui.kind != "blocked" && ui.kind != "error" && inspectable);
   m.insert("workingMoldPieceCount", store.plan() ? static_cast<int>(store.plan()->moldPieces.size()) : 0);
   m.insert("generationVersion", store.generationVersion());
+
+  // Exportable = some tooling set is current and has pieces. Stale or blocked sets are never exported (they are listed
+  // in the export's manifest as excluded).
+  bool exportable = false;
+  int exportablePieces = 0;
+  for (const MasterToolingSetState& entry : store.sets()) {
+    if (entry.status == "current" && entry.set) exportablePieces += static_cast<int>(entry.set->assembly.pieces.size());
+  }
+  exportable = exportablePieces > 0 && store.status() != "generating" && !masterExporting_;
+  m.insert("canExport", exportable);
+  m.insert("exportablePieceCount", exportablePieces);
+  m.insert("exporting", masterExporting_);
+  m.insert("lastExport", lastMasterExport_);
 
   // Honest scope notice: strategies of the reference that this build does not have.
   m.insert("incomplete", !masterUnportedPaths_.empty());

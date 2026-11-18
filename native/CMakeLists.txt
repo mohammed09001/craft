@@ -149,6 +149,14 @@ target_include_directories(craft_project PUBLIC core io)
 target_link_libraries(craft_project PUBLIC Qt6::Core craft_core)
 craft_target_defaults(craft_project)
 
+# --- craft_export: Master tooling piece export (STL files + manifest; Qt Core for JSON and SHA-256) --
+add_library(craft_export STATIC
+  io/tooling/MasterToolingExport.cpp
+  io/tooling/MasterToolingExport.h
+)
+target_include_directories(craft_export PUBLIC io)
+target_link_libraries(craft_export PUBLIC craft_mold craft_io Qt6::Core)
+craft_target_defaults(craft_export)
 # --- craft_reports: engineering report contracts, registry, pull-direction foundation and evaluation (no Qt) --
 add_library(craft_reports STATIC
   core/reports/ReportJson.cpp

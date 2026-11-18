@@ -52,6 +52,10 @@ Bounds3 validateDisplayable(const TriangleSoup& soup);
 /// so parse(encodeBinary(soup)) reproduces the soup). Throws stl_write_failed for an empty soup.
 std::vector<std::uint8_t> encodeBinary(const TriangleSoup& soup, const std::string& headerNote = {});
 
+/// The exact bytes writeBinary writes for an indexed mesh (callers that hash or verify the file use this).
+/// Throws stl_write_failed for an empty mesh.
+std::vector<std::uint8_t> encodeBinary(const MeshPayload& mesh, const std::string& headerNote = {});
+
 /// Binary STL with facet normals computed from winding. Coordinates are
 /// written unchanged (millimeters, Z-up). Throws stl_write_failed.
 void writeBinary(const std::filesystem::path& path, const MeshPayload& mesh,

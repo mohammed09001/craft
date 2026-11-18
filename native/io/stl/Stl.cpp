@@ -213,20 +213,19 @@ std::vector<std::uint8_t> encodeBinary(const TriangleSoup& soup, const std::stri
   return buffer;
 }
 
-void writeBinary(const std::filesystem::path& path, const MeshPayload& mesh,
-                 const std::string& headerNote) {
+std::vector<std::uint8_t> encodeBinary(const MeshPayload& mesh, const std::string& headerNote) {
   const std::size_t triangles = mesh.triangleCount();
   if (triangles == 0 || triangles > 0xFFFFFFFFull) {
     throw CodedError("stl_write_failed", "The mesh has no triangles to export.");
   }
-  std::vector<char> buffer(kBinaryHeaderBytes + triangles * kBinaryFacetBytes, 0);
+  std::vector<std::uint8_t> buffer(kBinaryHeaderBytes + triangles * kBinaryFacetBytes, 0);
   // The header must not start with "solid" or readers mistake it for ASCII.
   const std::string header = "Craft native export; units=millimeters; up=Z; " + headerNote;
   std::memcpy(buffer.data(), header.data(), std::min<std::size_t>(header.size(), 80));
   const std::uint32_t count = static_cast<std::uint32_t>(triangles);
   std::memcpy(buffer.data() + 80, &count, 4);
 
-  char* out = buffer.data() + kBinaryHeaderBytes;
+  std::uint8_t* out = buffer.data() + kBinaryHeaderBytes;
   for (std::size_t triangle = 0; triangle < triangles; ++triangle, out += kBinaryFacetBytes) {
     float v[9];
     for (int corner = 0; corner < 3; ++corner) {
@@ -246,6 +245,12 @@ void writeBinary(const std::filesystem::path& path, const MeshPayload& mesh,
     std::memcpy(out, normal, 12);
     std::memcpy(out + 12, v, 36);
   }
+  return buffer;
+}
+
+void writeBinary(const std::filesystem::path& path, const MeshPayload& mesh,
+                 const std::string& headerNote) {
+  const std::vector<std::uint8_t> buffer = encodeBinary(mesh, headerNote);
 
   // Write to a sibling temp file and rename so a failed export never leaves a
   // truncated file under the requested name.
@@ -253,7 +258,7 @@ void writeBinary(const std::filesystem::path& path, const MeshPayload& mesh,
   temporary += ".craft-tmp";
   {
     std::ofstream stream(temporary, std::ios::binary | std::ios::trunc);
-    if (!stream || !stream.write(buffer.data(), static_cast<std::streamsize>(buffer.size()))) {
+    if (!stream || !stream.write(reinterpret_cast<const char*>(buffer.data()), static_cast<std::streamsize>(buffer.size()))) {
       throw CodedError("stl_write_failed", "The STL file could not be written.");
     }
   }
@@ -264,5 +269,4 @@ void writeBinary(const std::filesystem::path& path, const MeshPayload& mesh,
     throw CodedError("stl_write_failed", "The STL file could not be written.");
   }
 }
-
 }  // namespace craft::stl

@@ -33,6 +33,7 @@
 #include "mold/CavityGeneration.h"
 #include "mold/DerivedMold.h"
 #include "master/MasterMoldStore.h"
+#include "tooling/MasterToolingExport.h"
 #include "mold/Segmentation.h"
 #include "mold/SprueGeneration.h"
 
@@ -203,6 +204,13 @@ class AppController : public QObject {
   Q_INVOKABLE void toggleMasterPiece(const QString& pieceKey);
   Q_INVOKABLE void isolateMasterSet(const QString& moldPartId);
   Q_INVOKABLE void showAllMasterPieces();
+  /// Exports every piece of every current tooling set as a binary STL, plus manifest.json, into a NEW sub-folder of
+  /// the chosen folder (nothing is overwritten). Runs on a worker thread; the outcome is in masterMold.lastExport and
+  /// exportFinished.
+  Q_INVOKABLE void exportMasterTooling(const QUrl& folder);
+  void exportMasterToolingTo(const QString& folderPath);
+  /// A local path as a file:// URL (for opening a folder in the system file browser from QML).
+  Q_INVOKABLE QUrl fileUrl(const QString& path) const { return QUrl::fromLocalFile(path); }
   const MasterMoldStore& masterMoldStore() const { return masterStore_; }
 
   // --- segmentation --------------------------------------------------------------
@@ -420,6 +428,8 @@ class AppController : public QObject {
   bool masterRunning_ = false;
   std::vector<std::string> masterUnportedPaths_;
   QString masterTimeoutMessage_;
+  bool masterExporting_ = false;
+  QVariantMap lastMasterExport_;
 
   // sprues
   std::vector<SprueOperationDefinition> sprueIntents_;

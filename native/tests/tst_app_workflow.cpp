@@ -2,9 +2,17 @@
 
 #include <QtTest/QtTest>
 
+#include <QCryptographicHash>
+#include <QDir>
+#include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QRegularExpression>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+
+#include <set>
 
 #include "AppController.h"
 #include "AppPaths.h"
@@ -335,6 +343,98 @@ class WorkflowTest : public QObject {
     app->resetMasterMold();
     QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("unavailable"));
     QCOMPARE(app->scene()->count(), partRows);
+  }
+
+  void masterToolingExportWritesEveryCurrentPieceAndRefusesStaleOnes() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    QTemporaryDir out;
+    QVERIFY(out.isValid());
+    QSignalSpy finished(app.get(), &AppController::exportFinished);
+    QSignalSpy errors(app.get(), &AppController::errorOccurred);
+
+    // Nothing generated yet: nothing to export, the reason is reported, and no folder is created.
+    QVERIFY(!app->masterMold().value("canExport").toBool());
+    app->exportMasterToolingTo(out.filePath("none"));
+    QVERIFY(waitFor([&] { return finished.count() == 1; }));
+    QVERIFY(!finished.at(0).at(0).toBool());
+    QCOMPARE(errors.count(), 1);
+    QVERIFY(!QDir(out.filePath("none")).exists());
+
+    app->generateMasterMold();
+    QVERIFY(waitFor([&] { return app->masterMold().value("status").toString() != "generating" && !app->busy(); }, 120000));
+    QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("current"));
+    QVERIFY(app->masterMold().value("canExport").toBool());
+    int expected = 0;
+    for (const QVariant& set : app->masterMold().value("sets").toList()) expected += set.toMap().value("pieces").toList().size();
+    QVERIFY(expected > 0);
+    QCOMPARE(app->masterMold().value("exportablePieceCount").toInt(), expected);
+
+    // Hiding a piece in the viewport does not remove it from the export.
+    const QString firstKey = app->masterMold().value("sets").toList().at(0).toMap().value("pieces").toList().at(0).toMap().value("key").toString();
+    app->toggleMasterPiece(firstKey);
+
+    app->exportMasterToolingTo(out.filePath("export"));
+    QVERIFY(app->masterMold().value("exporting").toBool());
+    QVERIFY(!app->masterMold().value("canExport").toBool());  // one export at a time
+    QVERIFY(waitFor([&] { return finished.count() == 2; }));
+    QVERIFY2(finished.at(1).at(0).toBool(), qPrintable(finished.at(1).at(1).toString()));
+    QVERIFY(!app->masterMold().value("exporting").toBool());
+    QVERIFY(app->masterMold().value("canExport").toBool());
+
+    const QVariantMap last = app->masterMold().value("lastExport").toMap();
+    QCOMPARE(last.value("fileCount").toInt(), expected);
+    const QString folder = last.value("folder").toString();
+    QVERIFY(QDir(folder).exists());
+    QVERIFY(folder.endsWith(QStringLiteral("bracket_master_tooling")));
+
+    // The files and the manifest agree with each other and with the pieces the store holds.
+    QFile manifestFile(QDir(folder).filePath("manifest.json"));
+    QVERIFY(manifestFile.open(QIODevice::ReadOnly));
+    const QJsonObject manifest = QJsonDocument::fromJson(manifestFile.readAll()).object();
+    QCOMPARE(manifest.value("source").toObject().value("model").toString(), QStringLiteral("bracket.stl"));
+    QCOMPARE(manifest.value("units").toString(), QStringLiteral("millimeters"));
+    std::multiset<std::size_t> storeTriangles;
+    for (const MasterToolingSetState& entry : app->masterMoldStore().sets()) {
+      if (!entry.set) continue;
+      for (const MasterToolingPiece& piece : entry.set->assembly.pieces) storeTriangles.insert(piece.mesh.triangleCount());
+    }
+    std::multiset<std::size_t> fileTriangles;
+    int manifestPieces = 0;
+    for (const QJsonValue& setValue : manifest.value("toolingSets").toArray()) {
+      for (const QJsonValue& pieceValue : setValue.toObject().value("pieces").toArray()) {
+        const QJsonObject piece = pieceValue.toObject();
+        ++manifestPieces;
+        const QString path = QDir(folder).filePath(piece.value("file").toString());
+        const stl::ReadResult read = stl::readFile(std::filesystem::path(path.toStdWString()));
+        QCOMPARE(static_cast<int>(read.facetCount), piece.value("triangleCount").toInt());
+        fileTriangles.insert(read.facetCount);
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QCOMPARE(QString::fromLatin1(QCryptographicHash::hash(file.readAll(), QCryptographicHash::Sha256).toHex()), piece.value("sha256").toString());
+        QVERIFY(piece.value("volumeMm3").toDouble() > 0);
+      }
+    }
+    QCOMPARE(manifestPieces, expected);
+    QVERIFY(fileTriangles == storeTriangles);
+    QCOMPARE(QDir(folder).entryList(QDir::Files).size(), expected + 1);  // the STLs and manifest.json
+
+    // Once the part's context changes, the tooling is stale: it is not exported, and the reason says what to do.
+    app->setPrinterVolume(500, 500, 500);
+    QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("stale"));
+    QVERIFY(!app->masterMold().value("canExport").toBool());
+    app->exportMasterToolingTo(out.filePath("export"));
+    QVERIFY(waitFor([&] { return finished.count() == 3; }));
+    QVERIFY(!finished.at(2).at(0).toBool());
+    QVERIFY(finished.at(2).at(1).toString().contains("regenerate"));
+    QCOMPARE(QDir(out.filePath("export")).entryList(QDir::Dirs | QDir::NoDotAndDotDot).size(), 1);  // nothing new was created
+    QCOMPARE(app->masterMold().value("lastExport").toMap().value("folder").toString(), folder);      // the earlier result stays described
+
+    // Regenerating starts a new history: the old export notice is gone.
+    app->generateMasterMold();
+    QVERIFY(app->masterMold().value("lastExport").toMap().isEmpty());
+    QVERIFY(waitFor([&] { return app->masterMold().value("status").toString() != "generating" && !app->busy(); }, 120000));
   }
 
   void masterMoldCancellationAndModelChange() {

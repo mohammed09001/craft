@@ -309,3 +309,11 @@ Evidence: the installed layout (132.5 MB, 1585 files) and the freshly unzipped 7
 Found along the way: the first package silently fell back to the baked-in development interpreter when the bundled runtime was missing (D-053); fixed and covered by a binary check. Verifier bugs fixed: path-separator comparison and UTF-8 summary decoding.
 
 Not done: the installer (WiX could not be fetched, D-055), code signing, an update mechanism, CI, macOS, the Qt/Craft licensing decision (R-License-1), a test on a machine that never had a development toolchain.
+
+### Session 20: Master tooling piece export
+
+New feature (the reference has no tooling export): `io/tooling/MasterToolingExport` (plan + writer), the `exportMasterTooling` controller job on a worker thread, `masterMold.canExport/exporting/lastExport` for the panel, an "Export Master tooling…" button and File-menu item, and a shared `stl::encodeBinary(MeshPayload)` so the bytes that are hashed are the bytes that are written. Decisions D-056..D-059; risks R-Export-1..3; spec in MASTER_TOOLING_EXPORT.md.
+
+Evidence: `tst_master_export` 14 cases; `tst_app_workflow` generates a real Master Mold on the bracket, exports it, and checks the files against the store's pieces (triangle counts, SHA-256, manifest) and the stale/empty refusals. Mutation tests: removing the no-overwrite rule, exporting stale sets, and truncating a written file are each caught. Full Debug ctest after the change: 18/18 passed (17 before plus tst_master_export).
+
+Not done: on-screen check of the dialog and panel; 3MF (still only if justified); print orientation (D-059); macOS.

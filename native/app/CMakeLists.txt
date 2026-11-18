@@ -20,7 +20,7 @@ add_library(craft_app_lib STATIC
 )
 target_include_directories(craft_app_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(craft_app_lib PUBLIC
-  craft_viewport craft_mold craft_reports craft_project craft_io craft_mesh_manifold craft_analysis_bridge
+  craft_viewport craft_mold craft_reports craft_project craft_export craft_io craft_mesh_manifold craft_analysis_bridge
   Qt6::Concurrent Qt6::Quick3D)
 # Development fallbacks (the source-tree worker and the developer's interpreter) are compiled in only for development
 # builds. A packaged build must resolve its runtime from its own folder and report "analysis_runtime_missing" if it is

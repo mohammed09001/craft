@@ -13,6 +13,7 @@ ApplicationWindow {
     title: (app.modelInfo.fileName ? app.project.title + " — " : "") + "Craft"
 
     function exportMold() { exportDialog.open() }
+    function exportMasterTooling() { masterExportDialog.open() }
 
     // Replacing the document discards unsaved changes: ask first. (Saving is asynchronous, so the dialog offers to
     // cancel and save with Ctrl+S rather than chaining the action behind the save.)
@@ -120,6 +121,11 @@ ApplicationWindow {
         title: qsTr("Export mold bodies to folder")
         onAccepted: app.exportMoldBodies(selectedFolder)
     }
+    FolderDialog {
+        id: masterExportDialog
+        title: qsTr("Export Master tooling: choose where to create the export folder")
+        onAccepted: app.exportMasterTooling(selectedFolder)
+    }
     Dialog {
         id: errorDialog
         property string detail: ""
@@ -166,6 +172,7 @@ ApplicationWindow {
             MenuItem { action: saveAsAction }
             MenuSeparator {}
             MenuItem { text: qsTr("&Export mold STL…"); enabled: app.moldPhase === "complete"; onTriggered: window.exportMold() }
+            MenuItem { text: qsTr("Export &Master tooling…"); enabled: app.masterMold.canExport === true; onTriggered: window.exportMasterTooling() }
             MenuSeparator {}
             MenuItem { action: quitAction }
         }
