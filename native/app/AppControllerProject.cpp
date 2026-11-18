@@ -125,6 +125,7 @@ project::Document AppController::captureDocument(bool forFingerprint) const {
     m.assetId = "model";
     m.triangleCount = model_->sourceSoup->triangleCount();
     m.sourceEncoding = model_->encoding.toStdString();
+    m.sourceSizeBytes = static_cast<std::uint64_t>(model_->fileSizeBytes);
     m.geometryVersion = model_->geometryVersion;
     // The content hash is computed by the save job (it hashes the encoded bytes); the dirty check only needs identity.
     if (forFingerprint) m.sha256 = model_->geometryVersion;
@@ -424,7 +425,8 @@ void AppController::openProjectFile(const QString& path, const QString& relinked
             bytes = project::loadLinkedModel(*doc.model, relinkedModelPath);
           }
           const auto read = stl::parse({reinterpret_cast<const std::uint8_t*>(bytes.constData()), static_cast<std::size_t>(bytes.size())});
-          LoadedModel model = buildLoadedModel(read.soup, read.encoding, requestId, QString::fromStdString(doc.model->fileName), sourcePath, bytes.size());
+          LoadedModel model = buildLoadedModel(read.soup, read.encoding, requestId, QString::fromStdString(doc.model->fileName), sourcePath,
+                                              doc.model->sourceSizeBytes ? static_cast<qint64>(doc.model->sourceSizeBytes) : bytes.size());
           if (!doc.model->sourceEncoding.empty()) model.encoding = QString::fromStdString(doc.model->sourceEncoding);
           if (!doc.model->geometryVersion.empty() && doc.model->geometryVersion != model.geometryVersion)
             opened.warnings.push_back("The model's geometry fingerprint differs from the one saved in the project; results may differ from the saved session.");

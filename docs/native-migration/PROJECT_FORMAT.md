@@ -8,7 +8,7 @@ A project stores what the user **decided**, not what was derived:
 
 | Section | Contents |
 |---|---|
-| `model` | the source model: file name, size, SHA-256, triangle count, original encoding, the app's geometry fingerprint, and either the embedded asset id or a linked path |
+| `model` | the source model: file name, size, the size of the file that was imported (`sourceSizeBytes`, optional; 0 or absent = the stored file is the imported one), SHA-256, triangle count, original encoding, the app's geometry fingerprint, and either the embedded asset id or a linked path |
 | `moldInputs` | mold clearance, cavity clearance, the six cut faces (enabled, normalized position) |
 | `sprues` | every sprue intent: id, creation order, position, inward direction, resolved profile (diameters, neck length), the design record and its warnings |
 | `segmentation` | printer volume and the user's extension planes (axis + coordinate) |

@@ -367,3 +367,12 @@ Built: `app/AppControllerHistory.cpp` (snapshot capture and restore, 50-entry st
 Evidence: `craftUndoReference.test.ts` drives the real store through 5 sequences and a derived-results scenario; `tst_app_workflow` replays every step (planes, positions, clearance, undo and redo depth, the 50 cap) and has tests for restoring the generated mold (same result object, no job run), sprue bursts and their evaluation, cancelling a running generation, slider gestures and the project becoming clean again; `app_smoke_undo` clicks the real buttons and sends real Ctrl+Z / Ctrl+Y. Mutations (shortcut removed, redo not cleared, cap 51, mold not restored, gesture not coalesced) each fail a test; dropping the cancel call does not (R-Undo-4). Debug ctest: 25/25 pass.
 
 Not done: body-visibility history, a measurement of snapshot memory, a pixel check of the toolbar, and the macOS build.
+### Session 26: end-to-end project test (Gate 6)
+
+Finding first: the first run of the end-to-end journey failed. After save and reopen the mold had the same geometry and volumes, but every exported STL had a different operation id in its header. Cause: the mold ids embed the imported file's size, and a project embeds the model as binary STL (451,284 bytes) while the imported ASCII file was 2,831,624 bytes. Fixed by recording the imported size in the project (`sourceSizeBytes`, D-075); the exports are now byte-identical across save and reopen.
+
+Built: `endToEndProjectJourney` in `tst_app_workflow` (import the sphere, design with a cut face, clearances and a sprue, generate, export, save, reopen in a fresh session, export again and compare every byte, edit the cut plane, regenerate, save in place, reopen a third time and compare again), a round-trip test for the new field in `tst_project`.
+
+Evidence: exports are checked for well-formed binary STL; the edit is shown to change the triangles; a reopened project starts with an empty history and is clean. Mutations: reopening without the stored size fails the journey; not writing the field fails the project test. Debug ctest: 25/25 pass.
+
+Not done: the journey covers one part and one design (R-E2E-1); exported files were not opened in a slicer or compared with the reference app's files (R-E2E-2); the Master Mold, segmentation and the analysis worker are not part of it.

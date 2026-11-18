@@ -1476,6 +1476,151 @@ class WorkflowTest : public QObject {
     QCOMPARE(reopened->project().value("path").toString(), file);
   }
 
+  // --- Gate 6, end to end: import -> design -> export -> save -> reopen -> export again -> edit -> save -> reopen ---------------
+  // One real project (the 9,024-triangle sphere fixture the reference's e2e suite uses), one journey. The claim under test is
+  // the one that matters to a user: a saved project reopens into a mold whose exported tooling is byte-for-byte the tooling
+  // that was exported before saving, an edit made after reopening survives a second save, and the files are valid STL.
+
+  static QMap<QString, QByteArray> exportedFiles(AppController& app, const QString& folder) {
+    QSignalSpy done(&app, &AppController::exportFinished);
+    app.exportMoldBodiesTo(folder);
+    QMap<QString, QByteArray> files;
+    if (done.count() != 1 || !done.first().at(0).toBool()) return files;
+    for (const QString& name : QDir(folder).entryList({"*.stl"}, QDir::Files, QDir::Name)) {
+      QFile f(QDir(folder).filePath(name));
+      if (f.open(QIODevice::ReadOnly)) files.insert(name, f.readAll());
+    }
+    return files;
+  }
+
+  // A binary STL is an 80-byte header, a uint32 triangle count and 50 bytes per triangle, and nothing else.
+  static bool isWellFormedBinaryStl(const QByteArray& bytes) {
+    if (bytes.size() < 84) return false;
+    quint32 triangles = 0;
+    memcpy(&triangles, bytes.constData() + 80, 4);
+    return triangles > 0 && bytes.size() == 84 + 50 * static_cast<qint64>(triangles);
+  }
+
+  void endToEndProjectJourney() {
+    const QString sphere = QStringLiteral(CRAFT_REPO_ROOT "/mold/frontend/e2e/fixtures/highpoly_sphere_15mm_ascii.stl");
+    QTemporaryDir work;
+    const QString projectFile = work.filePath("sphere.craft");
+
+    // 1. Import, design and generate in a first session.
+    QMap<QString, QByteArray> exportedBeforeSave;
+    QList<double> volumes;
+    {
+      auto app = makeApp();
+      app->importStlFile(sphere);
+      QVERIFY(waitFor([&] { return app->modelPhase() == "ready" || app->modelPhase() == "error"; }, 120000));
+      QCOMPARE(app->modelPhase(), QStringLiteral("ready"));
+      app->setMoldClearanceMm(12);
+      app->setCavityClearanceMm(0.3);
+      app->setCutFaceEnabled("right", true);
+      app->setCutFacePosition("right", 0.5);
+      app->generateMold();
+      QVERIFY(waitFor([&] { return app->moldPhase() == "complete" || app->moldPhase() == "error"; }, 600000));
+      QVERIFY2(app->moldPhase() == "complete", qPrintable(app->moldError()));
+
+      app->camera()->setViewportSize(800, 600);
+      app->camera()->lookFrom("top");
+      app->setTool("sprue");
+      bool placed = false;
+      for (int y = 200; y <= 400 && !placed; y += 20)
+        for (int x = 250; x <= 550 && !placed; x += 15) {
+          app->previewSprueAt(x, y, 800, 600);
+          placed = app->sprueCandidate().value("valid").toBool() && app->placeSprueAt(x, y, 800, 600);
+        }
+      QVERIFY2(placed, "no valid sprue position was found on the sphere mold");
+      QVERIFY(waitFor([&] { return app->spruePhase() == "idle" && app->sprueEvaluation().has_value() && !app->busy(); }, 300000));
+      QCOMPARE(app->sprueIntents().front().validation.status, std::string("resolved"));
+      app->setTool("select");
+
+      QTemporaryDir out;
+      exportedBeforeSave = exportedFiles(*app, out.path());
+      QVERIFY2(exportedBeforeSave.size() >= 2, "the export produced fewer than two mold bodies");
+      for (auto it = exportedBeforeSave.cbegin(); it != exportedBeforeSave.cend(); ++it)
+        QVERIFY2(isWellFormedBinaryStl(it.value()), qPrintable(it.key() + " is not a well-formed binary STL"));
+      volumes = bodyVolumes(*app);
+
+      QVERIFY(waitFor([&] { return app->project().value("dirty").toBool(); }, 5000));
+      app->saveProjectToFile(projectFile);
+      QVERIFY(waitForProject(*app, "saving"));
+      QVERIFY(QFileInfo(projectFile).size() > 0);
+      QVERIFY(waitFor([&] { return !app->project().value("dirty").toBool(); }, 5000));
+    }
+
+    // 2. A fresh session opens the file: the same mold, the same exported tooling, nothing to save, nothing to undo.
+    QMap<QString, QByteArray> exportedAfterReopen;
+    {
+      auto app = makeApp();
+      app->openProjectFile(projectFile);
+      QVERIFY(waitFor([&] { return app->modelPhase() == "ready" && !app->project().value("opening").toBool(); }, 120000));
+      QVERIFY(waitFor([&] { return app->moldPhase() == "complete" || app->moldPhase() == "error"; }, 600000));
+      QVERIFY2(app->moldPhase() == "complete", qPrintable(app->moldError()));
+      QVERIFY(waitFor([&] { return app->spruePhase() == "idle" && !app->busy(); }, 300000));
+      QCOMPARE(app->sprueIntents().front().validation.status, std::string("resolved"));
+      QCOMPARE(bodyVolumes(*app), volumes);
+      QVERIFY(!app->history().value("canUndo").toBool());  // opening is not an edit and starts a fresh history
+
+      QTemporaryDir out;
+      exportedAfterReopen = exportedFiles(*app, out.path());
+      QCOMPARE(exportedAfterReopen.keys(), exportedBeforeSave.keys());
+      for (auto it = exportedBeforeSave.cbegin(); it != exportedBeforeSave.cend(); ++it)
+        QVERIFY2(exportedAfterReopen.value(it.key()) == it.value(), qPrintable(it.key() + " differs after save and reopen"));
+      QVERIFY(waitFor([&] { return !app->project().value("dirty").toBool(); }, 5000));
+
+      // 3. Edit after reopening: move the cut plane, regenerate (the sprue intent is kept and evaluated again), save in place.
+      app->setCutFacePosition("right", 0.35);
+      QVERIFY(waitFor([&] { return app->project().value("dirty").toBool(); }, 5000));
+      app->generateMold();
+      QVERIFY(waitFor([&] { return app->moldPhase() == "complete" || app->moldPhase() == "error"; }, 600000));
+      QVERIFY2(app->moldPhase() == "complete", qPrintable(app->moldError()));
+      QVERIFY(waitFor([&] { return app->spruePhase() == "idle" && !app->busy(); }, 300000));
+      QCOMPARE(app->sprueIntents().size(), std::size_t{1});
+      QVERIFY(bodyVolumes(*app) != volumes);  // the edit really changed the mold
+
+      QTemporaryDir editedOut;
+      const QMap<QString, QByteArray> edited = exportedFiles(*app, editedOut.path());
+      QVERIFY(edited.size() >= 2);
+      QVERIFY2(edited != exportedBeforeSave, "the edited mold exported the same files as before the edit");
+      for (auto it = edited.cbegin(); it != edited.cend(); ++it)
+        QVERIFY2(it.value().mid(80) != exportedBeforeSave.value(it.key()).mid(80), qPrintable(it.key() + ": the triangles did not change with the edit"));
+      for (auto it = edited.cbegin(); it != edited.cend(); ++it) QVERIFY(isWellFormedBinaryStl(it.value()));
+      volumes = bodyVolumes(*app);
+      exportedAfterReopen = edited;
+
+      app->saveProject();  // the project has its file now: saves in place, asks for no name
+      QVERIFY(waitForProject(*app, "saving"));
+      QVERIFY(waitFor([&] { return !app->project().value("dirty").toBool(); }, 5000));
+      QCOMPARE(app->project().value("path").toString(), projectFile);
+    }
+
+    // 4. A third session sees the edit, and exports the edited tooling exactly.
+    {
+      auto app = makeApp();
+      app->openProjectFile(projectFile);
+      QVERIFY(waitFor([&] { return app->modelPhase() == "ready" && !app->project().value("opening").toBool(); }, 120000));
+      QVERIFY(waitFor([&] { return app->moldPhase() == "complete" || app->moldPhase() == "error"; }, 600000));
+      QVERIFY2(app->moldPhase() == "complete", qPrintable(app->moldError()));
+      QVERIFY(waitFor([&] { return app->spruePhase() == "idle" && !app->busy(); }, 300000));
+      for (const QVariant& f : app->cutFaces())
+        if (f.toMap().value("face").toString() == "right") QCOMPARE(f.toMap().value("position").toDouble(), 0.35);
+      QCOMPARE(bodyVolumes(*app), volumes);
+      QTemporaryDir out;
+      const QMap<QString, QByteArray> files = exportedFiles(*app, out.path());
+      QCOMPARE(files.keys(), exportedAfterReopen.keys());
+      // The mold edited in the second session carries that session's generation counter in its operation id (as in the
+      // reference), so the header may differ in its "op=" field; every triangle must be identical.
+      for (auto it = files.cbegin(); it != files.cend(); ++it) {
+        const QByteArray& expected = exportedAfterReopen.value(it.key());
+        QVERIFY2(it.value().size() == expected.size(), qPrintable(it.key() + " has a different size after the second save and reopen"));
+        QVERIFY2(it.value().mid(80) == expected.mid(80), qPrintable(it.key() + " has different triangles after the second save and reopen"));
+        QCOMPARE(QString::fromLatin1(it.value().left(80)).section("op=", 0, 0), QString::fromLatin1(expected.left(80)).section("op=", 0, 0));
+      }
+    }
+  }
+
   void dirtyTrackingFollowsInputsNotThePose() {
     QTemporaryDir dir;
     auto app = makeApp();

@@ -36,6 +36,7 @@ Document fullDocument(const QByteArray& stl) {
   m.storage = "embedded";
   m.assetId = "model";
   m.sizeBytes = static_cast<std::uint64_t>(stl.size());
+  m.sourceSizeBytes = 2831624;  // the imported ASCII file was larger than the embedded binary one
   m.sha256 = sha256Hex(stl);
   m.triangleCount = 12;
   m.sourceEncoding = "ASCII";
@@ -138,6 +139,17 @@ class ProjectTest : public QObject {
     QVERIFY(!bundle.migrated);
     QVERIFY(bundle.warnings.empty());
     QCOMPARE(inputsFingerprint(d), inputsFingerprint(bundle.document));
+  }
+
+  void theImportedFilesSizeSurvivesAndItsAbsenceReadsAsZero() {
+    QTemporaryDir dir;
+    const QByteArray stl = fakeStl();
+    Document d = fullDocument(stl);
+    writeProject(dir.filePath("a.craft"), d, stl);
+    QCOMPARE(readProject(dir.filePath("a.craft")).document.model->sourceSizeBytes, std::uint64_t{2831624});
+    d.model->sourceSizeBytes = 0;  // a file written before the field existed, or a linked model
+    writeProject(dir.filePath("b.craft"), d, stl);
+    QCOMPARE(readProject(dir.filePath("b.craft")).document.model->sourceSizeBytes, std::uint64_t{0});
   }
 
   void doublesRoundTripExactly() {

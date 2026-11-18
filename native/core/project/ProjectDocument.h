@@ -43,6 +43,9 @@ struct ModelReference {
   std::string assetId;               // embedded: the asset holding the STL bytes
   std::string linkedPath;            // linked: the path last seen (may need relinking on another machine)
   std::uint64_t sizeBytes = 0;       // bytes of the embedded / linked STL
+  // Size of the file the user imported (an ASCII STL becomes a smaller binary one when embedded). The mold ids are built
+  // from it, so a reopened project keeps them. 0 means the stored file is the imported one (older files, linked models).
+  std::uint64_t sourceSizeBytes = 0;
   std::string sha256;                // lowercase hex of those bytes
   std::uint64_t triangleCount = 0;   // informational
   std::string sourceEncoding;        // "ASCII" | "Binary": how the user's original file was encoded (informational)

@@ -106,7 +106,7 @@ QJsonObject documentToManifest(const Document& d, const std::vector<AssetEntry>&
   if (d.model) {
     const ModelReference& r = *d.model;
     m["model"] = QJsonObject{{"fileName", q(r.fileName)},       {"storage", q(r.storage)},          {"assetId", q(r.assetId)},
-                             {"linkedPath", q(r.linkedPath)},   {"sizeBytes", static_cast<double>(r.sizeBytes)}, {"sha256", q(r.sha256)},
+                             {"linkedPath", q(r.linkedPath)},   {"sizeBytes", static_cast<double>(r.sizeBytes)}, {"sourceSizeBytes", static_cast<double>(r.sourceSizeBytes)}, {"sha256", q(r.sha256)},
                              {"triangleCount", static_cast<double>(r.triangleCount)}, {"sourceEncoding", q(r.sourceEncoding)},
                              {"geometryVersion", q(r.geometryVersion)}};
   } else {
@@ -188,6 +188,7 @@ ManifestParse manifestToDocument(const QJsonObject& m) {
     ref.assetId = r.str(o, "assetId", "model", false);
     ref.linkedPath = r.str(o, "linkedPath", "model", false);
     ref.sizeBytes = static_cast<std::uint64_t>(r.num(o, "sizeBytes", "model"));
+    ref.sourceSizeBytes = static_cast<std::uint64_t>(r.num(o, "sourceSizeBytes", "model", false));
     ref.sha256 = r.str(o, "sha256", "model");
     ref.triangleCount = static_cast<std::uint64_t>(r.num(o, "triangleCount", "model", false));
     ref.sourceEncoding = r.str(o, "sourceEncoding", "model", false);
