@@ -144,6 +144,7 @@ function F($v, $fmt = 'N1') { if ($null -eq $v) { return '-' } return ([double]$
 $md = [System.Text.StringBuilder]::new()
 $first = $summary[0].native[0]
 [void]$md.AppendLine("Viewport $Size px, $Runs runs per scene (median), $Frames orbit frames, $(Get-Date -Format 'yyyy-MM-dd')")
+[void]$md.AppendLine("Native display: $($first.screen.name), $([math]::Round($first.screen.refreshHz,1)) Hz (the fastest screen; the window is moved there)")
 [void]$md.AppendLine("Native adapter: $($first.renderer.adapter) ($($first.renderer.backend)); reference: $($summary[0].reference[0].renderer.renderer); Chrome $($summary[0].reference[0].browserVersion)")
 [void]$md.AppendLine()
 [void]$md.AppendLine('### Pixels (native vs reference, part mask from the empty-vs-part difference)')

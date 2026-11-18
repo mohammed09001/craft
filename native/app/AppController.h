@@ -36,6 +36,7 @@
 #include "master/MasterMoldStore.h"
 #include "tooling/MasterToolingExport.h"
 #include "view/SelectionBox.h"
+#include "view/ViewportLook.h"
 #include "mold/SpruePreview.h"
 #include "Held.h"
 #include "SprueHandleModel.h"
@@ -147,6 +148,8 @@ class AppController : public QObject {
   Q_PROPERTY(QQuick3DGeometry* selectedFacesGeometry READ selectedFacesGeometry CONSTANT)
   Q_PROPERTY(QVariantMap selectionBox READ selectionBox NOTIFY selectionOverlayChanged)
   Q_PROPERTY(QVariantMap selectionStyle READ selectionStyle NOTIFY themeChanged)
+  /// How the viewport looks (background, grid, edge style, the lighting rig), from the reference (core/view/ViewportLook).
+  Q_PROPERTY(QVariantMap viewLook READ viewLook NOTIFY themeChanged)
   Q_PROPERTY(QQuick3DGeometry* measureLineGeometry READ measureLineGeometry CONSTANT)
 
   Q_PROPERTY(QString applicationVersion READ applicationVersion CONSTANT)
@@ -376,6 +379,7 @@ class AppController : public QObject {
   QQuick3DGeometry* selectedFacesGeometry() { return &selectedFaceQuads_; }
   QVariantMap selectionBox() const;
   QVariantMap selectionStyle() const;
+  QVariantMap viewLook() const;
   QQuick3DGeometry* measureLineGeometry() { return &measureLine_; }
 
   QString applicationVersion() const;

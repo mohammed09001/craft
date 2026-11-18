@@ -149,10 +149,10 @@ class SelectionEquivalenceTest : public QObject {
     }
     QVERIFY(sawThreshold);
     QVERIFY(!isLightBackground("#808080"));  // sRGB mid-grey is dark in the linear working space
-    QVERIFY(isLightBackground("#e9edf1"));   // the app's light viewport
-    QVERIFY(!isLightBackground("#1b1f24"));  // the app's dark viewport
-    QCOMPARE(highlightColorRgb("#1b1f24"), kHighlightOnDarkRgb);
-    QCOMPARE(highlightColorRgb("#e9edf1"), kHighlightOnLightRgb);
+    QVERIFY(isLightBackground("#f7f9fb"));   // the app's light viewport
+    QVERIFY(!isLightBackground("#0b1118"));  // the app's dark viewport
+    QCOMPARE(highlightColorRgb("#0b1118"), kHighlightOnDarkRgb);
+    QCOMPARE(highlightColorRgb("#f7f9fb"), kHighlightOnLightRgb);
   }
 
   void stylingConstantsMatchTheReference() {

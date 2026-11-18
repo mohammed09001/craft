@@ -1071,7 +1071,7 @@ class WorkflowTest : public QObject {
     QCOMPARE(app->selectionStyle().value("highlightColor").value<QColor>(), QColor("#facc15"));
     app->setTheme("light");
     QCOMPARE(app->selectionStyle().value("highlightColor").value<QColor>(), QColor("#2563eb"));
-    QCOMPARE(app->selectionStyle().value("background").toString(), QStringLiteral("#e9edf1"));
+    QCOMPARE(app->selectionStyle().value("background").toString(), QStringLiteral("#f7f9fb"));
 
     // Clicking empty space clears everything.
     QVERIFY(!app->pickAt(2, 2, 800, 600));

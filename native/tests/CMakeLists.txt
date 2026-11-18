@@ -85,6 +85,9 @@ endif()
 
 if(CRAFT_BUILD_APP)
   craft_add_test(tst_viewport SOURCES tst_viewport.cpp LIBS craft_viewport craft_io)
+  craft_add_test(tst_viewport_look SOURCES tst_viewport_look.cpp LIBS craft_viewport Qt6::Core)
+  target_compile_definitions(tst_viewport_look PRIVATE
+    CRAFT_REFERENCE_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/reference")
   craft_add_test(tst_sprue_preview_equivalence
     SOURCES tst_sprue_preview_equivalence.cpp
     LIBS craft_mold craft_viewport Qt6::Core)

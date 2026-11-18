@@ -1,4 +1,5 @@
 #include "SceneModel.h"
+#include "view/ViewportLook.h"
 
 #include <algorithm>
 
@@ -105,9 +106,7 @@ void SceneModel::setPart(const QString& id, const QString& name,
     item.geometry = new viewport::MeshGeometry;
     item.geometry->setParent(this);
     item.geometry->setBuffers(viewport::buildTriangleBuffers(*soup));
-    item.edges = new viewport::LineGeometry;
-    item.edges->setParent(this);
-    item.edges->setBuffers(viewport::buildFeatureEdgeBuffers(*soup));
+    // The reference does not outline the imported part: feature edges are drawn on mold bodies only (featureEdgeOverlay.ts).
     item.soup = std::move(soup);
     beginInsertRows({}, 0, 0);
     items_.insert(items_.begin(), std::move(item));
@@ -199,7 +198,7 @@ void SceneModel::setMoldBodies(const std::vector<BodyInput>& bodies) {
     item.geometry->setBuffers(viewport::buildTriangleBuffers(*body.mesh));
     item.edges = new viewport::LineGeometry;
     item.edges->setParent(this);
-    item.edges->setBuffers(viewport::buildFeatureEdgeBuffers(*body.mesh));
+    item.edges->setBuffers(viewport::buildFeatureEdgeBuffers(*body.mesh, referenceLook(true).edgeAngleDegrees));
     if (glass_) buildGlassEdges(item);
     const int row = count();
     beginInsertRows({}, row, row);

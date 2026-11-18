@@ -23,8 +23,8 @@ namespace {
 
 constexpr const char* kPartKindName = "part";
 // The viewport clear colours (also used by ViewportView.qml through selectionStyle.background).
-constexpr const char* kDarkBackground = "#1b1f24";
-constexpr const char* kLightBackground = "#e9edf1";
+constexpr const char* kDarkBackground = "#0b1118";   // the reference viewport's backgrounds (core/view/ViewportLook)
+constexpr const char* kLightBackground = "#f7f9fb";
 
 QVariantMap pointMap(const Point3& p) { return {{"x", p.x}, {"y", p.y}, {"z", p.z}}; }
 

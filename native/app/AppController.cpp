@@ -218,7 +218,7 @@ void AppController::applyModel(LoadedModel model) {
   modelPhase_ = QStringLiteral("ready");
   modelMessage_ = model_->fileName;
   scene_.setPart(QString::fromStdString(model_->modelId), model_->fileName, model_->groundedSoup,
-                 theme_ == "dark" ? QColor("#9fb4c7") : QColor("#5b7a99"));
+                 QColor::fromRgb(referenceLook(true).partRgb));
   scene_.setPartOffset({0, 0, 0});
   grid_ = deriveAdaptiveGridConfig(model_->groundedBounds);
   rebuildGrid();
@@ -444,7 +444,7 @@ void AppController::showFinalBodies(bool refit) {
                       std::make_shared<MeshPayload>(body.mesh), body.bounds, body.volumeMm3});
   }
   scene_.setMoldBodies(bodies);
-  scene_.recolor(theme_ == "dark" ? QColor("#9fb4c7") : QColor("#5b7a99"), darkPalette());
+  applySceneColors();
   applySceneColors();
   refreshSceneFrame(refit);
 }
@@ -658,7 +658,68 @@ void AppController::setTheme(const QString& theme) {
 }
 
 void AppController::applySceneColors() {
-  scene_.recolor(theme_ == "dark" ? QColor("#9fb4c7") : QColor("#5b7a99"), darkPalette());
+  // The reference paints the imported part and every mold body in one colour each (CAD_DARK_THEME), in both themes.
+  const ViewportLook look = referenceLook(true);
+  scene_.recolor(QColor::fromRgb(look.partRgb), {QColor::fromRgb(look.moldRgb)});
+}
+
+namespace {
+
+// Qt Quick 3D's light units against three.js's, to be calibrated against the reference's frames
+// (VIEWPORT_COMPARISON.md): three.js divides the Lambert term by pi, so a directional intensity I corresponds to about
+// I / pi here; the reference's exposure scales all light before tone mapping.
+constexpr double kPi = 3.14159265358979323846;
+double gDirectionalScale = 1.0 / kPi;
+double gAmbientScale = 1.0 / kPi;
+
+QColor channelsToColor(double r, double g, double b) {
+  return QColor::fromRgbF(static_cast<float>(qBound(0.0, r, 1.0)), static_cast<float>(qBound(0.0, g, 1.0)),
+                          static_cast<float>(qBound(0.0, b, 1.0)));
+}
+
+QVariantMap directionalLight(const LookLight& l, double exposure) {
+  const QVector3D from(static_cast<float>(l.position.x), static_cast<float>(l.position.y), static_cast<float>(l.position.z));
+  // Shines from its position towards the origin.
+  const QQuaternion rotation = QQuaternion::rotationTo(QVector3D(0, 0, -1), (-from).normalized());
+  return {{"rotation", rotation},
+          {"color", QColor::fromRgb(l.colorRgb)},
+          {"brightness", l.intensity * exposure * gDirectionalScale}};
+}
+
+}  // namespace
+
+QVariantMap AppController::viewLook() const {
+  const bool dark = theme_ == "dark";
+  const ViewportLook look = referenceLook(dark);
+  QVariantList lights;
+  lights.append(directionalLight(look.key, look.exposure));
+  lights.append(directionalLight(look.fill, look.exposure));
+  lights.append(directionalLight(look.rim, look.exposure));
+
+  // The hemisphere light is a sky colour above and a ground colour below: its mean is an ambient term and half its
+  // difference a light from straight above.
+  const auto channel = [](std::uint32_t rgb, int shift) { return ((rgb >> shift) & 0xff) / 255.0; };
+  const auto mean = [&](int shift) { return (channel(look.hemisphereSkyRgb, shift) + channel(look.hemisphereGroundRgb, shift)) / 2.0; };
+  const auto diff = [&](int shift) { return (channel(look.hemisphereSkyRgb, shift) - channel(look.hemisphereGroundRgb, shift)) / 2.0; };
+  QVariantMap sky;
+  sky.insert("rotation", QQuaternion::rotationTo(QVector3D(0, 0, -1), QVector3D(0, 0, -1)));  // shines straight down
+  sky.insert("color", channelsToColor(diff(16), diff(8), diff(0)));
+  sky.insert("brightness", look.hemisphereIntensity * look.exposure * gDirectionalScale);
+  lights.append(sky);
+  const double ambient = look.ambientIntensity + look.hemisphereIntensity * (mean(16) + mean(8) + mean(0)) / 3.0;
+  const double a = ambient * look.exposure * gAmbientScale;
+
+  return {{"background", QColor::fromRgb(look.backgroundRgb)},
+          {"gridMinorColor", QColor::fromRgb(look.gridMinor.colorRgb)},
+          {"gridMinorOpacity", look.gridMinor.opacity},
+          {"gridMajorColor", QColor::fromRgb(look.gridMajor.colorRgb)},
+          {"gridMajorOpacity", look.gridMajor.opacity},
+          {"edgeColor", QColor::fromRgb(look.edgeRgb)},
+          {"edgeOpacity", look.edgeOpacity},
+          {"roughness", look.roughness},
+          {"metalness", look.metalness},
+          {"lights", lights},
+          {"ambientColor", channelsToColor(a, a, a)}};
 }
 
 void AppController::setShowGrid(bool v) { if (v != showGrid_) { showGrid_ = v; emit viewOptionsChanged(); } }
@@ -998,7 +1059,7 @@ void AppController::showSegmentationBodies() {
     const Point3 o = segmentation_.source->definition.partOffset;
     scene_.setPartOffset({static_cast<float>(o.x), static_cast<float>(o.y), static_cast<float>(o.z)});
   }
-  scene_.recolor(theme_ == "dark" ? QColor("#9fb4c7") : QColor("#5b7a99"), darkPalette());
+  applySceneColors();
   applySceneColors();
   refreshSceneFrame(true);
 }

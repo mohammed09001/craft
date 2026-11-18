@@ -73,6 +73,8 @@ add_library(craft_core STATIC
   core/view/Rotation.cpp
   core/view/Rotation.h
   core/view/ViewPose.cpp
+  core/view/ViewportLook.cpp
+  core/view/ViewportLook.h
   core/view/ViewPose.h
 )
 target_include_directories(craft_core PUBLIC core)

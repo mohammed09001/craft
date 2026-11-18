@@ -10,19 +10,24 @@ Item {
     id: root
     property bool dark: app.theme === "dark"
     property var style: app.selectionStyle      // highlight, selection box and overlay colours (one source: C++)
+    property var look: app.viewLook             // background, grid, edge style and lighting rig of the reference (one source: C++)
     property var sprue: app.sprueStyle          // Sprue preview colours and the mold glass look (one source: C++)
     property bool overPart: false               // the pointer is over the part or its selection box (pointer cursor)
     property bool gizmoPress: false             // a press that landed on a sprue ring: this gesture belongs to the gizmo
     property bool swallowRelease: false         // the release that ends a double click the gizmo handled is not a click
     clip: true
 
+    // The background is a plain rectangle under a transparent 3D view: Qt tone maps the clear colour, which would turn the
+    // reference's background (#0b1118 / #f7f9fb) into a different colour, while the reference's background is not tone mapped.
+    Rectangle { anchors.fill: parent; color: root.look.background }
+
     View3D {
         id: view
         anchors.fill: parent
         camera: camera
         environment: SceneEnvironment {
-            clearColor: root.style.background
-            backgroundMode: SceneEnvironment.Color
+            backgroundMode: SceneEnvironment.Transparent
+            tonemapMode: SceneEnvironment.TonemapModeAces   // the reference renders with ACES filmic tone mapping
             antialiasingMode: SceneEnvironment.MSAA
             antialiasingQuality: SceneEnvironment.High
         }
@@ -37,8 +42,19 @@ Item {
             clipFar: app.camera.clipFar
         }
 
-        DirectionalLight { rotation: app.camera.rotation; brightness: 1.1; ambientColor: "#555a60" }
-        DirectionalLight { eulerRotation.x: -35; eulerRotation.y: 140; brightness: 0.5 }
+        // The reference's five-point rig, fixed in the world (key, fill, rim, and the sky half of the hemisphere light); the
+        // ambient and the hemisphere's mean arrive as the ambient colour of the first light.
+        Repeater3D {
+            model: root.look.lights
+            delegate: DirectionalLight {
+                required property int index
+                required property var modelData
+                rotation: modelData.rotation
+                color: modelData.color
+                brightness: modelData.brightness
+                ambientColor: index === 0 ? root.look.ambientColor : "black"
+            }
+        }
 
         // Engineering grid on Z = 0 (minor + major).
         Model {
@@ -46,7 +62,8 @@ Item {
             geometry: app.gridMinorGeometry
             materials: DefaultMaterial {
                 lighting: DefaultMaterial.NoLighting
-                diffuseColor: root.dark ? "#2e353d" : "#cdd3da"
+                diffuseColor: root.look.gridMinorColor
+                opacity: root.look.gridMinorOpacity
             }
         }
         Model {
@@ -54,7 +71,8 @@ Item {
             geometry: app.gridMajorGeometry
             materials: DefaultMaterial {
                 lighting: DefaultMaterial.NoLighting
-                diffuseColor: root.dark ? "#4a545f" : "#a8b0b9"
+                diffuseColor: root.look.gridMajorColor
+                opacity: root.look.gridMajorOpacity
             }
         }
         // Axes: X red, Y green, Z blue.
@@ -179,8 +197,8 @@ Item {
                         // A selected part takes the highlight colour and a faint emissive glow, like the reference.
                         baseColor: itemSelected ? root.style.highlightColor : itemColor
                         emissiveFactor: itemSelected ? root.style.highlightEmissive : Qt.vector3d(0, 0, 0)
-                        metalness: 0.05
-                        roughness: itemSelected ? Math.min(0.6, root.style.highlightRoughness) : 0.6
+                        metalness: root.look.metalness
+                        roughness: itemSelected ? Math.min(root.look.roughness, root.style.highlightRoughness) : root.look.roughness
                         cullMode: Material.NoCulling
                         // While the Sprue tool is active the mold bodies turn to glass (0.28) so the preview shows through.
                         opacity: itemKind === "mold-body" ? (app.sprueGlass ? root.sprue.glassOpacity : app.moldOpacity) : 1.0
@@ -199,11 +217,12 @@ Item {
                     }
                 }
                 Model {
-                    visible: app.showEdges
+                    visible: app.showEdges && itemEdgeGeometry !== null    // mold bodies only: the reference does not outline the part
                     geometry: itemEdgeGeometry
                     materials: DefaultMaterial {
                         lighting: DefaultMaterial.NoLighting
-                        diffuseColor: root.dark ? "#0d1014" : "#2b3138"
+                        diffuseColor: root.look.edgeColor
+                        opacity: root.look.edgeOpacity
                     }
                 }
             }

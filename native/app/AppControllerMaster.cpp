@@ -242,7 +242,7 @@ void AppController::showMasterBodies() {
   }
   scene_.setMoldBodies(inputs);
   scene_.setPartOffset({0, 0, 0});
-  scene_.recolor(theme_ == "dark" ? QColor("#9fb4c7") : QColor("#5b7a99"), palette);
+  scene_.recolor(QColor::fromRgb(referenceLook(true).partRgb), palette);
   const auto& items = scene_.items();
   for (const MasterMoldRenderableBody& body : renderable) {
     for (std::size_t row = 0; row < items.size(); ++row) {

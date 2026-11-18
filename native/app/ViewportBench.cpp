@@ -11,6 +11,7 @@
 #include <QJsonObject>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QScreen>
 #include <QSGRendererInterface>
 #include <QTimer>
 
@@ -226,6 +227,24 @@ struct ViewportBench::Impl {
 
   void start() {
     QTimer::singleShot(600000, window, [this] { fail(QStringLiteral("viewport bench timed out")); });
+    // Which display the window is on decides the refresh rate it is paced by: use the fastest one, not whichever the system
+    // happened to open it on (a machine with a 75 Hz and a 60 Hz monitor gave different cadences from run to run).
+    QScreen* fastest = nullptr;
+    for (QScreen* screen : QGuiApplication::screens())
+      if (!fastest || screen->refreshRate() > fastest->refreshRate()) fastest = screen;
+    if (fastest && window->screen() != fastest) {
+      window->setScreen(fastest);
+      window->setPosition(fastest->geometry().topLeft() + QPoint(40, 40));
+      pump(300);
+    }
+    if (fastest) {
+      QJsonObject screen;
+      screen["name"] = fastest->name();
+      screen["refreshHz"] = fastest->refreshRate();
+      screen["width"] = fastest->size().width();
+      screen["height"] = fastest->size().height();
+      result["screen"] = screen;
+    }
     window->requestActivate();
     if (!sizeViewport()) return fail(QStringLiteral("could not size the viewport to the requested size (the screen may be too small)"));
     result["label"] = options.label;

@@ -209,7 +209,25 @@ class Smoke : public QObject {
   }
   // The Eraser through REAL mouse events: hovering a plane turns it red (after the 33 ms hover throttle), a click on it
   // removes it, a click on empty space removes nothing.
-  void eraserEventsSequence() {
+  // Runs `go` once the viewport item has kept the same size for a while. A window can still be resized after it appears
+  // (placed on another monitor, a layout pass), and a pixel position measured before that no longer lies on the plane.
+  void whenViewportSettled(std::function<void()> go) {
+    struct State { int w = -1, h = -1, stable = 0; };
+    auto state = std::make_shared<State>();
+    auto poll = std::make_shared<std::function<void()>>();
+    *poll = [this, state, poll, go = std::move(go)]() mutable {
+      auto* item = window_->findChild<QQuickItem*>(QStringLiteral("viewport"));
+      const int w = item ? static_cast<int>(item->width()) : 0, h = item ? static_cast<int>(item->height()) : 0;
+      state->stable = (w == state->w && h == state->h && w > 0) ? state->stable + 1 : 0;
+      state->w = w;
+      state->h = h;
+      if (state->stable >= 6) { go(); return; }   // six polls of 50 ms with the same size
+      QTimer::singleShot(50, this, *poll);
+    };
+    QTimer::singleShot(50, this, *poll);
+  }
+  void eraserEventsSequence() { whenViewportSettled([this] { eraserEventsBody(); }); }
+  void eraserEventsBody() {
 #ifndef CRAFT_SMOKE_REAL_EVENTS
     return fail(QStringLiteral("--eraser-events needs a build with CRAFT_BUILD_TESTS"));
 #else
@@ -236,10 +254,17 @@ class Smoke : public QObject {
     app_.eraserLeave();
     if (onPlane.x() < 0) return fail(QStringLiteral("no pixel on a cutting plane"));
 
-    // Hover: the QML throttles it, so give the timer time to fire.
+    // Hover: the QML throttles it with a timer, so wait for the highlight (up to three seconds) instead of a fixed delay.
     send(QEvent::MouseMove, onPlane, Qt::NoButton, Qt::NoButton);
-    QTimer::singleShot(120, this, [this, send, onPlane] {
-      if (app_.cutPlanes().value("hoveredFace").toString().isEmpty()) return fail(QStringLiteral("hovering a plane with the mouse did not highlight it"));
+    auto waited = std::make_shared<int>(0);
+    auto afterHover = std::make_shared<std::function<void()>>();
+    *afterHover = [this, send, onPlane, waited, afterHover, item, w, h]() {
+      if (app_.cutPlanes().value("hoveredFace").toString().isEmpty()) {
+        if ((*waited += 30) < 3000) { QTimer::singleShot(30, this, *afterHover); return; }
+        return fail(QStringLiteral("hovering a plane with the mouse did not highlight it (pixel %1,%2; viewport %3x%4 when measured, %5x%6 now; window active: %7)")
+                        .arg(onPlane.x()).arg(onPlane.y()).arg(w).arg(h).arg(static_cast<int>(item->width())).arg(static_cast<int>(item->height()))
+                        .arg(window_->isActive()));
+      }
       const int before = app_.cutPlanes().value("planeCount").toInt();
       send(QEvent::MouseButtonPress, QPoint(3, 3), Qt::LeftButton, Qt::LeftButton);   // empty space: nothing happens
       send(QEvent::MouseButtonRelease, QPoint(3, 3), Qt::LeftButton, Qt::NoButton);
@@ -248,7 +273,8 @@ class Smoke : public QObject {
       send(QEvent::MouseButtonRelease, onPlane, Qt::LeftButton, Qt::NoButton);
       if (app_.cutPlanes().value("planeCount").toInt() != before - 1) return fail(QStringLiteral("clicking a plane with the Eraser did not remove it (%1 planes, was %2)").arg(app_.cutPlanes().value("planeCount").toInt()).arg(before));
       renderNow();
-    });
+    };
+    QTimer::singleShot(30, this, *afterHover);
 #endif
   }
   // Undo/redo through REAL input: the toolbar buttons clicked with the mouse and Ctrl+Z / Ctrl+Y as key events.
