@@ -12,6 +12,7 @@ inline constexpr int kProtocolVersion = 1;
 // Commands.
 inline constexpr const char* kCommandPing = "ping";
 inline constexpr const char* kCommandImportAnalysis = "import_analysis";
+inline constexpr const char* kCommandMoldabilityAnalysis = "moldability_analysis";
 inline constexpr const char* kCommandShutdown = "shutdown";
 
 // Host-side error codes (the worker adds its own, e.g. "source_not_found").

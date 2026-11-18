@@ -22,7 +22,9 @@ Messages to the worker::
     {"type": "request", "protocolVersion": 1, "jobId": ..., "command": ...,
      "params": {...}}
 
-Commands: ``ping``, ``import_analysis`` (params: ``sourcePath``), ``shutdown``.
+Commands: ``ping``, ``import_analysis`` (params: ``sourcePath``),
+``moldability_analysis`` (params: ``sourcePath``; the existing detailed mold analysis,
+returned as an ``engineering_report`` contract envelope), ``shutdown``.
 
 Jobs run one at a time. The host cancels a running job by terminating the
 process (it is restarted on the next request), which is why this script holds
@@ -44,7 +46,11 @@ from typing import Any
 
 PROTOCOL_NAME = "craft.analysis"
 PROTOCOL_VERSION = 1
-COMMANDS = ("ping", "import_analysis", "shutdown")
+COMMANDS = ("ping", "import_analysis", "moldability_analysis", "shutdown")
+
+# Per-face lists grow with face count x candidate count (52 MB for a 10,800-face box). They stay in the engine; the
+# report carries their lengths instead, and says so in ``data.omitted``.
+OMITTED_PER_FACE_KEYS = ("face_evaluations", "face_assessments", "face_results", "source_references")
 
 
 class RequestError(Exception):
@@ -105,6 +111,134 @@ def run_import_analysis(job_id: str, params: dict[str, Any]) -> dict[str, Any]:
     return sanitize(report.to_dict())
 
 
+def compact_detailed_report(value: Any, omitted: dict[str, int]) -> Any:
+    """Replace per-face lists by ``<key>Count`` so the payload stays bounded."""
+    if isinstance(value, dict):
+        result: dict[str, Any] = {}
+        for key, item in value.items():
+            if key in OMITTED_PER_FACE_KEYS and isinstance(item, list):
+                result[f"{key}Count"] = len(item)
+                omitted[key] = omitted.get(key, 0) + len(item)
+            else:
+                result[key] = compact_detailed_report(item, omitted)
+        return result
+    if isinstance(value, list):
+        return [compact_detailed_report(item, omitted) for item in value]
+    return value
+
+
+def ranked_pull_direction_candidates(detailed: Any) -> list[dict[str, Any]]:
+    """Ranked candidates in the shape the native evaluation layer reads."""
+    ranking = detailed.pull_direction_ranking
+    if ranking is None:
+        return []
+    ranked = []
+    for item in ranking.ranked_evaluations:
+        direction = item.candidate.direction
+        ranked.append({
+            "id": item.candidate.candidate_id,
+            "direction": {"x": direction.x, "y": direction.y, "z": direction.z},
+            "rank": item.rank,
+            "score": item.preliminary_score,  # 0..100
+            "isValid": bool(item.evaluation.is_evaluable),
+        })
+    return ranked
+
+
+def run_moldability_analysis(job_id: str, params: dict[str, Any]) -> dict[str, Any]:
+    source = params.get("sourcePath")
+    if not isinstance(source, str) or not source:
+        raise RequestError("invalid_params", "moldability_analysis requires a 'sourcePath' string.")
+    source_path = Path(source)
+    if not source_path.is_file():
+        raise RequestError("source_not_found", f"Model file does not exist: {source}")
+
+    emit({"type": "progress", "jobId": job_id, "stage": "loading-engine", "fraction": 0.05})
+    from engineering_reports import (
+        EngineeringReportError,
+        EngineeringReportStatus,
+        EngineeringReportWarning,
+        create_engineering_report,
+        create_failed_engineering_report,
+    )
+    from mold_generator_engine import (
+        DetailedMoldAnalysisService,
+        DetailedMoldAnalysisStatus,
+        ImportAnalysisService,
+        PullDirectionEvaluator,
+    )
+    from mold_generator_engine.exceptions import ModelImportError
+
+    report_id = f"moldability_analysis:{job_id}"
+    common = {"report_id": report_id, "analysis_name": "moldability_analysis",
+              "report_name": "Moldability Analysis", "engine_version": engine_version()}
+
+    emit({"type": "progress", "jobId": job_id, "stage": "importing", "fraction": 0.1})
+    import_service = ImportAnalysisService.from_default_readers()
+    import_report = import_service.analyze(source_path)
+    try:
+        model = import_service.importer.import_model(source_path)
+    except (ModelImportError, OSError) as error:
+        failed = create_failed_engineering_report(
+            error=EngineeringReportError(code="model_import_failed", message=str(error),
+                                         source="mold_generator_engine", recoverable=False),
+            statistics={}, **common)
+        return sanitize(failed.to_dict())
+
+    emit({"type": "progress", "jobId": job_id, "stage": "analyzing", "fraction": 0.2})
+    started = time.perf_counter()
+    detailed = DetailedMoldAnalysisService(pull_direction_evaluator=PullDirectionEvaluator()).analyze(
+        import_report, model)
+    elapsed_ms = (time.perf_counter() - started) * 1000.0
+    emit({"type": "progress", "jobId": job_id, "stage": "serializing", "fraction": 0.9})
+
+    omitted: dict[str, int] = {}
+    detailed_dict = compact_detailed_report(detailed.to_dict(), omitted)
+    ranked = ranked_pull_direction_candidates(detailed)
+    selection = detailed.preliminary_pull_direction_selection
+    selected = selection.selected_candidate if selection is not None else None
+    data = {
+        "analysisStatus": detailed.status.value,
+        "importStatus": import_report.status.value,
+        "summary": detailed.summary,
+        "pullDirection": {
+            "rankedCandidates": ranked,
+            "selectedCandidateId": selected.candidate_id if selected is not None else None,
+            "selectionStatus": selection.status.value if selection is not None else None,
+            "reasons": list(selection.reasons) if selection is not None else [],
+        },
+        "moldability": detailed_dict.get("preliminary_moldability_assessment"),
+        "detailedAnalysis": detailed_dict,
+        "omitted": omitted,
+    }
+    statistics = {"candidateCount": len(ranked), "faceCount": len(model.faces) if hasattr(model, "faces") else None,
+                  "analysisMs": round(elapsed_ms, 3)}
+    warnings = tuple(
+        EngineeringReportWarning(code="PULL_DIRECTION_SELECTION", message=text,
+                                 source="detailed_mold_analysis")
+        for text in (selection.warnings if selection is not None else ()))
+
+    status = detailed.status
+    if status is DetailedMoldAnalysisStatus.COMPLETED:
+        report = create_engineering_report(data=data, statistics=statistics, warnings=warnings, **common)
+    elif status is DetailedMoldAnalysisStatus.PARTIAL:
+        report = create_engineering_report(data=data, statistics=statistics, warnings=warnings,
+                                           status=EngineeringReportStatus.PARTIAL, success=True, **common)
+    elif status is DetailedMoldAnalysisStatus.NOT_RUN:
+        report = create_engineering_report(data=data, statistics=statistics, warnings=warnings,
+                                           status=EngineeringReportStatus.SKIPPED, success=False, **common)
+    else:  # BLOCKED or FAILED: the engine could not analyze this model
+        errors = tuple(
+            EngineeringReportError(code=blocker.code, message=blocker.message, source="detailed_mold_analysis",
+                                   recoverable=False)
+            for blocker in detailed.blockers
+        ) or (EngineeringReportError(code=f"analysis_{status.value}", message=detailed.summary,
+                                     source="detailed_mold_analysis", recoverable=False),)
+        report = create_engineering_report(data=data, statistics=statistics, warnings=warnings, errors=errors,
+                                           status=EngineeringReportStatus.FAILED, success=False, **common)
+    return sanitize(report.to_dict())
+
+
 def handle(request: dict[str, Any]) -> bool:
     """Process one request. Returns False when the worker should exit."""
     job_id = request.get("jobId")
@@ -141,6 +275,8 @@ def handle(request: dict[str, Any]) -> bool:
             return False
         elif command == "import_analysis":
             payload = run_import_analysis(job_id, params)
+        elif command == "moldability_analysis":
+            payload = run_moldability_analysis(job_id, params)
         else:
             raise RequestError("unknown_command", f"Unknown command: {command!r}.")
     except RequestError as error:

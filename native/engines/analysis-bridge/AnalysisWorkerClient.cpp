@@ -48,7 +48,7 @@ WorkerClient::WorkerClient(WorkerConfig config, QObject* parent)
 
 WorkerClient::~WorkerClient() { stopProcess(); }
 
-QString WorkerClient::startJob(const QString& command, const QJsonObject& params) {
+QString WorkerClient::startJob(const QString& command, const QJsonObject& params, int jobTimeoutMs) {
   const QString jobId = QStringLiteral("analysis-job-%1").arg(nextJobNumber_++);
 
   // Failures are queued so callers always see the id before any signal.
@@ -80,6 +80,7 @@ QString WorkerClient::startJob(const QString& command, const QJsonObject& params
                       {QStringLiteral("command"), command},
                       {QStringLiteral("params"), params}};
   activeJobId_ = jobId;
+  activeJobTimeoutMs_ = jobTimeoutMs;
   pendingRequest_ = QJsonDocument(request).toJson(QJsonDocument::Compact) + '\n';
 
   ensureStarted();
@@ -130,7 +131,7 @@ void WorkerClient::sendPending() {
   if (pendingRequest_.isEmpty()) return;
   process_.write(pendingRequest_);
   pendingRequest_.clear();
-  timeout_.start(config_.jobTimeoutMs);
+  timeout_.start(activeJobTimeoutMs_ > 0 ? activeJobTimeoutMs_ : config_.jobTimeoutMs);
 }
 
 void WorkerClient::handleStdout() {

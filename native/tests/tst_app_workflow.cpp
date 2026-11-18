@@ -2,6 +2,7 @@
 
 #include <QtTest/QtTest>
 
+#include <QRegularExpression>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 
@@ -408,6 +409,100 @@ class WorkflowTest : public QObject {
     QVERIFY(app->measurement().value("distanceMm").toDouble() > 0);
   }
 
+  // --- engineering reports: the real Python detailed mold analysis through the real worker --------------------------------
+
+  void moldabilityAnalysisRunsRealPythonEngine() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    QCOMPARE(app->engineeringReports().value("phase").toString(), QStringLiteral("idle"));
+    // The registry list is available before anything runs: five "Coming Soon" entries, as in the reference.
+    const QVariantList registry = app->engineeringReports().value("registry").toList();
+    QCOMPARE(registry.size(), 5);
+    QCOMPARE(registry[0].toMap().value("displayName").toString(), QStringLiteral("Pull Direction"));
+    QCOMPARE(registry[0].toMap().value("supportLabel").toString(), QStringLiteral("Coming Soon"));
+
+    app->runMoldabilityAnalysis();
+    QCOMPARE(app->engineeringReports().value("phase").toString(), QStringLiteral("running"));
+    QVERIFY(waitFor([&] { const QString p = app->engineeringReports().value("phase").toString(); return p == "complete" || p == "error"; }, 120000));
+    const QVariantMap reports = app->engineeringReports();
+    QVERIFY2(reports.value("phase").toString() == "complete", qPrintable(reports.value("error").toString()));
+    QVERIFY(!app->busy());
+
+    const QVariantMap report = reports.value("report").toMap();
+    QCOMPARE(report.value("status").toString(), QStringLiteral("partial"));  // the engine's own verdict for this part
+    QVERIFY(report.value("success").toBool());
+    QVERIFY(report.value("reportId").toString().startsWith("moldability_analysis:"));
+    QVERIFY(report.value("statistics").toMap().value("analysisMs").toDouble() >= 0);
+    QCOMPARE(report.value("statistics").toMap().value("faceCount").toInt(), 20);
+
+    // Pull direction: six real axis candidates ranked by the Python engine, then run through the ported
+    // completion + card + evaluation logic.
+    const QVariantMap pull = reports.value("pullDirection").toMap();
+    QVERIFY(pull.value("available").toBool());
+    const QVariantList ranked = pull.value("ranked").toList();
+    QCOMPARE(ranked.size(), 6);
+    QCOMPARE(ranked[0].toMap().value("rank").toInt(), 1);
+    QVERIFY(QRegularExpression("^[+-][XYZ]$").match(ranked[0].toMap().value("directionLabel").toString()).hasMatch());
+    const QVariantMap card = pull.value("card").toMap();
+    QCOMPARE(card.value("candidates").toInt(), 6);
+    QVERIFY(QStringList({"Good", "Review", "Poor"}).contains(card.value("result").toString()));
+    QVERIFY(QRegularExpression("^[+-][XYZ]$").match(card.value("bestDirection").toString()).hasMatch());
+    QVERIFY(card.value("confidence").toString().endsWith("%"));
+    const QVariantMap evaluation = pull.value("evaluation").toMap();
+    QVERIFY(!evaluation.value("statusLabel").toString().isEmpty());
+    QVERIFY(evaluation.value("snapshotValid").toBool());
+
+    // The engine's preliminary moldability assessment rides in the same envelope.
+    QVERIFY(!reports.value("moldability").toMap().value("status").toString().isEmpty());
+    // Per-face lists stay in the engine and the panel says so.
+    QVERIFY(reports.value("omittedNote").toString().contains("stays in the analysis engine"));
+  }
+
+  void moldabilityAnalysisOfAnUnanalyzableModelIsAFailedReport() {
+    auto app = makeApp();
+    app->importStlFile(fixtureStl("single_triangle_ascii.stl"));
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready" || app->modelPhase() == "error"; }));
+    if (app->modelPhase() != "ready") QSKIP("the app refuses this fixture at import; nothing to analyze");
+    app->runMoldabilityAnalysis();
+    QVERIFY(waitFor([&] { const QString p = app->engineeringReports().value("phase").toString(); return p == "complete" || p == "error"; }, 60000));
+    const QVariantMap reports = app->engineeringReports();
+    QVERIFY2(reports.value("phase").toString() == "complete", qPrintable(reports.value("error").toString()));
+    const QVariantMap report = reports.value("report").toMap();
+    // The engine refused the model; that is reported as a failed report with its reasons, never as an analysis result.
+    QCOMPARE(report.value("status").toString(), QStringLiteral("failed"));
+    QVERIFY(!report.value("success").toBool());
+    QVERIFY(!report.value("errors").toList().isEmpty());
+    QVERIFY(!reports.value("pullDirection").toMap().value("available").toBool());
+    QVERIFY(!reports.value("pullDirection").toMap().value("note").toString().isEmpty());
+  }
+
+  void moldabilityAnalysisWithoutAModelIsRefused() {
+    auto app = makeApp();
+    QSignalSpy errors(app.get(), &AppController::errorOccurred);
+    app->runMoldabilityAnalysis();
+    QCOMPARE(errors.count(), 1);
+    QCOMPARE(app->engineeringReports().value("phase").toString(), QStringLiteral("idle"));
+    QVERIFY(!app->engineeringReports().value("canRun").toBool());
+  }
+
+  void moldabilityAnalysisIsCancelledWhenTheModelChanges() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->runMoldabilityAnalysis();
+    QCOMPARE(app->engineeringReports().value("phase").toString(), QStringLiteral("running"));
+    // Replacing the model cancels the job and discards anything it would have produced.
+    app->importStlFile(fixtureStl("closed_tetrahedron_ascii.stl"));
+    QVERIFY(waitFor([&] { return app->model() && app->model()->fileName == "closed_tetrahedron_ascii.stl" && !app->busy(); }, 60000));
+    QCOMPARE(app->engineeringReports().value("phase").toString(), QStringLiteral("idle"));
+    QVERIFY(!app->engineeringReports().contains("report"));
+    // And the next analysis works on the new model (the worker restarts after the cancel).
+    app->runMoldabilityAnalysis();
+    QVERIFY(waitFor([&] { const QString p = app->engineeringReports().value("phase").toString(); return p == "complete" || p == "error"; }, 120000));
+    QCOMPARE(app->engineeringReports().value("phase").toString(), QStringLiteral("complete"));
+    QCOMPARE(app->engineeringReports().value("report").toMap().value("statistics").toMap().value("faceCount").toInt(), 4);
+  }
   void importAnalysisRunsRealPythonEngine() {
     if (!QFileInfo::exists(devConfig().pythonExecutable)) QSKIP("No Python runtime configured.");
     auto app = makeApp();

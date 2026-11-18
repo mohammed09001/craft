@@ -35,7 +35,8 @@ class WorkerClient : public QObject {
   /// Starts a job and returns its id. Only one job runs at a time; a second
   /// request while busy fails immediately with "analysis_busy". Results are
   /// always delivered asynchronously through the signals below.
-  QString startJob(const QString& command, const QJsonObject& params);
+  /// `jobTimeoutMs` overrides WorkerConfig::jobTimeoutMs for this job when positive (long analyses).
+  QString startJob(const QString& command, const QJsonObject& params, int jobTimeoutMs = 0);
 
   /// Hard cancel: terminates the worker process. Emits jobCancelled.
   void cancel(const QString& jobId);
@@ -74,6 +75,7 @@ class WorkerClient : public QObject {
   bool handshakeDone_ = false;
   QString activeJobId_;
   QByteArray pendingRequest_;
+  int activeJobTimeoutMs_ = 0;
   quint64 nextJobNumber_ = 1;
 };
 

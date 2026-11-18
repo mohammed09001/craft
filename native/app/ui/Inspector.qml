@@ -428,6 +428,131 @@ ScrollView {
         }
 
         GroupBox {
+            id: reportsBox
+            Layout.fillWidth: true
+            title: qsTr("Engineering reports")
+            readonly property var reports: app.engineeringReports
+            readonly property var view: reports.report ? reports : null
+            ColumnLayout {
+                anchors.fill: parent
+                Button {
+                    text: reportsBox.reports.phase === "running" ? qsTr("Cancel moldability analysis") : qsTr("Analyze moldability (Python)")
+                    enabled: app.modelPhase === "ready" || reportsBox.reports.phase === "running"
+                    Layout.fillWidth: true
+                    onClicked: reportsBox.reports.phase === "running" ? app.cancelMoldabilityAnalysis() : app.runMoldabilityAnalysis()
+                }
+                Label {
+                    visible: reportsBox.reports.phase === "running"
+                    text: reportsBox.reports.stage
+                    wrapMode: Text.Wrap; Layout.fillWidth: true
+                }
+                Label {
+                    visible: reportsBox.reports.phase === "error"
+                    text: reportsBox.reports.error
+                    color: "#e5484d"; wrapMode: Text.Wrap; Layout.fillWidth: true
+                }
+
+                // --- the engineering report envelope -------------------------------------------------------
+                ColumnLayout {
+                    visible: !!reportsBox.view
+                    Layout.fillWidth: true
+                    Label {
+                        text: qsTr("Report: ") + (reportsBox.view ? reportsBox.view.report.statusLabel : "")
+                        font.bold: true
+                    }
+                    Label {
+                        visible: !!reportsBox.view && !!reportsBox.view.report.summary
+                        text: reportsBox.view ? reportsBox.view.report.summary : ""
+                        wrapMode: Text.Wrap; Layout.fillWidth: true
+                    }
+                    Repeater {
+                        model: reportsBox.view ? reportsBox.view.report.errors : []
+                        Label { text: modelData; color: "#e5484d"; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                    }
+                    Label {
+                        visible: !!reportsBox.view && reportsBox.view.report.statistics.analysisMs !== undefined
+                        text: reportsBox.view && reportsBox.view.report.statistics.analysisMs !== undefined
+                              ? qsTr("Engine time: ") + root.fmt(reportsBox.view.report.statistics.analysisMs, 0) + " ms" : ""
+                    }
+
+                    // --- Pull Direction card (ported PullDirectionCard) --------------------------------------
+                    GroupBox {
+                        visible: !!reportsBox.view && reportsBox.view.pullDirection.available
+                        Layout.fillWidth: true
+                        title: qsTr("Pull Direction")
+                        ColumnLayout {
+                            anchors.fill: parent
+                            Label {
+                                text: qsTr("Result: ") + (reportsBox.view && reportsBox.view.pullDirection.card ? reportsBox.view.pullDirection.card.result : "")
+                                font.bold: true
+                            }
+                            Label { text: qsTr("Best direction: ") + (reportsBox.view && reportsBox.view.pullDirection.card ? reportsBox.view.pullDirection.card.bestDirection : "") }
+                            Label { text: qsTr("Confidence: ") + (reportsBox.view && reportsBox.view.pullDirection.card ? reportsBox.view.pullDirection.card.confidence : "") }
+                            Label { text: qsTr("Candidates: ") + (reportsBox.view && reportsBox.view.pullDirection.card ? reportsBox.view.pullDirection.card.candidates : 0) }
+                            Repeater {
+                                model: reportsBox.view && reportsBox.view.pullDirection.card ? reportsBox.view.pullDirection.card.warnings : []
+                                Label { text: "• " + modelData; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                            }
+                            Label {
+                                visible: !!reportsBox.view && !!reportsBox.view.pullDirection.evaluation
+                                text: reportsBox.view && reportsBox.view.pullDirection.evaluation
+                                      ? qsTr("Evaluation: ") + reportsBox.view.pullDirection.evaluation.statusLabel + "\n"
+                                        + reportsBox.view.pullDirection.evaluation.bestLabel + "\n"
+                                        + reportsBox.view.pullDirection.evaluation.countLabel : ""
+                                wrapMode: Text.Wrap; Layout.fillWidth: true
+                            }
+                            Repeater {
+                                model: reportsBox.view && reportsBox.view.pullDirection.evaluation ? reportsBox.view.pullDirection.evaluation.messages : []
+                                Label { text: "• " + modelData; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                            }
+                            Label { text: qsTr("Ranked candidates"); font.bold: true; visible: !!reportsBox.view && reportsBox.view.pullDirection.available }
+                            Repeater {
+                                model: reportsBox.view && reportsBox.view.pullDirection.ranked ? reportsBox.view.pullDirection.ranked : []
+                                Label { text: modelData.rank + ".  " + modelData.directionLabel + "   score " + root.fmt(modelData.score, 1) }
+                            }
+                        }
+                    }
+                    Label {
+                        visible: !!reportsBox.view && !reportsBox.view.pullDirection.available
+                        text: reportsBox.view && reportsBox.view.pullDirection.note ? reportsBox.view.pullDirection.note : ""
+                        wrapMode: Text.Wrap; Layout.fillWidth: true
+                    }
+
+                    // --- moldability assessment from the engine -----------------------------------------------
+                    ColumnLayout {
+                        visible: !!reportsBox.view && !!reportsBox.view.moldability
+                        Layout.fillWidth: true
+                        Label { text: qsTr("Moldability (preliminary)"); font.bold: true }
+                        Label {
+                            text: reportsBox.view && reportsBox.view.moldability
+                                  ? reportsBox.view.moldability.status + " · risk " + reportsBox.view.moldability.overallRisk : ""
+                            wrapMode: Text.Wrap; Layout.fillWidth: true
+                        }
+                        Label {
+                            text: reportsBox.view && reportsBox.view.moldability ? reportsBox.view.moldability.summary : ""
+                            wrapMode: Text.Wrap; Layout.fillWidth: true
+                        }
+                    }
+                    Repeater {
+                        model: reportsBox.view ? reportsBox.view.report.warnings : []
+                        Label { text: "⚠ " + modelData; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                    }
+                    Label {
+                        visible: !!reportsBox.view && !!reportsBox.view.omittedNote
+                        text: reportsBox.view && reportsBox.view.omittedNote ? reportsBox.view.omittedNote : ""
+                        wrapMode: Text.Wrap; Layout.fillWidth: true; opacity: 0.7
+                    }
+                }
+
+                // --- registry (engineeringReportManifest) -------------------------------------------------------
+                Label { text: qsTr("Registered reports"); font.bold: true; Layout.topMargin: 6 }
+                Repeater {
+                    model: reportsBox.reports.registry
+                    Label { text: modelData.displayName + " (" + modelData.supportLabel + ")"; Layout.fillWidth: true }
+                }
+            }
+        }
+        GroupBox {
             Layout.fillWidth: true
             title: app.tool === "measure" ? qsTr("Measurement") : qsTr("Selection")
             ColumnLayout {

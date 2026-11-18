@@ -77,6 +77,7 @@ class AppController : public QObject {
   Q_PROPERTY(QVariantList moldIssues READ moldIssues NOTIFY moldChanged)
 
   Q_PROPERTY(QVariantMap masterMold READ masterMold NOTIFY masterMoldChanged)
+  Q_PROPERTY(QVariantMap engineeringReports READ engineeringReports NOTIFY engineeringReportsChanged)
   Q_PROPERTY(QVariantMap segmentation READ segmentation NOTIFY segmentationChanged)
   Q_PROPERTY(QVariantMap printerVolume READ printerVolume NOTIFY segmentationChanged)
   Q_PROPERTY(QVariantList sprues READ sprues NOTIFY spruesChanged)
@@ -159,6 +160,10 @@ class AppController : public QObject {
   // --- master mold -----------------------------------------------------------------
   /// Everything the Master Mold panel shows: status, derived UI state, banner, summary, sets and pieces.
   QVariantMap masterMold() const;
+  QVariantMap engineeringReports() const;
+  /// Runs the Python detailed mold analysis and shows its engineering report (pull direction, undercut, draft, moldability).
+  Q_INVOKABLE void runMoldabilityAnalysis();
+  Q_INVOKABLE void cancelMoldabilityAnalysis();
   /// Plans and verifies printable master tooling straight from the imported part (no mold, cut or cavity needed).
   Q_INVOKABLE void generateMasterMold();
   Q_INVOKABLE void resetMasterMold();
@@ -262,6 +267,7 @@ class AppController : public QObject {
   void spruesChanged();
   void segmentationChanged();
   void masterMoldChanged();
+  void engineeringReportsChanged();
   void themeChanged();
   void viewOptionsChanged();
   void gridChanged();
@@ -298,6 +304,8 @@ class AppController : public QObject {
   void refreshMasterStaleness();
   void showMasterBodies();
   void clearMasterRun(bool resetStore);
+  void connectReports();
+  void clearEngineeringReports();
   void startSprueEvaluation();
   void showFinalBodies(bool refit);
   std::optional<SpruePlacement> placementAt(qreal x, qreal y, qreal w, qreal h) const;
@@ -373,6 +381,13 @@ class AppController : public QObject {
   int nextSprueNumber_ = 1;
 
   // analysis
+  // engineering reports (moldability analysis job)
+  QString reportsPhase_ = QStringLiteral("idle");
+  QString reportsStage_;
+  QString reportsError_;
+  QVariantMap reportsResult_;
+  QString reportsJobId_;
+
   QString analysisPhase_ = QStringLiteral("idle");
   QString analysisError_;
   QString analysisStage_;

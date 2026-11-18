@@ -53,6 +53,7 @@ AppController::AppController(std::shared_ptr<IMeshGeometryEngine> engine,
   rebuildGrid();
   applySceneColors();
   connectAnalysis();
+  connectReports();
   connect(&scene_, &SceneModel::sceneChanged, this, [this] { refreshSceneFrame(false); });
 }
 
@@ -164,6 +165,7 @@ void AppController::importStlFile(const QString& path) {
 void AppController::applyModel(LoadedModel model) {
   clearMasterRun(true);
   invalidateSegmentation(QString());
+  clearEngineeringReports();
   analysis_.cancel(analysisJobId_);
   analysisJobId_.clear();
   analysisPhase_ = QStringLiteral("idle");
@@ -1183,6 +1185,7 @@ QVariantMap AppController::stateSummary() const {
   QVariantMap s{{"modelPhase", modelPhase_},
                 {"moldPhase", moldPhase_},
                 {"analysisPhase", analysisPhase_},
+                {"reportsPhase", reportsPhase_},
                 {"sceneItems", scene_.count()},
                 {"status", statusText_}};
   s.insert("model", modelInfo());

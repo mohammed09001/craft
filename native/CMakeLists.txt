@@ -135,6 +135,22 @@ add_library(craft_mold STATIC
 target_link_libraries(craft_mold PUBLIC craft_core craft_mesh_api)
 craft_target_defaults(craft_mold)
 
+# --- craft_reports: engineering report contracts, registry, pull-direction foundation and evaluation (no Qt) --
+add_library(craft_reports STATIC
+  core/reports/ReportJson.cpp
+  core/reports/ReportJson.h
+  core/reports/LocaleCompare.cpp
+  core/reports/LocaleCompare.h
+  core/reports/EngineeringReports.cpp
+  core/reports/EngineeringReports.h
+  core/reports/PullDirection.cpp
+  core/reports/PullDirection.h
+  core/reports/PullDirectionEvaluation.cpp
+  core/reports/PullDirectionEvaluation.h
+)
+target_link_libraries(craft_reports PUBLIC craft_mold)
+craft_target_defaults(craft_reports)
+
 # --- craft_mesh_manifold: native Manifold behind IMeshGeometryEngine ---------
 add_library(craft_mesh_manifold STATIC
   engines/mesh/ManifoldMeshEngine.cpp

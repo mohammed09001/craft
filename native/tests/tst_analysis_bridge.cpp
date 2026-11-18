@@ -118,6 +118,59 @@ class AnalysisBridgeTest : public QObject {
     QVERIFY(!report["errors"].toArray().isEmpty());
   }
 
+  void moldabilityAnalysisReturnsAnEngineeringReportEnvelope() {
+    REQUIRE_PYTHON();
+    WorkerClient client(realConfig());
+    QSignalSpy progress(&client, &WorkerClient::jobProgress);
+    QSignalSpy succeeded(&client, &WorkerClient::jobSucceeded);
+    QSignalSpy failed(&client, &WorkerClient::jobFailed);
+    client.startJob(QLatin1String(kCommandMoldabilityAnalysis),
+                    {{"sourcePath", fixture("closed_tetrahedron_ascii.stl")}, {"modelId", "m-1"}, {"geometryVersion", "g-1"}},
+                    300000);
+    QVERIFY2(succeeded.wait(60000), failed.isEmpty() ? "timed out" : qPrintable(failed.first().at(2).toString()));
+    const QJsonObject message = succeeded.first().at(1).toJsonObject();
+    QCOMPARE(message["command"].toString(), QLatin1String(kCommandMoldabilityAnalysis));
+    QCOMPARE(message["modelId"].toString(), QStringLiteral("m-1"));  // identity echo for stale-result rejection
+
+    // The standard engineering_report contract (Python create_engineering_report().to_dict()).
+    const QJsonObject report = message["report"].toObject();
+    QCOMPARE(report["schema"].toString(), QStringLiteral("engineering_report"));
+    QCOMPARE(report["schemaVersion"].toString(), QStringLiteral("1.0.0"));
+    QCOMPARE(report["metadata"].toObject()["analysisName"].toString(), QStringLiteral("moldability_analysis"));
+    QCOMPARE(report["metadata"].toObject()["source"].toString(), QStringLiteral("python-engine"));
+    QVERIFY(report["success"].toBool());
+    const QJsonObject data = report["data"].toObject();
+    QCOMPARE(data["pullDirection"].toObject()["rankedCandidates"].toArray().size(), 8);  // 4 faces: face-normal + axis candidates
+    // Bounded payload: per-face lists are replaced by counts and listed under data.omitted.
+    QVERIFY(data["omitted"].toObject().contains("face_evaluations"));
+    QVERIFY(!QJsonDocument(data["detailedAnalysis"].toObject()).toJson().contains("\"face_evaluations\":["));
+
+    QStringList stages;
+    for (const auto& args : progress) stages << args.at(1).toString();
+    QVERIFY(stages.contains("analyzing"));
+  }
+
+  void moldabilityAnalysisFailuresAreStructured() {
+    REQUIRE_PYTHON();
+    WorkerClient client(realConfig());
+    QSignalSpy succeeded(&client, &WorkerClient::jobSucceeded);
+    QSignalSpy failed(&client, &WorkerClient::jobFailed);
+    client.startJob(QLatin1String(kCommandMoldabilityAnalysis), {{"sourcePath", fixture("does_not_exist.stl")}});
+    QVERIFY(failed.wait(30000));
+    QCOMPARE(failed.first().at(1).toString(), QStringLiteral("source_not_found"));
+    failed.clear();
+    client.startJob(QLatin1String(kCommandMoldabilityAnalysis), {});
+    QVERIFY(failed.wait(30000));
+    QCOMPARE(failed.first().at(1).toString(), QStringLiteral("invalid_params"));
+
+    // A model the engine cannot import is a failed report (a result), not a worker error.
+    client.startJob(QLatin1String(kCommandMoldabilityAnalysis), {{"sourcePath", fixture("corrupted_ascii.stl")}});
+    QVERIFY(succeeded.wait(30000));
+    const QJsonObject report = succeeded.first().at(1).toJsonObject()["report"].toObject();
+    QCOMPARE(report["status"].toString(), QStringLiteral("failed"));
+    QVERIFY(!report["success"].toBool());
+    QCOMPARE(report["errors"].toArray().first().toObject()["code"].toString(), QStringLiteral("model_import_failed"));
+  }
   void missingSourceIsAStructuredError() {
     REQUIRE_PYTHON();
     WorkerClient client(realConfig());

@@ -267,3 +267,14 @@ Debug: `fallbackModesMatchReference` took 3346 s (multi-label voxel stage), so i
 
 Not verified: the reference multi-label construction fails on every fixture, so only its failure path is compared. Volumetric mode not ported (engine never reaches it).
 ### Next exact step (superseded list above still applies)
+### Session 16: Engineering reports
+
+Ported (`core/reports/*`, Qt-free, library `craft_reports`): the report contract with a strict boundary validator, the registry and manifest (validation messages and ordering exactly as the reference), the pull-direction report contract, mock/session reports, MVP completion layer, the candidate foundation pipeline, the evaluation layer (scoring profile, decisions, summary, report section, snapshot, snapshot validation, presentation, view model) and the context-panel card model. A `localeCompare` approximation (D-043) was needed to reproduce tie ordering.
+
+Wired a real analysis: the worker gained `moldability_analysis` (the existing Python detailed mold analysis, returned as an `engineering_report`), the client gained a per-job timeout, and the app gained `engineeringReports` state, an Inspector section and cancellation/stale-result handling.
+
+Evidence: `tst_reports_equivalence` 71 rows against `reports-reference.json` written by the real TS code (generator `craftReportsReference.test.ts`, regenerated alone with `generate-reference-fixtures.ps1 -Only reports`), including 16 card rows rendered from the real React component; `tst_analysis_bridge` 16 (2 new, real Python); `tst_app_workflow` 4 new end-to-end tests; full Debug ctest 15/15.
+
+Findings: the reference pull-direction "engine" never inspects geometry and its completed report is hard-coded sample data (D-040); the Python analysis took 561 s for a 10,800-face box and 52 MB of JSON before per-face lists were omitted (R-Reports-1, D-041); the reference card shows "Review" for a 42% candidate because its validation state is "warning" (matches the reference rule, the completion layer alone says Poor).
+
+Not done: cavity analysis and generation-readiness Python stages are not wired; no native reimplementation of the analysis; the Inspector layout was not inspected on screen (R-Reports-3).
