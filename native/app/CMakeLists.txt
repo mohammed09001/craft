@@ -12,7 +12,8 @@ craft_target_defaults(craft_viewport)
 
 # --- craft_app_lib: controller, scene model, paths, logging -------------------
 add_library(craft_app_lib STATIC
-  AppController.cpp AppControllerMaster.cpp AppControllerReports.cpp AppControllerProject.cpp AppControllerSelection.cpp AppController.h
+  AppController.cpp AppControllerMaster.cpp AppControllerReports.cpp AppControllerProject.cpp AppControllerSelection.cpp AppControllerSprueGizmo.cpp
+  SprueHandleModel.cpp SprueHandleModel.h AppController.h
   AppPaths.cpp AppPaths.h
   JobRunner.h
   Logging.cpp Logging.h
@@ -36,6 +37,12 @@ craft_target_defaults(craft_app_lib)
 # --- the application ----------------------------------------------------------
 qt_add_executable(craft WIN32 MACOSX_BUNDLE main.cpp)
 target_link_libraries(craft PRIVATE craft_app_lib Qt6::Quick Qt6::QuickControls2 Qt6::QuickDialogs2)
+if(CRAFT_BUILD_TESTS)
+  # The smoke test can drive the window with real platform mouse events (--sprue-gizmo-events). That uses Qt's private
+  # platform event interface, so packaged (tests-off) builds neither link it nor contain the code.
+  target_link_libraries(craft PRIVATE Qt6::GuiPrivate)
+  target_compile_definitions(craft PRIVATE CRAFT_SMOKE_REAL_EVENTS=1)
+endif()
 craft_target_defaults(craft)
 
 foreach(_q Main ViewportView Inspector)

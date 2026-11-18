@@ -4,10 +4,19 @@
 #include <QGuiApplication>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMouseEvent>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
+
+#include <functional>
+#include <memory>
+
+#ifdef CRAFT_SMOKE_REAL_EVENTS
+#include <qpa/qwindowsysteminterface.h>
+#endif
 #include <QTimer>
 
 #include "AppController.h"
@@ -92,7 +101,114 @@ class Smoke : public QObject {
         if (app_.sprueCandidate().value("onTopFace").toBool() && app_.sprueCandidate().value("valid").toBool() != spruePreviewInvalid_) return;
       }
   }
+  // Place a sprue on the mold, wait for it to resolve, then press on one of its rings and drag it 40 px, so the frame
+  // shows the rings, the active ring, its preview scale and the diameter label.
+  void gizmoSequence() {
+    const int w = static_cast<int>(window_->width()), h = static_cast<int>(window_->height());
+    app_.camera()->setViewportSize(w, h);
+    app_.setTool(QStringLiteral("sprue"));
+    bool placed = false;
+    for (int y = h / 4; y < h * 3 / 4 && !placed; y += 4)
+      for (int x = w / 8; x < w * 5 / 8 && !placed; x += 4) {
+        app_.previewSprueAt(x, y, w, h);
+        if (app_.sprueCandidate().value("valid").toBool()) placed = app_.placeSprueAt(x, y, w, h);
+      }
+    if (!placed) return fail(QStringLiteral("could not place a sprue for the gizmo smoke test"));
+    auto poll = std::make_shared<std::function<void()>>();
+    *poll = [this, poll, w, h] {
+      if (app_.spruePhase() != "idle" || !app_.sprueEvaluation().has_value()) {
+        QTimer::singleShot(100, this, *poll);
+        return;
+      }
+      for (int y = h / 5; y < h * 4 / 5; y += 3) {
+        for (int x = w / 8; x < w * 5 / 8; x += 3) {
+          if (!app_.sprueGizmoPressAt(x, y, w, h)) continue;
+          app_.sprueGizmoDragTo(x + 40, y, false);
+          renderNow();
+          return;
+        }
+      }
+      fail(QStringLiteral("no sprue ring found under any pixel"));
+    };
+    (*poll)();
+  }
+  // The same flow with REAL mouse events delivered to the window, so the QML routing is exercised end to end: a press
+  // on a ring starts a resize instead of an orbit, moves drive the diameter, the release commits it, and a double
+  // click opens the numeric editor.
+  void gizmoEventsSequence() {
+#ifndef CRAFT_SMOKE_REAL_EVENTS
+    return fail(QStringLiteral("--sprue-gizmo-events needs a build with CRAFT_BUILD_TESTS (it drives the window through Qt's platform event interface)"));
+#else
+    QWindowSystemInterface::setSynchronousWindowSystemEvents(true);
+    auto* item = window_->findChild<QQuickItem*>(QStringLiteral("viewport"));
+    if (!item) return fail(QStringLiteral("the viewport item was not found"));
+    const int w = static_cast<int>(item->width()), h = static_cast<int>(item->height());
+    app_.camera()->setViewportSize(w, h);
+    app_.setTool(QStringLiteral("sprue"));
+    bool placed = false;
+    for (int y = h / 4; y < h * 3 / 4 && !placed; y += 4)
+      for (int x = w / 8; x < w * 5 / 8 && !placed; x += 4) {
+        app_.previewSprueAt(x, y, w, h);
+        if (app_.sprueCandidate().value("valid").toBool()) placed = app_.placeSprueAt(x, y, w, h);
+      }
+    if (!placed) return fail(QStringLiteral("could not place a sprue for the gizmo events test"));
+
+    // Platform-level events, like a real mouse: Qt itself turns a quick second press into the double click.
+    const auto send = [this, item](QEvent::Type type, QPoint local, Qt::MouseButton button, Qt::MouseButtons buttons) {
+      const QPointF scene = item->mapToScene(QPointF(local));
+      QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), buttons, button, type);
+    };
+    const auto findRing = [this, w, h]() {
+      for (int y = h / 6; y < h * 5 / 6; y += 3)
+        for (int x = w / 8; x < w * 7 / 8; x += 3)
+          if (app_.sprueGizmoHoverAt(x, y, w, h)) { app_.sprueGizmoLeave(); return QPoint(x, y); }
+      return QPoint(-1, -1);
+    };
+    const auto resolved = [this] { return app_.spruePhase() == "idle" && app_.sprueEvaluation().has_value() && !app_.sprueIntents().empty() && app_.sprueIntents().front().validation.status == "resolved"; };
+
+    auto stage = std::make_shared<int>(0);
+    auto poll = std::make_shared<std::function<void()>>();
+    auto before = std::make_shared<double>(0);
+    *poll = [=, this] {
+      if (!resolved()) { QTimer::singleShot(100, this, *poll); return; }
+      const QPoint ring = findRing();
+      if (ring.x() < 0) return fail(QStringLiteral("no sprue ring found under any pixel"));
+      if (*stage == 0) {
+        *before = app_.sprueIntents().front().profileDesign.profile.mainDiameterMm;
+        send(QEvent::MouseMove, ring, Qt::NoButton, Qt::NoButton);
+        send(QEvent::MouseButtonPress, ring, Qt::LeftButton, Qt::LeftButton);
+        if (!app_.sprueGizmo().value("dragging").toBool()) return fail(QStringLiteral("a press on a ring did not start a resize (the gesture went to the camera)"));
+        for (int i = 1; i <= 8; ++i) send(QEvent::MouseMove, ring + QPoint(i * 5, 0), Qt::NoButton, Qt::LeftButton);
+        if (app_.sprueGizmo().value("labelText").toString().isEmpty()) return fail(QStringLiteral("dragging a ring showed no diameter label"));
+        send(QEvent::MouseButtonRelease, ring + QPoint(40, 0), Qt::LeftButton, Qt::NoButton);
+        const double after = app_.sprueIntents().front().profileDesign.profile.mainDiameterMm;
+        if (!(after > *before + 1.5)) return fail(QStringLiteral("releasing the drag did not commit the dragged diameter (%1 -> %2)").arg(*before).arg(after));
+        if (app_.sprueIntents().size() != 1) return fail(QStringLiteral("the drag placed another sprue"));
+        *stage = 1;
+        QTimer::singleShot(100, this, *poll);
+        return;
+      }
+      // Stage 1: a double click on the (now larger) ring opens the numeric editor.
+      send(QEvent::MouseButtonPress, ring, Qt::LeftButton, Qt::LeftButton);
+      send(QEvent::MouseButtonRelease, ring, Qt::LeftButton, Qt::NoButton);
+      send(QEvent::MouseButtonPress, ring, Qt::LeftButton, Qt::LeftButton);    // becomes the double click
+      send(QEvent::MouseButtonRelease, ring, Qt::LeftButton, Qt::NoButton);
+      if (!app_.sprueGizmo().value("editing").toBool())
+        return fail(QStringLiteral("a double click on a ring did not open the numeric editor (state=%1, sprues=%2, ring at %3,%4)")
+                        .arg(app_.sprueGizmo().value("state").toString()).arg(app_.sprueIntents().size()).arg(ring.x()).arg(ring.y()));
+      if (app_.sprueIntents().size() != 1) return fail(QStringLiteral("the double click placed another sprue"));
+      app_.sprueGizmoCancel();
+      renderNow();
+    };
+    (*poll)();
+#endif
+  }
   void render() {
+    if (spruePreview_ && sprueGizmoEvents_) return gizmoEventsSequence();
+    if (spruePreview_ && sprueGizmo_) return gizmoSequence();
+    renderNow();
+  }
+  void renderNow() {
     if (spruePreview_) spruePreviewForSmoke();
     if (selectPart_) selectPartForSmoke();
     QTimer::singleShot(1500, this, [this] {
@@ -117,6 +233,7 @@ class Smoke : public QObject {
       s.insert("selectionBox", app_.selectionBox());
       s.insert("sprueCandidate", app_.sprueCandidate());
       s.insert("sprueGlass", app_.sprueGlass());
+      s.insert("sprueGizmo", app_.sprueGizmo());
       s.insert("selection", app_.selection());
       s.insert("engineeringReportsSummary", app_.engineeringReports());
       finish(s, !frame.isNull() && distinct > 50);
@@ -144,13 +261,14 @@ class Smoke : public QObject {
  public:
   void setSelectPart(bool value) { selectPart_ = value; }
   void setSpruePreview(bool value, bool invalid = false) { spruePreview_ = value; spruePreviewInvalid_ = invalid; }
+  void setSprueGizmo(bool value, bool events = false) { sprueGizmo_ = value; sprueGizmoEvents_ = events; }
   void setScreenshot(const QString& path) { screenshot_ = path; }
 
  private:
   AppController& app_;
   QQuickWindow* window_;
   QString importPath_, summary_, screenshot_;
-  bool selectPart_ = false, spruePreview_ = false, spruePreviewInvalid_ = false;
+  bool selectPart_ = false, spruePreview_ = false, spruePreviewInvalid_ = false, sprueGizmo_ = false, sprueGizmoEvents_ = false;
   bool mold_, analyse_, moldability_;
   bool imported_ = false, moldDone_ = false, analysisDone_ = false, reportsDone_ = false, done_ = false;
 };
@@ -178,6 +296,8 @@ int main(int argc, char* argv[]) {
   parser.addOption({"theme", "Start with this theme, dark or light (smoke test).", "name"});
   parser.addOption({"sprue-preview", "Select the Sprue tool and preview the funnel on the generated mold (smoke test; use with --generate-mold)."});
   parser.addOption({"sprue-invalid", "With --sprue-preview: preview where the axis misses the cavity (the red case)."});
+  parser.addOption({"sprue-gizmo", "With --sprue-preview: place a sprue, then drag one of its resize rings (smoke test)."});
+  parser.addOption({"sprue-gizmo-events", "With --sprue-preview: the same through real mouse events, plus a double click (smoke test)."});
   parser.process(application);
 
   AppController controller(std::shared_ptr<craft::IMeshGeometryEngine>(craft::createManifoldMeshEngine()),
@@ -198,6 +318,7 @@ int main(int argc, char* argv[]) {
                                     parser.value("summary"));
     smoke->setSelectPart(parser.isSet("select-part"));
     smoke->setSpruePreview(parser.isSet("sprue-preview"), parser.isSet("sprue-invalid"));
+    smoke->setSprueGizmo(parser.isSet("sprue-gizmo"), parser.isSet("sprue-gizmo-events"));
     smoke->setScreenshot(parser.value("screenshot"));
     QTimer::singleShot(0, smoke.get(), [&smoke] { smoke->start(); });
   } else if (!parser.positionalArguments().isEmpty()) {

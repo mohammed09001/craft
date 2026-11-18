@@ -225,6 +225,186 @@ class WorkflowTest : public QObject {
     QVERIFY(app->sprueCandidate().isEmpty());
   }
 
+  // --- sprue resize gizmo: rings at the openings, hover, drag, Escape, numeric edit --------------------------------------------
+
+  void sprueRingsResizeASprueByDraggingAndTyping() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->generateMold();
+    QVERIFY(waitFor([&] { return app->moldPhase() == "complete"; }));
+    app->camera()->setViewportSize(800, 600);
+    app->camera()->lookFrom("top");
+
+    // No rings outside the Sprue tool, and none until there is a sprue.
+    QVERIFY(!app->sprueGizmo().value("active").toBool());
+    QCOMPARE(app->sprueHandles()->rowCount(), 0);
+    app->setTool("sprue");
+    QVERIFY(app->sprueGizmo().value("active").toBool());
+    QCOMPARE(app->sprueHandles()->rowCount(), 0);
+    QCOMPARE(app->sprueGizmo().value("cursor").toString(), QStringLiteral("funnel"));
+
+    // Place a sprue over the cavity; once resolved it has two rings (the opening and the entry neck).
+    int placedAt = -1;
+    for (int x = 100; x <= 700 && placedAt < 0; x += 10) {
+      app->previewSprueAt(x, 300, 800, 600);
+      if (app->sprueCandidate().value("valid").toBool() && app->placeSprueAt(x, 300, 800, 600)) placedAt = x;
+    }
+    QVERIFY(placedAt > 0);
+    QVERIFY(waitFor([&] { return app->spruePhase() == "idle" && app->sprueEvaluation().has_value(); }));
+    QCOMPARE(app->sprueHandles()->rowCount(), 2);
+    const auto handleRow = [&](const QString& suffix) {
+      for (int row = 0; row < app->sprueHandles()->rowCount(); ++row) {
+        if (app->sprueHandles()->data(app->sprueHandles()->index(row), SprueHandleModel::IdRole).toString().endsWith(suffix)) return row;
+      }
+      return -1;
+    };
+    const int top = handleRow(":top"), bottom = handleRow(":bottom");
+    QVERIFY(top >= 0 && bottom >= 0);
+    const auto colorOf = [&](int row) { return app->sprueHandles()->data(app->sprueHandles()->index(row), SprueHandleModel::ColorRole).value<QColor>(); };
+    QCOMPARE(colorOf(top), QColor("#3ea36d"));  // resolved: the idle green
+
+    // Find a pixel on the top ring.
+    const auto findRing = [&](const QString& suffix) {
+      for (int y = 100; y < 500; y += 2) {
+        for (int x = 150; x < 650; x += 2) {
+          if (app->sprueGizmoHoverAt(x, y, 800, 600) && app->sprueGizmo().value("state").toString() == "rim-hover") {
+            // Which ring is it? The hovered one is drawn in the hover colour.
+            const int row = handleRow(suffix);
+            if (colorOf(row) == QColor("#67c58f")) return QPoint(x, y);
+          }
+        }
+      }
+      return QPoint(-1, -1);
+    };
+    const QPoint ring = findRing(":top");
+    QVERIFY2(ring.x() >= 0, "no pixel on the top ring");
+
+    // Hover: the ring highlights, the cursor is the resize cursor, and the bodies the sprue cuts are hidden.
+    QVERIFY(app->sprueGizmoHoverAt(ring.x(), ring.y(), 800, 600));
+    QCOMPARE(app->sprueGizmo().value("state").toString(), QStringLiteral("rim-hover"));
+    QCOMPARE(app->sprueGizmo().value("cursor").toString(), QStringLiteral("resize"));
+    const auto bodiesHidden = [&] {
+      int hidden = 0;
+      for (int row = 0; row < app->scene()->count(); ++row) {
+        const QModelIndex index = app->scene()->index(row);
+        if (app->scene()->data(index, SceneModel::KindRole).toString() == "mold-body" && app->scene()->data(index, SceneModel::GizmoHiddenRole).toBool()) ++hidden;
+      }
+      return hidden;
+    };
+    QVERIFY(bodiesHidden() >= 1);
+    QVERIFY(app->sprueCandidate().isEmpty());  // no placement preview under a ring
+    app->sprueGizmoLeave();
+    QCOMPARE(app->sprueGizmo().value("state").toString(), QStringLiteral("idle"));
+    QCOMPARE(bodiesHidden(), 0);
+    QVERIFY(!app->sprueGizmoPressAt(5, 5, 800, 600));  // an ordinary press elsewhere
+
+    // Escape during a drag reverts the preview and commits nothing.
+    const double originalMain = app->sprueIntents().front().profileDesign.profile.mainDiameterMm;
+    QVERIFY(app->sprueGizmoPressAt(ring.x(), ring.y(), 800, 600));
+    QCOMPARE(app->sprueGizmo().value("state").toString(), QStringLiteral("resizing"));
+    app->sprueGizmoDragTo(ring.x() + 40, ring.y(), false);
+    QCOMPARE(app->sprueGizmo().value("labelText").toString(), QString::fromUtf8("\xC3\x98 %1 mm").arg(originalMain + 2.0, 0, 'f', 2));
+    QCOMPARE(app->sprueHandles()->data(app->sprueHandles()->index(top), SprueHandleModel::GroupScaleRole).toDouble(), (originalMain + 2.0) / originalMain);
+    QCOMPARE(colorOf(top), QColor("#f0b44d"));  // the active ring
+    QVERIFY(app->sprueGizmo().value("cancellable").toBool());
+    QVERIFY(app->sprueGizmoCancel());
+    QCOMPARE(app->sprueHandles()->data(app->sprueHandles()->index(top), SprueHandleModel::GroupScaleRole).toDouble(), 1.0);
+    QCOMPARE(app->sprueIntents().front().profileDesign.profile.mainDiameterMm, originalMain);
+    QVERIFY(!app->sprueGizmoCancel());  // nothing left to cancel
+
+    // A release commits the previewed diameter (snapped to 0.25 mm; Shift would not snap).
+    QVERIFY(app->sprueGizmoPressAt(ring.x(), ring.y(), 800, 600));
+    app->sprueGizmoDragTo(ring.x() + 40, ring.y(), false);
+    app->sprueGizmoRelease();
+    QCOMPARE(app->sprueIntents().front().profileDesign.profile.mainDiameterMm, originalMain + 2.0);
+    QCOMPARE(app->sprueIntents().front().validation.status, std::string("pending"));
+    QCOMPARE(colorOf(handleRow(":top")), QColor("#d8a43b"));  // pending until the sprue is evaluated again
+    QVERIFY(waitFor([&] { return app->spruePhase() == "idle" && !app->busy() && app->sprueIntents().front().validation.status == "resolved"; }));
+    QCOMPARE(app->sprueHandles()->rowCount(), 2);
+    QCOMPARE(colorOf(handleRow(":top")), QColor("#3ea36d"));
+    QCOMPARE(app->sprueHandles()->data(app->sprueHandles()->index(handleRow(":top")), SprueHandleModel::GroupScaleRole).toDouble(), 1.0);
+
+    // A press-release without movement changes nothing.
+    const double afterDrag = app->sprueIntents().front().profileDesign.profile.mainDiameterMm;
+    const QPoint ring2 = findRing(":top");
+    QVERIFY(ring2.x() >= 0);
+    QVERIFY(app->sprueGizmoPressAt(ring2.x(), ring2.y(), 800, 600));
+    app->sprueGizmoRelease();
+    QCOMPARE(app->sprueIntents().front().profileDesign.profile.mainDiameterMm, afterDrag);
+    QVERIFY(app->sprueIntents().size() == 1);  // and it did not place a second sprue
+
+    // Double click: the numeric editor opens with the current value and the limits; Enter commits.
+    app->sprueGizmoLeave();
+    const QVariantMap edit = app->sprueGizmoEditAt(ring2.x(), ring2.y(), 800, 600);
+    QCOMPARE(edit.value("opening").toString(), QStringLiteral("top"));
+    QCOMPARE(edit.value("text").toString(), QString::number(afterDrag, 'f', 2));
+    QCOMPARE(edit.value("min").toDouble(), 2.0);
+    QCOMPARE(edit.value("max").toDouble(), 50.0);
+    QCOMPARE(app->sprueGizmo().value("state").toString(), QStringLiteral("numeric-edit"));
+    QVERIFY(app->sprueGizmoHoverAt(10, 10, 800, 600));  // the pointer belongs to the editor: no preview
+    QVERIFY(!app->sprueGizmoCommitEdit(QStringLiteral("inf")));   // non-finite: refused, the editor stays open
+    QVERIFY(!app->sprueGizmo().value("editError").toString().isEmpty());
+    QCOMPARE(app->sprueGizmo().value("state").toString(), QStringLiteral("numeric-edit"));
+    QVERIFY(app->sprueGizmoCommitEdit(QStringLiteral("7.5")));
+    QCOMPARE(app->sprueGizmo().value("state").toString(), QStringLiteral("idle"));
+    QCOMPARE(app->sprueIntents().front().profileDesign.profile.mainDiameterMm, 7.5);
+    QVERIFY(waitFor([&] { return app->spruePhase() == "idle" && !app->busy() && app->sprueIntents().front().validation.status == "resolved"; }));
+
+    // Escape closes the editor without committing.
+    const QPoint ring3 = findRing(":top");
+    QVERIFY(ring3.x() >= 0);
+    app->sprueGizmoLeave();
+    QVERIFY(!app->sprueGizmoEditAt(5, 5, 800, 600).contains("operationId"));
+    QVERIFY(app->sprueGizmoEditAt(ring3.x(), ring3.y(), 800, 600).contains("operationId"));
+    QVERIFY(app->sprueGizmoCancel());
+    QCOMPARE(app->sprueGizmo().value("state").toString(), QStringLiteral("idle"));
+    QCOMPARE(app->sprueIntents().front().profileDesign.profile.mainDiameterMm, 7.5);
+
+    // Leaving the Sprue tool removes the rings and restores any hidden body.
+    app->setTool("select");
+    QCOMPARE(app->sprueHandles()->rowCount(), 0);
+    QVERIFY(!app->sprueGizmo().value("active").toBool());
+    QCOMPARE(bodiesHidden(), 0);
+  }
+
+  void theNeckRingCannotGrowPastTheMainDiameter() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->generateMold();
+    QVERIFY(waitFor([&] { return app->moldPhase() == "complete"; }));
+    app->camera()->setViewportSize(800, 600);
+    app->camera()->lookFrom("top");
+    app->setTool("sprue");
+    int placedAt = -1;
+    for (int x = 100; x <= 700 && placedAt < 0; x += 10) {
+      app->previewSprueAt(x, 300, 800, 600);
+      if (app->sprueCandidate().value("valid").toBool() && app->placeSprueAt(x, 300, 800, 600)) placedAt = x;
+    }
+    QVERIFY(placedAt > 0);
+    QVERIFY(waitFor([&] { return app->spruePhase() == "idle" && app->sprueEvaluation().has_value(); }));
+
+    // Find the bottom (entry neck) ring and drag it far to the right: it stops at the main diameter.
+    QPoint ring(-1, -1);
+    for (int y = 100; y < 500 && ring.x() < 0; y += 2) {
+      for (int x = 150; x < 650 && ring.x() < 0; x += 2) {
+        if (!app->sprueGizmoHoverAt(x, y, 800, 600)) continue;
+        for (int row = 0; row < app->sprueHandles()->rowCount(); ++row) {
+          const QString id = app->sprueHandles()->data(app->sprueHandles()->index(row), SprueHandleModel::IdRole).toString();
+          if (id.endsWith(":bottom") && app->sprueHandles()->data(app->sprueHandles()->index(row), SprueHandleModel::ColorRole).value<QColor>() == QColor("#67c58f")) ring = QPoint(x, y);
+        }
+      }
+    }
+    QVERIFY2(ring.x() >= 0, "no pixel on the entry-neck ring");
+    const double main = app->sprueIntents().front().profileDesign.profile.mainDiameterMm;
+    QVERIFY(app->sprueGizmoPressAt(ring.x(), ring.y(), 800, 600));
+    app->sprueGizmoDragTo(ring.x() + 2000, ring.y(), false);
+    QVERIFY(app->sprueGizmo().value("labelWarns").toBool());  // at the limit
+    app->sprueGizmoRelease();
+    QCOMPARE(app->sprueIntents().front().profileDesign.profile.entryNeckDiameterMm, main);
+  }
+
   void sprueWorkflowPlaceEditRegenerateRemove() {
     auto app = makeApp();
     app->importStlFile(bracket());

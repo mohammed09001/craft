@@ -1,0 +1,5588 @@
+{
+ "generatedFrom": "mold/frontend/src/features/viewport/runtime/sprueResizeRuntime.ts and split-face/splitFace.store.ts (selectSpruePresentationDefinitions)",
+ "viewport": {
+  "width": 800,
+  "height": 600
+ },
+ "camera": {
+  "fov": 45,
+  "near": 0.1,
+  "far": 1000,
+  "position": {
+   "x": 45,
+   "y": -70,
+   "z": 75
+  },
+  "target": {
+   "x": 0,
+   "y": 0,
+   "z": 15
+  },
+  "up": {
+   "x": 0,
+   "y": 0,
+   "z": 1
+  }
+ },
+ "constants": {
+  "snapMm": 0.25,
+  "sensitivityMmPerPixel": 0.05
+ },
+ "definitions": [
+  {
+   "operationId": "sprue:1",
+   "position": {
+    "x": 0,
+    "y": 0,
+    "z": 32
+   },
+   "inwardDirection": {
+    "x": 0,
+    "y": 0,
+    "z": -1
+   },
+   "profile": {
+    "mainDiameterMm": 5,
+    "entryNeckDiameterMm": 3.2,
+    "entryNeckLengthMm": 4
+   },
+   "depthMm": 10,
+   "targetBodyIds": [
+    "body-1"
+   ],
+   "status": "resolved"
+  },
+  {
+   "operationId": "sprue:2",
+   "position": {
+    "x": 15,
+    "y": 5,
+    "z": 32
+   },
+   "inwardDirection": {
+    "x": 0,
+    "y": 0,
+    "z": -1
+   },
+   "profile": {
+    "mainDiameterMm": 6,
+    "entryNeckDiameterMm": 4,
+    "entryNeckLengthMm": 4
+   },
+   "status": "pending"
+  },
+  {
+   "operationId": "sprue:3",
+   "position": {
+    "x": -15,
+    "y": -8,
+    "z": 32
+   },
+   "inwardDirection": {
+    "x": 0.26612314770617473,
+    "y": -0.10644925908246991,
+    "z": -0.9580433317422291
+   },
+   "profile": {
+    "mainDiameterMm": 3,
+    "entryNeckDiameterMm": 2.5,
+    "entryNeckLengthMm": 2
+   },
+   "depthMm": 12,
+   "targetBodyIds": [
+    "body-1",
+    "body-2"
+   ],
+   "status": "invalid"
+  }
+ ],
+ "objectVisible": true,
+ "handles": [
+  {
+   "name": "SprueResizeHandle:sprue:1:top",
+   "operationId": "sprue:sprue",
+   "opening": "1",
+   "position": {
+    "x": 0,
+    "y": 0,
+    "z": 32
+   },
+   "quaternion": {
+    "x": 0,
+    "y": 0,
+    "z": 0,
+    "w": 1
+   },
+   "visual": {
+    "radius": 2.5,
+    "tube": 0.12,
+    "radialSegments": 8,
+    "tubularSegments": 32,
+    "colorHex": 4105069,
+    "opacity": 0.72,
+    "scale": 1
+   },
+   "target": {
+    "radius": 2.5,
+    "tube": 0.45,
+    "radialSegments": 8,
+    "tubularSegments": 32
+   }
+  },
+  {
+   "name": "SprueResizeHandle:sprue:1:bottom",
+   "operationId": "sprue:sprue",
+   "opening": "1",
+   "position": {
+    "x": 0,
+    "y": 0,
+    "z": 22
+   },
+   "quaternion": {
+    "x": 0,
+    "y": 0,
+    "z": 0,
+    "w": 1
+   },
+   "visual": {
+    "radius": 1.6,
+    "tube": 0.12,
+    "radialSegments": 8,
+    "tubularSegments": 32,
+    "colorHex": 4105069,
+    "opacity": 0.72,
+    "scale": 1
+   },
+   "target": {
+    "radius": 1.6,
+    "tube": 0.45,
+    "radialSegments": 8,
+    "tubularSegments": 32
+   }
+  },
+  {
+   "name": "SprueResizeHandle:sprue:2:top",
+   "operationId": "sprue:sprue",
+   "opening": "2",
+   "position": {
+    "x": 15,
+    "y": 5,
+    "z": 32
+   },
+   "quaternion": {
+    "x": 0,
+    "y": 0,
+    "z": 0,
+    "w": 1
+   },
+   "visual": {
+    "radius": 3,
+    "tube": 0.135,
+    "radialSegments": 8,
+    "tubularSegments": 32,
+    "colorHex": 14197819,
+    "opacity": 0.72,
+    "scale": 1
+   },
+   "target": {
+    "radius": 3,
+    "tube": 0.48,
+    "radialSegments": 8,
+    "tubularSegments": 32
+   }
+  },
+  {
+   "name": "SprueResizeHandle:sprue:3:top",
+   "operationId": "sprue:sprue",
+   "opening": "3",
+   "position": {
+    "x": -15,
+    "y": -8,
+    "z": 32
+   },
+   "quaternion": {
+    "x": -0.053791851874815916,
+    "y": -0.13447962968703978,
+    "z": 0,
+    "w": 0.9894552369213651
+   },
+   "visual": {
+    "radius": 1.5,
+    "tube": 0.12,
+    "radialSegments": 8,
+    "tubularSegments": 32,
+    "colorHex": 11745846,
+    "opacity": 0.72,
+    "scale": 1
+   },
+   "target": {
+    "radius": 1.5,
+    "tube": 0.45,
+    "radialSegments": 8,
+    "tubularSegments": 32
+   }
+  },
+  {
+   "name": "SprueResizeHandle:sprue:3:bottom",
+   "operationId": "sprue:sprue",
+   "opening": "3",
+   "position": {
+    "x": -11.806522227525903,
+    "y": -9.277391108989638,
+    "z": 20.503480019093253
+   },
+   "quaternion": {
+    "x": -0.053791851874815916,
+    "y": -0.13447962968703978,
+    "z": 0,
+    "w": 0.9894552369213651
+   },
+   "visual": {
+    "radius": 1.25,
+    "tube": 0.12,
+    "radialSegments": 8,
+    "tubularSegments": 32,
+    "colorHex": 11745846,
+    "opacity": 0.72,
+    "scale": 1
+   },
+   "target": {
+    "radius": 1.25,
+    "tube": 0.45,
+    "radialSegments": 8,
+    "tubularSegments": 32
+   }
+  }
+ ],
+ "picks": [
+  {
+   "label": "SprueResizeHandle:sprue:1:top@0+0,0",
+   "x": 416.63623124230645,
+   "y": 197.16735629299217,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.45948631116069605,
+     "y": 0.7568009830882032,
+     "z": -0.4648920324684702
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:1:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:top@0+3,0",
+   "x": 419.63623124230645,
+   "y": 197.16735629299217,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.45599118924615906,
+     "y": 0.7589409397321546,
+     "z": -0.46484479703267395
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:1:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:top@0+0,4",
+   "x": 416.63623124230645,
+   "y": 201.16735629299217,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.45810267607484023,
+     "y": 0.7546803703016034,
+     "z": -0.4696801857163072
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:1:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:top@0+-6,3",
+   "x": 410.63623124230645,
+   "y": 200.16735629299217,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.4654227426276068,
+     "y": 0.7508911127479478,
+     "z": -0.46855544756319434
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:1:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:top@0+12,0",
+   "x": 428.63623124230645,
+   "y": 197.16735629299217,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.44546522157585383,
+     "y": 0.7652811310389335,
+     "z": -0.4646563534937905
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:top@0+0,25",
+   "x": 416.63623124230645,
+   "y": 222.16735629299217,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.4505854991791771,
+     "y": 0.743133745897173,
+     "z": -0.49469681991931996
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:top@0+40,40",
+   "x": 456.63623124230645,
+   "y": 237.16735629299217,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.397588472869589,
+     "y": 0.7621034365030327,
+     "z": -0.5110007419872264
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:top@0.7+0,0",
+   "x": 419.3273945465136,
+   "y": 191.04322023997858,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.45844316907585564,
+     "y": 0.7619161991396294,
+     "z": -0.4575079957949447
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:1:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:top@0.7+3,0",
+   "x": 422.3273945465136,
+   "y": 191.04322023997858,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.4549459120946022,
+     "y": 0.7640414689946577,
+     "z": -0.4574547526530859
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:1:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:top@0.7+0,4",
+   "x": 419.3273945465136,
+   "y": 195.04322023997858,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.4570809899340976,
+     "y": 0.7598361794225126,
+     "z": -0.4623050389964015
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:1:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:top@0.7+-6,3",
+   "x": 413.3273945465136,
+   "y": 194.04322023997858,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.4644006039887,
+     "y": 0.756065679627445,
+     "z": -0.46119059737208473
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:top@0.7+12,0",
+   "x": 431.3273945465136,
+   "y": 191.04322023997858,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.44441439728258186,
+     "y": 0.770336957764928,
+     "z": -0.45724918260116687
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:top@0.7+0,25",
+   "x": 419.3273945465136,
+   "y": 216.04322023997858,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.44967642120728357,
+     "y": 0.7484996628991348,
+     "z": -0.48738010920645
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:top@0.7+40,40",
+   "x": 459.3273945465136,
+   "y": 231.04322023997858,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.3967228166954262,
+     "y": 0.7674236978256354,
+     "z": -0.5036584901784892
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:top@1.9+0,0",
+   "x": 404.58846697506914,
+   "y": 183.58123761457762,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.477994501870018,
+     "y": 0.7551139898163365,
+     "z": -0.4486915628421007
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:1:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:top@1.9+3,0",
+   "x": 407.58846697506914,
+   "y": 183.58123761457762,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.47453834599395567,
+     "y": 0.7572997461023583,
+     "z": -0.44867633404785734
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:1:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:top@1.9+0,4",
+   "x": 404.58846697506914,
+   "y": 187.58123761457762,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.47667560123826885,
+     "y": 0.7530722167530018,
+     "z": -0.45350039419922733
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:top@1.9+-6,3",
+   "x": 398.58846697506914,
+   "y": 186.58123761457762,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.4838999277645648,
+     "y": 0.7491725668403615,
+     "z": -0.45230667141141423
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:1:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:top@1.9+12,0",
+   "x": 416.58846697506914,
+   "y": 183.58123761457762,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.46412473053828324,
+     "y": 0.7637795117894928,
+     "z": -0.4485856572310018
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:1:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:top@1.9+0,25",
+   "x": 404.58846697506914,
+   "y": 208.58123761457762,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.46948857386619497,
+     "y": 0.7419387964114216,
+     "z": -0.4786515448514268
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:top@1.9+40,40",
+   "x": 444.58846697506914,
+   "y": 223.58123761457762,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.41711543182128147,
+     "y": 0.7618535118885585,
+     "z": -0.4955743566404703
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:top@3.3+0,0",
+   "x": 382.2552774536975,
+   "y": 188.59556931267952,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5018376343481702,
+     "y": 0.7358686463442244,
+     "z": -0.45459468109443485
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:1:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:top@3.3+3,0",
+   "x": 385.2552774536975,
+   "y": 188.59556931267952,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.49844008248665994,
+     "y": 0.7381488087915865,
+     "z": -0.45463592054549934
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:1:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:top@3.3+0,4",
+   "x": 382.2552774536975,
+   "y": 192.59556931267952,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5005196325720338,
+     "y": 0.7337819135051847,
+     "z": -0.45939547322826974
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:1:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:top@3.3+-6,3",
+   "x": 376.2552774536975,
+   "y": 191.59556931267952,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5076227343218034,
+     "y": 0.7297075582745849,
+     "z": -0.45808955346809554
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:top@3.3+12,0",
+   "x": 394.2552774536975,
+   "y": 188.59556931267952,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.4881946520421209,
+     "y": 0.7449168969965382,
+     "z": -0.4547139741491583
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:top@3.3+0,25",
+   "x": 382.2552774536975,
+   "y": 213.59556931267952,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.4933266927216571,
+     "y": 0.7224219474059773,
+     "z": -0.4844948959013571
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:top@3.3+40,40",
+   "x": 422.2552774536975,
+   "y": 228.59556931267952,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.44161650474996467,
+     "y": 0.7434826380919113,
+     "z": -0.5022035738506014
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:top@4.6+0,0",
+   "x": 387.44173773918413,
+   "y": 199.3566667283684,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.4923615505539484,
+     "y": 0.734140691031385,
+     "z": -0.4675655561609221
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:1:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:top@4.6+3,0",
+   "x": 390.44173773918413,
+   "y": 199.3566667283684,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.488941273251254,
+     "y": 0.7364046158905168,
+     "z": -0.46759456049721415
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:1:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:top@4.6+0,4",
+   "x": 387.44173773918413,
+   "y": 203.3566667283684,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.49099413561653793,
+     "y": 0.7319901484001551,
+     "z": -0.47235069750693465
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:top@4.6+-6,3",
+   "x": 381.44173773918413,
+   "y": 202.3566667283684,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.4981555504460401,
+     "y": 0.7279639526955249,
+     "z": -0.4710727450571836
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:top@4.6+12,0",
+   "x": 399.44173773918413,
+   "y": 199.3566667283684,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.4786295600960246,
+     "y": 0.7431230312214082,
+     "z": -0.46763437071134123
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:1:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:top@4.6+0,25",
+   "x": 387.44173773918413,
+   "y": 224.3566667283684,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.48354683130140447,
+     "y": 0.7202972593160594,
+     "z": -0.4973472832540101
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:top@4.6+40,40",
+   "x": 427.44173773918413,
+   "y": 239.3566667283684,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.43142413382472256,
+     "y": 0.740876922949271,
+     "z": -0.5147568375406081
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:top@centre",
+   "x": 400,
+   "y": 192.20375591701128,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.4804118360889921,
+     "y": 0.747307300582857,
+     "z": -0.45906019892947236
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@0+0,0",
+   "x": 409.9674786448472,
+   "y": 261.69670563937575,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.44312113787581914,
+     "y": 0.7147115127029375,
+     "z": -0.5411387167607935
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:1:bottom",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@0+3,0",
+   "x": 412.9674786448472,
+   "y": 261.69670563937575,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.43961330883838784,
+     "y": 0.7169011915092897,
+     "z": -0.5411033360687451
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:1:bottom",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@0+0,4",
+   "x": 409.9674786448472,
+   "y": 265.69670563937575,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.4414989629190685,
+     "y": 0.7121951461745156,
+     "z": -0.5457625303250925
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@0+-6,3",
+   "x": 403.9674786448472,
+   "y": 264.69670563937575,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.4489011625566412,
+     "y": 0.7084086632725636,
+     "z": -0.5446511838375786
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:1:bottom",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@0+12,0",
+   "x": 421.9674786448472,
+   "y": 261.69670563937575,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.42904857329984064,
+     "y": 0.7233943242723042,
+     "z": -0.5409417467343295
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@0+0,25",
+   "x": 409.9674786448472,
+   "y": 286.69670563937575,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.4327517625089526,
+     "y": 0.6986125883023856,
+     "z": -0.5697950188540054
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@0+40,40",
+   "x": 449.9674786448472,
+   "y": 301.69670563937575,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.37895695843996136,
+     "y": 0.7167672570315926,
+     "z": -0.5853514524602637
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@0.7+0,0",
+   "x": 411.64805525659807,
+   "y": 257.4379497641996,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.4428688458528887,
+     "y": 0.7185929293343282,
+     "z": -0.5361822332786117
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:1:bottom",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@0.7+3,0",
+   "x": 414.64805525659807,
+   "y": 257.4379497641996,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.43935810542747267,
+     "y": 0.7207746786477192,
+     "z": -0.5361420686865179
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:1:bottom",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@0.7+0,4",
+   "x": 411.64805525659807,
+   "y": 261.4379497641996,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.44126142903258064,
+     "y": 0.7161016553997739,
+     "z": -0.5408204603949709
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:1:bottom",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@0.7+-6,3",
+   "x": 405.64805525659807,
+   "y": 260.4379497641996,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.44866615165366863,
+     "y": 0.7123243543618373,
+     "z": -0.5397153866097193
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:1:bottom",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@0.7+12,0",
+   "x": 423.64805525659807,
+   "y": 257.4379497641996,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.4287851047897278,
+     "y": 0.727243450551277,
+     "z": -0.5359666944323449
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@0.7+0,25",
+   "x": 411.64805525659807,
+   "y": 282.4379497641996,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.4325904240311241,
+     "y": 0.7026467386396221,
+     "z": -0.5649363554557938
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@0.7+40,40",
+   "x": 451.64805525659807,
+   "y": 297.4379497641996,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.37880226522495053,
+     "y": 0.7207856702072981,
+     "z": -0.5804970813744567
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@1.9+0,0",
+   "x": 402.7853183305117,
+   "y": 252.18057410127753,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.45528453487939513,
+     "y": 0.7153166150261494,
+     "z": -0.5301302977261197
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:1:bottom",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@1.9+3,0",
+   "x": 405.7853183305117,
+   "y": 252.18057410127753,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.45179683052897257,
+     "y": 0.7175341149676554,
+     "z": -0.5301173622713733
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:1:bottom",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@1.9+0,4",
+   "x": 402.7853183305117,
+   "y": 256.18057410127756,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.45369954955205194,
+     "y": 0.7128535521669226,
+     "z": -0.5347864357846651
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@1.9+-6,3",
+   "x": 396.7853183305117,
+   "y": 255.18057410127753,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.461051254576208,
+     "y": 0.7089985719753787,
+     "z": -0.5336223061216409
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:1:bottom",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@1.9+12,0",
+   "x": 414.7853183305117,
+   "y": 252.18057410127753,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.4412895211980758,
+     "y": 0.7241117682879873,
+     "z": -0.5300242499241115
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@1.9+0,25",
+   "x": 402.7853183305117,
+   "y": 277.18057410127756,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.44513843108418727,
+     "y": 0.6995457098927905,
+     "z": -0.559005882744091
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@1.9+40,40",
+   "x": 442.7853183305117,
+   "y": 292.18057410127756,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.39165009515866084,
+     "y": 0.7182804276584169,
+     "z": -0.5750508066293392
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@3.3+0,0",
+   "x": 389.2805478873151,
+   "y": 255.72177936866711,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.46948976518871777,
+     "y": 0.7030015100004477,
+     "z": -0.5341986871194395
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:1:bottom",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@3.3+3,0",
+   "x": 392.2805478873151,
+   "y": 255.72177936866711,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.46603683890660125,
+     "y": 0.7052740245664348,
+     "z": -0.5342267449817599
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:1:bottom",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@3.3+0,4",
+   "x": 389.2805478873151,
+   "y": 259.7217793686671,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.46789683576473035,
+     "y": 0.7005148438648392,
+     "z": -0.5388427457119312
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:1:bottom",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@3.3+-6,3",
+   "x": 383.2805478873151,
+   "y": 258.7217793686671,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.4751786907048048,
+     "y": 0.6965576934473797,
+     "z": -0.5375989133167343
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@3.3+12,0",
+   "x": 401.2805478873151,
+   "y": 255.72177936866711,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.4556291544009739,
+     "y": 0.7120199765362965,
+     "z": -0.5342561433180767
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@3.3+0,25",
+   "x": 389.2805478873151,
+   "y": 280.7217793686671,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.45928811957043003,
+     "y": 0.6870909824974721,
+     "z": -0.5629923667263322
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@3.3+40,40",
+   "x": 429.2805478873151,
+   "y": 295.7217793686671,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.4061552765246542,
+     "y": 0.7064965544853878,
+     "z": -0.5795692450876401
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@4.6+0,0",
+   "x": 392.49151999131897,
+   "y": 263.20709053202677,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.46279816188603623,
+     "y": 0.7007626280190349,
+     "z": -0.5429084642246444
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:1:bottom",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@4.6+3,0",
+   "x": 395.49151999131897,
+   "y": 263.20709053202677,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.45933430236764444,
+     "y": 0.7030236084661494,
+     "z": -0.5429270711685538
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:1:bottom",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@4.6+0,4",
+   "x": 392.49151999131897,
+   "y": 267.20709053202677,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.4611758984637027,
+     "y": 0.6982340391830526,
+     "z": -0.5475271839847917
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@4.6+-6,3",
+   "x": 386.49151999131897,
+   "y": 266.20709053202677,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.4684872837282933,
+     "y": 0.6943103673092661,
+     "z": -0.5463083184720491
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@4.6+12,0",
+   "x": 404.49151999131897,
+   "y": 263.20709053202677,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.44889520491293666,
+     "y": 0.7097346016985003,
+     "z": -0.5429271499548018
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:1:bottom",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@4.6+0,25",
+   "x": 392.49151999131897,
+   "y": 288.20709053202677,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.4524189417402579,
+     "y": 0.6845950291218171,
+     "z": -0.5715301805297105
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@4.6+40,40",
+   "x": 432.49151999131897,
+   "y": 303.20709053202677,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.39909097600571547,
+     "y": 0.7036843476247702,
+     "z": -0.5878390356030356
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:1:bottom@centre",
+   "x": 400,
+   "y": 258.24883953743546,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.45610711058058656,
+     "y": 0.7094999497920156,
+     "z": -0.5371928191282496
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@0+0,0",
+   "x": 546.5939293285282,
+   "y": 213.27910372556767,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.2981105929633475,
+     "y": 0.8280849804537681,
+     "z": -0.47476872212680954
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:2:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@0+3,0",
+   "x": 549.5939293285282,
+   "y": 213.27910372556767,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.2944825942368498,
+     "y": 0.8295998389820066,
+     "z": -0.474388141559803
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:2:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@0+0,4",
+   "x": 546.5939293285282,
+   "y": 217.27910372556767,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.29659194951283985,
+     "y": 0.8259459034554953,
+     "z": -0.4794231742930858
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:2:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@0+-6,3",
+   "x": 540.5939293285282,
+   "y": 216.27910372556767,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.3042335223389096,
+     "y": 0.8234040115691076,
+     "z": -0.4790070955812255
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:2:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@0+12,0",
+   "x": 558.5939293285282,
+   "y": 213.27910372556767,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.28360701392459436,
+     "y": 0.83405224028644,
+     "z": -0.47320600389887846
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@0+0,25",
+   "x": 546.5939293285282,
+   "y": 238.27910372556767,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.2884524239565155,
+     "y": 0.8142886367203135,
+     "z": -0.5037154109433065
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@0+40,40",
+   "x": 586.5939293285282,
+   "y": 253.27910372556767,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.2342005221782694,
+     "y": 0.8247776948084543,
+     "z": -0.5146764707637975
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@0.7+0,0",
+   "x": 547.5790013867394,
+   "y": 205.38299113967344,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.29988728615630805,
+     "y": 0.8327280381975268,
+     "z": -0.4654370311884336
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:2:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@0.7+3,0",
+   "x": 550.5790013867394,
+   "y": 205.38299113967344,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.29626228289736134,
+     "y": 0.8342334346835284,
+     "z": -0.46506261534181287
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:2:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@0.7+0,4",
+   "x": 547.5790013867394,
+   "y": 209.38299113967344,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.2983887971304512,
+     "y": 0.8306416388730097,
+     "z": -0.47010487501982284
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:2:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@0.7+-6,3",
+   "x": 541.5790013867394,
+   "y": 208.38299113967344,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.3060197048251695,
+     "y": 0.8281054491279739,
+     "z": -0.46967361580492556
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@0.7+12,0",
+   "x": 559.5790013867394,
+   "y": 205.38299113967344,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.2853957102137202,
+     "y": 0.8386573376905899,
+     "z": -0.4638999445239653
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@0.7+0,25",
+   "x": 547.5790013867394,
+   "y": 230.38299113967344,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.2903525397481816,
+     "y": 0.8192577537186225,
+     "z": -0.49448168382023744
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@0.7+40,40",
+   "x": 587.5790013867394,
+   "y": 245.38299113967344,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.2361815267589402,
+     "y": 0.8298092026206789,
+     "z": -0.5056035736264617
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@1.9+0,0",
+   "x": 526.4951006827647,
+   "y": 195.8380361453471,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.32888975456354663,
+     "y": 0.8266233560921412,
+     "z": -0.45664576698584997
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:2:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@1.9+3,0",
+   "x": 529.4951006827647,
+   "y": 195.8380361453471,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.32526494460491434,
+     "y": 0.8282314757171325,
+     "z": -0.45632810393683093
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:2:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@1.9+0,4",
+   "x": 526.4951006827647,
+   "y": 199.8380361453471,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.3274289083239189,
+     "y": 0.8245846467594428,
+     "z": -0.461357204693296
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@1.9+-6,3",
+   "x": 520.4951006827647,
+   "y": 198.8380361453471,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.3350468008390435,
+     "y": 0.821831356337017,
+     "z": -0.4608002419582497
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:2:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@1.9+12,0",
+   "x": 538.4951006827647,
+   "y": 195.8380361453471,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.31439100325584945,
+     "y": 0.8329637300822682,
+     "z": -0.4553347355948311
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:2:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@1.9+0,25",
+   "x": 526.4951006827647,
+   "y": 220.8380361453471,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.31957315382363216,
+     "y": 0.8134482334387245,
+     "z": -0.4859783646116725
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:2:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@1.9+40,40",
+   "x": 566.4951006827647,
+   "y": 235.8380361453471,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.2653449238001328,
+     "y": 0.8255276106512063,
+     "z": -0.49809259728087935
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@3.3+0,0",
+   "x": 500.672700423737,
+   "y": 202.24292468769633,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.3577433884696148,
+     "y": 0.8088435581870289,
+     "z": -0.46668165422011687
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:2:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@3.3+3,0",
+   "x": 503.672700423737,
+   "y": 202.24292468769633,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.35412334199928774,
+     "y": 0.8105861670132914,
+     "z": -0.46641904388431216
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:2:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@3.3+0,4",
+   "x": 500.672700423737,
+   "y": 206.24292468769633,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.3562794553976838,
+     "y": 0.8067441164579658,
+     "z": -0.47141158261331007
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:2:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@3.3+-6,3",
+   "x": 494.672700423737,
+   "y": 205.24292468769633,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.36388400743863186,
+     "y": 0.803737947790116,
+     "z": -0.47073744318094624
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@3.3+12,0",
+   "x": 512.6727004237371,
+   "y": 202.24292468769633,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.3432543532468874,
+     "y": 0.815723222536672,
+     "z": -0.465587879128579
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@3.3+0,25",
+   "x": 500.672700423737,
+   "y": 227.24292468769633,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.3483932135045144,
+     "y": 0.7952929698881618,
+     "z": -0.49611617674740793
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@3.3+40,40",
+   "x": 540.6727004237371,
+   "y": 242.24292468769633,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.2940608995826169,
+     "y": 0.8089419779278124,
+     "z": -0.5090589982338991
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@4.6+0,0",
+   "x": 511.0142857089348,
+   "y": 216.11566512275581,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.34010792819324615,
+     "y": 0.8074182024621432,
+     "z": -0.4820813660710183
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:2:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@4.6+3,0",
+   "x": 514.0142857089347,
+   "y": 216.11566512275581,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.33647748107157305,
+     "y": 0.8091159064826966,
+     "z": -0.4817824764438964
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:2:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@4.6+0,4",
+   "x": 511.0142857089348,
+   "y": 220.11566512275581,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.3385966034111111,
+     "y": 0.8052350280861764,
+     "z": -0.48677396161002007
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:2:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@4.6+-6,3",
+   "x": 505.0142857089348,
+   "y": 219.11566512275581,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.346235210519413,
+     "y": 0.8023393703153697,
+     "z": -0.48618177036836113
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@4.6+12,0",
+   "x": 523.0142857089347,
+   "y": 216.11566512275581,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.32558168591752873,
+     "y": 0.814117860082604,
+     "z": -0.48084163265010804
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:2:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@4.6+0,25",
+   "x": 511.0142857089348,
+   "y": 241.11566512275581,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.33047348735765075,
+     "y": 0.7933491227853877,
+     "z": -0.5112577075500462
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@4.6+40,40",
+   "x": 551.0142857089347,
+   "y": 256.1156651227558,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.2759733406707178,
+     "y": 0.8060951856499934,
+     "z": -0.5234971508145452
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:2:top@centre",
+   "x": 524.0125412248913,
+   "y": 206.87497390074893,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.3278345916235891,
+     "y": 0.8195864790589987,
+     "z": -0.4698962479938185
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@0+0,0",
+   "x": 277.4991115018204,
+   "y": 187.1718645289857,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.6141487992661882,
+     "y": 0.6505172696693753,
+     "z": -0.44682047202629455
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@0+3,0",
+   "x": 280.4991115018204,
+   "y": 187.1718645289857,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.6111549634132771,
+     "y": 0.6531296105524309,
+     "z": -0.4471144400653434
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@0+0,4",
+   "x": 277.4991115018204,
+   "y": 191.1718645289857,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.61293876046819,
+     "y": 0.6483900169660698,
+     "z": -0.4515489583804378
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@0+-6,3",
+   "x": 271.4991115018204,
+   "y": 190.1718645289857,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.6191938454318703,
+     "y": 0.6436773280280896,
+     "z": -0.44975379838519697
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@0+12,0",
+   "x": 289.4991115018204,
+   "y": 187.1718645289857,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.6020921658987919,
+     "y": 0.6609240622219177,
+     "z": -0.44795581002971757
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@0+0,25",
+   "x": 277.4991115018204,
+   "y": 212.1718645289857,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.6062694910202487,
+     "y": 0.6368667262983045,
+     "z": -0.4762752116078783
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@0+40,40",
+   "x": 317.4991115018204,
+   "y": 227.1718645289857,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.559827660688514,
+     "y": 0.6625844792983742,
+     "z": -0.49756888781446984
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@0.7+0,0",
+   "x": 280.5595479668354,
+   "y": 185.0732621189956,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.6117231875332624,
+     "y": 0.6542888885357572,
+     "z": -0.4446355723205115
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@0.7+3,0",
+   "x": 283.5595479668354,
+   "y": 185.0732621189956,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.6087170012934232,
+     "y": 0.656893495981296,
+     "z": -0.44492083259138776
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@0.7+0,4",
+   "x": 280.5595479668354,
+   "y": 189.0732621189956,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.6105203266307142,
+     "y": 0.6521742194484867,
+     "z": -0.449370357564318
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@0.7+-6,3",
+   "x": 274.5595479668354,
+   "y": 188.0732621189956,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.616798669908545,
+     "y": 0.6474732251230065,
+     "z": -0.4475911343490418
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@0.7+12,0",
+   "x": 292.5595479668354,
+   "y": 185.0732621189956,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5996177866418162,
+     "y": 0.6646637075766512,
+     "z": -0.4457360943128
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@0.7+0,25",
+   "x": 280.5595479668354,
+   "y": 210.0732621189956,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.6038894858721884,
+     "y": 0.6407144900841675,
+     "z": -0.4741333473287967
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@0.7+40,40",
+   "x": 320.5595479668354,
+   "y": 225.0732621189956,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5573158524390182,
+     "y": 0.6663680672405278,
+     "z": -0.49533083851330534
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@1.9+0,0",
+   "x": 273.8640208247688,
+   "y": 184.20526581108422,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.6186403472998017,
+     "y": 0.6489073156940615,
+     "z": -0.44294854817631857
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@1.9+3,0",
+   "x": 276.8640208247688,
+   "y": 184.20526581108422,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.6156653032155799,
+     "y": 0.6515270956605786,
+     "z": -0.4432478742606213
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@1.9+0,4",
+   "x": 273.8640208247688,
+   "y": 188.20526581108422,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.6174481846832239,
+     "y": 0.6467949507473484,
+     "z": -0.44767625681861534
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@1.9+-6,3",
+   "x": 267.8640208247688,
+   "y": 187.20526581108422,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.6236609484296128,
+     "y": 0.642064110813667,
+     "z": -0.445870720062364
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@1.9+12,0",
+   "x": 285.8640208247688,
+   "y": 184.20526581108422,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.60665820203045,
+     "y": 0.659344908416657,
+     "z": -0.44410597570198473
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@1.9+0,25",
+   "x": 273.8640208247688,
+   "y": 209.20526581108422,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.6108714057138321,
+     "y": 0.63535071270713,
+     "z": -0.4724040617350244
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@1.9+40,40",
+   "x": 313.8640208247688,
+   "y": 224.20526581108422,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5647281056051263,
+     "y": 0.6612444517704973,
+     "z": -0.49379949548615365
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@3.3+0,0",
+   "x": 259.75910668916964,
+   "y": 187.8407561219529,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.6313708708808825,
+     "y": 0.6345801156028322,
+     "z": -0.4457341138892245
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@3.3+3,0",
+   "x": 262.75910668916964,
+   "y": 187.8407561219529,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.6284589561658022,
+     "y": 0.6372306983897237,
+     "z": -0.446067682582739
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@3.3+0,4",
+   "x": 259.75910668916964,
+   "y": 191.8407561219529,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.6301744495838382,
+     "y": 0.6324436478263196,
+     "z": -0.45043889198851916
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@3.3+-6,3",
+   "x": 253.75910668916964,
+   "y": 190.8407561219529,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.6362606825361868,
+     "y": 0.6276598128615499,
+     "z": -0.4485705108198598
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@3.3+12,0",
+   "x": 271.75910668916964,
+   "y": 187.8407561219529,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.6196386428076223,
+     "y": 0.6451455404512446,
+     "z": -0.44702928760361943
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@3.3+0,25",
+   "x": 259.75910668916964,
+   "y": 212.8407561219529,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.6235716403370761,
+     "y": 0.6208823058471503,
+     "z": -0.47504060000515114
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@3.3+40,40",
+   "x": 299.75910668916964,
+   "y": 227.8407561219529,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5782170961100326,
+     "y": 0.647146998943808,
+     "z": -0.49685586594514936
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@4.6+0,0",
+   "x": 260.24748573314406,
+   "y": 190.56201039091906,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.6300856790999194,
+     "y": 0.633560952548436,
+     "z": -0.4489905972279504
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@4.6+3,0",
+   "x": 263.24748573314406,
+   "y": 190.56201039091906,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.6271695217939506,
+     "y": 0.6362111741983352,
+     "z": -0.44932586477736064
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@4.6+0,4",
+   "x": 260.24748573314406,
+   "y": 194.56201039091906,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.6288754447852097,
+     "y": 0.631410208726049,
+     "z": -0.453692432450368
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@4.6+-6,3",
+   "x": 254.24748573314406,
+   "y": 193.56201039091906,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.6349735916451176,
+     "y": 0.6266307367122277,
+     "z": -0.45182126745073686
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@4.6+12,0",
+   "x": 272.24748573314406,
+   "y": 190.56201039091906,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.6183365342727523,
+     "y": 0.6441248808782536,
+     "z": -0.45029220314939616
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@4.6+0,25",
+   "x": 260.24748573314406,
+   "y": 215.56201039091906,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.6222005131599339,
+     "y": 0.6197747587739915,
+     "z": -0.4782737394109733
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@4.6+40,40",
+   "x": 300.24748573314406,
+   "y": 230.56201039091906,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5767446706194728,
+     "y": 0.6459733891691598,
+     "z": -0.5000839583483409
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:top@centre",
+   "x": 269.12938476974045,
+   "y": 187.24984425047305,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.6224052994855586,
+     "y": 0.6431521428017634,
+     "z": -0.44605713129798996
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:top",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@0+0,0",
+   "x": 296.5716237118678,
+   "y": 273.7685061210957,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5641225194507508,
+     "y": 0.6162612311058026,
+     "z": -0.5495342374088242
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:bottom",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@0+3,0",
+   "x": 299.5716237118678,
+   "y": 273.7685061210957,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5609956223546272,
+     "y": 0.6188303798106879,
+     "z": -0.5498480451200171
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:bottom",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@0+0,4",
+   "x": 296.5716237118678,
+   "y": 277.7685061210957,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5624962590813061,
+     "y": 0.613684230325989,
+     "z": -0.5540664436407737
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@0+-6,3",
+   "x": 290.5716237118678,
+   "y": 276.7685061210957,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5691216568015571,
+     "y": 0.6091721394733163,
+     "z": -0.5522769633516803
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:bottom",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@0+12,0",
+   "x": 308.5716237118678,
+   "y": 273.7685061210957,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5515387268387665,
+     "y": 0.6264932816723728,
+     "z": -0.5507369615492077
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@0+0,25",
+   "x": 296.5716237118678,
+   "y": 298.7685061210957,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5536772944443108,
+     "y": 0.5998455961804766,
+     "z": -0.5776042887303698
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@0+40,40",
+   "x": 336.5716237118678,
+   "y": 313.7685061210957,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5042674421432606,
+     "y": 0.6231112979436989,
+     "z": -0.5978684279749286
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@0.7+0,0",
+   "x": 298.8595141362854,
+   "y": 271.43038826881326,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5626822047450322,
+     "y": 0.619718957190033,
+     "z": -0.547117126913943
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:bottom",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@0.7+3,0",
+   "x": 301.8595141362854,
+   "y": 271.43038826881326,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5595464151398518,
+     "y": 0.6222830258989099,
+     "z": -0.547422729690901
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:bottom",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@0.7+0,4",
+   "x": 298.8595141362854,
+   "y": 275.43038826881326,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5610650006149882,
+     "y": 0.6171525802641871,
+     "z": -0.5516600019560595
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:bottom",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@0.7+-6,3",
+   "x": 292.8595141362854,
+   "y": 274.43038826881326,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5677061910890828,
+     "y": 0.6126474539371606,
+     "z": -0.5498843312765337
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:bottom",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@0.7+12,0",
+   "x": 310.8595141362854,
+   "y": 271.43038826881326,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5500633219684642,
+     "y": 0.6299298391041622,
+     "z": -0.5482870959918916
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@0.7+0,25",
+   "x": 298.8595141362854,
+   "y": 296.43038826881326,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5522932074797489,
+     "y": 0.603366387708146,
+     "z": -0.5752575207294162
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@0.7+40,40",
+   "x": 338.8595141362854,
+   "y": 311.43038826881326,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5028012681470044,
+     "y": 0.6265983280717918,
+     "z": -0.5954539612828177
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@1.9+0,0",
+   "x": 293.32406446361483,
+   "y": 269.8244197625556,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5690777138341243,
+     "y": 0.6159930684185095,
+     "z": -0.544704594507588
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:bottom",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@1.9+3,0",
+   "x": 296.32406446361483,
+   "y": 269.8244197625556,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5659662921393588,
+     "y": 0.6185708379221916,
+     "z": -0.5450250220258369
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:bottom",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@1.9+0,4",
+   "x": 293.32406446361483,
+   "y": 273.8244197625556,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5674703163769869,
+     "y": 0.6134361324075984,
+     "z": -0.5492481693076545
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:bottom",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@1.9+-6,3",
+   "x": 287.32406446361483,
+   "y": 272.8244197625556,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5740597771752243,
+     "y": 0.6089021053991298,
+     "z": -0.5474427808182686
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:bottom",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@1.9+12,0",
+   "x": 305.32406446361483,
+   "y": 269.8244197625556,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5565549403225686,
+     "y": 0.6262603923605211,
+     "z": -0.5459345376169091
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@1.9+0,25",
+   "x": 293.32406446361483,
+   "y": 294.8244197625556,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5587469377759516,
+     "y": 0.5997010831060641,
+     "z": -0.5728529221775958
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@1.9+40,40",
+   "x": 333.32406446361483,
+   "y": 309.8244197625556,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5095808131221948,
+     "y": 0.6231704742874569,
+     "z": -0.5932840423221146
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@3.3+0,0",
+   "x": 282.193042493077,
+   "y": 273.1900996911533,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5791609361703208,
+     "y": 0.6042213350455948,
+     "z": -0.5472560536805753
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:bottom",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@3.3+3,0",
+   "x": 285.193042493077,
+   "y": 273.1900996911533,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5760971002605996,
+     "y": 0.6068235366119907,
+     "z": -0.547610560969239
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:bottom",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@3.3+0,4",
+   "x": 282.193042493077,
+   "y": 277.1900996911533,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5775444085112009,
+     "y": 0.6016521101424499,
+     "z": -0.5517763990590612
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:bottom",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@3.3+-6,3",
+   "x": 276.193042493077,
+   "y": 276.1900996911533,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5840398621868479,
+     "y": 0.5970744390468854,
+     "z": -0.5499086775216543
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@3.3+12,0",
+   "x": 294.193042493077,
+   "y": 273.1900996911533,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5668260983782487,
+     "y": 0.6145900899929697,
+     "z": -0.5486229994082685
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:bottom",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@3.3+0,25",
+   "x": 282.193042493077,
+   "y": 298.1900996911533,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5687706903781239,
+     "y": 0.5878616669956627,
+     "z": -0.5752552148775993
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@3.3+40,40",
+   "x": 322.193042493077,
+   "y": 313.1900996911533,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5201617541029435,
+     "y": 0.6116455820540225,
+     "z": -0.5960884427015383
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@4.6+0,0",
+   "x": 282.90076794538504,
+   "y": 276.5678714252943,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5770751465635949,
+     "y": 0.6026672479184322,
+     "z": -0.5511591997826295
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:bottom",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@4.6+3,0",
+   "x": 285.90076794538504,
+   "y": 276.5678714252943,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5740068547106392,
+     "y": 0.605266988323474,
+     "z": -0.5515142823091986
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:bottom",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@4.6+0,4",
+   "x": 282.90076794538504,
+   "y": 280.5678714252943,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5754433292592488,
+     "y": 0.600081917656503,
+     "z": -0.5556677666670308
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@4.6+-6,3",
+   "x": 276.90076794538504,
+   "y": 279.5678714252943,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5819515375471126,
+     "y": 0.5955132810378413,
+     "z": -0.5538017154669137
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@4.6+12,0",
+   "x": 294.90076794538504,
+   "y": 276.5678714252943,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5647227382802273,
+     "y": 0.6130261278994206,
+     "z": -0.5525280041608075
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:bottom",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@4.6+0,25",
+   "x": 282.90076794538504,
+   "y": 301.5678714252943,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.566591483789291,
+     "y": 0.5862095798851169,
+     "z": -0.5790789401699603
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@4.6+40,40",
+   "x": 322.90076794538504,
+   "y": 316.5678714252943,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5178827997404392,
+     "y": 0.6098952585008964,
+     "z": -0.5998542984684939
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "SprueResizeHandle:sprue:3:bottom@centre",
+   "x": 289.7749457591549,
+   "y": 273.2039824932472,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5713864336056618,
+     "y": 0.610776255488725,
+     "z": -0.5481513561258187
+    }
+   },
+   "hovered": "SprueResizeHandle:sprue:3:bottom",
+   "state": "rim-hover",
+   "cursor": "ew-resize",
+   "hiddenBodies": [
+    "body-1",
+    "body-2"
+   ]
+  },
+  {
+   "label": "far-corner",
+   "x": 5,
+   "y": 5,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.8483282929778303,
+     "y": 0.4858933808969377,
+     "z": -0.2103490663964643
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  },
+  {
+   "label": "far-corner-2",
+   "x": 795,
+   "y": 595,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": 0.12312707257385071,
+     "y": 0.6421974063981222,
+     "z": -0.7565858941421778
+    }
+   },
+   "hovered": null,
+   "state": "idle",
+   "cursor": "funnel",
+   "hiddenBodies": []
+  }
+ ],
+ "afterLeave": {
+  "hovered": null,
+  "hiddenBodies": 0,
+  "state": "idle"
+ },
+ "drags": [
+  {
+   "name": "top-grow-snapped",
+   "handle": "SprueResizeHandle:sprue:1:top",
+   "moves": [
+    {
+     "dx": 10,
+     "dy": 0
+    },
+    {
+     "dx": 40,
+     "dy": 0
+    }
+   ],
+   "release": "up",
+   "started": {
+    "state": "resizing",
+    "controlsEnabled": false,
+    "hoverBefore": "SprueResizeHandle:sprue:1:top"
+   },
+   "steps": [
+    {
+     "dx": 10,
+     "dy": 0,
+     "shift": false,
+     "label": "Ø 5.50 mm",
+     "labelColor": "var(--text-primary)",
+     "labelVisible": true,
+     "scale": 1.1,
+     "scaleY": 1.1,
+     "state": "resizing",
+     "cursor": "ew-resize"
+    },
+    {
+     "dx": 40,
+     "dy": 0,
+     "shift": false,
+     "label": "Ø 7.00 mm",
+     "labelColor": "var(--text-primary)",
+     "labelVisible": true,
+     "scale": 1.4,
+     "scaleY": 1.4,
+     "state": "resizing",
+     "cursor": "ew-resize"
+    }
+   ],
+   "after": {
+    "commits": [
+     {
+      "kind": "main",
+      "operationId": "sprue:1",
+      "diameterMm": 7
+     }
+    ],
+    "state": "rim-hover",
+    "controlsEnabled": true,
+    "scale": 1.4,
+    "labelVisible": false
+   }
+  },
+  {
+   "name": "top-shrink-to-neck-minimum",
+   "handle": "SprueResizeHandle:sprue:1:top",
+   "moves": [
+    {
+     "dx": -200,
+     "dy": 0
+    }
+   ],
+   "release": "up",
+   "started": {
+    "state": "resizing",
+    "controlsEnabled": false,
+    "hoverBefore": "SprueResizeHandle:sprue:1:top"
+   },
+   "steps": [
+    {
+     "dx": -200,
+     "dy": 0,
+     "shift": false,
+     "label": "Ø 3.20 mm",
+     "labelColor": "var(--color-warning, #d18b24)",
+     "labelVisible": true,
+     "scale": 0.64,
+     "scaleY": 0.64,
+     "state": "resizing",
+     "cursor": "ew-resize"
+    }
+   ],
+   "after": {
+    "commits": [
+     {
+      "kind": "main",
+      "operationId": "sprue:1",
+      "diameterMm": 3.2
+     }
+    ],
+    "state": "rim-hover",
+    "controlsEnabled": true,
+    "scale": 0.64,
+    "labelVisible": false
+   }
+  },
+  {
+   "name": "top-grow-to-maximum",
+   "handle": "SprueResizeHandle:sprue:1:top",
+   "moves": [
+    {
+     "dx": 2000,
+     "dy": 0
+    }
+   ],
+   "release": "up",
+   "started": {
+    "state": "resizing",
+    "controlsEnabled": false,
+    "hoverBefore": "SprueResizeHandle:sprue:1:top"
+   },
+   "steps": [
+    {
+     "dx": 2000,
+     "dy": 0,
+     "shift": false,
+     "label": "Ø 50.00 mm",
+     "labelColor": "var(--color-warning, #d18b24)",
+     "labelVisible": true,
+     "scale": 10,
+     "scaleY": 10,
+     "state": "resizing",
+     "cursor": "ew-resize"
+    }
+   ],
+   "after": {
+    "commits": [
+     {
+      "kind": "main",
+      "operationId": "sprue:1",
+      "diameterMm": 50
+     }
+    ],
+    "state": "rim-hover",
+    "controlsEnabled": true,
+    "scale": 10,
+    "labelVisible": false
+   }
+  },
+  {
+   "name": "top-shift-fine",
+   "handle": "SprueResizeHandle:sprue:1:top",
+   "moves": [
+    {
+     "dx": 13,
+     "dy": 0,
+     "shift": true
+    }
+   ],
+   "release": "up",
+   "started": {
+    "state": "resizing",
+    "controlsEnabled": false,
+    "hoverBefore": "SprueResizeHandle:sprue:1:top"
+   },
+   "steps": [
+    {
+     "dx": 13,
+     "dy": 0,
+     "shift": true,
+     "label": "Ø 5.65 mm",
+     "labelColor": "var(--text-primary)",
+     "labelVisible": true,
+     "scale": 1.1300000000000001,
+     "scaleY": 1.1300000000000001,
+     "state": "resizing",
+     "cursor": "ew-resize"
+    }
+   ],
+   "after": {
+    "commits": [
+     {
+      "kind": "main",
+      "operationId": "sprue:1",
+      "diameterMm": 5.65
+     }
+    ],
+    "state": "rim-hover",
+    "controlsEnabled": true,
+    "scale": 1.1300000000000001,
+    "labelVisible": false
+   }
+  },
+  {
+   "name": "top-vertical-contributes",
+   "handle": "SprueResizeHandle:sprue:1:top",
+   "moves": [
+    {
+     "dx": 10,
+     "dy": -40
+    }
+   ],
+   "release": "up",
+   "started": {
+    "state": "resizing",
+    "controlsEnabled": false,
+    "hoverBefore": "SprueResizeHandle:sprue:1:top"
+   },
+   "steps": [
+    {
+     "dx": 10,
+     "dy": -40,
+     "shift": false,
+     "label": "Ø 6.00 mm",
+     "labelColor": "var(--text-primary)",
+     "labelVisible": true,
+     "scale": 1.2,
+     "scaleY": 1.2,
+     "state": "resizing",
+     "cursor": "ew-resize"
+    }
+   ],
+   "after": {
+    "commits": [
+     {
+      "kind": "main",
+      "operationId": "sprue:1",
+      "diameterMm": 6
+     }
+    ],
+    "state": "rim-hover",
+    "controlsEnabled": true,
+    "scale": 1.2,
+    "labelVisible": false
+   }
+  },
+  {
+   "name": "top-no-change",
+   "handle": "SprueResizeHandle:sprue:1:top",
+   "moves": [
+    {
+     "dx": 1,
+     "dy": 0
+    }
+   ],
+   "release": "up",
+   "started": {
+    "state": "resizing",
+    "controlsEnabled": false,
+    "hoverBefore": "SprueResizeHandle:sprue:1:top"
+   },
+   "steps": [
+    {
+     "dx": 1,
+     "dy": 0,
+     "shift": false,
+     "label": "Ø 5.00 mm",
+     "labelColor": "var(--text-primary)",
+     "labelVisible": true,
+     "scale": 1,
+     "scaleY": 1,
+     "state": "resizing",
+     "cursor": "ew-resize"
+    }
+   ],
+   "after": {
+    "commits": [],
+    "state": "rim-hover",
+    "controlsEnabled": true,
+    "scale": 1,
+    "labelVisible": false
+   }
+  },
+  {
+   "name": "top-out-and-back",
+   "handle": "SprueResizeHandle:sprue:1:top",
+   "moves": [
+    {
+     "dx": 60,
+     "dy": 0
+    },
+    {
+     "dx": 0,
+     "dy": 0
+    }
+   ],
+   "release": "up",
+   "started": {
+    "state": "resizing",
+    "controlsEnabled": false,
+    "hoverBefore": "SprueResizeHandle:sprue:1:top"
+   },
+   "steps": [
+    {
+     "dx": 60,
+     "dy": 0,
+     "shift": false,
+     "label": "Ø 8.00 mm",
+     "labelColor": "var(--text-primary)",
+     "labelVisible": true,
+     "scale": 1.6,
+     "scaleY": 1.6,
+     "state": "resizing",
+     "cursor": "ew-resize"
+    },
+    {
+     "dx": 0,
+     "dy": 0,
+     "shift": false,
+     "label": "Ø 5.00 mm",
+     "labelColor": "var(--text-primary)",
+     "labelVisible": true,
+     "scale": 1,
+     "scaleY": 1,
+     "state": "resizing",
+     "cursor": "ew-resize"
+    }
+   ],
+   "after": {
+    "commits": [],
+    "state": "rim-hover",
+    "controlsEnabled": true,
+    "scale": 1,
+    "labelVisible": false
+   }
+  },
+  {
+   "name": "top-escape-cancels",
+   "handle": "SprueResizeHandle:sprue:1:top",
+   "moves": [
+    {
+     "dx": 40,
+     "dy": 0
+    }
+   ],
+   "release": "escape",
+   "started": {
+    "state": "resizing",
+    "controlsEnabled": false,
+    "hoverBefore": "SprueResizeHandle:sprue:1:top"
+   },
+   "steps": [
+    {
+     "dx": 40,
+     "dy": 0,
+     "shift": false,
+     "label": "Ø 7.00 mm",
+     "labelColor": "var(--text-primary)",
+     "labelVisible": true,
+     "scale": 1.4,
+     "scaleY": 1.4,
+     "state": "resizing",
+     "cursor": "ew-resize"
+    }
+   ],
+   "after": {
+    "commits": [],
+    "state": "rim-hover",
+    "controlsEnabled": true,
+    "scale": 1,
+    "labelVisible": false
+   }
+  },
+  {
+   "name": "bottom-grow-clamped-to-main",
+   "handle": "SprueResizeHandle:sprue:1:bottom",
+   "moves": [
+    {
+     "dx": 400,
+     "dy": 0
+    }
+   ],
+   "release": "up",
+   "started": {
+    "state": "resizing",
+    "controlsEnabled": false,
+    "hoverBefore": "SprueResizeHandle:sprue:1:bottom"
+   },
+   "steps": [
+    {
+     "dx": 400,
+     "dy": 0,
+     "shift": false,
+     "label": "Ø 5.00 mm",
+     "labelColor": "var(--color-warning, #d18b24)",
+     "labelVisible": true,
+     "scale": 1.5625,
+     "scaleY": 1.5625,
+     "state": "resizing",
+     "cursor": "ew-resize"
+    }
+   ],
+   "after": {
+    "commits": [
+     {
+      "kind": "neck",
+      "operationId": "sprue:1",
+      "diameterMm": 5
+     }
+    ],
+    "state": "rim-hover",
+    "controlsEnabled": true,
+    "scale": 1.5625,
+    "labelVisible": false
+   }
+  },
+  {
+   "name": "bottom-shrink-to-minimum",
+   "handle": "SprueResizeHandle:sprue:1:bottom",
+   "moves": [
+    {
+     "dx": -400,
+     "dy": 0
+    }
+   ],
+   "release": "up",
+   "started": {
+    "state": "resizing",
+    "controlsEnabled": false,
+    "hoverBefore": "SprueResizeHandle:sprue:1:bottom"
+   },
+   "steps": [
+    {
+     "dx": -400,
+     "dy": 0,
+     "shift": false,
+     "label": "Ø 2.00 mm",
+     "labelColor": "var(--color-warning, #d18b24)",
+     "labelVisible": true,
+     "scale": 0.625,
+     "scaleY": 0.625,
+     "state": "resizing",
+     "cursor": "ew-resize"
+    }
+   ],
+   "after": {
+    "commits": [
+     {
+      "kind": "neck",
+      "operationId": "sprue:1",
+      "diameterMm": 2
+     }
+    ],
+    "state": "rim-hover",
+    "controlsEnabled": true,
+    "scale": 0.625,
+    "labelVisible": false
+   }
+  },
+  {
+   "name": "bottom-snapped",
+   "handle": "SprueResizeHandle:sprue:1:bottom",
+   "moves": [
+    {
+     "dx": 7,
+     "dy": 0
+    }
+   ],
+   "release": "up",
+   "started": {
+    "state": "resizing",
+    "controlsEnabled": false,
+    "hoverBefore": "SprueResizeHandle:sprue:1:bottom"
+   },
+   "steps": [
+    {
+     "dx": 7,
+     "dy": 0,
+     "shift": false,
+     "label": "Ø 3.50 mm",
+     "labelColor": "var(--text-primary)",
+     "labelVisible": true,
+     "scale": 1.09375,
+     "scaleY": 1.09375,
+     "state": "resizing",
+     "cursor": "ew-resize"
+    }
+   ],
+   "after": {
+    "commits": [
+     {
+      "kind": "neck",
+      "operationId": "sprue:1",
+      "diameterMm": 3.5
+     }
+    ],
+    "state": "rim-hover",
+    "controlsEnabled": true,
+    "scale": 1.09375,
+    "labelVisible": false
+   }
+  },
+  {
+   "name": "pending-top",
+   "handle": "SprueResizeHandle:sprue:2:top",
+   "moves": [
+    {
+     "dx": 30,
+     "dy": 0
+    }
+   ],
+   "release": "up",
+   "started": {
+    "state": "resizing",
+    "controlsEnabled": false,
+    "hoverBefore": "SprueResizeHandle:sprue:2:top"
+   },
+   "steps": [
+    {
+     "dx": 30,
+     "dy": 0,
+     "shift": false,
+     "label": "Ø 7.50 mm",
+     "labelColor": "var(--text-primary)",
+     "labelVisible": true,
+     "scale": 1.25,
+     "scaleY": 1.25,
+     "state": "resizing",
+     "cursor": "ew-resize"
+    }
+   ],
+   "after": {
+    "commits": [
+     {
+      "kind": "main",
+      "operationId": "sprue:2",
+      "diameterMm": 7.5
+     }
+    ],
+    "state": "rim-hover",
+    "controlsEnabled": true,
+    "scale": 1.25,
+    "labelVisible": false
+   }
+  },
+  {
+   "name": "invalid-top-small",
+   "handle": "SprueResizeHandle:sprue:3:top",
+   "moves": [
+    {
+     "dx": 25,
+     "dy": 0
+    }
+   ],
+   "release": "up",
+   "started": {
+    "state": "resizing",
+    "controlsEnabled": false,
+    "hoverBefore": "SprueResizeHandle:sprue:3:top"
+   },
+   "steps": [
+    {
+     "dx": 25,
+     "dy": 0,
+     "shift": false,
+     "label": "Ø 4.25 mm",
+     "labelColor": "var(--text-primary)",
+     "labelVisible": true,
+     "scale": 1.4166666666666667,
+     "scaleY": 1.4166666666666667,
+     "state": "resizing",
+     "cursor": "ew-resize"
+    }
+   ],
+   "after": {
+    "commits": [
+     {
+      "kind": "main",
+      "operationId": "sprue:3",
+      "diameterMm": 4.25
+     }
+    ],
+    "state": "rim-hover",
+    "controlsEnabled": true,
+    "scale": 1.4166666666666667,
+    "labelVisible": false
+   }
+  }
+ ],
+ "numeric": [
+  {
+   "name": "main-valid",
+   "handle": "SprueResizeHandle:sprue:1:top",
+   "input": "6.5",
+   "opened": {
+    "value": "5.00",
+    "min": "2",
+    "max": "50",
+    "step": "0.25",
+    "state": "numeric-edit"
+   },
+   "afterEnter": {
+    "commits": [
+     {
+      "kind": "main",
+      "operationId": "sprue:1",
+      "diameterMm": 6.5
+     }
+    ],
+    "stillOpen": false,
+    "state": "idle"
+   },
+   "afterEscape": null
+  },
+  {
+   "name": "main-below-minimum",
+   "handle": "SprueResizeHandle:sprue:1:top",
+   "input": "1",
+   "opened": {
+    "value": "5.00",
+    "min": "2",
+    "max": "50",
+    "step": "0.25",
+    "state": "numeric-edit"
+   },
+   "afterEnter": {
+    "commits": [
+     {
+      "kind": "main",
+      "operationId": "sprue:1",
+      "diameterMm": 3.2
+     }
+    ],
+    "stillOpen": false,
+    "state": "idle"
+   },
+   "afterEscape": null
+  },
+  {
+   "name": "main-below-neck",
+   "handle": "SprueResizeHandle:sprue:1:top",
+   "input": "2.1",
+   "opened": {
+    "value": "5.00",
+    "min": "2",
+    "max": "50",
+    "step": "0.25",
+    "state": "numeric-edit"
+   },
+   "afterEnter": {
+    "commits": [
+     {
+      "kind": "main",
+      "operationId": "sprue:1",
+      "diameterMm": 3.2
+     }
+    ],
+    "stillOpen": false,
+    "state": "idle"
+   },
+   "afterEscape": null
+  },
+  {
+   "name": "main-above-maximum",
+   "handle": "SprueResizeHandle:sprue:1:top",
+   "input": "80",
+   "opened": {
+    "value": "5.00",
+    "min": "2",
+    "max": "50",
+    "step": "0.25",
+    "state": "numeric-edit"
+   },
+   "afterEnter": {
+    "commits": [
+     {
+      "kind": "main",
+      "operationId": "sprue:1",
+      "diameterMm": 50
+     }
+    ],
+    "stillOpen": false,
+    "state": "idle"
+   },
+   "afterEscape": null
+  },
+  {
+   "name": "neck-above-main",
+   "handle": "SprueResizeHandle:sprue:1:bottom",
+   "input": "9",
+   "opened": {
+    "value": "3.20",
+    "min": "2",
+    "max": "5",
+    "step": "0.25",
+    "state": "numeric-edit"
+   },
+   "afterEnter": {
+    "commits": [
+     {
+      "kind": "neck",
+      "operationId": "sprue:1",
+      "diameterMm": 5
+     }
+    ],
+    "stillOpen": false,
+    "state": "idle"
+   },
+   "afterEscape": null
+  },
+  {
+   "name": "neck-valid",
+   "handle": "SprueResizeHandle:sprue:1:bottom",
+   "input": "3.7",
+   "opened": {
+    "value": "3.20",
+    "min": "2",
+    "max": "5",
+    "step": "0.25",
+    "state": "numeric-edit"
+   },
+   "afterEnter": {
+    "commits": [
+     {
+      "kind": "neck",
+      "operationId": "sprue:1",
+      "diameterMm": 3.7
+     }
+    ],
+    "stillOpen": false,
+    "state": "idle"
+   },
+   "afterEscape": null
+  },
+  {
+   "name": "not-a-number",
+   "handle": "SprueResizeHandle:sprue:1:top",
+   "input": "abc",
+   "opened": {
+    "value": "5.00",
+    "min": "2",
+    "max": "50",
+    "step": "0.25",
+    "state": "numeric-edit"
+   },
+   "afterEnter": {
+    "commits": [
+     {
+      "kind": "main",
+      "operationId": "sprue:1",
+      "diameterMm": 3.2
+     }
+    ],
+    "stillOpen": false,
+    "state": "idle"
+   },
+   "afterEscape": null
+  },
+  {
+   "name": "empty",
+   "handle": "SprueResizeHandle:sprue:1:top",
+   "input": "",
+   "opened": {
+    "value": "5.00",
+    "min": "2",
+    "max": "50",
+    "step": "0.25",
+    "state": "numeric-edit"
+   },
+   "afterEnter": {
+    "commits": [
+     {
+      "kind": "main",
+      "operationId": "sprue:1",
+      "diameterMm": 3.2
+     }
+    ],
+    "stillOpen": false,
+    "state": "idle"
+   },
+   "afterEscape": null
+  }
+ ],
+ "lifecycle": {
+  "hovered": "SprueResizeHandle:sprue:1:top",
+  "inactive": {
+   "visible": false,
+   "hovered": null,
+   "hidden": 0,
+   "state": "idle"
+  },
+  "inactiveHover": null,
+  "rebuilt": [
+   {
+    "name": "SprueResizeHandle:sprue:1:top",
+    "radius": 3.5
+   },
+   {
+    "name": "SprueResizeHandle:sprue:1:bottom",
+    "radius": 1.6
+   }
+  ]
+ },
+ "selectorCases": [
+  {
+   "name": "resolved-uses-resolved-geometry",
+   "definitions": [
+    {
+     "operationId": "a",
+     "anchor": {
+      "position": {
+       "x": 5,
+       "y": 1,
+       "z": 30
+      }
+     },
+     "inwardDirection": {
+      "x": 0,
+      "y": 0,
+      "z": -1
+     },
+     "profileDesign": {
+      "profile": {
+       "mainDiameterMm": 6,
+       "entryNeckDiameterMm": 2.5,
+       "entryNeckLengthMm": 4
+      }
+     },
+     "validation": {
+      "status": "resolved"
+     }
+    }
+   ],
+   "sprues": [
+    {
+     "operationId": "a",
+     "position": {
+      "x": 5.5,
+      "y": 1,
+      "z": 30
+     },
+     "inwardDirection": {
+      "x": 0,
+      "y": 0,
+      "z": -1
+     },
+     "profile": {
+      "mainDiameterMm": 7,
+      "entryNeckDiameterMm": 2.5,
+      "entryNeckLengthMm": 4
+     },
+     "depthMm": 12,
+     "targetBodyIds": [
+      "body-1"
+     ]
+    }
+   ],
+   "presentation": [
+    {
+     "operationId": "a",
+     "position": {
+      "x": 5.5,
+      "y": 1,
+      "z": 30
+     },
+     "inwardDirection": {
+      "x": 0,
+      "y": 0,
+      "z": -1
+     },
+     "profile": {
+      "mainDiameterMm": 7,
+      "entryNeckDiameterMm": 2.5,
+      "entryNeckLengthMm": 4
+     },
+     "depthMm": 12,
+     "targetBodyIds": [
+      "body-1"
+     ],
+     "status": "resolved"
+    }
+   ]
+  },
+  {
+   "name": "pending-ignores-stale-resolved",
+   "definitions": [
+    {
+     "operationId": "a",
+     "anchor": {
+      "position": {
+       "x": 5,
+       "y": 1,
+       "z": 30
+      }
+     },
+     "inwardDirection": {
+      "x": 0,
+      "y": 0,
+      "z": -1
+     },
+     "profileDesign": {
+      "profile": {
+       "mainDiameterMm": 8,
+       "entryNeckDiameterMm": 2.5,
+       "entryNeckLengthMm": 4
+      }
+     },
+     "validation": {
+      "status": "pending"
+     }
+    }
+   ],
+   "sprues": [
+    {
+     "operationId": "a",
+     "position": {
+      "x": 5.5,
+      "y": 1,
+      "z": 30
+     },
+     "inwardDirection": {
+      "x": 0,
+      "y": 0,
+      "z": -1
+     },
+     "profile": {
+      "mainDiameterMm": 7,
+      "entryNeckDiameterMm": 2.5,
+      "entryNeckLengthMm": 4
+     },
+     "depthMm": 12,
+     "targetBodyIds": [
+      "body-1"
+     ]
+    }
+   ],
+   "presentation": [
+    {
+     "operationId": "a",
+     "position": {
+      "x": 5,
+      "y": 1,
+      "z": 30
+     },
+     "inwardDirection": {
+      "x": 0,
+      "y": 0,
+      "z": -1
+     },
+     "profile": {
+      "mainDiameterMm": 8,
+      "entryNeckDiameterMm": 2.5,
+      "entryNeckLengthMm": 4
+     },
+     "status": "pending"
+    }
+   ]
+  },
+  {
+   "name": "invalid-keeps-last-resolved",
+   "definitions": [
+    {
+     "operationId": "a",
+     "anchor": {
+      "position": {
+       "x": 5,
+       "y": 1,
+       "z": 30
+      }
+     },
+     "inwardDirection": {
+      "x": 0,
+      "y": 0,
+      "z": -1
+     },
+     "profileDesign": {
+      "profile": {
+       "mainDiameterMm": 8,
+       "entryNeckDiameterMm": 2.5,
+       "entryNeckLengthMm": 4
+      }
+     },
+     "validation": {
+      "status": "invalid"
+     }
+    }
+   ],
+   "sprues": [
+    {
+     "operationId": "a",
+     "position": {
+      "x": 5.5,
+      "y": 1,
+      "z": 30
+     },
+     "inwardDirection": {
+      "x": 0,
+      "y": 0,
+      "z": -1
+     },
+     "profile": {
+      "mainDiameterMm": 7,
+      "entryNeckDiameterMm": 2.5,
+      "entryNeckLengthMm": 4
+     },
+     "depthMm": 12,
+     "targetBodyIds": [
+      "body-1"
+     ]
+    }
+   ],
+   "presentation": [
+    {
+     "operationId": "a",
+     "position": {
+      "x": 5.5,
+      "y": 1,
+      "z": 30
+     },
+     "inwardDirection": {
+      "x": 0,
+      "y": 0,
+      "z": -1
+     },
+     "profile": {
+      "mainDiameterMm": 7,
+      "entryNeckDiameterMm": 2.5,
+      "entryNeckLengthMm": 4
+     },
+     "depthMm": 12,
+     "targetBodyIds": [
+      "body-1"
+     ],
+     "status": "invalid"
+    }
+   ]
+  },
+  {
+   "name": "invalid-without-resolved-marks-intent",
+   "definitions": [
+    {
+     "operationId": "a",
+     "anchor": {
+      "position": {
+       "x": 5,
+       "y": 1,
+       "z": 30
+      }
+     },
+     "inwardDirection": {
+      "x": 0,
+      "y": 0,
+      "z": -1
+     },
+     "profileDesign": {
+      "profile": {
+       "mainDiameterMm": 8,
+       "entryNeckDiameterMm": 2.5,
+       "entryNeckLengthMm": 4
+      }
+     },
+     "validation": {
+      "status": "invalid"
+     }
+    }
+   ],
+   "sprues": [],
+   "presentation": [
+    {
+     "operationId": "a",
+     "position": {
+      "x": 5,
+      "y": 1,
+      "z": 30
+     },
+     "inwardDirection": {
+      "x": 0,
+      "y": 0,
+      "z": -1
+     },
+     "profile": {
+      "mainDiameterMm": 8,
+      "entryNeckDiameterMm": 2.5,
+      "entryNeckLengthMm": 4
+     },
+     "status": "invalid"
+    }
+   ]
+  },
+  {
+   "name": "resolved-without-resolved-geometry",
+   "definitions": [
+    {
+     "operationId": "a",
+     "anchor": {
+      "position": {
+       "x": 5,
+       "y": 1,
+       "z": 30
+      }
+     },
+     "inwardDirection": {
+      "x": 0,
+      "y": 0,
+      "z": -1
+     },
+     "profileDesign": {
+      "profile": {
+       "mainDiameterMm": 8,
+       "entryNeckDiameterMm": 2.5,
+       "entryNeckLengthMm": 4
+      }
+     },
+     "validation": {
+      "status": "resolved"
+     }
+    }
+   ],
+   "sprues": [],
+   "presentation": [
+    {
+     "operationId": "a",
+     "position": {
+      "x": 5,
+      "y": 1,
+      "z": 30
+     },
+     "inwardDirection": {
+      "x": 0,
+      "y": 0,
+      "z": -1
+     },
+     "profile": {
+      "mainDiameterMm": 8,
+      "entryNeckDiameterMm": 2.5,
+      "entryNeckLengthMm": 4
+     },
+     "status": "resolved"
+    }
+   ]
+  },
+  {
+   "name": "several-in-order",
+   "definitions": [
+    {
+     "operationId": "a",
+     "anchor": {
+      "position": {
+       "x": 1,
+       "y": 1,
+       "z": 30
+      }
+     },
+     "inwardDirection": {
+      "x": 0,
+      "y": 0,
+      "z": -1
+     },
+     "profileDesign": {
+      "profile": {
+       "mainDiameterMm": 3,
+       "entryNeckDiameterMm": 2.5,
+       "entryNeckLengthMm": 4
+      }
+     },
+     "validation": {
+      "status": "resolved"
+     }
+    },
+    {
+     "operationId": "b",
+     "anchor": {
+      "position": {
+       "x": 2,
+       "y": 1,
+       "z": 30
+      }
+     },
+     "inwardDirection": {
+      "x": 0,
+      "y": 0,
+      "z": -1
+     },
+     "profileDesign": {
+      "profile": {
+       "mainDiameterMm": 4,
+       "entryNeckDiameterMm": 2.5,
+       "entryNeckLengthMm": 4
+      }
+     },
+     "validation": {
+      "status": "pending"
+     }
+    },
+    {
+     "operationId": "c",
+     "anchor": {
+      "position": {
+       "x": 3,
+       "y": 1,
+       "z": 30
+      }
+     },
+     "inwardDirection": {
+      "x": 0,
+      "y": 0,
+      "z": -1
+     },
+     "profileDesign": {
+      "profile": {
+       "mainDiameterMm": 5,
+       "entryNeckDiameterMm": 2.5,
+       "entryNeckLengthMm": 4
+      }
+     },
+     "validation": {
+      "status": "invalid"
+     }
+    }
+   ],
+   "sprues": [
+    {
+     "operationId": "a",
+     "position": {
+      "x": 1.5,
+      "y": 1,
+      "z": 30
+     },
+     "inwardDirection": {
+      "x": 0,
+      "y": 0,
+      "z": -1
+     },
+     "profile": {
+      "mainDiameterMm": 3.5,
+      "entryNeckDiameterMm": 2.5,
+      "entryNeckLengthMm": 4
+     },
+     "depthMm": 12,
+     "targetBodyIds": [
+      "body-1"
+     ]
+    },
+    {
+     "operationId": "c",
+     "position": {
+      "x": 3.5,
+      "y": 1,
+      "z": 30
+     },
+     "inwardDirection": {
+      "x": 0,
+      "y": 0,
+      "z": -1
+     },
+     "profile": {
+      "mainDiameterMm": 5.5,
+      "entryNeckDiameterMm": 2.5,
+      "entryNeckLengthMm": 4
+     },
+     "depthMm": 12,
+     "targetBodyIds": [
+      "body-1"
+     ]
+    }
+   ],
+   "presentation": [
+    {
+     "operationId": "a",
+     "position": {
+      "x": 1.5,
+      "y": 1,
+      "z": 30
+     },
+     "inwardDirection": {
+      "x": 0,
+      "y": 0,
+      "z": -1
+     },
+     "profile": {
+      "mainDiameterMm": 3.5,
+      "entryNeckDiameterMm": 2.5,
+      "entryNeckLengthMm": 4
+     },
+     "depthMm": 12,
+     "targetBodyIds": [
+      "body-1"
+     ],
+     "status": "resolved"
+    },
+    {
+     "operationId": "b",
+     "position": {
+      "x": 2,
+      "y": 1,
+      "z": 30
+     },
+     "inwardDirection": {
+      "x": 0,
+      "y": 0,
+      "z": -1
+     },
+     "profile": {
+      "mainDiameterMm": 4,
+      "entryNeckDiameterMm": 2.5,
+      "entryNeckLengthMm": 4
+     },
+     "status": "pending"
+    },
+    {
+     "operationId": "c",
+     "position": {
+      "x": 3.5,
+      "y": 1,
+      "z": 30
+     },
+     "inwardDirection": {
+      "x": 0,
+      "y": 0,
+      "z": -1
+     },
+     "profile": {
+      "mainDiameterMm": 5.5,
+      "entryNeckDiameterMm": 2.5,
+      "entryNeckLengthMm": 4
+     },
+     "depthMm": 12,
+     "targetBodyIds": [
+      "body-1"
+     ],
+     "status": "invalid"
+    }
+   ]
+  }
+ ]
+}

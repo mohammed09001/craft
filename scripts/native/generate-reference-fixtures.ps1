@@ -10,7 +10,7 @@
 param(
   # "all" regenerates every fixture (about 25 minutes); "reports" only the engineering-reports fixtures and
   # "selection" only the viewport selection fixture and "spruepreview" only the Sprue 3D preview fixture (seconds each).
-  [ValidateSet('all', 'reports', 'selection', 'spruepreview')][string]$Only = 'all'
+  [ValidateSet('all', 'reports', 'selection', 'spruepreview', 'sprueresize')][string]$Only = 'all'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -45,7 +45,11 @@ if ($Only -in 'all', 'selection') {
 if ($Only -in 'all', 'spruepreview') {
   Copy-Item (Join-Path $referenceDir 'craftSpruePreviewReference.test.ts') $stage -Force
 }
+if ($Only -in 'all', 'sprueresize') {
+  Copy-Item (Join-Path $referenceDir 'craftSprueResizeReference.test.ts') $stage -Force
+}
 $env:CRAFT_SPRUE_PREVIEW_OUTPUT = Join-Path $repoRoot 'native\tests\fixtures\reference\sprue-preview-reference.json'
+$env:CRAFT_SPRUE_RESIZE_OUTPUT = Join-Path $repoRoot 'native\tests\fixtures\reference\sprue-resize-reference.json'
 $env:CRAFT_SELECTION_OUTPUT = Join-Path $repoRoot 'native\tests\fixtures\reference\selection-reference.json'
 $env:CRAFT_REFERENCE_OUTPUT = Join-Path $repoRoot 'native\tests\fixtures\reference\mold-reference.json'
 $env:CRAFT_SEGMENTATION_OUTPUT = Join-Path $repoRoot 'native\tests\fixtures\reference\segmentation-reference.json'
@@ -59,7 +63,7 @@ $env:CRAFT_READINESS_SAMPLES = Join-Path $repoRoot 'native\tests\fixtures\refere
 # when a development Python is available; otherwise the committed samples are used.
 $samplePython = $env:CRAFT_PYTHON
 if (-not $samplePython -and (Test-Path 'D:\CraftNative\python\venv\Scripts\python.exe')) { $samplePython = 'D:\CraftNative\python\venv\Scripts\python.exe' }
-if ($Only -in 'selection', 'spruepreview') { $samplePython = $null }  # these fixtures have nothing to do with Python
+if ($Only -in 'selection', 'spruepreview', 'sprueresize') { $samplePython = $null }  # these fixtures have nothing to do with Python
 if ($samplePython) {
   & $samplePython -I (Join-Path $referenceDir 'make_readiness_samples.py') $repoRoot $env:CRAFT_READINESS_SAMPLES
   if ($LASTEXITCODE -ne 0) { throw "Readiness sample generation failed (exit $LASTEXITCODE)." }
@@ -83,6 +87,7 @@ try {
   Remove-Item Env:\CRAFT_READINESS_SAMPLES -ErrorAction SilentlyContinue
   Remove-Item Env:\CRAFT_SELECTION_OUTPUT -ErrorAction SilentlyContinue
   Remove-Item Env:\CRAFT_SPRUE_PREVIEW_OUTPUT -ErrorAction SilentlyContinue
+  Remove-Item Env:\CRAFT_SPRUE_RESIZE_OUTPUT -ErrorAction SilentlyContinue
   Remove-Item Env:\CRAFT_BRACKET_STL -ErrorAction SilentlyContinue
 }
 

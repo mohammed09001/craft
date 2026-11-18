@@ -12,6 +12,8 @@ Item {
     property var style: app.selectionStyle      // highlight, selection box and overlay colours (one source: C++)
     property var sprue: app.sprueStyle          // Sprue preview colours and the mold glass look (one source: C++)
     property bool overPart: false               // the pointer is over the part or its selection box (pointer cursor)
+    property bool gizmoPress: false             // a press that landed on a sprue ring: this gesture belongs to the gizmo
+    property bool swallowRelease: false         // the release that ends a double click the gizmo handled is not a click
     clip: true
 
     View3D {
@@ -131,8 +133,9 @@ Item {
                 required property var itemEdgeGeometry
                 required property bool itemSelected
                 required property var itemGlassEdgeGeometry
+                required property bool itemGizmoHidden
                 position: itemOffset
-                visible: itemVisible
+                visible: itemVisible && !itemGizmoHidden   // a hovered sprue ring hides the bodies it cuts
 
                 Model {
                     geometry: itemGeometry
@@ -172,6 +175,54 @@ Item {
         }
     }
 
+    // The sprue resize rings. A second, transparent View3D with the same camera draws them over the scene, which is what
+    // the reference's depthTest:false + renderOrder 20 does: a ring at the cavity stays visible behind the mold.
+    View3D {
+        id: gizmoView
+        anchors.fill: parent
+        visible: app.sprueGizmo.active
+        camera: gizmoCamera
+        environment: SceneEnvironment {
+            backgroundMode: SceneEnvironment.Transparent
+            antialiasingMode: SceneEnvironment.MSAA
+            antialiasingQuality: SceneEnvironment.High
+        }
+        PerspectiveCamera {
+            id: gizmoCamera
+            position: app.camera.position
+            rotation: app.camera.rotation
+            fieldOfView: app.camera.fieldOfView
+            fieldOfViewOrientation: PerspectiveCamera.Vertical
+            clipNear: app.camera.clipNear
+            clipFar: app.camera.clipFar
+        }
+        Repeater3D {
+            model: app.sprueHandles
+            delegate: Node {
+                required property vector3d handlePosition
+                required property quaternion handleRotation
+                required property var handleGeometry
+                required property color handleColor
+                required property real handleOpacity
+                required property real handleVisualScale
+                required property real handleGroupScale
+                position: handlePosition
+                rotation: handleRotation
+                scale: Qt.vector3d(handleGroupScale, handleGroupScale, 1)   // the drag preview scales the ring in its plane
+                Model {
+                    geometry: handleGeometry
+                    pickable: false
+                    scale: Qt.vector3d(handleVisualScale, handleVisualScale, handleVisualScale)
+                    materials: DefaultMaterial {
+                        lighting: DefaultMaterial.NoLighting
+                        diffuseColor: handleColor
+                        opacity: handleOpacity
+                    }
+                }
+            }
+        }
+    }
+
     // Orbit (left), pan (right/middle), zoom (wheel), pick on click.
     MouseArea {
         id: mouse
@@ -182,12 +233,31 @@ Item {
         property real pressX: 0
         property real pressY: 0
         property bool moved: false
-        onPressed: (e) => { lastX = pressX = e.x; lastY = pressY = e.y; moved = false }
+        onPressed: (e) => {
+            lastX = pressX = e.x; lastY = pressY = e.y; moved = false
+            // A press on a sprue ring starts resizing it instead of orbiting (and is never a click that places a sprue).
+            root.gizmoPress = e.button === Qt.LeftButton && app.tool === "sprue" && app.sprueGizmoPressAt(e.x, e.y, width, height)
+        }
+        onCanceled: { if (root.gizmoPress) { root.gizmoPress = false; app.sprueGizmoCancel() } }
+        onDoubleClicked: (e) => {
+            if (app.tool !== "sprue" || e.button !== Qt.LeftButton) return
+            // The press that belongs to this double click already started a resize (no movement yet): drop it.
+            if (root.gizmoPress && app.sprueGizmo.dragging) app.sprueGizmoCancel()
+            const info = app.sprueGizmoEditAt(e.x, e.y, width, height)
+            if (info.operationId) {
+                gizmoEditor.openFor(info, e.x, e.y)
+                root.swallowRelease = true   // the reference stops the event: the click part must not place a sprue
+            }
+        }
         hoverEnabled: true
         property real hoverX: 0
         property real hoverY: 0
-        cursorShape: app.tool === "sprue" ? Qt.CrossCursor
-                   : (app.tool === "select" && root.overPart ? Qt.PointingHandCursor : Qt.ArrowCursor)
+        // The Sprue tool shows the reference's funnel cursor (a horizontal-resize cursor over a ring); the Select tool a
+        // pointing hand over the part.
+        property string cursorName: app.tool === "sprue" ? (app.sprueGizmo.active ? app.sprueGizmo.cursor : "cross")
+                                  : (app.tool === "select" && root.overPart ? "hand" : "arrow")
+        onCursorNameChanged: app.applyViewportCursor(mouse, cursorName)
+        Component.onCompleted: app.applyViewportCursor(mouse, cursorName)
         // Hover picking runs at most every 33 ms: it raycasts the part, which is linear in its triangle count.
         Timer {
             id: hoverTimer
@@ -198,10 +268,18 @@ Item {
         Timer {
             id: sprueTimer
             interval: 16
-            onTriggered: app.previewSprueAt(mouse.hoverX, mouse.hoverY, mouse.width, mouse.height)
+            // Over a ring the pointer belongs to the gizmo and there is no placement preview.
+            onTriggered: { if (!app.sprueGizmoHoverAt(mouse.hoverX, mouse.hoverY, mouse.width, mouse.height)) app.previewSprueAt(mouse.hoverX, mouse.hoverY, mouse.width, mouse.height) }
         }
-        onExited: { hoverTimer.stop(); sprueTimer.stop(); app.clearHover(); app.clearSprueCandidate(); root.overPart = false }
+        onExited: { hoverTimer.stop(); sprueTimer.stop(); app.clearHover(); app.clearSprueCandidate(); app.sprueGizmoLeave(); root.overPart = false }
         onPositionChanged: (e) => {
+            if (root.gizmoPress) {   // resizing a ring: the pointer drives the diameter, not the camera
+                if (app.sprueGizmo.dragging) {
+                    app.sprueGizmoDragTo(e.x, e.y, (e.modifiers & Qt.ShiftModifier) !== 0)
+                    gizmoLabel.place(e.x, e.y)
+                }
+                return
+            }
             if (app.tool === "sprue") {
                 if (e.buttons === 0) { hoverX = e.x; hoverY = e.y; if (!sprueTimer.running) sprueTimer.start() }
                 else { sprueTimer.stop(); app.clearSprueCandidate() }  // dragging orbits/pans: the preview hides
@@ -218,9 +296,73 @@ Item {
             else if (e.buttons & (Qt.RightButton | Qt.MiddleButton)) app.camera.panByPixels(dx, dy, height)
         }
         onReleased: (e) => {
+            const swallow = root.swallowRelease
+            root.swallowRelease = false
+            if (root.gizmoPress) { root.gizmoPress = false; app.sprueGizmoRelease(); return }   // commits when the diameter changed
+            if (swallow) return
             if (!moved && e.button === Qt.LeftButton) app.pickAt(e.x, e.y, width, height)
         }
         onWheel: (w) => app.camera.zoomByWheel(w.angleDelta.y)
+    }
+
+    // The diameter label (7.00 mm with the diameter sign) next to the pointer while a ring is dragged; it takes the
+    // warning colour at either limit.
+    Rectangle {
+        id: gizmoLabel
+        visible: app.sprueGizmo.labelVisible
+        x: 6; y: 6
+        width: gizmoLabelText.implicitWidth + 14; height: gizmoLabelText.implicitHeight + 6
+        radius: 4
+        color: root.dark ? "#1f242a" : "#f4f6f8"
+        border.color: root.dark ? "#3a424b" : "#c3cad2"
+        Label {
+            id: gizmoLabelText
+            anchors.centerIn: parent
+            text: app.sprueGizmo.labelText
+            font.family: "monospace"; font.pixelSize: 12
+            color: app.sprueGizmo.labelWarns ? "#d18b24" : (root.dark ? "#e6e9ec" : "#1b1f24")
+        }
+        function place(px, py) {
+            x = Math.max(6, Math.min(root.width - 110, px + 12))
+            y = Math.max(6, Math.min(root.height - 34, py - 28))
+        }
+    }
+
+    // Double click on a ring: type a diameter. Enter commits, Escape or leaving the field cancels.
+    Popup {
+        id: gizmoEditor
+        parent: root
+        visible: app.sprueGizmo.editing
+        closePolicy: Popup.NoAutoClose
+        padding: 4
+        function openFor(info, px, py) {
+            editorField.text = info.text
+            x = Math.max(6, Math.min(root.width - 110, px + 12))
+            y = Math.max(6, Math.min(root.height - 34, py - 28))
+        }
+        onOpened: { editorField.forceActiveFocus(); editorField.selectAll() }
+        contentItem: Column {
+            spacing: 4
+            TextField {
+                id: editorField
+                width: 92
+                font.family: "monospace"; font.pixelSize: 12
+                inputMethodHints: Qt.ImhFormattedNumbersOnly
+                selectByMouse: true
+                color: app.sprueGizmo.editError !== "" ? "#e5484d" : palette.text
+                onAccepted: app.sprueGizmoCommitEdit(text)
+                Keys.onEscapePressed: app.sprueGizmoCancel()
+                onActiveFocusChanged: { if (!activeFocus && app.sprueGizmo.editing) app.sprueGizmoCloseEditor() }
+            }
+            Label {
+                visible: app.sprueGizmo.editError !== ""
+                text: app.sprueGizmo.editError
+                width: 160
+                wrapMode: Text.Wrap
+                font.pixelSize: 11
+                color: "#e5484d"
+            }
+        }
     }
 
     onWidthChanged: app.camera.setViewportSize(width, height)

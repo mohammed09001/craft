@@ -68,6 +68,8 @@ add_library(craft_core STATIC
   core/model/ModelGrounding.h
   core/view/SelectionBox.cpp
   core/view/SelectionBox.h
+  core/view/Rotation.cpp
+  core/view/Rotation.h
   core/view/ViewPose.cpp
   core/view/ViewPose.h
 )
@@ -131,6 +133,8 @@ add_library(craft_mold STATIC
   core/mold/SegmentationIdentity.cpp
   core/mold/SegmentationIdentity.h
   core/mold/SprueGeneration.cpp
+  core/mold/SprueGizmo.cpp
+  core/mold/SprueGizmo.h
   core/mold/SpruePreview.cpp
   core/mold/SpruePreview.h
   core/mold/SprueGeneration.h

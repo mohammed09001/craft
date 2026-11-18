@@ -64,6 +64,8 @@ AppController::AppController(std::shared_ptr<IMeshGeometryEngine> engine,
   }
   connect(&scene_, &SceneModel::sceneChanged, this, &AppController::refreshSelectionOverlay);
   // The Sprue tool's glass look and preview follow the tool and the mold.
+  connect(this, &AppController::spruesChanged, this, &AppController::refreshSprueGizmo);
+  connect(this, &AppController::sprueGlassChanged, this, &AppController::refreshSprueGizmo);
   connect(this, &AppController::toolChanged, this, &AppController::refreshSprueGlass);
   connect(this, &AppController::moldChanged, this, &AppController::refreshSprueGlass);
 }

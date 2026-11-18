@@ -12,11 +12,12 @@ ApplicationWindow {
     visible: true
     title: (app.modelInfo.fileName ? app.project.title + " — " : "") + "Craft"
 
-    // Escape clears the selection (the reference does the same); it only acts when something is selected.
+    // Escape cancels a sprue-ring drag or its numeric editor first; otherwise it clears the selection (the reference
+    // does the same). It only acts when there is something to cancel or clear.
     Shortcut {
         sequence: "Escape"
-        enabled: app.tool === "select" && !!app.selection.kind
-        onActivated: app.clearSelection()
+        enabled: app.sprueGizmo.cancellable || (app.tool === "select" && !!app.selection.kind)
+        onActivated: { if (!app.sprueGizmoCancel()) app.clearSelection() }
     }
 
     function exportMold() { exportDialog.open() }
@@ -237,7 +238,7 @@ ApplicationWindow {
 
     SplitView {
         anchors.fill: parent
-        ViewportView { SplitView.fillWidth: true; SplitView.minimumWidth: 300 }
+        ViewportView { objectName: "viewport"; SplitView.fillWidth: true; SplitView.minimumWidth: 300 }
         Inspector {
             SplitView.preferredWidth: 340
             SplitView.minimumWidth: 260

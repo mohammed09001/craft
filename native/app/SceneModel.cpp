@@ -37,6 +37,7 @@ QVariant SceneModel::data(const QModelIndex& index, int role) const {
     case TriangleCountRole: return item.triangleCount;
     case SelectedRole: return item.selected;
     case GlassEdgeGeometryRole: return QVariant::fromValue<QQuick3DGeometry*>(item.glassEdges);
+    case GizmoHiddenRole: return item.gizmoHidden;
   }
   return {};
 }
@@ -53,7 +54,8 @@ QHash<int, QByteArray> SceneModel::roleNames() const {
           {VolumeRole, "itemVolume"},
           {TriangleCountRole, "itemTriangleCount"},
           {SelectedRole, "itemSelected"},
-          {GlassEdgeGeometryRole, "itemGlassEdgeGeometry"}};
+          {GlassEdgeGeometryRole, "itemGlassEdgeGeometry"},
+          {GizmoHiddenRole, "itemGizmoHidden"}};
 }
 
 void SceneModel::destroyGeometry(SceneItem& item) {
@@ -154,6 +156,16 @@ void SceneModel::setGlass(bool on) {
       item.glassEdges = nullptr;
     }
     emit dataChanged(index(row), index(row), {GlassEdgeGeometryRole});
+  }
+}
+
+void SceneModel::setGizmoHiddenBodies(const QStringList& bodyIds) {
+  for (int row = 0; row < count(); ++row) {
+    SceneItem& item = items_[static_cast<std::size_t>(row)];
+    const bool hidden = item.kind == kBodyKind && bodyIds.contains(item.id);
+    if (item.gizmoHidden == hidden) continue;
+    item.gizmoHidden = hidden;
+    emit dataChanged(index(row), index(row), {GizmoHiddenRole});
   }
 }
 

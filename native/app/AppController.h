@@ -36,6 +36,7 @@
 #include "tooling/MasterToolingExport.h"
 #include "view/SelectionBox.h"
 #include "mold/SpruePreview.h"
+#include "SprueHandleModel.h"
 #include "mold/Segmentation.h"
 #include "mold/SprueGeneration.h"
 
@@ -100,6 +101,9 @@ class AppController : public QObject {
   /// The Sprue tool is active on a complete mold: bodies are drawn as glass with an edge outline.
   Q_PROPERTY(bool sprueGlass READ sprueGlass NOTIFY sprueGlassChanged)
   Q_PROPERTY(QVariantMap sprueStyle READ sprueStyle CONSTANT)
+  /// The resize rings at each sprue opening (see AppControllerSprueGizmo.cpp) and the gizmo's interaction state.
+  Q_PROPERTY(craft::app::SprueHandleModel* sprueHandles READ sprueHandles CONSTANT)
+  Q_PROPERTY(QVariantMap sprueGizmo READ sprueGizmo NOTIFY sprueGizmoChanged)
   Q_PROPERTY(QString spruePhase READ spruePhase NOTIFY spruesChanged)
   Q_PROPERTY(QString analysisPhase READ analysisPhase NOTIFY analysisChanged)
   Q_PROPERTY(QString analysisError READ analysisError NOTIFY analysisChanged)
@@ -249,6 +253,29 @@ class AppController : public QObject {
   QString spruePhase() const { return spruePhase_; }
   /// Placement preview under a viewport pixel (status/inspector only).
   Q_INVOKABLE void clearSprueCandidate();
+
+  // --- sprue resize gizmo (rings at the sprue openings; reference: sprueResizeRuntime.ts) -----------------------------
+  SprueHandleModel* sprueHandles() { return &sprueHandles_; }
+  QVariantMap sprueGizmo() const;
+  /// Pointer hover (Sprue tool, no button): highlights the ring under the pointer. True when over a ring: the caller
+  /// then skips the placement preview.
+  Q_INVOKABLE bool sprueGizmoHoverAt(qreal x, qreal y, qreal viewportWidth, qreal viewportHeight);
+  /// Left press: starts resizing the ring under the pointer. False when there is none (the press is an ordinary one).
+  /// The pointer left the viewport: clears the ring hover (unless a drag or the editor owns the pointer).
+  Q_INVOKABLE void sprueGizmoLeave();
+  Q_INVOKABLE bool sprueGizmoPressAt(qreal x, qreal y, qreal viewportWidth, qreal viewportHeight);
+  Q_INVOKABLE void sprueGizmoDragTo(qreal x, qreal y, bool shiftHeld);
+  /// Left release: commits the previewed diameter when it differs from the original.
+  Q_INVOKABLE void sprueGizmoRelease();
+  /// Escape: cancels a drag (reverting the preview) or closes the numeric editor. True when there was something to cancel.
+  Q_INVOKABLE bool sprueGizmoCancel();
+  /// Double click on a ring: opens the numeric editor. Returns its description (empty when not over a ring).
+  Q_INVOKABLE QVariantMap sprueGizmoEditAt(qreal x, qreal y, qreal viewportWidth, qreal viewportHeight);
+  /// Enter in the editor. False (editor stays open, sprueGizmo.editError set) for a non-finite diameter.
+  Q_INVOKABLE bool sprueGizmoCommitEdit(const QString& text);
+  Q_INVOKABLE void sprueGizmoCloseEditor();
+  /// Sets a named cursor on a QML item: arrow, hand, cross, resize (horizontal), funnel (the Sprue tool's).
+  Q_INVOKABLE void applyViewportCursor(QObject* item, const QString& name);
   QQuick3DGeometry* spruePreviewGeometry() { return &spruePreview_; }
   bool sprueGlass() const { return sprueGlass_; }
   QVariantMap sprueStyle() const;
@@ -349,6 +376,7 @@ class AppController : public QObject {
   void selectionChanged();
   void selectionOverlayChanged();
   void sprueGlassChanged();
+  void sprueGizmoChanged();
   /// A user-visible failure worth a dialog (import, mold, export, analysis).
   void errorOccurred(const QString& title, const QString& message, const QString& code);
   void exportFinished(bool ok, const QString& message, const QStringList& files);
@@ -402,6 +430,11 @@ class AppController : public QObject {
   void showFinalBodies(bool refit);
   std::optional<SpruePlacement> placementAt(qreal x, qreal y, qreal w, qreal h) const;
   void refreshSprueGlass();
+  void refreshSprueGizmo();
+  void resetSprueGizmoInteraction();
+  void setGizmoHover(int index);
+  void commitSprueDiameter(const SprueHandle& handle, double diameterMm);
+  const char* sprueGizmoState() const;
   void setSprueCandidate(QVariantMap candidate, const std::optional<SpruePreviewGeometry>& geometry);
 
   std::shared_ptr<IMeshGeometryEngine> engine_;
@@ -478,6 +511,21 @@ class AppController : public QObject {
   QVariantMap sprueCandidate_;
   viewport::MeshGeometry spruePreview_;
   bool sprueGlass_ = false;
+
+  // sprue resize gizmo
+  struct GizmoDrag {
+    int handle = -1;
+    double startX = 0, startY = 0, original = 0, preview = 0;
+  };
+  SprueHandleModel sprueHandles_;
+  std::vector<SprueHandle> gizmoHandles_;
+  std::string gizmoSignature_;      // what the rings were last built from (skips rebuilds on unrelated changes)
+  int gizmoHover_ = -1;
+  std::optional<GizmoDrag> gizmoDrag_;
+  bool gizmoEditing_ = false;
+  std::string gizmoEditHandle_;     // the ring being edited numerically ("<operationId>:top|bottom")
+  QString gizmoEditError_, gizmoLabel_;
+  bool gizmoLabelWarns_ = false;
   quint64 sprueGeneration_ = 0;
   int nextSprueNumber_ = 1;
 

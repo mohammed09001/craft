@@ -33,6 +33,7 @@ struct SceneItem {
   int triangleCount = 0;
   Bounds3 bounds;    // canonical bounds, before `offset`
   bool selected = false;  // the part, highlighted while selected (the reference highlights the model, not bodies)
+  bool gizmoHidden = false;  // hidden while a sprue ring is hovered, so the ring behind the body shows
 
   // Exactly one of the two is set.
   std::shared_ptr<const TriangleSoup> soup;
@@ -66,6 +67,7 @@ class SceneModel : public QAbstractListModel {
     TriangleCountRole,
     SelectedRole,
     GlassEdgeGeometryRole,
+    GizmoHiddenRole,
   };
 
   explicit SceneModel(QObject* parent = nullptr);
@@ -97,6 +99,8 @@ class SceneModel : public QAbstractListModel {
   /// While on, every mold-body row carries an outline of its edges (1 degree threshold, like the reference's
   /// EdgesGeometry) for the Sprue tool's glass look; the outlines are built on demand and freed when it is off.
   void setGlass(bool on);
+  /// Hides exactly the mold-body rows with these ids (the sprue gizmo's hover); an empty list restores all of them.
+  void setGizmoHiddenBodies(const QStringList& bodyIds);
   bool glass() const { return glass_; }
 
   Q_INVOKABLE void setItemVisible(int row, bool visible);

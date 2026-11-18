@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "mold/SprueProfile.h"
+#include "view/Rotation.h"
 
 namespace craft {
 
@@ -13,29 +14,6 @@ constexpr double kTwoPi = 6.283185307179586476925286766559;
 constexpr double kStemRadiusMm = kDefaultSprueEntryNeckDiameterMm / 2;  // STEM_RADIUS_MM
 
 float f32(double v) { return static_cast<float>(v); }
-
-struct Quat {
-  double x = 0, y = 0, z = 0, w = 1;
-};
-
-// three.js Quaternion.setFromUnitVectors.
-Quat quaternionFromUnitVectors(const Vec3& from, const Vec3& to) {
-  double r = from.dot(to) + 1;
-  Quat q;
-  if (r < 1e-8) {
-    r = 0;
-    if (std::fabs(from.x) > std::fabs(from.z)) {
-      q = {-from.y, from.x, 0, r};
-    } else {
-      q = {0, -from.z, from.y, r};
-    }
-  } else {
-    q = {from.y * to.z - from.z * to.y, from.z * to.x - from.x * to.z, from.x * to.y - from.y * to.x, r};
-  }
-  const double length = std::sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
-  if (length == 0) return {0, 0, 0, 1};
-  return {q.x / length, q.y / length, q.z / length, q.w / length};
-}
 
 // The upper 3x3 of three.js Matrix4.compose(position, quaternion, scale), column-major as `te`.
 struct Compose {
@@ -59,13 +37,7 @@ struct Compose {
 // Matrix3.getNormalMatrix(modelMatrix) applied to a normal, then normalised. For M = R * S the normal matrix is
 // R * S^-1, so the scale is divided out before the rotation.
 Vec3 normalOf(const Quat& q, const Vec3& scale, const Vec3& n) {
-  const Vec3 s{n.x / scale.x, n.y / scale.y, n.z / scale.z};
-  const double x2 = q.x + q.x, y2 = q.y + q.y, z2 = q.z + q.z;
-  const double xx = q.x * x2, xy = q.x * y2, xz = q.x * z2, yy = q.y * y2, yz = q.y * z2, zz = q.z * z2;
-  const double wx = q.w * x2, wy = q.w * y2, wz = q.w * z2;
-  const Vec3 r{(1 - (yy + zz)) * s.x + (xy - wz) * s.y + (xz + wy) * s.z, (xy + wz) * s.x + (1 - (xx + zz)) * s.y + (yz - wx) * s.z,
-               (xz - wy) * s.x + (yz + wx) * s.y + (1 - (xx + yy)) * s.z};
-  return r.normalized();
+  return rotate(q, {n.x / scale.x, n.y / scale.y, n.z / scale.z}).normalized();
 }
 
 IndexedSurface placed(const IndexedSurface& local, const Vec3& position, const Quat& orientation, const Vec3& scale) {

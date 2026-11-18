@@ -37,6 +37,11 @@ craft_add_test(tst_selection_equivalence
   LIBS craft_mold Qt6::Core)
 target_compile_definitions(tst_selection_equivalence PRIVATE
   CRAFT_REFERENCE_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/reference")
+craft_add_test(tst_sprue_gizmo_equivalence
+  SOURCES tst_sprue_gizmo_equivalence.cpp
+  LIBS craft_mold Qt6::Core)
+target_compile_definitions(tst_sprue_gizmo_equivalence PRIVATE
+  CRAFT_REFERENCE_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/reference")
 craft_add_test(tst_master_store SOURCES tst_master_store.cpp LIBS craft_mold craft_mesh_manifold)
 craft_add_test(tst_master_export SOURCES tst_master_export.cpp LIBS craft_export Qt6::Core)
 craft_add_test(tst_master_equivalence
@@ -88,6 +93,16 @@ if(CRAFT_BUILD_APP)
             --import "${CRAFT_REPO_ROOT}/native/tests/fixtures/models/bracket.stl"
             --generate-mold
             --summary "${CMAKE_CURRENT_BINARY_DIR}/app_smoke_summary.json")
+  # The Sprue resize gizmo through REAL mouse events delivered to the window (QML routing, not only the controller).
+  add_test(NAME app_smoke_sprue_gizmo
+    COMMAND craft --smoke-test
+            --import "${CRAFT_REPO_ROOT}/native/tests/fixtures/models/bracket.stl"
+            --generate-mold --sprue-preview --sprue-gizmo-events
+            --summary "${CMAKE_CURRENT_BINARY_DIR}/app_smoke_sprue_gizmo_summary.json")
+  set_tests_properties(app_smoke_sprue_gizmo PROPERTIES
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${CRAFT_QT_BIN_DIR}"
+    TIMEOUT 180
+    PASS_REGULAR_EXPRESSION "CRAFT_SMOKE_OK")
   set_tests_properties(app_smoke PROPERTIES
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${CRAFT_QT_BIN_DIR}"
     TIMEOUT 120
