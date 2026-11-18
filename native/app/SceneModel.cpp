@@ -2,6 +2,8 @@
 
 #include <algorithm>
 
+#include "mold/SpruePreview.h"
+
 namespace craft::app {
 
 namespace {
@@ -34,6 +36,7 @@ QVariant SceneModel::data(const QModelIndex& index, int role) const {
     case VolumeRole: return item.volumeMm3;
     case TriangleCountRole: return item.triangleCount;
     case SelectedRole: return item.selected;
+    case GlassEdgeGeometryRole: return QVariant::fromValue<QQuick3DGeometry*>(item.glassEdges);
   }
   return {};
 }
@@ -49,7 +52,8 @@ QHash<int, QByteArray> SceneModel::roleNames() const {
           {EdgeGeometryRole, "itemEdgeGeometry"},
           {VolumeRole, "itemVolume"},
           {TriangleCountRole, "itemTriangleCount"},
-          {SelectedRole, "itemSelected"}};
+          {SelectedRole, "itemSelected"},
+          {GlassEdgeGeometryRole, "itemGlassEdgeGeometry"}};
 }
 
 void SceneModel::destroyGeometry(SceneItem& item) {
@@ -64,6 +68,11 @@ void SceneModel::destroyGeometry(SceneItem& item) {
     item.edges->clearBuffers();
     item.edges->deleteLater();
     item.edges = nullptr;
+  }
+  if (item.glassEdges) {
+    item.glassEdges->clearBuffers();
+    item.glassEdges->deleteLater();
+    item.glassEdges = nullptr;
   }
 }
 
@@ -124,6 +133,30 @@ void SceneModel::setSelectedId(const QString& id) {
   }
 }
 
+void SceneModel::buildGlassEdges(SceneItem& item) {
+  if (item.glassEdges || !item.mesh) return;
+  item.glassEdges = new viewport::LineGeometry;
+  item.glassEdges->setParent(this);
+  item.glassEdges->setBuffers(viewport::buildFeatureEdgeBuffers(*item.mesh, kSprueGlassEdgeAngleDegrees));
+}
+
+void SceneModel::setGlass(bool on) {
+  if (glass_ == on) return;
+  glass_ = on;
+  for (int row = 0; row < count(); ++row) {
+    SceneItem& item = items_[static_cast<std::size_t>(row)];
+    if (item.kind != kBodyKind) continue;
+    if (on) {
+      buildGlassEdges(item);
+    } else if (item.glassEdges) {
+      item.glassEdges->clearBuffers();
+      item.glassEdges->deleteLater();
+      item.glassEdges = nullptr;
+    }
+    emit dataChanged(index(row), index(row), {GlassEdgeGeometryRole});
+  }
+}
+
 void SceneModel::clearMoldBodies() { setMoldBodies({}); }
 
 void SceneModel::setMoldBodies(const std::vector<BodyInput>& bodies) {
@@ -155,6 +188,7 @@ void SceneModel::setMoldBodies(const std::vector<BodyInput>& bodies) {
     item.edges = new viewport::LineGeometry;
     item.edges->setParent(this);
     item.edges->setBuffers(viewport::buildFeatureEdgeBuffers(*body.mesh));
+    if (glass_) buildGlassEdges(item);
     const int row = count();
     beginInsertRows({}, row, row);
     items_.push_back(std::move(item));

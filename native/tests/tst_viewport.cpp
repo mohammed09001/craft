@@ -90,6 +90,23 @@ class ViewportTest : public QObject {
     QCOMPARE(buildQuadBuffers({}).vertexCount, 0);
   }
 
+  void smoothSurfaceBuffersKeepPerVertexNormals() {
+    // One triangle with three different normals (a smooth surface), referenced twice through the index list.
+    const std::vector<double> positions{0, 0, 0, 1, 0, 0, 0, 1, 0};
+    const std::vector<double> normals{0, 0, 1, 1, 0, 0, 0, 1, 0};
+    const std::vector<std::uint32_t> indices{0, 1, 2, 2, 1, 0};
+    const TriangleBuffers buffers = buildSmoothSurfaceBuffers({{&positions, &normals, &indices}});
+    QCOMPARE(buffers.vertexCount, 6);
+    QCOMPARE(buffers.vertexData.size(), qsizetype(6 * TriangleBuffers::kStride));
+    QCOMPARE(buffers.boundsMin, QVector3D(0, 0, 0));
+    QCOMPARE(buffers.boundsMax, QVector3D(1, 1, 0));
+    const auto* f = reinterpret_cast<const float*>(buffers.vertexData.constData());
+    QCOMPARE(QVector3D(f[6], f[7], f[8]), QVector3D(1, 0, 0));    // second vertex: position
+    QCOMPARE(QVector3D(f[9], f[10], f[11]), QVector3D(1, 0, 0));  // its own normal, not the face normal
+    QCOMPARE(QVector3D(f[3], f[4], f[5]), QVector3D(0, 0, 1));
+    QCOMPARE(buildSmoothSurfaceBuffers({}).vertexCount, 0);
+  }
+
   void cameraRotationLooksAtTargetWithZUp() {
     ViewportCamera camera;
     camera.setViewportSize(800, 600);

@@ -109,6 +109,122 @@ class WorkflowTest : public QObject {
     QCOMPARE(app->moldSummary().value("cavityClearanceMm").toDouble(), 1.0);
   }
 
+  // --- sprue 3D preview: funnel/stem/neck at the pointer, glass mold, hidden when it should be --------------------------------
+
+  void sprueToolShowsTheMoldAsGlassAndPreviewsTheFunnel() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->generateMold();
+    QVERIFY(waitFor([&] { return app->moldPhase() == "complete"; }));
+    app->camera()->setViewportSize(800, 600);
+    app->camera()->lookFrom("top");
+    const auto glassRows = [&] {
+      int rows = 0;
+      for (int row = 0; row < app->scene()->count(); ++row) {
+        const QModelIndex index = app->scene()->index(row);
+        if (app->scene()->data(index, SceneModel::KindRole).toString() != "mold-body") continue;
+        if (app->scene()->data(index, SceneModel::GlassEdgeGeometryRole).value<QQuick3DGeometry*>()) ++rows;
+      }
+      return rows;
+    };
+    const auto previewTriangles = [&] { return static_cast<viewport::MeshGeometry*>(app->spruePreviewGeometry())->triangleCount(); };
+
+    // Outside the tool nothing is glass and nothing is previewed.
+    QVERIFY(!app->sprueGlass());
+    QCOMPARE(glassRows(), 0);
+    QCOMPARE(previewTriangles(), 0);
+
+    // Selecting the Sprue tool turns the mold bodies to glass with an edge outline each.
+    app->setTool("sprue");
+    QVERIFY(app->sprueGlass());
+    QVERIFY(glassRows() >= 1);
+    QCOMPARE(app->sprueStyle().value("glassOpacity").toDouble(), 0.28);
+    QCOMPARE(app->sprueStyle().value("validColor").value<QColor>(), QColor("#31975a"));
+    QCOMPARE(app->sprueStyle().value("invalidColor").value<QColor>(), QColor("#b33a36"));
+
+    // Over the cavity the preview is valid (green) and carries all three solids; over solid material it is invalid.
+    int validX = -1, invalidX = -1;
+    for (int x = 100; x <= 700 && (validX < 0 || invalidX < 0); x += 10) {
+      app->previewSprueAt(x, 300, 800, 600);
+      if (!app->sprueCandidate().value("onTopFace").toBool()) continue;
+      (app->sprueCandidate().value("valid").toBool() ? validX : invalidX) = x;
+    }
+    QVERIFY2(validX > 0, "no pixel over the cavity found");
+    QVERIFY2(invalidX > 0, "no pixel over solid mold material found");
+
+    app->previewSprueAt(validX, 300, 800, 600);
+    QVERIFY(app->sprueCandidate().value("valid").toBool());
+    const int validTriangles = previewTriangles();
+    QVERIFY(validTriangles >= 24 * 4 / 2);  // funnel + main stem + entry neck: hundreds of triangles
+    const double x = app->sprueCandidate().value("x").toDouble(), y = app->sprueCandidate().value("y").toDouble(), z = app->sprueCandidate().value("z").toDouble();
+    const double stem = app->sprueCandidate().value("stemLengthMm").toDouble();
+    // The preview hangs from the top face: its funnel rises 5 mm above it and the stem runs down by the stem length.
+    const auto* preview = static_cast<viewport::MeshGeometry*>(app->spruePreviewGeometry());
+    QVERIFY(preview->boundsMax().z() >= static_cast<float>(z + 4.99));
+    QVERIFY(preview->boundsMax().z() <= static_cast<float>(z + 5.01));
+    QVERIFY(std::fabs(preview->boundsMin().z() - static_cast<float>(z - stem)) < 1e-3f);
+    QVERIFY(preview->boundsMin().x() <= static_cast<float>(x) && preview->boundsMax().x() >= static_cast<float>(x));
+    QVERIFY(preview->boundsMin().y() <= static_cast<float>(y) && preview->boundsMax().y() >= static_cast<float>(y));
+
+    app->previewSprueAt(invalidX, 300, 800, 600);
+    QVERIFY(!app->sprueCandidate().value("valid").toBool());
+    QVERIFY(previewTriangles() > 0);  // a red preview still shows where the stem would go
+
+    // The pointer leaving the top face (or the viewport) hides it.
+    app->previewSprueAt(2, 2, 800, 600);
+    QVERIFY(!app->sprueCandidate().value("onTopFace").toBool());
+    QCOMPARE(previewTriangles(), 0);
+    app->previewSprueAt(validX, 300, 800, 600);
+    QVERIFY(previewTriangles() > 0);
+    app->clearSprueCandidate();
+    QCOMPARE(previewTriangles(), 0);
+    QVERIFY(app->sprueCandidate().isEmpty());
+
+    // Leaving the Sprue tool restores the mold and clears the preview.
+    app->previewSprueAt(validX, 300, 800, 600);
+    app->setTool("select");
+    QVERIFY(!app->sprueGlass());
+    QCOMPARE(glassRows(), 0);
+    QCOMPARE(previewTriangles(), 0);
+    QVERIFY(app->sprueCandidate().isEmpty());
+    app->previewSprueAt(validX, 300, 800, 600);  // not the Sprue tool: nothing is previewed
+    QCOMPARE(previewTriangles(), 0);
+  }
+
+  void thePreviewHidesWhenTheMoldChangesOrASprueIsPlaced() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->generateMold();
+    QVERIFY(waitFor([&] { return app->moldPhase() == "complete"; }));
+    app->camera()->setViewportSize(800, 600);
+    app->camera()->lookFrom("top");
+    app->setTool("sprue");
+    const auto previewTriangles = [&] { return static_cast<viewport::MeshGeometry*>(app->spruePreviewGeometry())->triangleCount(); };
+    int validX = -1;
+    for (int x = 100; x <= 700 && validX < 0; x += 10) {
+      app->previewSprueAt(x, 300, 800, 600);
+      if (app->sprueCandidate().value("valid").toBool()) validX = x;
+    }
+    QVERIFY(validX > 0);
+    QVERIFY(previewTriangles() > 0);
+
+    // Placing the sprue rebuilds the mold: the old preview goes, a new pointer move previews again.
+    QVERIFY(app->placeSprueAt(validX, 300, 800, 600));
+    QCOMPARE(previewTriangles(), 0);
+    QVERIFY(waitFor([&] { return app->spruePhase() == "idle" && app->sprueEvaluation().has_value(); }));
+    QVERIFY(app->sprueGlass());  // the mold is still complete and the tool is still the Sprue tool
+
+    // Changing a mold input drops the mold: the glass look and the preview go with it.
+    app->previewSprueAt(validX, 300, 800, 600);
+    app->setCutFaceEnabled("left", true);
+    QVERIFY(app->moldPhase() != "complete");
+    QVERIFY(!app->sprueGlass());
+    QCOMPARE(previewTriangles(), 0);
+    QVERIFY(app->sprueCandidate().isEmpty());
+  }
+
   void sprueWorkflowPlaceEditRegenerateRemove() {
     auto app = makeApp();
     app->importStlFile(bracket());

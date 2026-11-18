@@ -10,6 +10,7 @@ Item {
     id: root
     property bool dark: app.theme === "dark"
     property var style: app.selectionStyle      // highlight, selection box and overlay colours (one source: C++)
+    property var sprue: app.sprueStyle          // Sprue preview colours and the mold glass look (one source: C++)
     property bool overPart: false               // the pointer is over the part or its selection box (pointer cursor)
     clip: true
 
@@ -102,6 +103,22 @@ Item {
             }
         }
 
+        // The Sprue tool's 3D preview at the pointer: funnel, main stem and entry neck in one mesh, green when the axis
+        // reaches the cavity and red when it does not (built in scene coordinates by the controller).
+        Model {
+            visible: app.sprueCandidate.onTopFace === true
+            geometry: app.spruePreviewGeometry
+            pickable: false
+            materials: PrincipledMaterial {
+                baseColor: app.sprueCandidate.valid ? root.sprue.validColor : root.sprue.invalidColor
+                metalness: root.sprue.metalness
+                roughness: root.sprue.roughness
+                opacity: root.sprue.opacity
+                alphaMode: PrincipledMaterial.Blend
+                depthDrawMode: Material.AlwaysDepthDraw   // the reference keeps depthWrite on for the preview
+            }
+        }
+
         // One surface model (+ optional feature-edge overlay) per scene row.
         Repeater3D {
             model: app.scene
@@ -113,6 +130,7 @@ Item {
                 required property var itemGeometry
                 required property var itemEdgeGeometry
                 required property bool itemSelected
+                required property var itemGlassEdgeGeometry
                 position: itemOffset
                 visible: itemVisible
 
@@ -126,9 +144,20 @@ Item {
                         metalness: 0.05
                         roughness: itemSelected ? Math.min(0.6, root.style.highlightRoughness) : 0.6
                         cullMode: Material.NoCulling
-                        opacity: itemKind === "mold-body" ? app.moldOpacity : 1.0
-                        alphaMode: itemKind === "mold-body" && app.moldOpacity < 1
+                        // While the Sprue tool is active the mold bodies turn to glass (0.28) so the preview shows through.
+                        opacity: itemKind === "mold-body" ? (app.sprueGlass ? root.sprue.glassOpacity : app.moldOpacity) : 1.0
+                        alphaMode: itemKind === "mold-body" && (app.sprueGlass || app.moldOpacity < 1)
                                    ? PrincipledMaterial.Blend : PrincipledMaterial.Opaque
+                    }
+                }
+                Model {
+                    visible: app.sprueGlass && itemKind === "mold-body" && itemGlassEdgeGeometry !== null
+                    geometry: itemGlassEdgeGeometry
+                    pickable: false
+                    materials: DefaultMaterial {
+                        lighting: DefaultMaterial.NoLighting
+                        diffuseColor: root.sprue.glassEdgeColor
+                        opacity: root.sprue.glassEdgeOpacity
                     }
                 }
                 Model {
@@ -165,9 +194,18 @@ Item {
             interval: 33
             onTriggered: root.overPart = app.hoverAt(mouse.hoverX, mouse.hoverY, mouse.width, mouse.height)
         }
-        onExited: { hoverTimer.stop(); app.clearHover(); root.overPart = false }
+        // The Sprue preview is throttled the same way (the reference coalesces pointer moves to one per frame).
+        Timer {
+            id: sprueTimer
+            interval: 16
+            onTriggered: app.previewSprueAt(mouse.hoverX, mouse.hoverY, mouse.width, mouse.height)
+        }
+        onExited: { hoverTimer.stop(); sprueTimer.stop(); app.clearHover(); app.clearSprueCandidate(); root.overPart = false }
         onPositionChanged: (e) => {
-            if (app.tool === "sprue" && e.buttons === 0) app.previewSprueAt(e.x, e.y, width, height)
+            if (app.tool === "sprue") {
+                if (e.buttons === 0) { hoverX = e.x; hoverY = e.y; if (!sprueTimer.running) sprueTimer.start() }
+                else { sprueTimer.stop(); app.clearSprueCandidate() }  // dragging orbits/pans: the preview hides
+            }
             if (app.tool === "select") {
                 if (e.buttons === 0) { hoverX = e.x; hoverY = e.y; if (!hoverTimer.running) hoverTimer.start() }
                 else { hoverTimer.stop(); app.clearHover(); root.overPart = false }  // dragging orbits/pans: no hover

@@ -131,6 +131,8 @@ add_library(craft_mold STATIC
   core/mold/SegmentationIdentity.cpp
   core/mold/SegmentationIdentity.h
   core/mold/SprueGeneration.cpp
+  core/mold/SpruePreview.cpp
+  core/mold/SpruePreview.h
   core/mold/SprueGeneration.h
   core/mold/SprueProfile.cpp
   core/mold/SprueProfile.h

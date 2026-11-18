@@ -15,6 +15,7 @@
 #include <QVector3D>
 
 #include <array>
+#include <cstdint>
 #include <vector>
 
 #include "contracts/Geometry.h"
@@ -64,6 +65,16 @@ LineBuffers buildSegmentBuffers(const QVector3D& from, const QVector3D& to);
 
 /// Many segments in one line list (the dashed selection box). Empty input gives an empty buffer.
 LineBuffers buildSegmentListBuffers(const std::vector<std::array<QVector3D, 2>>& segments);
+
+/// An indexed triangle surface with one normal per vertex (xyz doubles), e.g. the Sprue preview solids.
+struct SmoothSurface {
+  const std::vector<double>* positions = nullptr;
+  const std::vector<double>* normals = nullptr;
+  const std::vector<std::uint32_t>* indices = nullptr;
+};
+
+/// Several indexed surfaces as one non-indexed triangle list, keeping their per-vertex (smooth) normals.
+TriangleBuffers buildSmoothSurfaceBuffers(const std::vector<SmoothSurface>& surfaces);
 
 /// Overlay quads as triangles: each quad (a, b, c, d) becomes (a, b, c) and (a, c, d) with its geometric normal.
 TriangleBuffers buildQuadBuffers(const std::vector<std::array<QVector3D, 4>>& quads);

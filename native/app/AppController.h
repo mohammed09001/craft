@@ -35,6 +35,7 @@
 #include "master/MasterMoldStore.h"
 #include "tooling/MasterToolingExport.h"
 #include "view/SelectionBox.h"
+#include "mold/SpruePreview.h"
 #include "mold/Segmentation.h"
 #include "mold/SprueGeneration.h"
 
@@ -94,6 +95,11 @@ class AppController : public QObject {
   Q_PROPERTY(QVariantMap printerVolume READ printerVolume NOTIFY segmentationChanged)
   Q_PROPERTY(QVariantList sprues READ sprues NOTIFY spruesChanged)
   Q_PROPERTY(QVariantMap sprueCandidate READ sprueCandidate NOTIFY spruesChanged)
+  /// The 3D funnel/stem/neck preview at the pointer (scene coordinates); shown while sprueCandidate.onTopFace.
+  Q_PROPERTY(QQuick3DGeometry* spruePreviewGeometry READ spruePreviewGeometry CONSTANT)
+  /// The Sprue tool is active on a complete mold: bodies are drawn as glass with an edge outline.
+  Q_PROPERTY(bool sprueGlass READ sprueGlass NOTIFY sprueGlassChanged)
+  Q_PROPERTY(QVariantMap sprueStyle READ sprueStyle CONSTANT)
   Q_PROPERTY(QString spruePhase READ spruePhase NOTIFY spruesChanged)
   Q_PROPERTY(QString analysisPhase READ analysisPhase NOTIFY analysisChanged)
   Q_PROPERTY(QString analysisError READ analysisError NOTIFY analysisChanged)
@@ -242,6 +248,10 @@ class AppController : public QObject {
   QVariantMap sprueCandidate() const { return sprueCandidate_; }
   QString spruePhase() const { return spruePhase_; }
   /// Placement preview under a viewport pixel (status/inspector only).
+  Q_INVOKABLE void clearSprueCandidate();
+  QQuick3DGeometry* spruePreviewGeometry() { return &spruePreview_; }
+  bool sprueGlass() const { return sprueGlass_; }
+  QVariantMap sprueStyle() const;
   Q_INVOKABLE void previewSprueAt(qreal x, qreal y, qreal viewportWidth, qreal viewportHeight);
   /// Creates a sprue where the pixel meets the mold top face over the cavity.
   Q_INVOKABLE bool placeSprueAt(qreal x, qreal y, qreal viewportWidth, qreal viewportHeight);
@@ -338,6 +348,7 @@ class AppController : public QObject {
   void toolChanged();
   void selectionChanged();
   void selectionOverlayChanged();
+  void sprueGlassChanged();
   /// A user-visible failure worth a dialog (import, mold, export, analysis).
   void errorOccurred(const QString& title, const QString& message, const QString& code);
   void exportFinished(bool ok, const QString& message, const QStringList& files);
@@ -390,6 +401,8 @@ class AppController : public QObject {
   void startSprueEvaluation();
   void showFinalBodies(bool refit);
   std::optional<SpruePlacement> placementAt(qreal x, qreal y, qreal w, qreal h) const;
+  void refreshSprueGlass();
+  void setSprueCandidate(QVariantMap candidate, const std::optional<SpruePreviewGeometry>& geometry);
 
   std::shared_ptr<IMeshGeometryEngine> engine_;
   analysis::WorkerClient analysis_;
@@ -463,6 +476,8 @@ class AppController : public QObject {
   std::optional<DerivedRegistrationState> registration_;
   QString spruePhase_ = QStringLiteral("idle");
   QVariantMap sprueCandidate_;
+  viewport::MeshGeometry spruePreview_;
+  bool sprueGlass_ = false;
   quint64 sprueGeneration_ = 0;
   int nextSprueNumber_ = 1;
 

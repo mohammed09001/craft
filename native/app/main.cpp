@@ -80,7 +80,20 @@ class Smoke : public QObject {
         if (!face.isEmpty() && face != toggled) return;
       }
   }
+  // The Sprue tool on the generated mold: preview the funnel at the first pixel whose axis reaches the cavity.
+  void spruePreviewForSmoke() {
+    const int w = static_cast<int>(window_->width()), h = static_cast<int>(window_->height());
+    app_.camera()->setViewportSize(w, h);
+    app_.setTool(QStringLiteral("sprue"));
+    for (int y = h / 4; y < h * 3 / 4; y += 4)
+      for (int x = w / 8; x < w * 5 / 8; x += 4) {
+        app_.previewSprueAt(x, y, w, h);
+        // Valid by default; with --sprue-invalid, the first pixel on the top face whose axis misses the cavity.
+        if (app_.sprueCandidate().value("onTopFace").toBool() && app_.sprueCandidate().value("valid").toBool() != spruePreviewInvalid_) return;
+      }
+  }
   void render() {
+    if (spruePreview_) spruePreviewForSmoke();
     if (selectPart_) selectPartForSmoke();
     QTimer::singleShot(1500, this, [this] {
       const QImage frame = window_->grabWindow();
@@ -102,6 +115,8 @@ class Smoke : public QObject {
       s.insert("analysisWorkerInfo", app_.analysisWorkerInfo());
       s.insert("applicationDir", QCoreApplication::applicationDirPath());
       s.insert("selectionBox", app_.selectionBox());
+      s.insert("sprueCandidate", app_.sprueCandidate());
+      s.insert("sprueGlass", app_.sprueGlass());
       s.insert("selection", app_.selection());
       s.insert("engineeringReportsSummary", app_.engineeringReports());
       finish(s, !frame.isNull() && distinct > 50);
@@ -128,13 +143,14 @@ class Smoke : public QObject {
 
  public:
   void setSelectPart(bool value) { selectPart_ = value; }
+  void setSpruePreview(bool value, bool invalid = false) { spruePreview_ = value; spruePreviewInvalid_ = invalid; }
   void setScreenshot(const QString& path) { screenshot_ = path; }
 
  private:
   AppController& app_;
   QQuickWindow* window_;
   QString importPath_, summary_, screenshot_;
-  bool selectPart_ = false;
+  bool selectPart_ = false, spruePreview_ = false, spruePreviewInvalid_ = false;
   bool mold_, analyse_, moldability_;
   bool imported_ = false, moldDone_ = false, analysisDone_ = false, reportsDone_ = false, done_ = false;
 };
@@ -160,6 +176,8 @@ int main(int argc, char* argv[]) {
   parser.addOption({"select-part", "Select the part, toggle a box face and hover another before the frame is taken (smoke test)."});
   parser.addOption({"screenshot", "Save the rendered frame as a PNG (smoke test).", "path"});
   parser.addOption({"theme", "Start with this theme, dark or light (smoke test).", "name"});
+  parser.addOption({"sprue-preview", "Select the Sprue tool and preview the funnel on the generated mold (smoke test; use with --generate-mold)."});
+  parser.addOption({"sprue-invalid", "With --sprue-preview: preview where the axis misses the cavity (the red case)."});
   parser.process(application);
 
   AppController controller(std::shared_ptr<craft::IMeshGeometryEngine>(craft::createManifoldMeshEngine()),
@@ -179,6 +197,7 @@ int main(int argc, char* argv[]) {
                                     parser.isSet("generate-mold"), parser.isSet("analyze"), parser.isSet("moldability"),
                                     parser.value("summary"));
     smoke->setSelectPart(parser.isSet("select-part"));
+    smoke->setSpruePreview(parser.isSet("sprue-preview"), parser.isSet("sprue-invalid"));
     smoke->setScreenshot(parser.value("screenshot"));
     QTimer::singleShot(0, smoke.get(), [&smoke] { smoke->start(); });
   } else if (!parser.positionalArguments().isEmpty()) {

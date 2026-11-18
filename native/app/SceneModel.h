@@ -40,6 +40,7 @@ struct SceneItem {
 
   viewport::MeshGeometry* geometry = nullptr;
   viewport::LineGeometry* edges = nullptr;
+  viewport::LineGeometry* glassEdges = nullptr;  // outline drawn while the Sprue tool shows the mold as glass
 };
 
 struct ScenePick {
@@ -64,6 +65,7 @@ class SceneModel : public QAbstractListModel {
     VolumeRole,
     TriangleCountRole,
     SelectedRole,
+    GlassEdgeGeometryRole,
   };
 
   explicit SceneModel(QObject* parent = nullptr);
@@ -92,6 +94,11 @@ class SceneModel : public QAbstractListModel {
   void clearMoldBodies();
   void recolor(const QColor& partColor, const std::vector<QColor>& bodyPalette);
 
+  /// While on, every mold-body row carries an outline of its edges (1 degree threshold, like the reference's
+  /// EdgesGeometry) for the Sprue tool's glass look; the outlines are built on demand and freed when it is off.
+  void setGlass(bool on);
+  bool glass() const { return glass_; }
+
   Q_INVOKABLE void setItemVisible(int row, bool visible);
   Q_INVOKABLE void setKindVisible(const QString& kind, bool visible);
 
@@ -109,6 +116,9 @@ class SceneModel : public QAbstractListModel {
   void destroyGeometry(SceneItem& item);
   int partRow() const;
 
+  void buildGlassEdges(SceneItem& item);
+
+  bool glass_ = false;
   std::vector<SceneItem> items_;
   std::vector<QColor> bodyPalette_;
 };

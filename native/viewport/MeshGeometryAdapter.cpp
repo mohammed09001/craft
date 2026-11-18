@@ -201,6 +201,32 @@ LineBuffers buildSegmentListBuffers(const std::vector<std::array<QVector3D, 2>>&
   return finishLines(values);
 }
 
+TriangleBuffers buildSmoothSurfaceBuffers(const std::vector<SmoothSurface>& surfaces) {
+  std::size_t triangleCount = 0;
+  for (const SmoothSurface& s : surfaces) triangleCount += s.indices ? s.indices->size() / 3 : 0;
+  TriangleBuffers buffers;
+  buffers.vertexCount = static_cast<int>(triangleCount * 3);
+  buffers.vertexData.resize(static_cast<qsizetype>(triangleCount) * 3 * TriangleBuffers::kStride);
+  auto* out = reinterpret_cast<float*>(buffers.vertexData.data());
+  BoundsAccumulator bounds;
+  for (const SmoothSurface& s : surfaces) {
+    if (!s.indices || !s.positions || !s.normals) continue;
+    for (const std::uint32_t index : *s.indices) {
+      const float position[3] = {static_cast<float>((*s.positions)[index * 3ull]), static_cast<float>((*s.positions)[index * 3ull + 1]),
+                                 static_cast<float>((*s.positions)[index * 3ull + 2])};
+      std::memcpy(out, position, 12);
+      out[3] = static_cast<float>((*s.normals)[index * 3ull]);
+      out[4] = static_cast<float>((*s.normals)[index * 3ull + 1]);
+      out[5] = static_cast<float>((*s.normals)[index * 3ull + 2]);
+      out += 6;
+      bounds.add(position);
+    }
+  }
+  buffers.boundsMin = bounds.lower();
+  buffers.boundsMax = bounds.upper();
+  return buffers;
+}
+
 TriangleBuffers buildQuadBuffers(const std::vector<std::array<QVector3D, 4>>& quads) {
   return buildTriangles(quads.size() * 2, [&quads](std::size_t triangle, int corner, float* out) {
     const auto& quad = quads[triangle / 2];

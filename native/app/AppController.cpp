@@ -63,6 +63,9 @@ AppController::AppController(std::shared_ptr<IMeshGeometryEngine> engine,
     connect(this, signal, this, &AppController::refreshSelectionOverlay);
   }
   connect(&scene_, &SceneModel::sceneChanged, this, &AppController::refreshSelectionOverlay);
+  // The Sprue tool's glass look and preview follow the tool and the mold.
+  connect(this, &AppController::toolChanged, this, &AppController::refreshSprueGlass);
+  connect(this, &AppController::moldChanged, this, &AppController::refreshSprueGlass);
 }
 
 AppController::~AppController() {
@@ -703,11 +706,56 @@ std::optional<SpruePlacement> AppController::placementAt(qreal x, qreal y, qreal
                                moldResult_->definition.referenceMoldBlockBounds.max.z, facts);
 }
 
+QVariantMap AppController::sprueStyle() const {
+  return {{"validColor", QColor::fromRgb(kSpruePreviewValidRgb)},
+          {"invalidColor", QColor::fromRgb(kSpruePreviewInvalidRgb)},
+          {"opacity", kSpruePreviewOpacity},
+          {"roughness", kSpruePreviewRoughness},
+          {"metalness", kSpruePreviewMetalness},
+          {"glassOpacity", kSprueGlassOpacity},
+          {"glassEdgeColor", QColor::fromRgb(kSprueGlassEdgeRgb)},
+          {"glassEdgeOpacity", kSprueGlassEdgeOpacity}};
+}
+
+void AppController::refreshSprueGlass() {
+  // Like the reference (setActive + the mold root), the glass shows only while the Sprue tool is active and a mold exists.
+  const bool active = tool_ == QLatin1String("sprue") && moldPhase_ == QLatin1String("complete");
+  if (active != sprueGlass_) {
+    sprueGlass_ = active;
+    scene_.setGlass(active);
+    emit sprueGlassChanged();
+  }
+  if (!active) clearSprueCandidate();
+}
+
+void AppController::setSprueCandidate(QVariantMap candidate, const std::optional<SpruePreviewGeometry>& geometry) {
+  if (candidate == sprueCandidate_) return;
+  sprueCandidate_ = std::move(candidate);
+  if (geometry) {
+    std::vector<viewport::SmoothSurface> surfaces;
+    for (const SpruePreviewPart& part : geometry->parts) {
+      if (part.visible) surfaces.push_back({&part.surface.positions, &part.surface.normals, &part.surface.indices});
+    }
+    spruePreview_.setBuffers(viewport::buildSmoothSurfaceBuffers(surfaces));
+  } else {
+    spruePreview_.clearBuffers();
+  }
+  emit spruesChanged();
+}
+
+void AppController::clearSprueCandidate() { setSprueCandidate({}, std::nullopt); }
+
 void AppController::previewSprueAt(qreal x, qreal y, qreal w, qreal h) {
   camera_.setViewportSize(w, h);
+  if (tool_ != QLatin1String("sprue")) {
+    clearSprueCandidate();
+    return;
+  }
   QVariantMap candidate;
+  std::optional<SpruePreviewGeometry> geometry;
   if (const auto placement = placementAt(x, y, w, h)) {
-    candidate = {{"onTopFace", true},
+    geometry = buildSpruePreview(*placement);  // nullopt when the stem is shorter than the tolerance
+    candidate = {{"onTopFace", geometry.has_value()},
                  {"valid", placement->valid},
                  {"x", placement->topPoint.x}, {"y", placement->topPoint.y}, {"z", placement->topPoint.z},
                  {"stemLengthMm", placement->stemLengthMm},
@@ -715,10 +763,7 @@ void AppController::previewSprueAt(qreal x, qreal y, qreal w, qreal h) {
                  {"entryNeckDiameterMm", placement->profileDesign.profile.entryNeckDiameterMm},
                  {"entryNeckLengthMm", placement->profileDesign.profile.entryNeckLengthMm}};
   }
-  if (candidate != sprueCandidate_) {
-    sprueCandidate_ = candidate;
-    emit spruesChanged();
-  }
+  setSprueCandidate(std::move(candidate), geometry);
 }
 
 bool AppController::placeSprueAt(qreal x, qreal y, qreal w, qreal h) {
@@ -746,6 +791,7 @@ bool AppController::placeSprueAt(qreal x, qreal y, qreal w, qreal h) {
     intents.push_back(intent);
     return true;
   });
+  clearSprueCandidate();  // the mold is rebuilt with the sprue; the next pointer move previews again
   return true;
 }
 
