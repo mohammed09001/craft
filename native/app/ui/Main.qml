@@ -168,6 +168,8 @@ ApplicationWindow {
     Action { id: fitAction; text: qsTr("&Fit view"); shortcut: "F"; onTriggered: app.fitView() }
     Action { id: resetAction; text: qsTr("&Reset view"); shortcut: "Home"; onTriggered: app.resetView() }
     Action { id: generateAction; text: qsTr("&Generate mold"); shortcut: "Ctrl+G"; onTriggered: app.generateMold() }
+    Action { id: undoAction; text: qsTr("&Undo"); shortcut: StandardKey.Undo; enabled: app.history.canUndo; onTriggered: app.undo() }
+    Action { id: redoAction; text: qsTr("&Redo"); shortcut: StandardKey.Redo; enabled: app.history.canRedo; onTriggered: app.redo() }
     Action { id: quitAction; text: qsTr("&Quit"); shortcut: StandardKey.Quit; onTriggered: window.close() }
 
     menuBar: MenuBar {
@@ -183,6 +185,11 @@ ApplicationWindow {
             MenuItem { text: qsTr("Export &Master tooling…"); enabled: app.masterMold.canExport === true; onTriggered: window.exportMasterTooling() }
             MenuSeparator {}
             MenuItem { action: quitAction }
+        }
+        Menu {
+            title: qsTr("&Edit")
+            MenuItem { action: undoAction }
+            MenuItem { action: redoAction }
         }
         Menu {
             title: qsTr("&View")
@@ -236,6 +243,9 @@ ApplicationWindow {
             ToolButton { action: resetAction }
             ToolSeparator {}
             ToolButton { action: generateAction; enabled: app.modelPhase === "ready" && !app.busy }
+            ToolSeparator {}
+            ToolButton { objectName: "undoButton"; action: undoAction }
+            ToolButton { objectName: "redoButton"; action: redoAction }
             Item { Layout.fillWidth: true }
             Label { text: qsTr("Mold opacity") }
             Slider { from: 0.1; to: 1; value: app.moldOpacity; onMoved: app.moldOpacity = value; implicitWidth: 120 }

@@ -467,6 +467,7 @@ void AppController::openProjectFile(const QString& path, const QString& relinked
 }
 
 void AppController::restoreProjectInputs(const project::Document& d) {
+  historyPaused_ = true;
   // Mold inputs. The setters apply the same clamping the UI does, so a hand-edited file cannot exceed the reference limits.
   setMoldClearanceMm(d.mold.moldClearanceMm);
   setCavityClearanceMm(d.mold.cavityClearanceMm);
@@ -505,6 +506,9 @@ void AppController::restoreProjectInputs(const project::Document& d) {
     camera_.setLookAt(QVector3D(c.position.x, c.position.y, c.position.z), QVector3D(c.target.x, c.target.y, c.target.z));
   }
 
+  historyPaused_ = false;
+  clearHistory();
+  suppressGenerationHistory_ = d.workflow.moldGenerated;  // the rebuilt mold is the opened document, not an edit
   // Derived stages are rebuilt from the inputs above (deterministic), exactly the ones that existed when the project was saved.
   if (d.workflow.segmentationExecuted && segmentation_.plan && segmentation_.plan->validation.status == "planning-valid") {
     executeSegmentation();

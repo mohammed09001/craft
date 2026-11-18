@@ -584,6 +584,229 @@ class WorkflowTest : public QObject {
     QVERIFY(ignored >= 2);  // an absent face and the generating guard
   }
 
+  // --- undo / redo (reference: the split-face store's snapshot history) ------------------------------------------------------
+
+  void undoRedoFollowsTheReferenceStoreStepByStep() {
+    QFile file(QStringLiteral(CRAFT_REFERENCE_FIXTURE_DIR "/undo-reference.json"));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const QJsonObject fixture = QJsonDocument::fromJson(file.readAll()).object();
+    QCOMPARE(fixture.value("cap").toInt(), 50);
+    int sequences = 0, steps = 0;
+    for (const QJsonValue& sequenceValue : fixture.value("sequences").toArray()) {
+      const QJsonObject sequence = sequenceValue.toObject();
+      const QString name = sequence.value("name").toString();
+      auto app = makeApp();
+      app->importStlFile(bracket());
+      QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+
+      const auto enabled = [&](const QString& face) {
+        for (const QVariant& f : app->cutFaces()) {
+          if (f.toMap().value("face").toString() == face) return f.toMap().value("enabled").toBool();
+        }
+        return false;
+      };
+
+      const QJsonArray recorded = sequence.value("steps").toArray();
+      for (int i = 0; i < recorded.size(); ++i) {
+        const QJsonObject step = recorded.at(i).toObject();
+        const QJsonObject op = step.value("op").toObject();
+        const QString kind = op.value("op").toString();
+        if (kind == "toggle") app->setCutFaceEnabled(op.value("face").toString(), !enabled(op.value("face").toString()));
+        else if (kind == "drag") app->setCutFacePosition(op.value("face").toString(), op.value("position").toDouble());
+        else if (kind == "clearance") app->setMoldClearanceMm(op.value("mm").toDouble());
+        else if (kind == "gesture") {
+          app->beginHistoryGesture();
+          for (const QJsonValue& v : op.value("values").toArray()) app->setMoldClearanceMm(v.toDouble());
+          app->endHistoryGesture();
+        } else if (kind == "remove") app->removeCutFace(op.value("face").toString());
+        else if (kind == "undo") app->undo();
+        else if (kind == "redo") app->redo();
+        // kind == "start": nothing yet.
+
+        const QJsonObject expected = step.value("state").toObject();
+        const QString where = QStringLiteral("%1 step %2 (%3)").arg(name).arg(i).arg(kind);
+        QList<QPair<QString, double>> planes;
+        for (const QVariant& f : app->cutFaces()) {
+          const QVariantMap m = f.toMap();
+          if (m.value("enabled").toBool()) planes.append({m.value("face").toString(), m.value("position").toDouble()});
+        }
+        const QJsonArray expectedPlanes = expected.value("planes").toArray();
+        QVERIFY2(planes.size() == expectedPlanes.size(), qPrintable(where + QStringLiteral(": %1 planes, reference %2").arg(planes.size()).arg(expectedPlanes.size())));
+        for (int p = 0; p < expectedPlanes.size(); ++p) {
+          QCOMPARE(planes.at(p).first, expectedPlanes.at(p).toObject().value("face").toString());
+          QVERIFY2(std::fabs(planes.at(p).second - expectedPlanes.at(p).toObject().value("position").toDouble()) < 1e-9, qPrintable(where + ": plane position"));
+        }
+        QVERIFY2(std::fabs(app->moldClearanceMm() - expected.value("clearanceMm").toDouble()) < 1e-9, qPrintable(where + ": clearance"));
+        const int undoDepth = app->history().value("undoDepth").toInt(), redoDepth = app->history().value("redoDepth").toInt();
+        QVERIFY2(undoDepth == expected.value("undoDepth").toInt(), qPrintable(where + QStringLiteral(": undo depth %1, reference %2").arg(undoDepth).arg(expected.value("undoDepth").toInt())));
+        QVERIFY2(redoDepth == expected.value("redoDepth").toInt(), qPrintable(where + QStringLiteral(": redo depth %1, reference %2").arg(redoDepth).arg(expected.value("redoDepth").toInt())));
+        QCOMPARE(app->history().value("canUndo").toBool(), undoDepth > 0);
+        QCOMPARE(app->history().value("canRedo").toBool(), redoDepth > 0);
+        ++steps;
+      }
+      ++sequences;
+    }
+    QCOMPARE(sequences, 5);
+    QVERIFY(steps > 150);
+  }
+
+  void undoBringsBackTheGeneratedMoldWithoutRecomputingIt() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->camera()->setViewportSize(800, 600);
+    app->camera()->lookFrom("top");
+    app->setCutFaceEnabled("left", true);
+    app->setCutFacePosition("left", 0.5);
+    QCOMPARE(app->history().value("undoDepth").toInt(), 2);
+    app->generateMold();
+    QVERIFY(waitFor([&] { return app->moldPhase() == "complete"; }, 120000));
+    QCOMPARE(app->history().value("undoDepth").toInt(), 3);  // the generated mold is a step of its own
+    const MoldGenerationResult* generated = &*app->moldResult();
+    const std::size_t bodies = app->scene()->items().size();
+
+    // Removing the plane drops the mold; undo puts the very same mold back, instantly.
+    app->setTool("eraser");
+    QVERIFY(app->removeCutFace("left"));
+    QCOMPARE(app->moldPhase(), QStringLiteral("ready"));
+    QVERIFY(!app->moldResult().has_value());
+    app->undo();
+    QCOMPARE(app->moldPhase(), QStringLiteral("complete"));
+    QVERIFY(!app->busy());
+    QVERIFY(&*app->moldResult() == generated);              // the same result object: restored, not recomputed
+    QCOMPARE(app->scene()->items().size(), bodies);          // and shown again
+    QVERIFY(app->cutPlanes().value("eraserAvailable").toBool());
+    app->redo();
+    QVERIFY(!app->moldResult().has_value());
+    app->undo();
+    QVERIFY(&*app->moldResult() == generated);
+
+    // Further back: the state before the mold was generated (inputs unchanged), then before the plane moved, then nothing.
+    app->undo();
+    QCOMPARE(app->moldPhase(), QStringLiteral("ready"));
+    QVERIFY(!app->moldResult().has_value());
+    QCOMPARE(app->scene()->items().size(), std::size_t{1});  // only the part
+    app->undo();
+    app->undo();
+    QVERIFY(!app->history().value("canUndo").toBool());
+    for (const QVariant& f : app->cutFaces()) QVERIFY(!f.toMap().value("enabled").toBool());
+    // ... and forward again, all the way: the mold returns without a single job running.
+    app->redo();
+    app->redo();
+    app->redo();
+    QCOMPARE(app->moldPhase(), QStringLiteral("complete"));
+    QVERIFY(&*app->moldResult() == generated);
+    QVERIFY(!app->busy());
+  }
+
+  void undoRestoresSprueEditsAndTheirEvaluation() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->generateMold();
+    QVERIFY(waitFor([&] { return app->moldPhase() == "complete"; }, 120000));
+    app->camera()->setViewportSize(800, 600);
+    app->camera()->lookFrom("top");
+    app->setTool("sprue");
+    const int base = app->history().value("undoDepth").toInt();
+    const SprueEvaluation* beforeSprue = app->sprueEvaluation().has_value() ? &*app->sprueEvaluation() : nullptr;
+
+    bool placed = false;
+    for (int y = 150; y <= 450 && !placed; y += 15)
+      for (int x = 100; x <= 700 && !placed; x += 10) {
+        app->previewSprueAt(x, y, 800, 600);
+        placed = app->sprueCandidate().value("valid").toBool() && app->placeSprueAt(x, y, 800, 600);
+      }
+    QVERIFY(placed);
+    QVERIFY(!app->history().value("canUndo").toBool());   // not while the sprue is being evaluated (the reference's rule)
+    QVERIFY(waitFor([&] { return app->spruePhase() == "idle" && app->sprueEvaluation().has_value() && !app->busy(); }));
+    QCOMPARE(app->history().value("undoDepth").toInt(), base + 1);
+    QVERIFY(app->history().value("canUndo").toBool());
+    const SprueEvaluation* withSprue = &*app->sprueEvaluation();
+    QCOMPARE(app->sprueIntents().size(), std::size_t{1});
+
+    // A burst of resizes while the first is still evaluated is one step.
+    const std::string id = app->sprueIntents().front().operationId;
+    app->resizeSprue(QString::fromStdString(id), 5.0);
+    app->resizeSprue(QString::fromStdString(id), 6.0);
+    app->resizeSprue(QString::fromStdString(id), 7.0);
+    QCOMPARE(app->history().value("undoDepth").toInt(), base + 2);
+    QVERIFY(waitFor([&] { return app->spruePhase() == "idle" && !app->busy(); }));
+    QCOMPARE(app->sprueIntents().front().profileDesign.profile.mainDiameterMm, 7.0);
+
+    // Undo the burst: the sprue as it was (its evaluation object comes back, nothing is re-evaluated) ...
+    app->undo();
+    QCOMPARE(app->spruePhase(), QStringLiteral("idle"));
+    QVERIFY(!app->busy());
+    QCOMPARE(app->sprueIntents().front().profileDesign.profile.mainDiameterMm, 2.5);
+    QVERIFY(&*app->sprueEvaluation() == withSprue);
+    // ... undo the placement: no sprue, the evaluation from before it ...
+    app->undo();
+    QVERIFY(app->sprueIntents().empty());
+    QVERIFY(app->sprueEvaluation().has_value() == (beforeSprue != nullptr));
+    if (beforeSprue) QVERIFY(&*app->sprueEvaluation() == beforeSprue);  // the very evaluation from before the sprue
+    // ... and redo both.
+    app->redo();
+    app->redo();
+    QCOMPARE(app->sprueIntents().front().profileDesign.profile.mainDiameterMm, 7.0);
+    QCOMPARE(app->spruePhase(), QStringLiteral("idle"));
+    QVERIFY(!app->busy());
+  }
+
+  void undoWhileTheMoldIsGeneratingCancelsIt() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->setCutFaceEnabled("left", true);
+    app->generateMold();
+    QCOMPARE(app->moldPhase(), QStringLiteral("generating"));
+    QVERIFY(app->history().value("canUndo").toBool());   // unlike a sprue evaluation, a mold generation does not block undo
+    app->undo();
+    QCOMPARE(app->moldPhase(), QStringLiteral("ready"));
+    QVERIFY(!app->busy());
+    for (const QVariant& f : app->cutFaces()) QVERIFY(!f.toMap().value("enabled").toBool());
+    // The cancelled generation's late result must not appear.
+    QTest::qWait(800);
+    QVERIFY(waitFor([&] { return !app->busy(); }));
+    QCOMPARE(app->moldPhase(), QStringLiteral("ready"));
+    QVERIFY(!app->moldResult().has_value());
+  }
+
+  void aSliderDragIsOneStepAndAFreshModelStartsAFreshHistory() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->setCutFaceEnabled("left", true);
+    const int base = app->history().value("undoDepth").toInt();
+    app->beginHistoryGesture();
+    for (double p : {0.2, 0.3, 0.4, 0.5, 0.6}) app->setCutFacePosition("left", p);
+    app->endHistoryGesture();
+    QCOMPARE(app->history().value("undoDepth").toInt(), base + 1);
+    app->undo();
+    for (const QVariant& f : app->cutFaces()) if (f.toMap().value("face").toString() == "left") QVERIFY(f.toMap().value("position").toDouble() < 0.001);
+    // Importing a model starts a fresh history.
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    QVERIFY(!app->history().value("canUndo").toBool());
+    QVERIFY(!app->history().value("canRedo").toBool());
+  }
+
+  void undoMakesTheProjectCleanAgain() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    QTemporaryDir dir;
+    const QString path = dir.filePath("p.craft");
+    app->saveProjectToFile(path);
+    QVERIFY(waitFor([&] { return !app->project().value("saving").toBool() && !app->project().value("dirty").toBool(); }));
+    app->setCutFaceEnabled("top", true);
+    QVERIFY(waitFor([&] { return app->project().value("dirty").toBool(); }));  // the flag follows edits on a short timer
+    app->undo();
+    QVERIFY2(!app->project().value("dirty").toBool(), "back at the saved inputs, the project is not modified");
+    app->redo();
+    QVERIFY(app->project().value("dirty").toBool());
+  }
+
   void sprueWorkflowPlaceEditRegenerateRemove() {
     auto app = makeApp();
     app->importStlFile(bracket());

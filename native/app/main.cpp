@@ -247,7 +247,55 @@ class Smoke : public QObject {
     });
 #endif
   }
+  // Undo/redo through REAL input: the toolbar buttons clicked with the mouse and Ctrl+Z / Ctrl+Y as key events.
+  void undoEventsSequence() {
+#ifndef CRAFT_SMOKE_REAL_EVENTS
+    return fail(QStringLiteral("--undo-events needs a build with CRAFT_BUILD_TESTS"));
+#else
+    QWindowSystemInterface::setSynchronousWindowSystemEvents(true);
+    window_->requestActivate();
+    auto* undoButton = window_->findChild<QQuickItem*>(QStringLiteral("undoButton"));
+    auto* redoButton = window_->findChild<QQuickItem*>(QStringLiteral("redoButton"));
+    if (!undoButton || !redoButton) return fail(QStringLiteral("the Undo/Redo toolbar buttons were not found"));
+    const auto enabledFaces = [this] {
+      QStringList faces;
+      for (const QVariant& f : app_.cutFaces()) if (f.toMap().value("enabled").toBool()) faces << f.toMap().value("face").toString();
+      return faces;
+    };
+    const auto clickItem = [this](QQuickItem* item) {
+      const QPointF scene = item->mapToScene(QPointF(item->width() / 2, item->height() / 2));
+      QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::NoButton, Qt::NoButton, QEvent::MouseMove);
+      QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonPress);
+      QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::NoButton, Qt::LeftButton, QEvent::MouseButtonRelease);
+    };
+    const auto key = [this](int code, Qt::KeyboardModifiers modifiers) {
+      QWindowSystemInterface::handleKeyEvent(window_, QEvent::KeyPress, code, modifiers);
+      QWindowSystemInterface::handleKeyEvent(window_, QEvent::KeyRelease, code, modifiers);
+    };
+
+    if (undoButton->isEnabled()) return fail(QStringLiteral("Undo is enabled with nothing to undo"));
+    app_.setCutFaceEnabled(QStringLiteral("left"), true);
+    app_.setCutFaceEnabled(QStringLiteral("top"), true);
+    if (enabledFaces() != QStringList{"left", "top"}) return fail(QStringLiteral("could not choose two faces"));
+    QTimer::singleShot(100, this, [=, this] {   // let the QML re-evaluate the buttons' enabled state
+      if (!undoButton->isEnabled() || redoButton->isEnabled()) return fail(QStringLiteral("the buttons do not reflect the history (undo %1, redo %2)").arg(undoButton->isEnabled()).arg(redoButton->isEnabled()));
+      clickItem(undoButton);
+      if (enabledFaces() != QStringList{"left"}) return fail(QStringLiteral("clicking Undo did not remove the last face (faces: %1)").arg(enabledFaces().join(",")));
+      clickItem(undoButton);
+      if (!enabledFaces().isEmpty()) return fail(QStringLiteral("clicking Undo twice did not remove both faces"));
+      clickItem(redoButton);
+      if (enabledFaces() != QStringList{"left"}) return fail(QStringLiteral("clicking Redo did not bring the face back"));
+      // Keyboard: Ctrl+Z / Ctrl+Y (the standard Undo / Redo keys).
+      key(Qt::Key_Z, Qt::ControlModifier);
+      if (!enabledFaces().isEmpty()) return fail(QStringLiteral("Ctrl+Z did not undo (faces: %1)").arg(enabledFaces().join(",")));
+      key(Qt::Key_Y, Qt::ControlModifier);
+      if (enabledFaces() != QStringList{"left"}) return fail(QStringLiteral("Ctrl+Y did not redo (faces: %1)").arg(enabledFaces().join(",")));
+      renderNow();
+    });
+#endif
+  }
   void render() {
+    if (undoEvents_) return undoEventsSequence();
     if (eraserEvents_) return eraserEventsSequence();
     if (spruePreview_ && sprueGizmoEvents_) return gizmoEventsSequence();
     if (spruePreview_ && sprueGizmo_) return gizmoSequence();
@@ -324,13 +372,14 @@ class Smoke : public QObject {
   void setSpruePreview(bool value, bool invalid = false) { spruePreview_ = value; spruePreviewInvalid_ = invalid; }
   void setSprueGizmo(bool value, bool events = false) { sprueGizmo_ = value; sprueGizmoEvents_ = events; }
   void setEraser(bool value, bool events = false) { eraser_ = value; eraserEvents_ = events; }
+  void setUndoEvents(bool value) { undoEvents_ = value; }
   void setScreenshot(const QString& path) { screenshot_ = path; }
 
  private:
   AppController& app_;
   QQuickWindow* window_;
   QString importPath_, summary_, screenshot_;
-  bool selectPart_ = false, spruePreview_ = false, spruePreviewInvalid_ = false, sprueGizmo_ = false, sprueGizmoEvents_ = false, eraser_ = false, eraserEvents_ = false;
+  bool selectPart_ = false, spruePreview_ = false, spruePreviewInvalid_ = false, sprueGizmo_ = false, sprueGizmoEvents_ = false, eraser_ = false, eraserEvents_ = false, undoEvents_ = false;
   bool mold_, analyse_, moldability_;
   bool imported_ = false, moldDone_ = false, analysisDone_ = false, reportsDone_ = false, done_ = false;
 };
@@ -360,6 +409,7 @@ int main(int argc, char* argv[]) {
   parser.addOption({"sprue-invalid", "With --sprue-preview: preview where the axis misses the cavity (the red case)."});
   parser.addOption({"sprue-gizmo", "With --sprue-preview: place a sprue, then drag one of its resize rings (smoke test)."});
   parser.addOption({"eraser", "Enable three Cut by Face planes and hover one with the Eraser tool (smoke test)."});
+  parser.addOption({"undo-events", "Undo/redo through real input: the toolbar buttons and Ctrl+Z / Ctrl+Y (smoke test)."});
   parser.addOption({"eraser-events", "The Eraser through real mouse events: hover a plane, click empty space, click the plane (smoke test)."});
   parser.addOption({"sprue-gizmo-events", "With --sprue-preview: the same through real mouse events, plus a double click (smoke test)."});
   parser.process(application);
@@ -384,6 +434,7 @@ int main(int argc, char* argv[]) {
     smoke->setSpruePreview(parser.isSet("sprue-preview"), parser.isSet("sprue-invalid"));
     smoke->setSprueGizmo(parser.isSet("sprue-gizmo"), parser.isSet("sprue-gizmo-events"));
     smoke->setEraser(parser.isSet("eraser"), parser.isSet("eraser-events"));
+    smoke->setUndoEvents(parser.isSet("undo-events"));
     smoke->setScreenshot(parser.value("screenshot"));
     QTimer::singleShot(0, smoke.get(), [&smoke] { smoke->start(); });
   } else if (!parser.positionalArguments().isEmpty()) {

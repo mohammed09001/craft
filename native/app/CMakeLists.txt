@@ -12,7 +12,7 @@ craft_target_defaults(craft_viewport)
 
 # --- craft_app_lib: controller, scene model, paths, logging -------------------
 add_library(craft_app_lib STATIC
-  AppController.cpp AppControllerMaster.cpp AppControllerReports.cpp AppControllerProject.cpp AppControllerSelection.cpp AppControllerSprueGizmo.cpp
+  AppController.cpp AppControllerMaster.cpp AppControllerReports.cpp AppControllerProject.cpp AppControllerSelection.cpp AppControllerSprueGizmo.cpp AppControllerHistory.cpp
   SprueHandleModel.cpp SprueHandleModel.h AppControllerCutPlanes.cpp CutPlaneModel.cpp CutPlaneModel.h AppController.h
   AppPaths.cpp AppPaths.h
   JobRunner.h

@@ -223,6 +223,7 @@ void AppController::applyModel(LoadedModel model) {
   grid_ = deriveAdaptiveGridConfig(model_->groundedBounds);
   rebuildGrid();
   clearSelection();
+  clearHistory();
   refreshSceneFrame(true);
   emit modelChanged();
   emit moldInputsChanged();
@@ -239,6 +240,7 @@ void AppController::applyModel(LoadedModel model) {
 void AppController::setMoldClearanceMm(double value) {
   const double clamped = clampReferenceMoldClearance(value);
   if (clamped == moldClearanceMm_) return;
+  pushHistory();
   moldClearanceMm_ = clamped;
   // The segmentation block is sized from this clearance: a plan made with another value is stale.
   if (segmentation_.phase != QStringLiteral("idle")) {
@@ -250,6 +252,7 @@ void AppController::setMoldClearanceMm(double value) {
 void AppController::setCavityClearanceMm(double value) {
   const double clamped = std::isfinite(value) ? std::clamp(value, 0.0, maxCavityClearanceMm()) : 0.0;
   if (clamped == cavityClearanceMm_) return;
+  pushHistory();
   cavityClearanceMm_ = clamped;
   invalidateMoldInputs();
 }
@@ -274,7 +277,9 @@ void AppController::setCutFaceEnabled(const QString& face, bool enabled) {
   }
   const auto id = faceIdFromName(face.toStdString());
   if (!id) return;
-  cutFaces_[static_cast<std::size_t>(*id)].enabled = enabled;
+  CutFaceState& state = cutFaces_[static_cast<std::size_t>(*id)];
+  if (state.enabled != enabled) pushHistory();  // choosing or dropping a face is one undoable step
+  state.enabled = enabled;
   invalidateMoldInputs();
 }
 
@@ -282,14 +287,19 @@ void AppController::setCutFacePosition(const QString& face, double normalizedPos
   if (segmentation_.adopted) return;
   const auto id = faceIdFromName(face.toStdString());
   if (!id || !std::isfinite(normalizedPosition)) return;
-  cutFaces_[static_cast<std::size_t>(*id)].position = std::clamp(normalizedPosition, 1e-6, 1 - 1e-6);
+  CutFaceState& state = cutFaces_[static_cast<std::size_t>(*id)];
+  const double next = std::clamp(normalizedPosition, 1e-6, 1 - 1e-6);
+  if (createCuttingPlane(*id, state.position).normalizedPosition != next) pushHistory();  // a slider drag is one gesture
+  state.position = next;
   invalidateMoldInputs();
 }
 
 void AppController::resetCutFacePosition(const QString& face) {
   const auto id = faceIdFromName(face.toStdString());
   if (!id) return;
-  cutFaces_[static_cast<std::size_t>(*id)].position.reset();
+  CutFaceState& state = cutFaces_[static_cast<std::size_t>(*id)];
+  if (state.position) pushHistory();
+  state.position.reset();
   invalidateMoldInputs();
 }
 
@@ -344,6 +354,8 @@ void AppController::generateMold() {
   if (busy_) return;
   // A pending (not executed) segmentation plan is superseded by generating a mold directly.
   if (!segmentation_.adopted && segmentation_.phase != QStringLiteral("idle")) invalidateSegmentation(QString());
+  const bool recordHistory = !suppressGenerationHistory_;
+  suppressGenerationHistory_ = false;
   const quint64 generation = ++moldGeneration_;
   const quint64 inputs = moldInputsRevision_;
 
@@ -381,12 +393,13 @@ void AppController::generateMold() {
         job.derived = evaluateDerivedMold(*engine, job.mold, intents, progress);
         return job;
       },
-      [this, generation, inputs](JobOutcome<MoldJobResult> outcome) {
+      [this, generation, inputs, recordHistory, before = captureHistory()](JobOutcome<MoldJobResult> outcome) {
         activeCancel_.reset();
         setBusy(false);
         if (generation != moldGeneration_ || inputs != moldInputsRevision_) return;  // stale
         if (outcome.state == JobState::Succeeded && outcome.result) {
           applyMoldResult(std::move(outcome.result->mold), std::move(outcome.result->derived));
+          if (recordHistory) pushHistoryEntry(before);  // undo returns to the state before the mold was generated
           return;
         }
         moldResult_.reset();
@@ -869,7 +882,11 @@ void AppController::moveSprue(const QString& operationId, double x, double y) {
 /// existing cavity result (the cavity is not regenerated).
 void AppController::editSprues(const std::function<bool(std::vector<SprueOperationDefinition>&)>& edit) {
   if (busy_ && spruePhase_ != "evaluating") return;
+  HistoryEntry before = captureHistory();
+  // Edits made while an earlier one is still being evaluated are one burst: they share the entry the first one made.
+  const bool burst = spruePhase_ == "evaluating";
   if (!edit(sprueIntents_)) return;
+  if (!burst) pushHistoryEntry(std::move(before));
   for (SprueOperationDefinition& s : sprueIntents_) s.validation = {"pending", {}, {}};
   startSprueEvaluation();
 }
@@ -1084,6 +1101,7 @@ void AppController::removeSegmentationExtension(const QString& axisText) {
 void AppController::resetSegmentation() {
   if (activeCancel_ && segmentation_.phase == QStringLiteral("executing")) activeCancel_->cancel();
   invalidateSegmentation(QString());
+  clearHistory();
   setStatus(QStringLiteral("Segmentation reset."));
 }
 
@@ -1161,6 +1179,7 @@ void AppController::executeSegmentation() {
                                         : segmentation_.executedBodies;
         segmentation_.execution = std::move(result);
         segmentation_.adopted = true;
+        clearHistory();  // the keyed pieces replace the Cut by Face mold: nothing before this can be undone into
         segmentation_.phase = QStringLiteral("executed");
         const bool keyed = segmentation_.registration && segmentation_.registration->status == "generated";
         segmentation_.message = QStringLiteral("%1 mold sections cut%2.")

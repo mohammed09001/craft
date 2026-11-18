@@ -297,6 +297,7 @@ ScrollView {
                         from: 0; to: app.maxCavityClearanceMm; stepSize: 0.1
                         value: app.cavityClearanceMm
                         onMoved: app.cavityClearanceMm = value
+                        onPressedChanged: pressed ? app.beginHistoryGesture() : app.endHistoryGesture()
                     }
                 }
                 Label { text: qsTr("Cut by face"); font.bold: true }
@@ -315,6 +316,7 @@ ScrollView {
                             from: 0.001; to: 0.999
                             value: modelData.position
                             onMoved: app.setCutFacePosition(modelData.face, value)
+                            onPressedChanged: pressed ? app.beginHistoryGesture() : app.endHistoryGesture()
                         }
                     }
                 }
@@ -430,6 +432,7 @@ ScrollView {
                                 Layout.fillWidth: true; from: 2; to: 50
                                 value: modelData.mainDiameterMm
                                 onMoved: app.resizeSprue(modelData.operationId, value)
+                                onPressedChanged: pressed ? app.beginHistoryGesture() : app.endHistoryGesture()
                             }
                         }
                         RowLayout {
@@ -438,6 +441,7 @@ ScrollView {
                                 Layout.fillWidth: true; from: 2; to: Math.max(2.1, modelData.mainDiameterMm)
                                 value: modelData.entryNeckDiameterMm
                                 onMoved: app.resizeSprueEntryNeck(modelData.operationId, value)
+                                onPressedChanged: pressed ? app.beginHistoryGesture() : app.endHistoryGesture()
                             }
                         }
                     }

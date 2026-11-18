@@ -18,6 +18,7 @@
 #include <QVariantMap>
 
 #include <array>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -36,6 +37,7 @@
 #include "tooling/MasterToolingExport.h"
 #include "view/SelectionBox.h"
 #include "mold/SpruePreview.h"
+#include "Held.h"
 #include "SprueHandleModel.h"
 #include "CutPlaneModel.h"
 #include "mold/CuttingPlaneSlabs.h"
@@ -106,6 +108,8 @@ class AppController : public QObject {
   /// The resize rings at each sprue opening (see AppControllerSprueGizmo.cpp) and the gizmo's interaction state.
   Q_PROPERTY(craft::app::SprueHandleModel* sprueHandles READ sprueHandles CONSTANT)
   Q_PROPERTY(QVariantMap sprueGizmo READ sprueGizmo NOTIFY sprueGizmoChanged)
+  /// Undo/redo over the mold inputs and the results built from them (see AppControllerHistory.cpp).
+  Q_PROPERTY(QVariantMap history READ history NOTIFY historyChanged)
   /// The Cut by Face planes as translucent slabs, and the Eraser tool (see AppControllerCutPlanes.cpp).
   Q_PROPERTY(craft::app::CutPlaneModel* cutPlaneSlabs READ cutPlaneSlabs CONSTANT)
   Q_PROPERTY(QQuick3DGeometry* cutPlaneEdgeGeometry READ cutPlaneEdgeGeometry CONSTANT)
@@ -186,7 +190,7 @@ class AppController : public QObject {
   QString moldError() const { return moldError_; }
   QVariantMap moldSummary() const;
   QVariantList moldIssues() const;
-  const std::optional<MoldGenerationResult>& moldResult() const { return moldResult_; }
+  const Held<MoldGenerationResult>& moldResult() const { return moldResult_; }
   Q_INVOKABLE void generateMold();
   /// Writes one binary STL per mold body into `folder`.
   Q_INVOKABLE void exportMoldBodies(const QUrl& folder);
@@ -261,6 +265,16 @@ class AppController : public QObject {
   /// Placement preview under a viewport pixel (status/inspector only).
   Q_INVOKABLE void clearSprueCandidate();
 
+  // --- undo / redo (reference: the split-face store's history, snap/undo/redo) ----------------------------------------
+  QVariantMap history() const;
+  /// Restores the state before the last edit (cut faces and positions, mold clearance, sprues, and the mold built from
+  /// them, which comes back as it was, not recomputed). A running mold generation or sprue evaluation is cancelled.
+  Q_INVOKABLE void undo();
+  Q_INVOKABLE void redo();
+  /// Edits between begin and end (a slider drag) share a single history entry.
+  Q_INVOKABLE void beginHistoryGesture();
+  Q_INVOKABLE void endHistoryGesture();
+
   // --- cutting planes and the Eraser (reference: cuttingPlane3dRuntime.ts, removeSplitFace) ---------------------------
   CutPlaneModel* cutPlaneSlabs() { return &cutPlaneSlabs_; }
   QQuick3DGeometry* cutPlaneEdgeGeometry() { return &cutPlaneEdges_; }
@@ -306,8 +320,8 @@ class AppController : public QObject {
   Q_INVOKABLE void resizeSprueEntryNeck(const QString& operationId, double diameterMm);
   Q_INVOKABLE void moveSprue(const QString& operationId, double x, double y);
   const std::vector<SprueOperationDefinition>& sprueIntents() const { return sprueIntents_; }
-  const std::optional<SprueEvaluation>& sprueEvaluation() const { return sprueEvaluation_; }
-  const std::optional<DerivedRegistrationState>& registrationState() const { return registration_; }
+  const Held<SprueEvaluation>& sprueEvaluation() const { return sprueEvaluation_; }
+  const Held<DerivedRegistrationState>& registrationState() const { return registration_; }
   /// Mold bodies as displayed/exported: cavity bodies with sprues applied.
   std::vector<MoldBody> finalBodies() const;
 
@@ -397,6 +411,7 @@ class AppController : public QObject {
   void sprueGlassChanged();
   void sprueGizmoChanged();
   void cutPlanesChanged();
+  void historyChanged();
   /// A user-visible failure worth a dialog (import, mold, export, analysis).
   void errorOccurred(const QString& title, const QString& message, const QString& code);
   void exportFinished(bool ok, const QString& message, const QStringList& files);
@@ -451,6 +466,24 @@ class AppController : public QObject {
   std::optional<SpruePlacement> placementAt(qreal x, qreal y, qreal w, qreal h) const;
   void refreshSprueGlass();
   void refreshSprueGizmo();
+  struct HistoryEntry {
+    std::array<CutFaceState, 6> cutFaces{};
+    double moldClearanceMm = 0, cavityClearanceMm = 0;
+    std::vector<SprueOperationDefinition> sprueIntents;
+    int nextSprueNumber = 1;
+    QString moldPhase, moldError, moldErrorCode;
+    Held<MoldGenerationResult> moldResult;
+    Held<SprueEvaluation> sprueEvaluation;
+    Held<DerivedRegistrationState> registration;
+  };
+  HistoryEntry captureHistory() const;
+  /// Records `before` (the state an edit is about to change) as an undo step, unless a gesture already did.
+  void pushHistoryEntry(HistoryEntry before);
+  void pushHistory() { pushHistoryEntry(captureHistory()); }
+  void restoreHistory(const HistoryEntry& entry);
+  void clearHistory();
+  bool canUndo() const;
+  bool canRedo() const;
   bool hasCutPlanes() const;
   bool cutPlanesVisible() const;
   void refreshCutPlanes();
@@ -496,7 +529,7 @@ class AppController : public QObject {
   QString moldPhase_ = QStringLiteral("unavailable");
   QString moldError_;
   QString moldErrorCode_;
-  std::optional<MoldGenerationResult> moldResult_;
+  Held<MoldGenerationResult> moldResult_;
   quint64 moldInputsRevision_ = 0;
   quint64 moldGeneration_ = 0;
   int moldGenerationVersion_ = 0;
@@ -530,12 +563,18 @@ class AppController : public QObject {
 
   // sprues
   std::vector<SprueOperationDefinition> sprueIntents_;
-  std::optional<SprueEvaluation> sprueEvaluation_;
-  std::optional<DerivedRegistrationState> registration_;
+  Held<SprueEvaluation> sprueEvaluation_;
+  Held<DerivedRegistrationState> registration_;
   QString spruePhase_ = QStringLiteral("idle");
   QVariantMap sprueCandidate_;
   viewport::MeshGeometry spruePreview_;
   bool sprueGlass_ = false;
+
+  // undo / redo
+  std::deque<HistoryEntry> undoStack_, redoStack_;
+  bool historyGestureActive_ = false, historyGesturePushed_ = false;
+  bool historyPaused_ = false;               // opening a project applies its inputs through the setters: no entries
+  bool suppressGenerationHistory_ = false;   // the mold rebuilt on open is not an undoable step
 
   // cutting-plane slabs and the Eraser
   CutPlaneModel cutPlaneSlabs_;

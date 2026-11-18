@@ -10,7 +10,7 @@
 param(
   # "all" regenerates every fixture (about 25 minutes); "reports" only the engineering-reports fixtures and
   # "selection" only the viewport selection fixture and "spruepreview" only the Sprue 3D preview fixture (seconds each).
-  [ValidateSet('all', 'reports', 'selection', 'spruepreview', 'sprueresize', 'cutplane')][string]$Only = 'all'
+  [ValidateSet('all', 'reports', 'selection', 'spruepreview', 'sprueresize', 'cutplane', 'undo')][string]$Only = 'all'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -51,6 +51,10 @@ if ($Only -in 'all', 'sprueresize') {
 if ($Only -in 'all', 'cutplane') {
   Copy-Item (Join-Path $referenceDir 'craftCutPlaneReference.test.ts') $stage -Force
 }
+if ($Only -in 'all', 'undo') {
+  Copy-Item (Join-Path $referenceDir 'craftUndoReference.test.ts') $stage -Force
+}
+$env:CRAFT_UNDO_OUTPUT = Join-Path $repoRoot 'native\tests\fixtures\reference\undo-reference.json'
 $env:CRAFT_CUTPLANE_OUTPUT = Join-Path $repoRoot 'native\tests\fixtures\reference\cutplane-reference.json'
 $env:CRAFT_SPRUE_PREVIEW_OUTPUT = Join-Path $repoRoot 'native\tests\fixtures\reference\sprue-preview-reference.json'
 $env:CRAFT_SPRUE_RESIZE_OUTPUT = Join-Path $repoRoot 'native\tests\fixtures\reference\sprue-resize-reference.json'
@@ -67,7 +71,7 @@ $env:CRAFT_READINESS_SAMPLES = Join-Path $repoRoot 'native\tests\fixtures\refere
 # when a development Python is available; otherwise the committed samples are used.
 $samplePython = $env:CRAFT_PYTHON
 if (-not $samplePython -and (Test-Path 'D:\CraftNative\python\venv\Scripts\python.exe')) { $samplePython = 'D:\CraftNative\python\venv\Scripts\python.exe' }
-if ($Only -in 'selection', 'spruepreview', 'sprueresize', 'cutplane') { $samplePython = $null }  # these fixtures have nothing to do with Python
+if ($Only -in 'selection', 'spruepreview', 'sprueresize', 'cutplane', 'undo') { $samplePython = $null }  # these fixtures have nothing to do with Python
 if ($samplePython) {
   & $samplePython -I (Join-Path $referenceDir 'make_readiness_samples.py') $repoRoot $env:CRAFT_READINESS_SAMPLES
   if ($LASTEXITCODE -ne 0) { throw "Readiness sample generation failed (exit $LASTEXITCODE)." }
@@ -93,6 +97,7 @@ try {
   Remove-Item Env:\CRAFT_SPRUE_PREVIEW_OUTPUT -ErrorAction SilentlyContinue
   Remove-Item Env:\CRAFT_SPRUE_RESIZE_OUTPUT -ErrorAction SilentlyContinue
   Remove-Item Env:\CRAFT_CUTPLANE_OUTPUT -ErrorAction SilentlyContinue
+  Remove-Item Env:\CRAFT_UNDO_OUTPUT -ErrorAction SilentlyContinue
   Remove-Item Env:\CRAFT_BRACKET_STL -ErrorAction SilentlyContinue
 }
 

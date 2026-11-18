@@ -109,6 +109,16 @@ if(CRAFT_BUILD_APP)
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${CRAFT_QT_BIN_DIR}"
     TIMEOUT 180
     PASS_REGULAR_EXPRESSION "CRAFT_SMOKE_OK")
+  # Undo/redo through REAL input: the toolbar buttons and the standard keys.
+  add_test(NAME app_smoke_undo
+    COMMAND craft --smoke-test
+            --import "${CRAFT_REPO_ROOT}/native/tests/fixtures/models/bracket.stl"
+            --undo-events
+            --summary "${CMAKE_CURRENT_BINARY_DIR}/app_smoke_undo_summary.json")
+  set_tests_properties(app_smoke_undo PROPERTIES
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${CRAFT_QT_BIN_DIR}"
+    TIMEOUT 120
+    PASS_REGULAR_EXPRESSION "CRAFT_SMOKE_OK")
   # The Eraser through REAL mouse events delivered to the window.
   add_test(NAME app_smoke_eraser
     COMMAND craft --smoke-test
