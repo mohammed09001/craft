@@ -36,6 +36,13 @@
       "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
     },
     {
+      "name": "windows-package",
+      "displayName": "Windows x64 Release for packaging (MSVC, Ninja)",
+      "inherits": "windows-base",
+      "binaryDir": "$env{CRAFT_BUILD_ROOT}/windows-package",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release", "CRAFT_BUILD_TESTS": "OFF", "CRAFT_EMBED_DEV_RUNTIME_PATHS": "OFF" }
+    },
+    {
       "name": "macos-base",
       "hidden": true,
       "inherits": "base",
@@ -64,6 +71,7 @@
   "buildPresets": [
     { "name": "windows-debug", "configurePreset": "windows-debug" },
     { "name": "windows-release", "configurePreset": "windows-release" },
+    { "name": "windows-package", "configurePreset": "windows-package" },
     { "name": "macos-debug", "configurePreset": "macos-debug" },
     { "name": "macos-release", "configurePreset": "macos-release" }
   ],

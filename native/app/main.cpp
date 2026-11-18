@@ -1,5 +1,6 @@
 #include <QCommandLineParser>
 #include <QFile>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -22,8 +23,8 @@ namespace {
 // analysis, a real rendered frame, then a JSON summary and CRAFT_SMOKE_OK.
 class Smoke : public QObject {
  public:
-  Smoke(AppController& app, QQuickWindow* window, QString importPath, bool mold, bool analyse, QString summary)
-      : app_(app), window_(window), importPath_(std::move(importPath)), mold_(mold), analyse_(analyse),
+  Smoke(AppController& app, QQuickWindow* window, QString importPath, bool mold, bool analyse, bool moldability, QString summary)
+      : app_(app), window_(window), importPath_(std::move(importPath)), mold_(mold), analyse_(analyse), moldability_(moldability),
         summary_(std::move(summary)) {}
 
   void start() {
@@ -41,7 +42,12 @@ class Smoke : public QObject {
       if (app_.moldPhase() == "complete" && !moldDone_) { moldDone_ = true; afterMold(); }
     });
     QObject::connect(&app_, &AppController::analysisChanged, this, [this] {
-      if (app_.analysisPhase() == "complete" && !analysisDone_) { analysisDone_ = true; render(); }
+      if (app_.analysisPhase() == "complete" && !analysisDone_) { analysisDone_ = true; afterAnalysis(); }
+    });
+    QObject::connect(&app_, &AppController::engineeringReportsChanged, this, [this] {
+      const QString phase = app_.engineeringReports().value("phase").toString();
+      if (phase == "complete" && !reportsDone_) { reportsDone_ = true; render(); }
+      else if (phase == "error") fail(QStringLiteral("moldability analysis failed: %1").arg(app_.engineeringReports().value("error").toString()));
     });
     QTimer::singleShot(120000, this, [this] { fail(QStringLiteral("smoke test timed out")); });
     app_.importStlFile(importPath_);
@@ -49,7 +55,10 @@ class Smoke : public QObject {
 
  private:
   void afterMold() {
-    if (analyse_) app_.runImportAnalysis(); else render();
+    if (analyse_) app_.runImportAnalysis(); else afterAnalysis();
+  }
+  void afterAnalysis() {
+    if (moldability_) app_.runMoldabilityAnalysis(); else render();
   }
   void render() {
     QTimer::singleShot(1500, this, [this] {
@@ -63,6 +72,14 @@ class Smoke : public QObject {
       s.insert("frameWidth", frame.width());
       s.insert("frameHeight", frame.height());
       s.insert("frameNonBackgroundSamples", distinct);
+      // Which runtime actually served the analysis jobs (a packaged build must say "bundled runtime").
+      const auto config = AppPaths::analysisWorkerConfig();
+      s.insert("analysisRuntimeSource", AppPaths::analysisRuntimeSource());
+      s.insert("analysisPython", config.pythonExecutable);
+      s.insert("analysisWorkerScript", config.workerScript);
+      s.insert("analysisWorkerInfo", app_.analysisWorkerInfo());
+      s.insert("applicationDir", QCoreApplication::applicationDirPath());
+      s.insert("engineeringReportsSummary", app_.engineeringReports());
       finish(s, !frame.isNull() && distinct > 50);
     });
   }
@@ -88,8 +105,8 @@ class Smoke : public QObject {
   AppController& app_;
   QQuickWindow* window_;
   QString importPath_, summary_;
-  bool mold_, analyse_;
-  bool imported_ = false, moldDone_ = false, analysisDone_ = false, done_ = false;
+  bool mold_, analyse_, moldability_;
+  bool imported_ = false, moldDone_ = false, analysisDone_ = false, reportsDone_ = false, done_ = false;
 };
 
 }  // namespace
@@ -108,6 +125,7 @@ int main(int argc, char* argv[]) {
   parser.addOption({"import", "STL file to import.", "path"});
   parser.addOption({"generate-mold", "Generate a mold after import (smoke test)."});
   parser.addOption({"analyze", "Run the Python import analysis (smoke test)."});
+  parser.addOption({"moldability", "Run the Python moldability/cavity/readiness analysis (smoke test)."});
   parser.addOption({"summary", "Write a JSON state summary here (smoke test).", "path"});
   parser.process(application);
 
@@ -123,11 +141,14 @@ int main(int argc, char* argv[]) {
   std::unique_ptr<Smoke> smoke;
   if (parser.isSet("smoke-test")) {
     smoke = std::make_unique<Smoke>(controller, window, parser.value("import"),
-                                    parser.isSet("generate-mold"), parser.isSet("analyze"),
+                                    parser.isSet("generate-mold"), parser.isSet("analyze"), parser.isSet("moldability"),
                                     parser.value("summary"));
     QTimer::singleShot(0, smoke.get(), [&smoke] { smoke->start(); });
   } else if (!parser.positionalArguments().isEmpty()) {
-    controller.importStlFile(parser.positionalArguments().first());
+    // What a double-click on an associated file does: a .craft project opens as a project, anything else imports as an STL.
+    const QString path = parser.positionalArguments().first();
+    if (QFileInfo(path).suffix().compare(QStringLiteral("craft"), Qt::CaseInsensitive) == 0) controller.openProjectFile(path);
+    else controller.importStlFile(path);
   }
   return application.exec();
 }

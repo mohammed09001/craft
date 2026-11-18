@@ -16,6 +16,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(CRAFT_BUILD_APP "Build the Qt Quick desktop application" ON)
 option(CRAFT_BUILD_TESTS "Build the native test suite" ON)
+option(CRAFT_EMBED_DEV_RUNTIME_PATHS "Compile the source-tree worker and the developer Python into the app as fallbacks (development builds only)" ON)
 
 # Repository root: the native tree reuses the existing model fixtures and
 # launches the existing Python engine from mold/src during development.
@@ -186,6 +187,7 @@ craft_target_defaults(craft_analysis_bridge)
 
 if(CRAFT_BUILD_APP)
   add_subdirectory(app)
+  include(CraftPackaging)  # install rules and the portable package (Windows)
 endif()
 
 if(CRAFT_BUILD_TESTS)

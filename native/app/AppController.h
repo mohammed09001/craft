@@ -246,6 +246,8 @@ class AppController : public QObject {
   QString analysisStage() const { return analysisStage_; }
   QVariantMap analysisReport() const { return analysisReport_; }
   QString analysisRuntime() const;
+  /// The running worker's hello (protocol, engine name/version, Python version); empty until a worker has started.
+  QVariantMap analysisWorkerInfo() const { return analysis_.workerInfo().toVariantMap(); }
   Q_INVOKABLE void runImportAnalysis();
   Q_INVOKABLE void cancelAnalysis();
 

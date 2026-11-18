@@ -300,3 +300,12 @@ Evidence: `tst_project` 26 (round trips with exact doubles, unicode paths, a 48 
 Found along the way: a QML binding on a hidden group read `moldSummary.registration.keyed` while empty (a warning on every start); guarded.
 
 Not done: the app never writes linked projects; no real migration exists; recovery was not tested with an OS-level kill; the File menu was not clicked through on screen.
+### Session 19: Bundled Python runtime and Windows package
+
+Built: `native/cmake/CraftPackaging.cmake` (install rules, CPack ZIP), `scripts/native/prepare-python-runtime.ps1` (pinned download, hash check, `_pth`), `build-package.ps1`, `verify-install.ps1`, the `windows-package` preset, `native/packaging/{pins.json,THIRD_PARTY_NOTICES.txt}`, PACKAGING.md. Decisions D-051..D-055; risks R-License-1, R-Packaging-1, R-Packaging-2. The app can report `analysisWorkerInfo` and a moldability run in its smoke mode.
+
+Evidence: the installed layout (132.5 MB, 1585 files) and the freshly unzipped 70.9 MB ZIP both pass every check of `verify-install.ps1` (layout, 130-binary dependency closure, a full run from a hostile environment that imports, generates, analyses and renders using the interpreter and worker inside the install folder, install folder unchanged). Mutation tests prove the verifier is sensitive: removing `python/` fails five checks and the app now reports `analysis_runtime_missing`.
+
+Found along the way: the first package silently fell back to the baked-in development interpreter when the bundled runtime was missing (D-053); fixed and covered by a binary check. Verifier bugs fixed: path-separator comparison and UTF-8 summary decoding.
+
+Not done: the installer (WiX could not be fetched, D-055), code signing, an update mechanism, CI, macOS, the Qt/Craft licensing decision (R-License-1), a test on a machine that never had a development toolchain.

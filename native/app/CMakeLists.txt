@@ -22,10 +22,15 @@ target_include_directories(craft_app_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(craft_app_lib PUBLIC
   craft_viewport craft_mold craft_reports craft_project craft_io craft_mesh_manifold craft_analysis_bridge
   Qt6::Concurrent Qt6::Quick3D)
-target_compile_definitions(craft_app_lib PRIVATE
-  CRAFT_DEV_WORKER_SCRIPT="${CRAFT_WORKER_SCRIPT}"
-  CRAFT_DEV_ENGINE_SRC="${CRAFT_ENGINE_SRC}"
-  CRAFT_DEV_PYTHON="${CRAFT_PYTHON_EXECUTABLE_NORMALIZED}")
+# Development fallbacks (the source-tree worker and the developer's interpreter) are compiled in only for development
+# builds. A packaged build must resolve its runtime from its own folder and report "analysis_runtime_missing" if it is
+# absent, never quietly run a developer's interpreter whose path happens to be baked into the binary.
+if(CRAFT_EMBED_DEV_RUNTIME_PATHS)
+  target_compile_definitions(craft_app_lib PRIVATE
+    CRAFT_DEV_WORKER_SCRIPT="${CRAFT_WORKER_SCRIPT}"
+    CRAFT_DEV_ENGINE_SRC="${CRAFT_ENGINE_SRC}"
+    CRAFT_DEV_PYTHON="${CRAFT_PYTHON_EXECUTABLE_NORMALIZED}")
+endif()
 craft_target_defaults(craft_app_lib)
 
 # --- the application ----------------------------------------------------------
