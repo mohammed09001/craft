@@ -85,6 +85,20 @@ QString AppPaths::logDirectory() {
   return path;
 }
 
+QString AppPaths::autosaveDirectory() {
+  const QString override = qEnvironmentVariable("CRAFT_AUTOSAVE_DIR");
+  const QString path = !override.isEmpty() ? override : QDir(dataDirectory()).filePath(QStringLiteral("autosave"));
+  QDir().mkpath(path);
+  return path;
+}
+
+QString AppPaths::modelCacheDirectory() {
+  const QString override = qEnvironmentVariable("CRAFT_CACHE_DIR");
+  const QString path = !override.isEmpty() ? override : QDir(QStandardPaths::writableLocation(QStandardPaths::CacheLocation)).filePath(QStringLiteral("models"));
+  QDir().mkpath(path);
+  return path;
+}
+
 QString AppPaths::logFilePath() { return QDir(logDirectory()).filePath(QStringLiteral("craft.log")); }
 
 analysis::WorkerConfig AppPaths::analysisWorkerConfig() { return resolveAnalysisRuntime().config; }

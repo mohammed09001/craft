@@ -17,6 +17,12 @@ struct AppPaths {
   static QString logDirectory();
   static QString logFilePath();
 
+  /// Where unsaved work is autosaved for crash recovery. CRAFT_AUTOSAVE_DIR overrides it (tests, portable setups).
+  static QString autosaveDirectory();
+  /// Where models embedded in a project are materialized as files (the Python analysis reads models from disk).
+  /// CRAFT_CACHE_DIR overrides it.
+  static QString modelCacheDirectory();
+
   /// Analysis runtime resolution order:
   ///   1. CRAFT_PYTHON / CRAFT_ANALYSIS_WORKER environment overrides,
   ///   2. a runtime bundled with the application:

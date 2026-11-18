@@ -38,6 +38,7 @@ craft_add_test(tst_master_equivalence
   LIBS craft_mold craft_mesh_manifold Qt6::Core)
 target_compile_definitions(tst_master_equivalence PRIVATE
   CRAFT_REFERENCE_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/reference")
+craft_add_test(tst_project SOURCES tst_project.cpp LIBS craft_project Qt6::Core)
 craft_add_test(tst_reports_equivalence
   SOURCES tst_reports_equivalence.cpp
   LIBS craft_reports Qt6::Core)

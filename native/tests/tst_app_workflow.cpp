@@ -10,6 +10,7 @@
 #include "AppPaths.h"
 #include "ManifoldMeshEngine.h"
 #include "geometry/MeshAnalysis.h"
+#include "project/ProjectFile.h"
 
 using namespace craft;
 using namespace craft::app;
@@ -411,6 +412,321 @@ class WorkflowTest : public QObject {
 
   // --- engineering reports: the real Python detailed mold analysis through the real worker --------------------------------
 
+  // --- project save / open / autosave / recovery ----------------------------------------------------------------------------
+
+  void initTestCase() {
+    // Autosave files and materialized models must never touch the real user data directories.
+    static QTemporaryDir isolated;
+    QVERIFY(isolated.isValid());
+    qputenv("CRAFT_AUTOSAVE_DIR", isolated.filePath("autosave").toLocal8Bit());
+    qputenv("CRAFT_CACHE_DIR", isolated.filePath("cache").toLocal8Bit());
+  }
+
+  static QList<double> bodyVolumes(AppController& app) {
+    QList<double> volumes;
+    for (const QVariant& b : app.moldSummary().value("bodies").toList()) volumes << b.toMap().value("volumeMm3").toDouble();
+    return volumes;
+  }
+
+  static bool waitForProject(AppController& app, const QString& what) {
+    return waitFor([&] { return !app.project().value(what).toBool(); }, 60000);
+  }
+
+  void projectRoundTripRestoresInputsAndRebuildsTheSameMold() {
+    QTemporaryDir dir;
+    const QString file = dir.filePath("bracket.craft");
+    QList<double> volumesBefore;
+    std::vector<SprueOperationDefinition> sprues;
+    {
+      auto app = makeApp();
+      app->importStlFile(bracket());
+      QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+      app->setMoldClearanceMm(14.5);
+      app->setCavityClearanceMm(0.4);
+      app->setCutFaceEnabled("front", true);
+      app->setCutFacePosition("front", 0.4);
+      app->generateMold();
+      QVERIFY(waitFor([&] { return app->moldPhase() == "complete" || app->moldPhase() == "error"; }));
+      QVERIFY2(app->moldPhase() == "complete", qPrintable(app->moldError()));
+
+      app->camera()->setViewportSize(800, 600);
+      app->camera()->lookFrom("top");
+      app->setTool("sprue");
+      bool placed = false;
+      for (int x = 100; x <= 700 && !placed; x += 10) {
+        app->previewSprueAt(x, 300, 800, 600);
+        placed = app->sprueCandidate().value("valid").toBool() && app->placeSprueAt(x, 300, 800, 600);
+      }
+      QVERIFY(placed);
+      QVERIFY(waitFor([&] { return app->spruePhase() == "idle" && app->sprueEvaluation().has_value(); }));
+      app->resizeSprue(QString::fromStdString(app->sprueIntents().front().operationId), 5.5);
+      QVERIFY(waitFor([&] { return app->spruePhase() == "idle" && !app->busy(); }));
+      app->setTool("select");
+      app->setTheme("light");
+      app->setShowEdges(false);
+
+      QVERIFY(waitFor([&] { return app->project().value("dirty").toBool(); }, 5000));
+      QVERIFY(!app->project().value("hasPath").toBool());
+      app->saveProjectToFile(file);
+      QVERIFY(waitForProject(*app, "saving"));
+      QVERIFY2(QFileInfo::exists(file), "the project file was not written");
+      QCOMPARE(app->project().value("path").toString(), file);
+      QVERIFY(waitFor([&] { return !app->project().value("dirty").toBool(); }, 5000));
+      volumesBefore = bodyVolumes(*app);
+      sprues = app->sprueIntents();
+      QCOMPARE(volumesBefore.size(), 2);  // the enabled front cut splits the mold into two bodies
+    }
+
+    auto reopened = makeApp();
+    reopened->openProjectFile(file);
+    QVERIFY(waitFor([&] { return reopened->modelPhase() == "ready" && !reopened->project().value("opening").toBool(); }, 60000));
+    // Inputs come back exactly.
+    QCOMPARE(reopened->moldClearanceMm(), 14.5);
+    QCOMPARE(reopened->cavityClearanceMm(), 0.4);
+    const QVariantList faces = reopened->cutFaces();
+    bool frontChecked = false;
+    for (const QVariant& f : faces)
+      if (f.toMap().value("face").toString() == "front") {
+        frontChecked = true;
+        QVERIFY(f.toMap().value("enabled").toBool());
+        QCOMPARE(f.toMap().value("position").toDouble(), 0.4);
+      }
+    QVERIFY(frontChecked);
+    QCOMPARE(reopened->theme(), QStringLiteral("light"));
+    QVERIFY(!reopened->showEdges());
+    QCOMPARE(reopened->sprueIntents().size(), sprues.size());
+    QCOMPARE(reopened->sprueIntents().front().operationId, sprues.front().operationId);
+    QCOMPARE(reopened->sprueIntents().front().position.x, sprues.front().position.x);
+    QCOMPARE(reopened->sprueIntents().front().profileDesign.profile.mainDiameterMm, 5.5);
+
+    // The derived mold is rebuilt from those inputs, and it is the same mold (volumes equal, sprue resolved again).
+    QVERIFY(waitFor([&] { return reopened->moldPhase() == "complete" || reopened->moldPhase() == "error"; }, 120000));
+    QVERIFY2(reopened->moldPhase() == "complete", qPrintable(reopened->moldError()));
+    QVERIFY(waitFor([&] { return reopened->spruePhase() == "idle" && !reopened->busy(); }, 60000));
+    const QList<double> volumesAfter = bodyVolumes(*reopened);
+    QCOMPARE(volumesAfter.size(), volumesBefore.size());
+    for (int i = 0; i < volumesBefore.size(); ++i) QCOMPARE(volumesAfter[i], volumesBefore[i]);
+    QCOMPARE(reopened->sprueIntents().front().validation.status, std::string("resolved"));
+
+    // Opening is not an edit: the reopened project is clean and has its file.
+    QVERIFY(waitFor([&] { return !reopened->project().value("dirty").toBool(); }, 5000));
+    QCOMPARE(reopened->project().value("path").toString(), file);
+  }
+
+  void dirtyTrackingFollowsInputsNotThePose() {
+    QTemporaryDir dir;
+    auto app = makeApp();
+    QVERIFY(!app->project().value("dirty").toBool());  // nothing loaded, nothing to lose
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    QVERIFY(waitFor([&] { return app->project().value("dirty").toBool(); }, 5000));  // an imported model is unsaved work
+
+    app->saveProjectToFile(dir.filePath("p.craft"));
+    QVERIFY(waitForProject(*app, "saving"));
+    QVERIFY(waitFor([&] { return !app->project().value("dirty").toBool(); }, 5000));
+
+    app->camera()->orbitByPixels(40, 10, 600);  // the camera is saved but is not an edit
+    QTest::qWait(500);
+    QVERIFY(!app->project().value("dirty").toBool());
+
+    app->setCavityClearanceMm(0.8);
+    QVERIFY(waitFor([&] { return app->project().value("dirty").toBool(); }, 5000));
+    QVERIFY(app->project().value("title").toString().endsWith(" *"));
+    app->setCavityClearanceMm(0);  // back to the saved value: clean again
+    QVERIFY(waitFor([&] { return !app->project().value("dirty").toBool(); }, 5000));
+    QVERIFY(!app->project().value("title").toString().endsWith("*"));
+
+    app->setShowGrid(false);  // view options are part of the project
+    QVERIFY(waitFor([&] { return app->project().value("dirty").toBool(); }, 5000));
+  }
+
+  void savingAProjectThatHasNoFileAsksForAName() {
+    auto app = makeApp();
+    QSignalSpy errors(app.get(), &AppController::errorOccurred);
+    app->saveProject();  // no model at all
+    QCOMPARE(errors.count(), 1);
+
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    QSignalSpy askName(app.get(), &AppController::saveAsRequested);
+    app->saveProject();
+    QCOMPARE(askName.count(), 1);
+  }
+
+  void autosaveSurvivesACrashAndIsOfferedOnTheNextStart() {
+    QTemporaryDir dir;
+    QString autosavePath;
+    {
+      auto app = makeApp();
+      app->importStlFile(bracket());
+      QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+      app->setCavityClearanceMm(0.7);
+      QVERIFY(waitFor([&] { return app->project().value("dirty").toBool(); }, 5000));
+      app->autosaveNow();
+      QVERIFY(waitFor([&] { return !app->project().value("lastAutosaveAt").toString().isEmpty(); }, 30000));
+      autosavePath = QDir(qEnvironmentVariable("CRAFT_AUTOSAVE_DIR")).filePath(app->project().value("projectId").toString() + ".craft");
+      QVERIFY(QFileInfo::exists(autosavePath));
+      // Leaving while dirty keeps the autosave: this is what an unclean exit looks like on disk.
+    }
+    QVERIFY2(QFileInfo::exists(autosavePath), "unsaved work must keep its autosave when the app goes away");
+
+    auto next = makeApp();
+    QVERIFY(next->recovery().value("available").toBool());
+    const QVariantMap item = next->recovery().value("items").toList().front().toMap();
+    QCOMPARE(item.value("path").toString(), autosavePath);
+    QCOMPARE(item.value("name").toString(), QStringLiteral("bracket.stl"));
+
+    next->recoverProject(autosavePath);
+    QVERIFY(waitFor([&] { return next->modelPhase() == "ready" && !next->project().value("opening").toBool(); }, 60000));
+    QCOMPARE(next->cavityClearanceMm(), 0.7);
+    // Recovered work is unsaved work: dirty, no file of its own, and it keeps the project's identity.
+    QVERIFY(next->project().value("dirty").toBool());
+    QVERIFY(!next->project().value("hasPath").toBool());
+    QVERIFY(!next->recovery().value("available").toBool());  // the live document's own autosave is not a recovery candidate
+
+    // Saving it for real removes the autosave.
+    next->saveProjectToFile(dir.filePath("recovered.craft"));
+    QVERIFY(waitForProject(*next, "saving"));
+    QVERIFY(waitFor([&] { return !QFileInfo::exists(autosavePath); }, 5000));
+    QVERIFY(!next->project().value("dirty").toBool());
+  }
+
+  void aCleanExitLeavesNoAutosaveAndDiscardRemovesLeftovers() {
+    QTemporaryDir dir;
+    QString autosavePath;
+    {
+      auto app = makeApp();
+      app->importStlFile(bracket());
+      QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+      app->autosaveNow();
+      QVERIFY(waitFor([&] { return !app->project().value("lastAutosaveAt").toString().isEmpty(); }, 30000));
+      autosavePath = QDir(qEnvironmentVariable("CRAFT_AUTOSAVE_DIR")).filePath(app->project().value("projectId").toString() + ".craft");
+      QVERIFY(QFileInfo::exists(autosavePath));
+      app->saveProjectToFile(dir.filePath("p.craft"));
+      QVERIFY(waitForProject(*app, "saving"));
+      QVERIFY(waitFor([&] { return !QFileInfo::exists(autosavePath); }, 5000));  // saving superseded it
+    }
+    QVERIFY(!QFileInfo::exists(autosavePath));
+
+    // Leftovers from earlier crashes can be discarded; garbage files in the folder are ignored, not offered.
+    QFile junk(QDir(qEnvironmentVariable("CRAFT_AUTOSAVE_DIR")).filePath("junk.craft"));
+    QVERIFY(junk.open(QIODevice::WriteOnly));
+    junk.write("not a project");
+    junk.close();
+    auto app = makeApp();
+    QVERIFY(!app->recovery().value("available").toBool());
+    QFile::remove(junk.fileName());
+  }
+
+  void aDamagedProjectIsRefusedAndTheCurrentDocumentSurvives() {
+    QTemporaryDir dir;
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->saveProjectToFile(dir.filePath("good.craft"));
+    QVERIFY(waitForProject(*app, "saving"));
+
+    QFile source(dir.filePath("good.craft"));
+    QVERIFY(source.open(QIODevice::ReadOnly));
+    QByteArray bytes = source.readAll();
+    source.close();
+    QFile cut(dir.filePath("cut.craft"));
+    QVERIFY(cut.open(QIODevice::WriteOnly));
+    cut.write(bytes.left(bytes.size() - 100));
+    cut.close();
+
+    QSignalSpy errors(app.get(), &AppController::errorOccurred);
+    const std::string modelBefore = app->model()->modelId;
+    app->openProjectFile(dir.filePath("cut.craft"));
+    QVERIFY(waitFor([&] { return errors.count() == 1; }, 30000));
+    QCOMPARE(errors.first().at(2).toString(), QStringLiteral("project_truncated"));
+    QCOMPARE(app->model()->modelId, modelBefore);  // the open document is untouched
+    QCOMPARE(app->modelPhase(), QStringLiteral("ready"));
+    QVERIFY(!app->project().value("opening").toBool());
+  }
+
+  void aLinkedModelThatMovedCanBeRelinked() {
+    QTemporaryDir dir;
+    QFile stlFile(bracket());
+    QVERIFY(stlFile.open(QIODevice::ReadOnly));
+    const QByteArray stlBytes = stlFile.readAll();
+    // Build a linked project by hand (the app itself embeds; linked projects come from other tools or older saves).
+    project::Document doc;
+    doc.projectId = "linked-1";
+    doc.createdAt = doc.modifiedAt = "2026-11-18T10:00:00.000Z";
+    doc.appVersion = "test";
+    project::ModelReference ref;
+    ref.fileName = "bracket.stl";
+    ref.storage = "linked";
+    ref.linkedPath = dir.filePath("gone/bracket.stl").toStdString();
+    ref.sizeBytes = static_cast<std::uint64_t>(stlBytes.size());
+    ref.sha256 = project::sha256Hex(stlBytes);
+    doc.model = ref;
+    doc.mold.moldClearanceMm = 15;
+    doc.mold.cavityClearanceMm = 0;
+    project::writeProject(dir.filePath("linked.craft"), doc, {});
+
+    auto app = makeApp();
+    QSignalSpy relink(app.get(), &AppController::projectModelNeedsRelink);
+    QSignalSpy errors(app.get(), &AppController::errorOccurred);
+    app->openProjectFile(dir.filePath("linked.craft"));
+    QVERIFY(waitFor([&] { return relink.count() == 1; }, 30000));
+    QCOMPARE(relink.first().at(1).toString(), QStringLiteral("project_asset_missing"));
+    QVERIFY(!app->model().has_value());
+
+    app->openProjectFile(dir.filePath("linked.craft"), bracket());  // the user located the model
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready" && !app->project().value("opening").toBool(); }, 60000));
+    QCOMPARE(app->model()->fileName, QStringLiteral("bracket.stl"));
+    QCOMPARE(app->moldClearanceMm(), 15.0);
+  }
+
+  void segmentationPlanAndExecutionComeBackWithTheProject() {
+    QTemporaryDir dir;
+    const QString file = dir.filePath("seg.craft");
+    std::size_t bodiesBefore = 0;
+    {
+      auto app = makeApp();
+      app->importStlFile(bracket());
+      QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+      app->setPrinterVolume(150, 300, 300);
+      app->planSegmentation();
+      app->addSegmentationExtension("y");
+      app->moveSegmentationExtension("y", 0);
+      app->executeSegmentation();
+      QVERIFY(waitFor([&] { return app->segmentation().value("phase").toString() == "executed" && !app->busy(); }, 120000));
+      bodiesBefore = app->segmentationBodies().size();
+      QCOMPARE(bodiesBefore, std::size_t{4});
+      app->saveProjectToFile(file);
+      QVERIFY(waitForProject(*app, "saving"));
+    }
+    auto reopened = makeApp();
+    reopened->openProjectFile(file);
+    QVERIFY(waitFor([&] { return reopened->segmentation().value("phase").toString() == "executed" && !reopened->busy(); }, 120000));
+    QCOMPARE(reopened->printerVolume().value("x").toDouble(), 150.0);
+    QCOMPARE(reopened->segmentation().value("extensions").toList().size(), 1);
+    QCOMPARE(reopened->segmentationBodies().size(), bodiesBefore);
+    QVERIFY(reopened->segmentationAdopted());
+  }
+
+  void aSecondSaveKeepsABackupAndRecoversFromABadSave() {
+    QTemporaryDir dir;
+    const QString file = dir.filePath("p.craft");
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->saveProjectToFile(file);
+    QVERIFY(waitForProject(*app, "saving"));
+    app->setCavityClearanceMm(0.9);
+    app->saveProjectToFile(file);
+    QVERIFY(waitForProject(*app, "saving"));
+    QVERIFY(QFileInfo::exists(file + ".bak"));
+
+    // The previous version is still a complete, openable project.
+    auto older = makeApp();
+    older->openProjectFile(file + ".bak");
+    QVERIFY(waitFor([&] { return older->modelPhase() == "ready" && !older->project().value("opening").toBool(); }, 60000));
+    QCOMPARE(older->cavityClearanceMm(), 0.0);
+  }
   void moldabilityAnalysisRunsRealPythonEngine() {
     auto app = makeApp();
     app->importStlFile(bracket());

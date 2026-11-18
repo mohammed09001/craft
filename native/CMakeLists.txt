@@ -135,6 +135,19 @@ add_library(craft_mold STATIC
 target_link_libraries(craft_mold PUBLIC craft_core craft_mesh_api)
 craft_target_defaults(craft_mold)
 
+# --- craft_project: the Craft project document and its .craft container (documents are Qt-free; the file format uses Qt Core) --
+add_library(craft_project STATIC
+  core/project/ProjectDocument.cpp
+  core/project/ProjectDocument.h
+  io/project/ProjectJson.cpp
+  io/project/ProjectJson.h
+  io/project/ProjectFile.cpp
+  io/project/ProjectFile.h
+)
+target_include_directories(craft_project PUBLIC core io)
+target_link_libraries(craft_project PUBLIC Qt6::Core craft_core)
+craft_target_defaults(craft_project)
+
 # --- craft_reports: engineering report contracts, registry, pull-direction foundation and evaluation (no Qt) --
 add_library(craft_reports STATIC
   core/reports/ReportJson.cpp

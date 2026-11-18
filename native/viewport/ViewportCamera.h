@@ -47,6 +47,8 @@ class ViewportCamera : public QObject {
   /// Mouse-wheel angle delta (120 units per notch); positive zooms in.
   Q_INVOKABLE void zoomByWheel(qreal angleDelta);
   Q_INVOKABLE void setViewportSize(qreal width, qreal height);
+  /// Restores a saved pose (project load); false when the pose is unusable.
+  bool setLookAt(const QVector3D& position, const QVector3D& target);
   /// Keeps the current direction and frames the scene.
   Q_INVOKABLE void fit();
   /// Canonical isometric-style reset view.

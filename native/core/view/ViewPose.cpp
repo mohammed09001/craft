@@ -45,6 +45,15 @@ std::optional<double> calculateFitDistance(double radius, double verticalFovDegr
 
 ViewPose::ViewPose() { resetToDefault(); }
 
+bool ViewPose::setLookAt(const Vec3& position, const Vec3& target) {
+  const auto finite = [](const Vec3& v) { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); };
+  if (!finite(position) || !finite(target)) return false;
+  if ((position - target).length() < minDistance_) return false;
+  position_ = position;
+  target_ = target;
+  return true;
+}
+
 void ViewPose::resetToDefault() {
   position_ = {95, -120, 85};
   target_ = {0, 0, 12};

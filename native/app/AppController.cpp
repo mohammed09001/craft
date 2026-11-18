@@ -2,6 +2,7 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QFile>
 #include <QElapsedTimer>
 #include <QFileInfo>
 #include <QJsonObject>
@@ -54,10 +55,14 @@ AppController::AppController(std::shared_ptr<IMeshGeometryEngine> engine,
   applySceneColors();
   connectAnalysis();
   connectReports();
+  initProject();
   connect(&scene_, &SceneModel::sceneChanged, this, [this] { refreshSceneFrame(false); });
 }
 
 AppController::~AppController() {
+  // A clean exit leaves no autosave behind; unsaved work keeps its autosave so the next start can offer recovery.
+  refreshDirty();
+  if (!projectDirty_ && !projectId_.empty()) QFile::remove(autosavePathForCurrentProject());
   if (activeCancel_) activeCancel_->cancel();
   analysis_.shutdown();
 }
@@ -100,6 +105,32 @@ QVariantMap AppController::modelInfo() const {
           {"loadMs", m.loadMs}};
 }
 
+LoadedModel buildLoadedModel(TriangleSoup soup, stl::Encoding encoding, quint64 requestId, const QString& fileName, const QString& sourcePath, qint64 fileSizeBytes) {
+  const Bounds3 bounds = stl::validateDisplayable(soup);
+  const auto grounding = calculateModelGroundingTransform(bounds);
+  if (!grounding) throw CodedError("stl_invalid_geometry", "The STL file has an invalid bounding box.");
+
+  LoadedModel m;
+  m.modelId = QStringLiteral("%1:%2:%3").arg(requestId).arg(fileName).arg(fileSizeBytes).toStdString();
+  m.sourcePath = sourcePath;
+  m.fileName = fileName;
+  m.fileSizeBytes = fileSizeBytes;
+  m.encoding = encoding == stl::Encoding::Ascii ? "ASCII" : "Binary";
+  m.sourceBounds = bounds;
+  m.groundingTranslation = grounding->translation;
+  m.groundedBounds = grounding->groundedBounds;
+  auto grounded = std::make_shared<TriangleSoup>(soup);
+  for (std::size_t i = 0; i + 2 < grounded->positions.size(); i += 3) {
+    grounded->positions[i] += static_cast<float>(grounding->translation.x);
+    grounded->positions[i + 1] += static_cast<float>(grounding->translation.y);
+    grounded->positions[i + 2] += static_cast<float>(grounding->translation.z);
+  }
+  m.sourceSoup = std::make_shared<TriangleSoup>(std::move(soup));
+  m.groundedSoup = std::move(grounded);
+  m.geometryVersion = partGeometryVersion(*m.groundedSoup);
+  return m;
+}
+
 void AppController::importStl(const QUrl& fileUrl) { importStlFile(fileUrl.toLocalFile()); }
 
 void AppController::importStlFile(const QString& path) {
@@ -119,30 +150,9 @@ void AppController::importStlFile(const QString& path) {
       [path, requestId](const CancellationToken&, const ProgressCallback&) {
         QElapsedTimer timer;
         timer.start();
-        const auto read = stl::readFile(std::filesystem::path(path.toStdWString()));
-        const Bounds3 bounds = stl::validateDisplayable(read.soup);
-        const auto grounding = calculateModelGroundingTransform(bounds);
-        if (!grounding) throw CodedError("stl_invalid_geometry", "The STL file has an invalid bounding box.");
-
-        LoadedModel m;
+        auto read = stl::readFile(std::filesystem::path(path.toStdWString()));
         const QFileInfo info(path);
-        m.modelId = QStringLiteral("%1:%2:%3").arg(requestId).arg(info.fileName()).arg(info.size()).toStdString();
-        m.sourcePath = path;
-        m.fileName = info.fileName();
-        m.fileSizeBytes = info.size();
-        m.encoding = read.encoding == stl::Encoding::Ascii ? "ASCII" : "Binary";
-        m.sourceBounds = bounds;
-        m.groundingTranslation = grounding->translation;
-        m.groundedBounds = grounding->groundedBounds;
-        auto grounded = std::make_shared<TriangleSoup>(read.soup);
-        for (std::size_t i = 0; i + 2 < grounded->positions.size(); i += 3) {
-          grounded->positions[i] += static_cast<float>(grounding->translation.x);
-          grounded->positions[i + 1] += static_cast<float>(grounding->translation.y);
-          grounded->positions[i + 2] += static_cast<float>(grounding->translation.z);
-        }
-        m.sourceSoup = std::make_shared<TriangleSoup>(std::move(read.soup));
-        m.groundedSoup = std::move(grounded);
-        m.geometryVersion = partGeometryVersion(*m.groundedSoup);
+        LoadedModel m = buildLoadedModel(std::move(read.soup), read.encoding, requestId, info.fileName(), path, info.size());
         m.loadMs = timer.elapsed();
         return Loaded{std::move(m)};
       },
@@ -150,6 +160,9 @@ void AppController::importStlFile(const QString& path) {
         if (generation != importGeneration_) return;  // a newer import superseded this one
         if (outcome.state == JobState::Succeeded && outcome.result) {
           applyModel(std::move(outcome.result->model));
+          startNewProject();  // importing a model starts a new, unsaved project
+          refreshDirty();
+          refreshRecovery();
           return;
         }
         // Keep the previous model on failure, exactly like the reference viewport.
@@ -1186,6 +1199,7 @@ QVariantMap AppController::stateSummary() const {
                 {"moldPhase", moldPhase_},
                 {"analysisPhase", analysisPhase_},
                 {"reportsPhase", reportsPhase_},
+                {"project", project()},
                 {"sceneItems", scene_.count()},
                 {"status", statusText_}};
   s.insert("model", modelInfo());

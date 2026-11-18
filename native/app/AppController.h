@@ -11,6 +11,7 @@
 // number; a completion whose generation is no longer current is dropped.
 
 #include <QObject>
+#include <QTimer>
 #include <QQuick3DGeometry>
 #include <QUrl>
 #include <QVariantList>
@@ -27,6 +28,8 @@
 #include "SceneModel.h"
 #include "ViewportCamera.h"
 #include "model/ModelGrounding.h"
+#include "project/ProjectDocument.h"
+#include "stl/Stl.h"
 #include "mold/CavityGeneration.h"
 #include "mold/DerivedMold.h"
 #include "master/MasterMoldStore.h"
@@ -53,6 +56,11 @@ struct LoadedModel {
   double loadMs = 0;
 };
 
+/// Builds the loaded model (grounding, grounded copy, geometry version) from parsed STL triangles. Throws CodedError.
+/// Shared by STL import and project open so both produce identical models.
+LoadedModel buildLoadedModel(TriangleSoup soup, stl::Encoding encoding, quint64 requestId, const QString& fileName, const QString& sourcePath,
+                             qint64 fileSizeBytes);
+
 class AppController : public QObject {
   Q_OBJECT
 
@@ -78,6 +86,8 @@ class AppController : public QObject {
 
   Q_PROPERTY(QVariantMap masterMold READ masterMold NOTIFY masterMoldChanged)
   Q_PROPERTY(QVariantMap engineeringReports READ engineeringReports NOTIFY engineeringReportsChanged)
+  Q_PROPERTY(QVariantMap project READ project NOTIFY projectChanged)
+  Q_PROPERTY(QVariantMap recovery READ recovery NOTIFY recoveryChanged)
   Q_PROPERTY(QVariantMap segmentation READ segmentation NOTIFY segmentationChanged)
   Q_PROPERTY(QVariantMap printerVolume READ printerVolume NOTIFY segmentationChanged)
   Q_PROPERTY(QVariantList sprues READ sprues NOTIFY spruesChanged)
@@ -161,6 +171,29 @@ class AppController : public QObject {
   /// Everything the Master Mold panel shows: status, derived UI state, banner, summary, sets and pieces.
   QVariantMap masterMold() const;
   QVariantMap engineeringReports() const;
+
+  // --- project (.craft) ------------------------------------------------------------
+  /// name, path, dirty, saving, opening, title, recoveredFrom, lastSavedAt ... (see AppControllerProject.cpp).
+  QVariantMap project() const;
+  /// Autosave files left by an unclean exit: { available, items: [{path, name, modifiedAt, originalPath}] }.
+  QVariantMap recovery() const { return recovery_; }
+  /// Saves to the project's file; a project that was never saved emits saveAsRequested() instead.
+  Q_INVOKABLE void saveProject();
+  Q_INVOKABLE void saveProjectAs(const QUrl& fileUrl);
+  void saveProjectToFile(const QString& path);
+  Q_INVOKABLE void openProject(const QUrl& fileUrl);
+  /// `relinkedModelPath` replaces the path of a linked model that moved.
+  void openProjectFile(const QString& path, const QString& relinkedModelPath = {});
+  Q_INVOKABLE void openProjectRelinked(const QString& projectPath, const QUrl& modelUrl);
+  /// Opens an autosave file as an unsaved project (its original location is remembered for the Save As suggestion).
+  Q_INVOKABLE void recoverProject(const QString& autosavePath);
+  Q_INVOKABLE void discardRecovery();
+  /// Writes the autosave now (only when there are unsaved changes). The timer calls this every autosaveIntervalMs.
+  void autosaveNow();
+  void setAutosaveIntervalMs(int ms);
+  bool isDirty() const { return projectDirty_; }
+  /// Current inputs as a project document (the model bytes are added by the save job).
+  project::Document captureDocument(bool forFingerprint = false) const;
   /// Runs the Python detailed mold analysis and shows its engineering report (pull direction, undercut, draft, moldability).
   Q_INVOKABLE void runMoldabilityAnalysis();
   Q_INVOKABLE void cancelMoldabilityAnalysis();
@@ -268,6 +301,12 @@ class AppController : public QObject {
   void segmentationChanged();
   void masterMoldChanged();
   void engineeringReportsChanged();
+  void projectChanged();
+  void recoveryChanged();
+  /// The user asked to save a project that has no file yet.
+  void saveAsRequested();
+  /// A project could not be opened because its linked model is missing or changed (code, path of the project).
+  void projectModelNeedsRelink(const QString& projectPath, const QString& code, const QString& message);
   void themeChanged();
   void viewOptionsChanged();
   void gridChanged();
@@ -305,6 +344,15 @@ class AppController : public QObject {
   void showMasterBodies();
   void clearMasterRun(bool resetStore);
   void connectReports();
+  void initProject();
+  void refreshDirty();
+  void scheduleDirtyCheck();
+  void refreshRecovery();
+  void restoreProjectInputs(const project::Document& document);
+  void adoptProjectIdentity(const QString& path, const project::Document& document, const QString& recoveredFrom);
+  void startNewProject();
+  void removeAutosaveFile();
+  QString autosavePathForCurrentProject() const;
   void clearEngineeringReports();
   void startSprueEvaluation();
   void showFinalBodies(bool refit);
@@ -381,6 +429,17 @@ class AppController : public QObject {
   int nextSprueNumber_ = 1;
 
   // analysis
+  // project
+  QString projectPath_;
+  std::string projectId_, projectCreatedAt_;
+  std::string baselineFingerprint_;
+  bool projectDirty_ = false;
+  bool projectSaving_ = false, projectOpening_ = false;
+  QString projectLastSavedAt_, projectRecoveredFrom_, lastAutosaveAt_;
+  QTimer dirtyTimer_, autosaveTimer_;
+  QVariantMap recovery_;
+  bool autosaving_ = false;
+
   // engineering reports (moldability analysis job)
   QString reportsPhase_ = QStringLiteral("idle");
   QString reportsStage_;

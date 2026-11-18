@@ -54,6 +54,12 @@ void ViewportCamera::fit() {
   emit poseChanged();
 }
 
+bool ViewportCamera::setLookAt(const QVector3D& position, const QVector3D& target) {
+  if (!pose_.setLookAt({position.x(), position.y(), position.z()}, {target.x(), target.y(), target.z()})) return false;
+  emit poseChanged();
+  return true;
+}
+
 void ViewportCamera::reset() {
   if (!sceneBounds_ || !pose_.resetToBounds(*sceneBounds_, aspect())) pose_.resetToDefault();
   emit poseChanged();

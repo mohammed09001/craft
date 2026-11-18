@@ -12,7 +12,7 @@ craft_target_defaults(craft_viewport)
 
 # --- craft_app_lib: controller, scene model, paths, logging -------------------
 add_library(craft_app_lib STATIC
-  AppController.cpp AppControllerMaster.cpp AppControllerReports.cpp AppController.h
+  AppController.cpp AppControllerMaster.cpp AppControllerReports.cpp AppControllerProject.cpp AppController.h
   AppPaths.cpp AppPaths.h
   JobRunner.h
   Logging.cpp Logging.h
@@ -20,7 +20,7 @@ add_library(craft_app_lib STATIC
 )
 target_include_directories(craft_app_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(craft_app_lib PUBLIC
-  craft_viewport craft_mold craft_reports craft_io craft_mesh_manifold craft_analysis_bridge
+  craft_viewport craft_mold craft_reports craft_project craft_io craft_mesh_manifold craft_analysis_bridge
   Qt6::Concurrent Qt6::Quick3D)
 target_compile_definitions(craft_app_lib PRIVATE
   CRAFT_DEV_WORKER_SCRIPT="${CRAFT_WORKER_SCRIPT}"

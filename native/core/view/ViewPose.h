@@ -67,6 +67,9 @@ class ViewPose {
   double distance() const { return (position_ - target_).length(); }
   CameraBasis basis() const;
 
+  /// Restores a saved eye/target pair (project load). Rejects non-finite values and a zero-length view; the clip planes are
+  /// kept (they belong to the fitted scene, not to the saved pose).
+  bool setLookAt(const Vec3& position, const Vec3& target);
   /// Reference default pose used when no model is loaded.
   void resetToDefault();
   /// Keeps the current viewing direction and frames the bounds.

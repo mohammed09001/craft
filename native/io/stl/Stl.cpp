@@ -190,6 +190,29 @@ Bounds3 validateDisplayable(const TriangleSoup& soup) {
   return bounds;
 }
 
+std::vector<std::uint8_t> encodeBinary(const TriangleSoup& soup, const std::string& headerNote) {
+  const std::size_t triangles = soup.triangleCount();
+  if (triangles == 0 || triangles > 0xFFFFFFFFull) throw CodedError("stl_write_failed", "The mesh has no triangles to export.");
+  std::vector<std::uint8_t> buffer(kBinaryHeaderBytes + triangles * kBinaryFacetBytes, 0);
+  const std::string header = "Craft native project; units=millimeters; up=Z; " + headerNote;  // never starts with "solid"
+  std::memcpy(buffer.data(), header.data(), std::min<std::size_t>(header.size(), 80));
+  const std::uint32_t count = static_cast<std::uint32_t>(triangles);
+  std::memcpy(buffer.data() + 80, &count, 4);
+  std::uint8_t* out = buffer.data() + kBinaryHeaderBytes;
+  for (std::size_t triangle = 0; triangle < triangles; ++triangle, out += kBinaryFacetBytes) {
+    const float* v = soup.positions.data() + triangle * 9;
+    const double e1[3] = {double(v[3]) - v[0], double(v[4]) - v[1], double(v[5]) - v[2]};
+    const double e2[3] = {double(v[6]) - v[0], double(v[7]) - v[1], double(v[8]) - v[2]};
+    const double n[3] = {e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]};
+    const double length = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+    const float normal[3] = {length > 0 ? static_cast<float>(n[0] / length) : 0.0f, length > 0 ? static_cast<float>(n[1] / length) : 0.0f,
+                             length > 0 ? static_cast<float>(n[2] / length) : 0.0f};
+    std::memcpy(out, normal, 12);
+    std::memcpy(out + 12, v, 36);
+  }
+  return buffer;
+}
+
 void writeBinary(const std::filesystem::path& path, const MeshPayload& mesh,
                  const std::string& headerNote) {
   const std::size_t triangles = mesh.triangleCount();

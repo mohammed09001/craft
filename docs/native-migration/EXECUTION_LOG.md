@@ -288,3 +288,15 @@ Evidence: `readiness-python-samples.json` (real Python reports from `make_readin
 Findings: every real report comes out blocked through the adapter (R-Reports-4); the cavity detector disclaims its own negative results (R-Reports-5); the Python engine's per-stage cost is dominated by the detailed stage, not by cavity/readiness.
 
 Not done: nothing consumes the readiness snapshot for generation; the Inspector layout was not inspected on screen; the Python analysis performance limit (R-Reports-1) is unchanged.
+
+### Session 18: Project save/load
+
+New feature (no reference to port): the `.craft` project format and its application support. Spec: PROJECT_FORMAT.md; decisions D-046..D-050; risks R-Project-1..5.
+
+Built: `core/project` (document model, validation, inputs fingerprint), `io/project` (container, manifest JSON, integrity, atomic save with one backup, version policy, migration chain, linked-model verification), in-memory binary STL encoder, camera pose restore, `app/AppControllerProject.cpp` (capture, async save/open, restore of mold/sprue/segmentation/view inputs and regeneration, dirty tracking, autosave, recovery), File menu and dialogs (open/save/save as, recovery, relink, unsaved-changes guard on open, import and window close).
+
+Evidence: `tst_project` 26 (round trips with exact doubles, unicode paths, a 48 MiB project in about 2 s, backup rules, refused invalid saves, truncation at many lengths, bit flips across the whole file, newer major/minor, migrations ordered/failing, linked model missing/changed/relinked); `tst_app_workflow` +9 against the real controller and kernel (round trip rebuilds identical mold volumes and re-resolves the sprue, dirty tracking, autosave and recovery, clean exit, damaged file, relink, segmentation restore, backup); full Debug ctest 17/17; the real executable runs with zero QML warnings.
+
+Found along the way: a QML binding on a hidden group read `moldSummary.registration.keyed` while empty (a warning on every start); guarded.
+
+Not done: the app never writes linked projects; no real migration exists; recovery was not tested with an OS-level kill; the File menu was not clicked through on screen.

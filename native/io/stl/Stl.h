@@ -16,6 +16,7 @@
 #include <filesystem>
 #include <span>
 #include <string>
+#include <vector>
 
 #include "contracts/Geometry.h"
 
@@ -46,6 +47,10 @@ ReadResult readFile(const std::filesystem::path& path,
 /// Port of validateGeometry(): throws stl_invalid_geometry with the reference
 /// message when the soup is not displayable; returns its bounds otherwise.
 Bounds3 validateDisplayable(const TriangleSoup& soup);
+
+/// The same bytes writeBinary would write, for a triangle soup (positions are written exactly: float32 in, float32 out,
+/// so parse(encodeBinary(soup)) reproduces the soup). Throws stl_write_failed for an empty soup.
+std::vector<std::uint8_t> encodeBinary(const TriangleSoup& soup, const std::string& headerNote = {});
 
 /// Binary STL with facet normals computed from winding. Coordinates are
 /// written unchanged (millimeters, Z-up). Throws stl_write_failed.
