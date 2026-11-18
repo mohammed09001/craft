@@ -1621,6 +1621,32 @@ class WorkflowTest : public QObject {
     }
   }
 
+  // The reference fits a newly imported model from the CURRENT view direction (localStlImport: fitCameraToModel); only the
+  // Reset View command goes to the fixed (1, -1, 0.78) direction. Found by the viewport comparison: native used to reset.
+  void importFitsFromTheCurrentViewDirection() {
+    const auto direction = [](AppController& app) { return (app.camera()->position() - app.camera()->target()).normalized(); };
+    auto app = makeApp();
+    app->camera()->setViewportSize(960, 640);
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    // The first import: the reference's starting camera, position (95, -120, 85) looking at (0, 0, 12).
+    const QVector3D start = QVector3D(95, -120, 73).normalized();
+    QVERIFY2((direction(*app) - start).length() < 1e-4, "the first import must keep the starting view direction");
+
+    // The user turns the view; importing another model keeps that direction, it does not jump back.
+    app->camera()->lookFrom("top");
+    const QVector3D turned = direction(*app);
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready" && app->modelInfo().value("loadMs").isValid(); }));
+    QTest::qWait(200);
+    QVERIFY2((direction(*app) - turned).length() < 1e-4, "a new model is fitted from the current direction");
+
+    // Reset View is the one that goes to the fixed direction.
+    app->resetView();
+    const QVector3D reset = QVector3D(1, -1, 0.78).normalized();
+    QVERIFY2((direction(*app) - reset).length() < 1e-4, "Reset View uses the fixed direction");
+  }
+
   void dirtyTrackingFollowsInputsNotThePose() {
     QTemporaryDir dir;
     auto app = makeApp();

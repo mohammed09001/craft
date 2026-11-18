@@ -10,6 +10,7 @@
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QSurfaceFormat>
 
 #include <functional>
 #include <memory>
@@ -23,6 +24,9 @@
 #include "AppPaths.h"
 #include "Logging.h"
 #include "ManifoldMeshEngine.h"
+#ifdef CRAFT_SMOKE_REAL_EVENTS
+#include "ViewportBench.h"
+#endif
 
 using namespace craft::app;
 
@@ -409,6 +413,13 @@ int main(int argc, char* argv[]) {
   parser.addOption({"sprue-invalid", "With --sprue-preview: preview where the axis misses the cavity (the red case)."});
   parser.addOption({"sprue-gizmo", "With --sprue-preview: place a sprue, then drag one of its resize rings (smoke test)."});
   parser.addOption({"eraser", "Enable three Cut by Face planes and hover one with the Eraser tool (smoke test)."});
+  parser.addOption({"viewport-bench", "Measure the viewport for the Three.js comparison and write the result here (development builds).", "path"});
+  parser.addOption({"viewport-size", "With --viewport-bench: the viewport size in pixels, WxH.", "size"});
+  parser.addOption({"bench-dir", "With --viewport-bench: write empty.png and part.png here.", "dir"});
+  parser.addOption({"bench-frames", "With --viewport-bench: orbit frames to time (default 300).", "n"});
+  parser.addOption({"bench-hold-ms", "With --viewport-bench: stay alive this long after measuring.", "ms"});
+  parser.addOption({"bench-no-vsync", "With --viewport-bench: present without waiting for the display refresh, to see the rendering cost."});
+  parser.addOption({"bench-label", "With --viewport-bench: a label stored in the result.", "text"});
   parser.addOption({"undo-events", "Undo/redo through real input: the toolbar buttons and Ctrl+Z / Ctrl+Y (smoke test)."});
   parser.addOption({"eraser-events", "The Eraser through real mouse events: hover a plane, click empty space, click the plane (smoke test)."});
   parser.addOption({"sprue-gizmo-events", "With --sprue-preview: the same through real mouse events, plus a double click (smoke test)."});
@@ -419,6 +430,13 @@ int main(int argc, char* argv[]) {
 
   if (parser.isSet("theme")) controller.setTheme(parser.value("theme"));
 
+#ifdef CRAFT_SMOKE_REAL_EVENTS
+  if (parser.isSet("bench-no-vsync")) {
+    QSurfaceFormat format = QSurfaceFormat::defaultFormat();
+    format.setSwapInterval(0);
+    QSurfaceFormat::setDefaultFormat(format);
+  }
+#endif
   QQmlApplicationEngine engine;
   engine.rootContext()->setContextProperty(QStringLiteral("app"), &controller);
   engine.loadFromModule("Craft", "Main");
@@ -426,6 +444,27 @@ int main(int argc, char* argv[]) {
   auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
 
   std::unique_ptr<Smoke> smoke;
+#ifdef CRAFT_SMOKE_REAL_EVENTS
+  std::unique_ptr<craft::app::ViewportBench> bench;
+  if (parser.isSet("viewport-bench")) {
+    craft::app::ViewportBenchOptions options;
+    options.importPath = parser.value("import");
+    options.outputJson = parser.value("viewport-bench");
+    options.frameDirectory = parser.value("bench-dir");
+    options.label = parser.value("bench-label");
+    if (parser.isSet("viewport-size")) {
+      const QStringList parts = parser.value("viewport-size").split(QLatin1Char('x'));
+      if (parts.size() == 2) {
+        options.viewportWidth = parts[0].toInt();
+        options.viewportHeight = parts[1].toInt();
+      }
+    }
+    if (parser.isSet("bench-frames")) options.orbitFrames = parser.value("bench-frames").toInt();
+    if (parser.isSet("bench-hold-ms")) options.holdMilliseconds = parser.value("bench-hold-ms").toInt();
+    bench = std::make_unique<craft::app::ViewportBench>(controller, window, options);
+    QTimer::singleShot(0, bench.get(), [&bench] { bench->start(); });
+  } else
+#endif
   if (parser.isSet("smoke-test")) {
     smoke = std::make_unique<Smoke>(controller, window, parser.value("import"),
                                     parser.isSet("generate-mold"), parser.isSet("analyze"), parser.isSet("moldability"),

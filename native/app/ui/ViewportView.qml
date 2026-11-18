@@ -412,6 +412,7 @@ Item {
     onHeightChanged: app.camera.setViewportSize(width, height)
 
     Label {
+        objectName: "emptyHint"
         anchors.centerIn: parent
         visible: app.modelPhase === "empty"
         text: qsTr("Open an STL file to begin (Ctrl+O)")

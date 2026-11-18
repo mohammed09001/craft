@@ -224,7 +224,10 @@ void AppController::applyModel(LoadedModel model) {
   rebuildGrid();
   clearSelection();
   clearHistory();
-  refreshSceneFrame(true);
+  // Like the reference (localStlImport: fitCameraToModel), a new model is fitted from the current view direction; only the
+  // Reset View command goes back to the fixed direction.
+  refreshSceneFrame(false);
+  camera_.fit();
   emit modelChanged();
   emit moldInputsChanged();
   setStatus(QStringLiteral("Loaded %1: %2 triangles, %3 × %4 × %5 mm")

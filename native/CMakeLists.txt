@@ -207,6 +207,7 @@ craft_target_defaults(craft_analysis_bridge)
 
 if(CRAFT_BUILD_APP)
   add_subdirectory(app)
+  add_subdirectory(tools)
   include(CraftPackaging)  # install rules and the portable package (Windows)
 endif()
 
