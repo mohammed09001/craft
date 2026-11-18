@@ -33,6 +33,7 @@ QVariant SceneModel::data(const QModelIndex& index, int role) const {
     case EdgeGeometryRole: return QVariant::fromValue<QQuick3DGeometry*>(item.edges);
     case VolumeRole: return item.volumeMm3;
     case TriangleCountRole: return item.triangleCount;
+    case SelectedRole: return item.selected;
   }
   return {};
 }
@@ -47,7 +48,8 @@ QHash<int, QByteArray> SceneModel::roleNames() const {
           {GeometryRole, "itemGeometry"},
           {EdgeGeometryRole, "itemEdgeGeometry"},
           {VolumeRole, "itemVolume"},
-          {TriangleCountRole, "itemTriangleCount"}};
+          {TriangleCountRole, "itemTriangleCount"},
+          {SelectedRole, "itemSelected"}};
 }
 
 void SceneModel::destroyGeometry(SceneItem& item) {
@@ -110,6 +112,16 @@ void SceneModel::setPartOffset(const QVector3D& offset) {
   items_[static_cast<std::size_t>(row)].offset = offset;
   emit dataChanged(index(row), index(row), {OffsetRole});
   emit sceneChanged();
+}
+
+void SceneModel::setSelectedId(const QString& id) {
+  for (int row = 0; row < count(); ++row) {
+    SceneItem& item = items_[static_cast<std::size_t>(row)];
+    const bool selected = !id.isEmpty() && item.kind == kPartKind && item.id == id;
+    if (item.selected == selected) continue;
+    item.selected = selected;
+    emit dataChanged(index(row), index(row), {SelectedRole});
+  }
 }
 
 void SceneModel::clearMoldBodies() { setMoldBodies({}); }

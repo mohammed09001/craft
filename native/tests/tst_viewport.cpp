@@ -55,6 +55,41 @@ class ViewportTest : public QObject {
     QCOMPARE(buildGridBuffers(0, 10).vertexCount, 0);
   }
 
+  void segmentListBuffersConcatenateEverySegment() {
+    const LineBuffers none = buildSegmentListBuffers({});
+    QCOMPARE(none.vertexCount, 0);
+    const LineBuffers lines = buildSegmentListBuffers({{QVector3D(0, 0, 0), QVector3D(1, 0, 0)}, {QVector3D(0, 2, 0), QVector3D(0, 2, 5)}});
+    QCOMPARE(lines.vertexCount, 4);
+    QCOMPARE(lines.vertexData.size(), qsizetype(4 * LineBuffers::kStride));
+    QCOMPARE(lines.boundsMin, QVector3D(0, 0, 0));
+    QCOMPARE(lines.boundsMax, QVector3D(1, 2, 5));
+    const auto* f = reinterpret_cast<const float*>(lines.vertexData.constData());
+    QCOMPARE(f[11], 5.0f);  // the last vertex (0, 2, 5): 3 floats per vertex
+  }
+
+  void quadBuffersAreTwoOutwardTrianglesPerQuad() {
+    // A quad facing +Z at z = 3 (counter-clockwise seen from above).
+    const std::array<QVector3D, 4> quad{QVector3D(0, 0, 3), QVector3D(4, 0, 3), QVector3D(4, 2, 3), QVector3D(0, 2, 3)};
+    const TriangleBuffers buffers = buildQuadBuffers({quad, quad});
+    QCOMPARE(buffers.vertexCount, 12);
+    QCOMPARE(buffers.boundsMin, QVector3D(0, 0, 3));
+    QCOMPARE(buffers.boundsMax, QVector3D(4, 2, 3));
+    const auto* f = reinterpret_cast<const float*>(buffers.vertexData.constData());
+    // Triangles (a, b, c) and (a, c, d); 6 floats (position + normal) per vertex.
+    QCOMPARE(QVector3D(f[0], f[1], f[2]), quad[0]);
+    QCOMPARE(QVector3D(f[6], f[7], f[8]), quad[1]);
+    QCOMPARE(QVector3D(f[12], f[13], f[14]), quad[2]);
+    QCOMPARE(QVector3D(f[18], f[19], f[20]), quad[0]);
+    QCOMPARE(QVector3D(f[24], f[25], f[26]), quad[2]);
+    QCOMPARE(QVector3D(f[30], f[31], f[32]), quad[3]);
+    for (int v = 0; v < buffers.vertexCount; ++v) {
+      QCOMPARE(f[v * 6 + 3], 0.0f);
+      QCOMPARE(f[v * 6 + 4], 0.0f);
+      QCOMPARE(f[v * 6 + 5], 1.0f);
+    }
+    QCOMPARE(buildQuadBuffers({}).vertexCount, 0);
+  }
+
   void cameraRotationLooksAtTargetWithZUp() {
     ViewportCamera camera;
     camera.setViewportSize(800, 600);

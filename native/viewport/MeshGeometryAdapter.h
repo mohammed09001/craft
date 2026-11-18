@@ -14,6 +14,9 @@
 #include <QByteArray>
 #include <QVector3D>
 
+#include <array>
+#include <vector>
+
 #include "contracts/Geometry.h"
 
 namespace craft::viewport {
@@ -58,5 +61,11 @@ LineBuffers buildGridBuffers(double size, double step, double skipStep = 0.0);
 
 /// A single segment (axes, measurement line).
 LineBuffers buildSegmentBuffers(const QVector3D& from, const QVector3D& to);
+
+/// Many segments in one line list (the dashed selection box). Empty input gives an empty buffer.
+LineBuffers buildSegmentListBuffers(const std::vector<std::array<QVector3D, 2>>& segments);
+
+/// Overlay quads as triangles: each quad (a, b, c, d) becomes (a, b, c) and (a, c, d) with its geometric normal.
+TriangleBuffers buildQuadBuffers(const std::vector<std::array<QVector3D, 4>>& quads);
 
 }  // namespace craft::viewport

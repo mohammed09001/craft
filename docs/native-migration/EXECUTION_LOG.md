@@ -317,3 +317,13 @@ New feature (the reference has no tooling export): `io/tooling/MasterToolingExpo
 Evidence: `tst_master_export` 14 cases; `tst_app_workflow` generates a real Master Mold on the bracket, exports it, and checks the files against the store's pieces (triangle counts, SHA-256, manifest) and the stale/empty refusals. Mutation tests: removing the no-overwrite rule, exporting stale sets, and truncating a written file are each caught. Full Debug ctest after the change: 18/18 passed (17 before plus tst_master_export).
 
 Not done: on-screen check of the dialog and panel; 3MF (still only if justified); print orientation (D-059); macOS.
+
+### Session 21: Selection highlight, selection box and box-face picking
+
+Finding first: the reference has no highlight of a patch on the part's surface. Its "face selection" is the six faces of the part's selection box (hover overlay, click toggles Cut by Face planes) plus a whole-model highlight colour (D-060). That is what was ported.
+
+Built: core/view/SelectionBox (face quads, picking with Three.js triangle rules, box edges and cumulative dashes, linear-space highlight rule, constants), pp/AppControllerSelection.cpp (pick/hover/clear, overlay geometry, selectionBox/selectionStyle for QML), the scene model's itemSelected role, viewport overlays and highlight in ViewportView.qml, Escape to clear, hover throttled in QML, geometry builders for segment lists and quads, smoke-mode --select-part/--screenshot/--theme. Decisions D-060..D-062; risks R-Selection-1..3.
+
+Evidence: the real reference (Three.js, via craftSelectionReference.test.ts and generate-reference-fixtures.ps1 -Only selection) is replayed by 	st_selection_equivalence (13 cases, 188 rays); the equivalence test found that Three.js's dash distance accumulates across edges and that its light/dark rule works in linear space (both fixed). 	st_app_workflow (5 new cases) and 	st_viewport (2). Mutation tests: farthest-face-wins, sRGB-space lightness, no face toggling, box visible with a complete mold are each caught. Rendered frames in both themes were inspected. Full Debug ctest after the change: 19/19 passed (18 before plus tst_selection_equivalence), including app_smoke, which loads the changed QML.
+
+Not done: pixel comparison with the Three.js viewport, hover timing on very large models, the Escape/typing interaction, face-region highlight in the Master Mold or Segmentation panels (the reference has none).

@@ -9,6 +9,8 @@ import QtQuick.Controls
 Item {
     id: root
     property bool dark: app.theme === "dark"
+    property var style: app.selectionStyle      // highlight, selection box and overlay colours (one source: C++)
+    property bool overPart: false               // the pointer is over the part or its selection box (pointer cursor)
     clip: true
 
     View3D {
@@ -16,7 +18,7 @@ Item {
         anchors.fill: parent
         camera: camera
         environment: SceneEnvironment {
-            clearColor: root.dark ? "#1b1f24" : "#e9edf1"
+            clearColor: root.style.background
             backgroundMode: SceneEnvironment.Color
             antialiasingMode: SceneEnvironment.MSAA
             antialiasingQuality: SceneEnvironment.High
@@ -65,6 +67,41 @@ Item {
             materials: DefaultMaterial { lighting: DefaultMaterial.NoLighting; diffuseColor: "#ffb224" }
         }
 
+        // The selected part's dashed bounding box, the box face under the pointer, and the faces chosen for Cut by
+        // Face. All three are built in scene coordinates by the controller (see AppControllerSelection.cpp).
+        Model {
+            visible: app.selectionBox.visible
+            geometry: app.selectionBoxGeometry
+            pickable: false
+            materials: DefaultMaterial {
+                lighting: DefaultMaterial.NoLighting
+                diffuseColor: root.style.boxColor
+                opacity: root.style.boxOpacity
+            }
+        }
+        Model {
+            visible: app.selectionBox.visible && app.selectionBox.hoverFace !== ""
+            geometry: app.hoverFaceGeometry
+            pickable: false
+            materials: DefaultMaterial {
+                lighting: DefaultMaterial.NoLighting
+                diffuseColor: root.style.boxColor
+                opacity: root.style.hoverOpacity
+                cullMode: Material.NoCulling
+            }
+        }
+        Model {
+            visible: app.selectionBox.visible && app.selectionBox.selectedFaces.length > 0
+            geometry: app.selectedFacesGeometry
+            pickable: false
+            materials: DefaultMaterial {
+                lighting: DefaultMaterial.NoLighting
+                diffuseColor: root.style.boxColor
+                opacity: root.style.selectedOpacity
+                cullMode: Material.NoCulling
+            }
+        }
+
         // One surface model (+ optional feature-edge overlay) per scene row.
         Repeater3D {
             model: app.scene
@@ -75,6 +112,7 @@ Item {
                 required property vector3d itemOffset
                 required property var itemGeometry
                 required property var itemEdgeGeometry
+                required property bool itemSelected
                 position: itemOffset
                 visible: itemVisible
 
@@ -82,9 +120,11 @@ Item {
                     geometry: itemGeometry
                     pickable: false
                     materials: PrincipledMaterial {
-                        baseColor: itemColor
+                        // A selected part takes the highlight colour and a faint emissive glow, like the reference.
+                        baseColor: itemSelected ? root.style.highlightColor : itemColor
+                        emissiveFactor: itemSelected ? root.style.highlightEmissive : Qt.vector3d(0, 0, 0)
                         metalness: 0.05
-                        roughness: 0.6
+                        roughness: itemSelected ? Math.min(0.6, root.style.highlightRoughness) : 0.6
                         cullMode: Material.NoCulling
                         opacity: itemKind === "mold-body" ? app.moldOpacity : 1.0
                         alphaMode: itemKind === "mold-body" && app.moldOpacity < 1
@@ -115,12 +155,27 @@ Item {
         property bool moved: false
         onPressed: (e) => { lastX = pressX = e.x; lastY = pressY = e.y; moved = false }
         hoverEnabled: true
-        cursorShape: app.tool === "sprue" ? Qt.CrossCursor : Qt.ArrowCursor
+        property real hoverX: 0
+        property real hoverY: 0
+        cursorShape: app.tool === "sprue" ? Qt.CrossCursor
+                   : (app.tool === "select" && root.overPart ? Qt.PointingHandCursor : Qt.ArrowCursor)
+        // Hover picking runs at most every 33 ms: it raycasts the part, which is linear in its triangle count.
+        Timer {
+            id: hoverTimer
+            interval: 33
+            onTriggered: root.overPart = app.hoverAt(mouse.hoverX, mouse.hoverY, mouse.width, mouse.height)
+        }
+        onExited: { hoverTimer.stop(); app.clearHover(); root.overPart = false }
         onPositionChanged: (e) => {
             if (app.tool === "sprue" && e.buttons === 0) app.previewSprueAt(e.x, e.y, width, height)
+            if (app.tool === "select") {
+                if (e.buttons === 0) { hoverX = e.x; hoverY = e.y; if (!hoverTimer.running) hoverTimer.start() }
+                else { hoverTimer.stop(); app.clearHover(); root.overPart = false }  // dragging orbits/pans: no hover
+            }
             const dx = e.x - lastX, dy = e.y - lastY
             lastX = e.x; lastY = e.y
-            if (Math.abs(e.x - pressX) + Math.abs(e.y - pressY) > 4) moved = true
+            const t = root.style.clickDragThresholdPx   // the reference's rule: Euclidean distance beyond 4 px
+            if ((e.x - pressX) * (e.x - pressX) + (e.y - pressY) * (e.y - pressY) > t * t) moved = true
             if (e.buttons & Qt.LeftButton) app.camera.orbitByPixels(dx, dy, height)
             else if (e.buttons & (Qt.RightButton | Qt.MiddleButton)) app.camera.panByPixels(dx, dy, height)
         }

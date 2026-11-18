@@ -57,6 +57,12 @@ AppController::AppController(std::shared_ptr<IMeshGeometryEngine> engine,
   connectReports();
   initProject();
   connect(&scene_, &SceneModel::sceneChanged, this, [this] { refreshSceneFrame(false); });
+  // The selection box follows the part (offset, visibility) and the states that show or hide it.
+  for (auto signal : {&AppController::moldChanged, &AppController::moldInputsChanged, &AppController::segmentationChanged,
+                      &AppController::themeChanged}) {
+    connect(this, signal, this, &AppController::refreshSelectionOverlay);
+  }
+  connect(&scene_, &SceneModel::sceneChanged, this, &AppController::refreshSelectionOverlay);
 }
 
 AppController::~AppController() {
@@ -656,53 +662,13 @@ void AppController::setTool(const QString& tool) {
   tool_ = tool;
   measurePoints_.clear();
   measurement_.clear();
+  hoverFace_.reset();  // hover belongs to the "select" tool
+  refreshSelectionOverlay();
   emit toolChanged();
   emit selectionChanged();
 }
 
-bool AppController::pickAt(qreal x, qreal y, qreal w, qreal h) {
-  camera_.setViewportSize(w, h);
-  if (tool_ == "sprue") return placeSprueAt(x, y, w, h);
-  const auto hit = scene_.pick(camera_.pose().rayThroughPixel(x, y, w, h));
-  if (!hit) {
-    if (tool_ == "select") clearSelection();
-    return false;
-  }
-  const SceneItem& item = scene_.items()[static_cast<std::size_t>(hit->row)];
-  const Vec3 p = hit->hit.point;
-  if (tool_ == "measure") {
-    if (measurePoints_.size() >= 2) measurePoints_.clear();
-    measurePoints_.push_back(p);
-    QVariantMap m{{"points", static_cast<qulonglong>(measurePoints_.size())}};
-    if (measurePoints_.size() == 2) {
-      const Vec3 d = measurePoints_[1] - measurePoints_[0];
-      m.insert("distanceMm", d.length());
-      m.insert("dx", d.x); m.insert("dy", d.y); m.insert("dz", d.z);
-      measureLine_.setBuffers(viewport::buildSegmentBuffers(
-          {float(measurePoints_[0].x), float(measurePoints_[0].y), float(measurePoints_[0].z)},
-          {float(p.x), float(p.y), float(p.z)}));
-    } else {
-      measureLine_.clearBuffers();
-    }
-    measurement_ = m;
-  } else {
-    selection_ = {{"id", item.id}, {"name", item.name}, {"kind", item.kind},
-                  {"triangle", static_cast<qulonglong>(hit->hit.triangleIndex)},
-                  {"point", pointMap({p.x, p.y, p.z})},
-                  {"normal", pointMap({hit->hit.normal.x, hit->hit.normal.y, hit->hit.normal.z})},
-                  {"distanceMm", hit->hit.distance}};
-  }
-  emit selectionChanged();
-  return true;
-}
-
-void AppController::clearSelection() {
-  selection_.clear();
-  measurement_.clear();
-  measurePoints_.clear();
-  measureLine_.clearBuffers();
-  emit selectionChanged();
-}
+// pickAt, hoverAt, clearSelection and the selection overlay live in AppControllerSelection.cpp.
 
 // --- sprues ----------------------------------------------------------------
 

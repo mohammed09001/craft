@@ -66,6 +66,8 @@ add_library(craft_core STATIC
   core/geometry/SignedDistance.h
   core/model/ModelGrounding.cpp
   core/model/ModelGrounding.h
+  core/view/SelectionBox.cpp
+  core/view/SelectionBox.h
   core/view/ViewPose.cpp
   core/view/ViewPose.h
 )

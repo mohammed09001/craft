@@ -12,6 +12,13 @@ ApplicationWindow {
     visible: true
     title: (app.modelInfo.fileName ? app.project.title + " — " : "") + "Craft"
 
+    // Escape clears the selection (the reference does the same); it only acts when something is selected.
+    Shortcut {
+        sequence: "Escape"
+        enabled: app.tool === "select" && !!app.selection.kind
+        onActivated: app.clearSelection()
+    }
+
     function exportMold() { exportDialog.open() }
     function exportMasterTooling() { masterExportDialog.open() }
 

@@ -60,9 +60,31 @@ class Smoke : public QObject {
   void afterAnalysis() {
     if (moldability_) app_.runMoldabilityAnalysis(); else render();
   }
+  // Exercises the real selection path (pick, hover, Cut by Face toggle) the way a user would, so the frame shows the
+  // highlighted part, the dashed box, a selected face and a hovered face.
+  void selectPartForSmoke() {
+    const int w = static_cast<int>(window_->width()), h = static_cast<int>(window_->height());
+    app_.camera()->setViewportSize(w, h);
+    QPoint hit(-1, -1);
+    for (int y = h / 2; y < h * 3 / 4 && hit.x() < 0; y += 6)
+      for (int x = w / 4; x < w * 3 / 4 && hit.x() < 0; x += 6)
+        if (app_.pickAt(x, y, w, h)) hit = QPoint(x, y);
+    if (hit.x() < 0) return;
+    app_.pickAt(hit.x(), hit.y(), w, h);  // the box is up now: this click toggles the face under the pointer
+    const QString toggled = app_.selectionBox().value("selectedFaces").toStringList().value(0);
+    // Hover a pixel whose nearest box face differs from the toggled one.
+    for (int y = 0; y < h; y += 6)
+      for (int x = 0; x < w; x += 6) {
+        app_.hoverAt(x, y, w, h);
+        const QString face = app_.selectionBox().value("hoverFace").toString();
+        if (!face.isEmpty() && face != toggled) return;
+      }
+  }
   void render() {
+    if (selectPart_) selectPartForSmoke();
     QTimer::singleShot(1500, this, [this] {
       const QImage frame = window_->grabWindow();
+      if (!screenshot_.isEmpty()) frame.save(screenshot_);
       int distinct = 0;
       QRgb first = frame.isNull() ? 0 : frame.pixel(0, 0);
       for (int y = 0; y < frame.height(); y += 8)
@@ -79,6 +101,8 @@ class Smoke : public QObject {
       s.insert("analysisWorkerScript", config.workerScript);
       s.insert("analysisWorkerInfo", app_.analysisWorkerInfo());
       s.insert("applicationDir", QCoreApplication::applicationDirPath());
+      s.insert("selectionBox", app_.selectionBox());
+      s.insert("selection", app_.selection());
       s.insert("engineeringReportsSummary", app_.engineeringReports());
       finish(s, !frame.isNull() && distinct > 50);
     });
@@ -102,9 +126,15 @@ class Smoke : public QObject {
     QCoreApplication::exit(2);
   }
 
+ public:
+  void setSelectPart(bool value) { selectPart_ = value; }
+  void setScreenshot(const QString& path) { screenshot_ = path; }
+
+ private:
   AppController& app_;
   QQuickWindow* window_;
-  QString importPath_, summary_;
+  QString importPath_, summary_, screenshot_;
+  bool selectPart_ = false;
   bool mold_, analyse_, moldability_;
   bool imported_ = false, moldDone_ = false, analysisDone_ = false, reportsDone_ = false, done_ = false;
 };
@@ -127,10 +157,15 @@ int main(int argc, char* argv[]) {
   parser.addOption({"analyze", "Run the Python import analysis (smoke test)."});
   parser.addOption({"moldability", "Run the Python moldability/cavity/readiness analysis (smoke test)."});
   parser.addOption({"summary", "Write a JSON state summary here (smoke test).", "path"});
+  parser.addOption({"select-part", "Select the part, toggle a box face and hover another before the frame is taken (smoke test)."});
+  parser.addOption({"screenshot", "Save the rendered frame as a PNG (smoke test).", "path"});
+  parser.addOption({"theme", "Start with this theme, dark or light (smoke test).", "name"});
   parser.process(application);
 
   AppController controller(std::shared_ptr<craft::IMeshGeometryEngine>(craft::createManifoldMeshEngine()),
                            AppPaths::analysisWorkerConfig());
+
+  if (parser.isSet("theme")) controller.setTheme(parser.value("theme"));
 
   QQmlApplicationEngine engine;
   engine.rootContext()->setContextProperty(QStringLiteral("app"), &controller);
@@ -143,6 +178,8 @@ int main(int argc, char* argv[]) {
     smoke = std::make_unique<Smoke>(controller, window, parser.value("import"),
                                     parser.isSet("generate-mold"), parser.isSet("analyze"), parser.isSet("moldability"),
                                     parser.value("summary"));
+    smoke->setSelectPart(parser.isSet("select-part"));
+    smoke->setScreenshot(parser.value("screenshot"));
     QTimer::singleShot(0, smoke.get(), [&smoke] { smoke->start(); });
   } else if (!parser.positionalArguments().isEmpty()) {
     // What a double-click on an associated file does: a .craft project opens as a project, anything else imports as an STL.

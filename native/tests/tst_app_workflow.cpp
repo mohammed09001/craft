@@ -345,6 +345,171 @@ class WorkflowTest : public QObject {
     QCOMPARE(app->scene()->count(), partRows);
   }
 
+  // --- selection: highlight, selection box, face hover, Cut by Face toggling (the reference viewport's behaviour) ----------
+
+  void selectingThePartHighlightsItAndShowsTheBox() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->camera()->setViewportSize(800, 600);
+    const auto partSelected = [&] { return app->scene()->data(app->scene()->index(0), SceneModel::SelectedRole).toBool(); };
+
+    QVERIFY(!partSelected());
+    QVERIFY(!app->selectionBox().value("visible").toBool());
+
+    // The view starts in the notch of the L: sweep to a pixel on the part.
+    int hitX = -1;
+    for (int x = 400; x >= 100 && hitX < 0; x -= 10) {
+      if (app->pickAt(x, 300, 800, 600)) hitX = x;
+    }
+    QVERIFY(hitX > 0);
+    QCOMPARE(app->selection().value("kind").toString(), QStringLiteral("part"));
+    QVERIFY(partSelected());
+    QVERIFY(app->selectionBox().value("visible").toBool());
+    QVERIFY(app->selectionBox().value("cutSelectionActive").toBool());
+    QVERIFY(static_cast<viewport::LineGeometry*>(app->selectionBoxGeometry())->segmentCount() > 12);  // dashed, not 12 solid edges
+
+    // Highlight colours come from the reference rule: yellow on the dark theme, blue on the light one.
+    QCOMPARE(app->selectionStyle().value("highlightColor").value<QColor>(), QColor("#facc15"));
+    app->setTheme("light");
+    QCOMPARE(app->selectionStyle().value("highlightColor").value<QColor>(), QColor("#2563eb"));
+    QCOMPARE(app->selectionStyle().value("background").toString(), QStringLiteral("#e9edf1"));
+
+    // Clicking empty space clears everything.
+    QVERIFY(!app->pickAt(2, 2, 800, 600));
+    QVERIFY(!partSelected());
+    QVERIFY(!app->selectionBox().value("visible").toBool());
+    QVERIFY(app->selection().isEmpty());
+  }
+
+  void hoveringShowsTheBoxFaceNearestTheCamera() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->camera()->setViewportSize(800, 600);
+    app->camera()->lookFrom("top");
+
+    // Before anything is selected there is no box, hence no hovered face.
+    QCOMPARE(app->selectionBox().value("hoverFace").toString(), QString());
+
+    int hitX = -1;
+    for (int x = 400; x >= 100 && hitX < 0; x -= 10) {
+      if (app->pickAt(x, 300, 800, 600)) hitX = x;
+    }
+    QVERIFY(hitX > 0);
+    QVERIFY(app->selectionBox().value("visible").toBool());
+
+    // Seen from above, the face under the pointer is the top face (the nearest face of the box along the ray).
+    QVERIFY(app->hoverAt(hitX, 300, 800, 600));
+    QCOMPARE(app->selectionBox().value("hoverFace").toString(), QStringLiteral("top"));
+    QCOMPARE(static_cast<viewport::MeshGeometry*>(app->hoverFaceGeometry())->triangleCount(), 2);
+
+    // Over the notch of the L the ray still crosses the box (so the face shows), even though it misses the part.
+    QVERIFY(app->hoverAt(400, 300, 800, 600));
+    QCOMPARE(app->selectionBox().value("hoverFace").toString(), QStringLiteral("top"));
+
+    // Outside the box there is no hover and the pointer is not over the part.
+    QVERIFY(!app->hoverAt(2, 2, 800, 600));
+    QCOMPARE(app->selectionBox().value("hoverFace").toString(), QString());
+    QCOMPARE(static_cast<viewport::MeshGeometry*>(app->hoverFaceGeometry())->triangleCount(), 0);
+
+    // Other tools have no hover.
+    QVERIFY(app->hoverAt(hitX, 300, 800, 600));
+    app->setTool("measure");
+    QVERIFY(!app->hoverAt(hitX, 300, 800, 600));
+    QCOMPARE(app->selectionBox().value("hoverFace").toString(), QString());
+  }
+
+  void clickingABoxFaceTogglesItsCutByFacePlane() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->camera()->setViewportSize(800, 600);
+    app->camera()->lookFrom("top");
+    const auto enabledFaces = [&] {
+      QStringList faces;
+      for (const QVariant& f : app->cutFaces()) {
+        if (f.toMap().value("enabled").toBool()) faces << f.toMap().value("face").toString();
+      }
+      return faces;
+    };
+    QVERIFY(enabledFaces().isEmpty());
+
+    // The first click selects the part (no box yet, nothing to toggle).
+    int hitX = -1;
+    for (int x = 400; x >= 100 && hitX < 0; x -= 10) {
+      if (app->pickAt(x, 300, 800, 600)) hitX = x;
+    }
+    QVERIFY(hitX > 0);
+    QVERIFY(enabledFaces().isEmpty());
+    QVERIFY(app->selectionBox().value("selectedFaces").toStringList().isEmpty());
+
+    // Now a click anywhere on the box toggles the face the pointer is over: from above, the top face.
+    QVERIFY(app->pickAt(hitX, 300, 800, 600));
+    QCOMPARE(enabledFaces(), QStringList{"top"});
+    QCOMPARE(app->selectionBox().value("selectedFaces").toStringList(), QStringList{"top"});
+    QCOMPARE(static_cast<viewport::MeshGeometry*>(app->selectedFacesGeometry())->triangleCount(), 2);
+    QCOMPARE(app->selection().value("kind").toString(), QStringLiteral("part"));  // still selected
+    QVERIFY(app->selectionBox().value("visible").toBool());
+
+    // Clicking where the ray misses the part but crosses the box toggles too (and keeps the selection).
+    QVERIFY(app->pickAt(400, 300, 800, 600));
+    QVERIFY(enabledFaces().isEmpty());
+    QVERIFY(app->selectionBox().value("selectedFaces").toStringList().isEmpty());
+    QCOMPARE(static_cast<viewport::MeshGeometry*>(app->selectedFacesGeometry())->triangleCount(), 0);
+
+    // From the front, the clicked face is "front" (+Y), the reference's naming.
+    app->camera()->lookFrom("front");
+    QVERIFY(app->pickAt(400, 300, 800, 600));
+    QCOMPARE(enabledFaces(), QStringList{"front"});
+  }
+
+  void theBoxAndFaceTogglingStepAsideOnceTheMoldIsGenerated() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->camera()->setViewportSize(800, 600);
+    app->camera()->lookFrom("top");
+    int hitX = -1;
+    for (int x = 400; x >= 100 && hitX < 0; x -= 10) {
+      if (app->pickAt(x, 300, 800, 600)) hitX = x;
+    }
+    QVERIFY(hitX > 0);
+    QVERIFY(app->selectionBox().value("visible").toBool());
+
+    app->generateMold();
+    QVERIFY(waitFor([&] { return app->moldPhase() != "generating"; }, 120000));
+    QCOMPARE(app->moldPhase(), QStringLiteral("complete"));
+    // The reference hides the box while the cavity is generated/complete; the part itself stays highlighted.
+    QVERIFY(!app->selectionBox().value("visible").toBool());
+    QVERIFY(!app->selectionBox().value("cutSelectionActive").toBool());
+    QVERIFY(app->scene()->data(app->scene()->index(0), SceneModel::SelectedRole).toBool());
+    QCOMPARE(static_cast<viewport::LineGeometry*>(app->selectionBoxGeometry())->segmentCount(), 0);
+
+    // Changing a mold input brings the mold down and the box back.
+    app->setCutFaceEnabled("left", true);
+    QCOMPARE(app->moldPhase(), QStringLiteral("ready"));
+    QVERIFY(app->selectionBox().value("visible").toBool());
+    QCOMPARE(app->selectionBox().value("selectedFaces").toStringList(), QStringList{"left"});
+  }
+
+  void importingAnotherModelClearsTheSelection() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->camera()->setViewportSize(800, 600);
+    int hitX = -1;
+    for (int x = 400; x >= 100 && hitX < 0; x -= 10) {
+      if (app->pickAt(x, 300, 800, 600)) hitX = x;
+    }
+    QVERIFY(hitX > 0);
+    QVERIFY(app->selectionBox().value("visible").toBool());
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready" && app->selection().isEmpty(); }));
+    QVERIFY(!app->selectionBox().value("visible").toBool());
+    QVERIFY(!app->scene()->data(app->scene()->index(0), SceneModel::SelectedRole).toBool());
+  }
+
   void masterToolingExportWritesEveryCurrentPieceAndRefusesStaleOnes() {
     auto app = makeApp();
     app->importStlFile(bracket());

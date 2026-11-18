@@ -192,4 +192,23 @@ LineBuffers buildSegmentBuffers(const QVector3D& from, const QVector3D& to) {
   return finishLines({from.x(), from.y(), from.z(), to.x(), to.y(), to.z()});
 }
 
+LineBuffers buildSegmentListBuffers(const std::vector<std::array<QVector3D, 2>>& segments) {
+  std::vector<float> values;
+  values.reserve(segments.size() * 6);
+  for (const auto& segment : segments) {
+    for (const QVector3D& end : segment) values.insert(values.end(), {end.x(), end.y(), end.z()});
+  }
+  return finishLines(values);
+}
+
+TriangleBuffers buildQuadBuffers(const std::vector<std::array<QVector3D, 4>>& quads) {
+  return buildTriangles(quads.size() * 2, [&quads](std::size_t triangle, int corner, float* out) {
+    const auto& quad = quads[triangle / 2];
+    const int index = triangle % 2 == 0 ? corner : (corner == 0 ? 0 : corner + 1);  // (a,b,c) then (a,c,d)
+    out[0] = quad[static_cast<std::size_t>(index)].x();
+    out[1] = quad[static_cast<std::size_t>(index)].y();
+    out[2] = quad[static_cast<std::size_t>(index)].z();
+  });
+}
+
 }  // namespace craft::viewport

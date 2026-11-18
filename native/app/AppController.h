@@ -34,6 +34,7 @@
 #include "mold/DerivedMold.h"
 #include "master/MasterMoldStore.h"
 #include "tooling/MasterToolingExport.h"
+#include "view/SelectionBox.h"
 #include "mold/Segmentation.h"
 #include "mold/SprueGeneration.h"
 
@@ -118,7 +119,13 @@ class AppController : public QObject {
   Q_PROPERTY(QQuick3DGeometry* axisXGeometry READ axisXGeometry CONSTANT)
   Q_PROPERTY(QQuick3DGeometry* axisYGeometry READ axisYGeometry CONSTANT)
   Q_PROPERTY(QQuick3DGeometry* axisZGeometry READ axisZGeometry CONSTANT)
-  Q_PROPERTY(QQuick3DGeometry* selectionGeometry READ selectionGeometry CONSTANT)
+  /// The part's selection box (dashed edges), the hovered box face and the faces selected for Cut by Face, as scene
+  /// geometry in scene coordinates; selectionBox says which of them to show.
+  Q_PROPERTY(QQuick3DGeometry* selectionBoxGeometry READ selectionBoxGeometry CONSTANT)
+  Q_PROPERTY(QQuick3DGeometry* hoverFaceGeometry READ hoverFaceGeometry CONSTANT)
+  Q_PROPERTY(QQuick3DGeometry* selectedFacesGeometry READ selectedFacesGeometry CONSTANT)
+  Q_PROPERTY(QVariantMap selectionBox READ selectionBox NOTIFY selectionOverlayChanged)
+  Q_PROPERTY(QVariantMap selectionStyle READ selectionStyle NOTIFY themeChanged)
   Q_PROPERTY(QQuick3DGeometry* measureLineGeometry READ measureLineGeometry CONSTANT)
 
   Q_PROPERTY(QString applicationVersion READ applicationVersion CONSTANT)
@@ -282,6 +289,10 @@ class AppController : public QObject {
   /// picks define a distance; a third starts a new measurement.
   Q_INVOKABLE bool pickAt(qreal x, qreal y, qreal viewportWidth, qreal viewportHeight);
   Q_INVOKABLE void clearSelection();
+  /// Pointer hover in the "select" tool: highlights the selection-box face under the pointer (only while the part is
+  /// selected). Returns whether the pointer is over the part (or its box), for the cursor.
+  Q_INVOKABLE bool hoverAt(qreal x, qreal y, qreal viewportWidth, qreal viewportHeight);
+  Q_INVOKABLE void clearHover();
 
   SceneModel* scene() { return &scene_; }
   viewport::ViewportCamera* camera() { return &camera_; }
@@ -290,7 +301,11 @@ class AppController : public QObject {
   QQuick3DGeometry* axisXGeometry() { return &axisX_; }
   QQuick3DGeometry* axisYGeometry() { return &axisY_; }
   QQuick3DGeometry* axisZGeometry() { return &axisZ_; }
-  QQuick3DGeometry* selectionGeometry() { return &selectionGeometry_; }
+  QQuick3DGeometry* selectionBoxGeometry() { return &selectionBoxLines_; }
+  QQuick3DGeometry* hoverFaceGeometry() { return &hoverFaceQuad_; }
+  QQuick3DGeometry* selectedFacesGeometry() { return &selectedFaceQuads_; }
+  QVariantMap selectionBox() const;
+  QVariantMap selectionStyle() const;
   QQuick3DGeometry* measureLineGeometry() { return &measureLine_; }
 
   QString applicationVersion() const;
@@ -322,6 +337,7 @@ class AppController : public QObject {
   void gridChanged();
   void toolChanged();
   void selectionChanged();
+  void selectionOverlayChanged();
   /// A user-visible failure worth a dialog (import, mold, export, analysis).
   void errorOccurred(const QString& title, const QString& message, const QString& code);
   void exportFinished(bool ok, const QString& message, const QStringList& files);
@@ -342,7 +358,14 @@ class AppController : public QObject {
   void rebuildGrid();
   void applySceneColors();
   std::vector<CuttingPlane> activeCuttingPlanes() const;
-  Bounds3 partSelectionBounds() const;
+  /// The part's bounds in scene coordinates (display offset applied); nullopt without a visible part.
+  std::optional<Bounds3> partBoxBounds() const;
+  bool partSelected() const;
+  /// The box shows while the part is selected and the mold is neither generating nor complete (the reference's rule).
+  bool selectionBoxVisible() const;
+  /// Clicking a box face toggles that Cut by Face plane: only while the box shows and no segmentation owns the part.
+  bool cutFaceSelectionActive() const;
+  void refreshSelectionOverlay();
   void connectAnalysis();
   void rebuildSegmentationPlan();
   void invalidateSegmentation(const QString& message);
@@ -375,7 +398,10 @@ class AppController : public QObject {
   SceneModel scene_;
   viewport::ViewportCamera camera_;
   viewport::LineGeometry gridMinor_, gridMajor_, axisX_, axisY_, axisZ_, measureLine_;
-  viewport::MeshGeometry selectionGeometry_;
+  viewport::LineGeometry selectionBoxLines_;
+  viewport::MeshGeometry hoverFaceQuad_, selectedFaceQuads_;
+  std::optional<SelectionBoxFace> hoverFace_;
+  std::string selectionOverlayKey_;  // what the overlay geometry was last built from (skips redundant GPU uploads)
   AdaptiveGridConfig grid_;
 
   // model

@@ -32,6 +32,7 @@ struct SceneItem {
   double volumeMm3 = 0;
   int triangleCount = 0;
   Bounds3 bounds;    // canonical bounds, before `offset`
+  bool selected = false;  // the part, highlighted while selected (the reference highlights the model, not bodies)
 
   // Exactly one of the two is set.
   std::shared_ptr<const TriangleSoup> soup;
@@ -62,6 +63,7 @@ class SceneModel : public QAbstractListModel {
     EdgeGeometryRole,
     VolumeRole,
     TriangleCountRole,
+    SelectedRole,
   };
 
   explicit SceneModel(QObject* parent = nullptr);
@@ -76,6 +78,8 @@ class SceneModel : public QAbstractListModel {
   void setPart(const QString& id, const QString& name, std::shared_ptr<const TriangleSoup> soup,
                const QColor& color);
   void setPartOffset(const QVector3D& offset);
+  /// Marks the part row selected when `id` is its id (and clears every other mark); an empty or non-part id clears.
+  void setSelectedId(const QString& id);
   /// Replaces every mold-body row.
   struct BodyInput {
     QString id;
