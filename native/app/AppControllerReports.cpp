@@ -14,6 +14,7 @@
 #include "AnalysisProtocol.h"
 #include "AppController.h"
 #include "reports/EngineeringReports.h"
+#include "reports/GenerationReadiness.h"
 #include "reports/PullDirection.h"
 #include "reports/PullDirectionEvaluation.h"
 
@@ -162,6 +163,97 @@ QVariantMap derivePullDirection(const ReportJson& data, const std::string& nowIs
   return out;
 }
 
+QString readinessStatusLabel(const std::string& status) {
+  if (status == "ready") return QStringLiteral("Ready");
+  if (status == "ready_with_warnings") return QStringLiteral("Ready with warnings");
+  if (status == "blocked") return QStringLiteral("Blocked");
+  return QStringLiteral("Unavailable");
+}
+
+QVariantList stringList(const ReportJson* array, const char* key = nullptr) {
+  QVariantList out;
+  if (!array || !array->isArray()) return out;
+  for (std::size_t i = 0; i < array->size(); ++i) {
+    const ReportJson& item = array->at(i);
+    out.append(q(key ? text(item.find(key)) : (item.isString() ? item.asString() : std::string())));
+  }
+  return out;
+}
+
+/// Generation readiness: the Python Chapter 9 hand-off report run through the ported adapter.
+QVariantMap deriveGenerationReadiness(const ReportJson& data, const std::string& nowIso) {
+  const ReportJson* source = data.find("generationReadiness");
+  if (!source || source->isNull()) return QVariantMap{{"available", false}};
+  const ReportJson snapshot = buildGenerationReadinessSnapshot(*source, nowIso);
+
+  QVariantList strategies;
+  if (const ReportJson* list = snapshot.find("partingStrategies"))
+    for (std::size_t i = 0; i < list->size(); ++i) {
+      const ReportJson& s = list->at(i);
+      strategies.append(QVariantMap{{"rank", number(s.find("rank")).value_or(0)},
+                                    {"strategyType", q(text(s.find("strategyType")))},
+                                    {"status", q(text(s.find("status")))},
+                                    {"generationMode", q(text(s.find("generationMode")))},
+                                    {"score", number(s.find("score")).value_or(0)},
+                                    {"confidence", q(text(s.find("confidence")))},
+                                    {"requiresManualReview", s.find("requiresManualReview") && s.find("requiresManualReview")->isBool() && s.find("requiresManualReview")->asBool()}});
+    }
+  const auto flagOf = [&](const char* key) { const ReportJson* v = snapshot.find(key); return v && v->isBool() && v->asBool(); };
+  const std::string status = text(snapshot.find("status"));
+  QVariantMap view{{"available", true},
+                   {"status", q(status)},
+                   {"statusLabel", readinessStatusLabel(status)},
+                   {"readiness", q(text(snapshot.find("readiness")))},
+                   {"canGenerate", flagOf("canGenerate")},
+                   {"requiresManualReview", flagOf("requiresManualReview")},
+                   {"confidence", q(text(snapshot.find("confidence")))},
+                   {"engineStatus", q(text(source->find("status")))},
+                   {"engineSummary", q(text(source->find("summary")))},
+                   {"availableInputs", stringList(snapshot.find("availableInputs"), "label")},
+                   {"missingInputs", stringList(snapshot.find("missingInputs"), "label")},
+                   {"blockers", stringList(snapshot.find("blockers"), "message")},
+                   {"warnings", stringList(snapshot.find("warnings"), "message")},
+                   {"partingStrategies", strategies}};
+  const ReportJson* selected = snapshot.find("selectedPartingStrategyId");
+  view["selectedPartingStrategyId"] = selected && selected->isString() ? q(selected->asString()) : QString();
+  if (const ReportJson* coreJson = snapshot.find("coreCavityReadiness"); coreJson && coreJson->isObject()) {
+    view["coreHandlingRequired"] = coreJson->find("handlingRequired") && coreJson->find("handlingRequired")->isBool() && coreJson->find("handlingRequired")->asBool();
+    view["coreDecisionOutcome"] = q(text(coreJson->find("decisionOutcome")));
+  }
+  return view;
+}
+
+/// Cavity analysis: the engine's own status, outcome and findings. The engine states plainly that its detector is a
+/// shell/topology method that cannot prove the absence of an internal cavity; its findings are shown verbatim.
+QVariantMap deriveCavityAnalysis(const ReportJson& data) {
+  const ReportJson* cavity = data.find("cavityAnalysis");
+  if (!cavity || !cavity->isObject()) return QVariantMap{{"available", false}};
+  const ReportJson* decision = cavity->find("cavity_analysis_decision");
+  const auto count = [&](const char* section, const char* list) {
+    const ReportJson* s = cavity->find(section);
+    const ReportJson* l = s ? s->find(list) : nullptr;
+    return l && l->isArray() ? static_cast<int>(l->size()) : 0;
+  };
+  QVariantList findings;
+  if (const ReportJson* list = cavity->find("findings"); list && list->isArray())
+    for (std::size_t i = 0; i < list->size() && i < 8; ++i) findings.append(q(text(list->at(i).find("message"))));
+  QVariantMap view{{"available", true},
+                   {"status", q(text(cavity->find("status")))},
+                   {"assessmentOutcome", q(text(cavity->find("assessment_outcome")))},
+                   {"summary", q(text(cavity->find("summary")))},
+                   {"candidateCount", count("candidate_detection", "candidates")},
+                   {"openingCount", count("opening_detection", "openings")},
+                   {"findings", findings}};
+  if (decision && decision->isObject()) {
+    view["decisionOutcome"] = q(text(decision->find("outcome")));
+    view["decisionSummary"] = q(text(decision->find("summary")));
+    view["coreTargetCount"] = decision->find("applicable_target_ids") ? static_cast<int>(decision->find("applicable_target_ids")->size()) : 0;
+    view["manualReviewTargetCount"] = decision->find("manual_review_target_ids") ? static_cast<int>(decision->find("manual_review_target_ids")->size()) : 0;
+    view["limitations"] = stringList(decision->find("limitations"));
+  }
+  return view;
+}
+
 }  // namespace
 
 QVariantMap AppController::engineeringReports() const {
@@ -236,6 +328,13 @@ void AppController::connectReports() {
                                                              moldability->find("manual_review_required")->asBool()}};
     }
     view["pullDirection"] = derivePullDirection(report.data, nowIso, report.success);
+    view["cavity"] = deriveCavityAnalysis(report.data);
+    view["readiness"] = deriveGenerationReadiness(report.data, nowIso);
+    if (const ReportJson* stageErrors = report.data.find("stageErrors"); stageErrors && stageErrors->isObject() && stageErrors->size() > 0) {
+      QVariantList list;
+      for (std::size_t i = 0; i < stageErrors->size(); ++i) list.append(q(stageErrors->keyAt(i)) + QStringLiteral(": ") + q(text(&stageErrors->at(i))));
+      view["stageErrors"] = list;
+    }
     if (const ReportJson* omitted = report.data.find("omitted"); omitted && omitted->isObject() && omitted->size() > 0) {
       view["omittedNote"] = QStringLiteral("Per-face detail (%1 lists) stays in the analysis engine and is not shown here.").arg(omitted->size());
     }

@@ -141,6 +141,8 @@ add_library(craft_reports STATIC
   core/reports/ReportJson.h
   core/reports/LocaleCompare.cpp
   core/reports/LocaleCompare.h
+  core/reports/GenerationReadiness.cpp
+  core/reports/GenerationReadiness.h
   core/reports/EngineeringReports.cpp
   core/reports/EngineeringReports.h
   core/reports/PullDirection.cpp

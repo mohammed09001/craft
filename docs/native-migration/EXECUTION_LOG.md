@@ -277,4 +277,14 @@ Evidence: `tst_reports_equivalence` 71 rows against `reports-reference.json` wri
 
 Findings: the reference pull-direction "engine" never inspects geometry and its completed report is hard-coded sample data (D-040); the Python analysis took 561 s for a 10,800-face box and 52 MB of JSON before per-face lists were omitted (R-Reports-1, D-041); the reference card shows "Review" for a 42% candidate because its validation state is "warning" (matches the reference rule, the completion layer alone says Poor).
 
-Not done: cavity analysis and generation-readiness Python stages are not wired; no native reimplementation of the analysis; the Inspector layout was not inspected on screen (R-Reports-3).
+Not done in this session (cavity analysis and generation readiness were wired in Session 17): no native reimplementation of the analysis; the Inspector layout was not inspected on screen (R-Reports-3).
+
+### Session 17: Cavity analysis and generation readiness
+
+Ported/wired: the `moldability_analysis` worker command now also runs the Python cavity analysis and generation readiness (D-044); the generation-readiness adapter and contracts are ported natively (`core/reports/GenerationReadiness`, D-045); the app shows "Cavity analysis" and "Generation readiness" in the Inspector. There is no TypeScript algorithm for cavity analysis, so it is Python-engine-only like the moldability stage.
+
+Evidence: `readiness-python-samples.json` (real Python reports from `make_readiness_samples.py`) + 35 synthetic cases run through the real TS adapter (`craftReadinessReference.test.ts`) -> `readiness-reference.json`; `tst_reports_equivalence` 120 passed (49 new); `tst_analysis_bridge` 16; `tst_app_workflow` assertions extended; new `py_worker_stage_failures` (3, forced stage failures); full Debug ctest 16/16.
+
+Findings: every real report comes out blocked through the adapter (R-Reports-4); the cavity detector disclaims its own negative results (R-Reports-5); the Python engine's per-stage cost is dominated by the detailed stage, not by cavity/readiness.
+
+Not done: nothing consumes the readiness snapshot for generation; the Inspector layout was not inspected on screen; the Python analysis performance limit (R-Reports-1) is unchanged.

@@ -453,6 +453,28 @@ class WorkflowTest : public QObject {
     QVERIFY(!evaluation.value("statusLabel").toString().isEmpty());
     QVERIFY(evaluation.value("snapshotValid").toBool());
 
+    // Cavity analysis: the engine's own status/outcome and findings (it states its detector cannot prove "no cavity").
+    const QVariantMap cavity = reports.value("cavity").toMap();
+    QVERIFY(cavity.value("available").toBool());
+    QCOMPARE(cavity.value("status").toString(), QStringLiteral("completed"));
+    QVERIFY(!cavity.value("assessmentOutcome").toString().isEmpty());
+    QVERIFY(!cavity.value("findings").toList().isEmpty());
+    QVERIFY2(cavity.value("findings").toStringList().join(" ").contains("does not prove"), "the engine's caveat must reach the user");
+
+    // Generation readiness: the Python Chapter 9 report through the ported adapter. The engine never selects a parting
+    // strategy, so the adapter (like the reference) reports the part as blocked pending manual review.
+    const QVariantMap readiness = reports.value("readiness").toMap();
+    QVERIFY(readiness.value("available").toBool());
+    QCOMPARE(readiness.value("engineStatus").toString(), QStringLiteral("ready_with_warnings"));
+    QCOMPARE(readiness.value("status").toString(), QStringLiteral("blocked"));
+    QVERIFY(!readiness.value("canGenerate").toBool());
+    QVERIFY(readiness.value("requiresManualReview").toBool());
+    QVERIFY(readiness.value("selectedPartingStrategyId").toString().isEmpty());
+    QVERIFY(readiness.value("missingInputs").toStringList().contains("Parting strategies"));
+    QVERIFY(!readiness.value("blockers").toList().isEmpty());
+    QVERIFY(!readiness.value("partingStrategies").toList().isEmpty());
+    QVERIFY(reports.value("stageErrors").toList().isEmpty());
+
     // The engine's preliminary moldability assessment rides in the same envelope.
     QVERIFY(!reports.value("moldability").toMap().value("status").toString().isEmpty());
     // Per-face lists stay in the engine and the panel says so.
@@ -475,6 +497,12 @@ class WorkflowTest : public QObject {
     QVERIFY(!report.value("errors").toList().isEmpty());
     QVERIFY(!reports.value("pullDirection").toMap().value("available").toBool());
     QVERIFY(!reports.value("pullDirection").toMap().value("note").toString().isEmpty());
+    // Readiness reflects the refusal too: blocked by the engine, blocked by the adapter, nothing to generate.
+    const QVariantMap readiness = reports.value("readiness").toMap();
+    QCOMPARE(readiness.value("engineStatus").toString(), QStringLiteral("blocked"));
+    QCOMPARE(readiness.value("status").toString(), QStringLiteral("blocked"));
+    QVERIFY(!readiness.value("canGenerate").toBool());
+    QCOMPARE(reports.value("cavity").toMap().value("status").toString(), QStringLiteral("blocked"));
   }
 
   void moldabilityAnalysisWithoutAModelIsRefused() {

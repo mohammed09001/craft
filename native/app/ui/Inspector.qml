@@ -436,7 +436,7 @@ ScrollView {
             ColumnLayout {
                 anchors.fill: parent
                 Button {
-                    text: reportsBox.reports.phase === "running" ? qsTr("Cancel moldability analysis") : qsTr("Analyze moldability (Python)")
+                    text: reportsBox.reports.phase === "running" ? qsTr("Cancel analysis") : qsTr("Analyze part (Python)")
                     enabled: app.modelPhase === "ready" || reportsBox.reports.phase === "running"
                     Layout.fillWidth: true
                     onClicked: reportsBox.reports.phase === "running" ? app.cancelMoldabilityAnalysis() : app.runMoldabilityAnalysis()
@@ -532,6 +532,83 @@ ScrollView {
                             text: reportsBox.view && reportsBox.view.moldability ? reportsBox.view.moldability.summary : ""
                             wrapMode: Text.Wrap; Layout.fillWidth: true
                         }
+                    }
+                    // --- cavity analysis (Python engine) ---------------------------------------------------------
+                    GroupBox {
+                        visible: !!reportsBox.view && !!reportsBox.view.cavity && reportsBox.view.cavity.available
+                        Layout.fillWidth: true
+                        title: qsTr("Cavity analysis")
+                        ColumnLayout {
+                            anchors.fill: parent
+                            Label {
+                                text: reportsBox.view && reportsBox.view.cavity && reportsBox.view.cavity.available
+                                      ? qsTr("Outcome: ") + reportsBox.view.cavity.assessmentOutcome + " (" + reportsBox.view.cavity.status + ")" : ""
+                                font.bold: true; wrapMode: Text.Wrap; Layout.fillWidth: true
+                            }
+                            Label {
+                                text: reportsBox.view && reportsBox.view.cavity && reportsBox.view.cavity.decisionSummary ? reportsBox.view.cavity.decisionSummary : ""
+                                wrapMode: Text.Wrap; Layout.fillWidth: true
+                            }
+                            Label {
+                                text: reportsBox.view && reportsBox.view.cavity && reportsBox.view.cavity.available
+                                      ? qsTr("Candidates: ") + reportsBox.view.cavity.candidateCount + qsTr("  Openings: ") + reportsBox.view.cavity.openingCount
+                                        + qsTr("  Core targets: ") + (reportsBox.view.cavity.coreTargetCount || 0) : ""
+                            }
+                            Label { text: qsTr("Engine findings"); font.bold: true; visible: !!reportsBox.view && !!reportsBox.view.cavity && reportsBox.view.cavity.findings.length > 0 }
+                            Repeater {
+                                model: reportsBox.view && reportsBox.view.cavity && reportsBox.view.cavity.findings ? reportsBox.view.cavity.findings : []
+                                Label { text: "• " + modelData; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                            }
+                        }
+                    }
+
+                    // --- generation readiness (Chapter 9 hand-off, ported adapter) ---------------------------------
+                    GroupBox {
+                        visible: !!reportsBox.view && !!reportsBox.view.readiness && reportsBox.view.readiness.available
+                        Layout.fillWidth: true
+                        title: qsTr("Generation readiness")
+                        ColumnLayout {
+                            anchors.fill: parent
+                            Label {
+                                text: reportsBox.view && reportsBox.view.readiness && reportsBox.view.readiness.available
+                                      ? reportsBox.view.readiness.statusLabel + (reportsBox.view.readiness.canGenerate ? qsTr(" — can generate") : qsTr(" — cannot generate yet")) : ""
+                                font.bold: true; wrapMode: Text.Wrap; Layout.fillWidth: true
+                            }
+                            Label {
+                                text: reportsBox.view && reportsBox.view.readiness && reportsBox.view.readiness.available
+                                      ? qsTr("Engine verdict: ") + reportsBox.view.readiness.engineStatus + "  ·  confidence " + reportsBox.view.readiness.confidence
+                                        + (reportsBox.view.readiness.requiresManualReview ? qsTr("  ·  manual review required") : "") : ""
+                                wrapMode: Text.Wrap; Layout.fillWidth: true
+                            }
+                            Label { text: qsTr("Blockers"); font.bold: true; visible: !!reportsBox.view && !!reportsBox.view.readiness && reportsBox.view.readiness.blockers.length > 0 }
+                            Repeater {
+                                model: reportsBox.view && reportsBox.view.readiness && reportsBox.view.readiness.blockers ? reportsBox.view.readiness.blockers : []
+                                Label { text: "• " + modelData; color: "#e5484d"; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                            }
+                            Label { text: qsTr("Missing inputs"); font.bold: true; visible: !!reportsBox.view && !!reportsBox.view.readiness && reportsBox.view.readiness.missingInputs.length > 0 }
+                            Repeater {
+                                model: reportsBox.view && reportsBox.view.readiness && reportsBox.view.readiness.missingInputs ? reportsBox.view.readiness.missingInputs : []
+                                Label { text: "• " + modelData; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                            }
+                            Label { text: qsTr("Parting strategies"); font.bold: true; visible: !!reportsBox.view && !!reportsBox.view.readiness && reportsBox.view.readiness.partingStrategies.length > 0 }
+                            Repeater {
+                                model: reportsBox.view && reportsBox.view.readiness && reportsBox.view.readiness.partingStrategies ? reportsBox.view.readiness.partingStrategies : []
+                                Label {
+                                    text: modelData.rank + ".  " + modelData.strategyType + " (" + modelData.generationMode + ")  " + modelData.status
+                                          + "  score " + root.fmt(modelData.score, 1) + (modelData.requiresManualReview ? qsTr("  · review") : "")
+                                    wrapMode: Text.Wrap; Layout.fillWidth: true
+                                }
+                            }
+                            Label { text: qsTr("Warnings"); font.bold: true; visible: !!reportsBox.view && !!reportsBox.view.readiness && reportsBox.view.readiness.warnings.length > 0 }
+                            Repeater {
+                                model: reportsBox.view && reportsBox.view.readiness && reportsBox.view.readiness.warnings ? reportsBox.view.readiness.warnings : []
+                                Label { text: "• " + modelData; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                            }
+                        }
+                    }
+                    Repeater {
+                        model: reportsBox.view && reportsBox.view.stageErrors ? reportsBox.view.stageErrors : []
+                        Label { text: qsTr("Stage did not complete — ") + modelData; color: "#e5484d"; wrapMode: Text.Wrap; Layout.fillWidth: true }
                     }
                     Repeater {
                         model: reportsBox.view ? reportsBox.view.report.warnings : []

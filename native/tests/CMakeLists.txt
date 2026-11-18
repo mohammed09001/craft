@@ -55,6 +55,14 @@ target_compile_definitions(tst_analysis_bridge PRIVATE
   CRAFT_ENGINE_SRC="${CRAFT_ENGINE_SRC}"
   CRAFT_DEV_PYTHON="${CRAFT_PYTHON_EXECUTABLE_NORMALIZED}")
 
+# The worker must report a cavity/readiness stage that raises instead of hiding the moldability result (needs the
+# development Python with pytest, the same interpreter the bridge tests use).
+if(CRAFT_PYTHON_EXECUTABLE_NORMALIZED)
+  add_test(NAME py_worker_stage_failures
+    COMMAND ${CRAFT_PYTHON_EXECUTABLE_NORMALIZED} -m pytest -q -p no:cacheprovider ${CMAKE_CURRENT_SOURCE_DIR}/python/test_worker_stage_failures.py)
+  set_tests_properties(py_worker_stage_failures PROPERTIES ENVIRONMENT "PYTHONPATH=${CRAFT_ENGINE_SRC}" TIMEOUT 120)
+endif()
+
 if(CRAFT_BUILD_APP)
   craft_add_test(tst_viewport SOURCES tst_viewport.cpp LIBS craft_viewport craft_io)
   craft_add_test(tst_app_workflow SOURCES tst_app_workflow.cpp LIBS craft_app_lib)

@@ -23,8 +23,9 @@ Messages to the worker::
      "params": {...}}
 
 Commands: ``ping``, ``import_analysis`` (params: ``sourcePath``),
-``moldability_analysis`` (params: ``sourcePath``; the existing detailed mold analysis,
-returned as an ``engineering_report`` contract envelope), ``shutdown``.
+``moldability_analysis`` (params: ``sourcePath``; the existing detailed mold analysis, then
+cavity analysis and generation readiness on top of it, returned as one ``engineering_report``
+contract envelope), ``shutdown``.
 
 Jobs run one at a time. The host cancels a running job by terminating the
 process (it is restarted on the next request), which is why this script holds
@@ -162,8 +163,10 @@ def run_moldability_analysis(job_id: str, params: dict[str, Any]) -> dict[str, A
         create_failed_engineering_report,
     )
     from mold_generator_engine import (
+        CavityAnalysisService,
         DetailedMoldAnalysisService,
         DetailedMoldAnalysisStatus,
+        GenerationReadinessService,
         ImportAnalysisService,
         PullDirectionEvaluator,
     )
@@ -190,6 +193,24 @@ def run_moldability_analysis(job_id: str, params: dict[str, Any]) -> dict[str, A
     detailed = DetailedMoldAnalysisService(pull_direction_evaluator=PullDirectionEvaluator()).analyze(
         import_report, model)
     elapsed_ms = (time.perf_counter() - started) * 1000.0
+    # Cavity analysis and generation readiness are cheap on top of the detailed stage (0.06 s against 2.7 s on a
+    # 768-face box). A stage that raises must not hide the moldability result: it is recorded and reported.
+    emit({"type": "progress", "jobId": job_id, "stage": "cavity-analysis", "fraction": 0.8})
+    cavity_report = None
+    readiness_report = None
+    stage_errors: dict[str, str] = {}
+    try:
+        cavity_report = CavityAnalysisService().analyze(import_report, detailed, model)
+    except Exception as error:  # noqa: BLE001 - recorded, never swallowed silently
+        log(traceback.format_exc())
+        stage_errors["cavityAnalysis"] = f"{type(error).__name__}: {error}"
+    if cavity_report is not None:
+        emit({"type": "progress", "jobId": job_id, "stage": "generation-readiness", "fraction": 0.85})
+        try:
+            readiness_report = GenerationReadinessService().analyze(import_report, detailed, cavity_report, model)
+        except Exception as error:  # noqa: BLE001
+            log(traceback.format_exc())
+            stage_errors["generationReadiness"] = f"{type(error).__name__}: {error}"
     emit({"type": "progress", "jobId": job_id, "stage": "serializing", "fraction": 0.9})
 
     omitted: dict[str, int] = {}
@@ -209,6 +230,10 @@ def run_moldability_analysis(job_id: str, params: dict[str, Any]) -> dict[str, A
         },
         "moldability": detailed_dict.get("preliminary_moldability_assessment"),
         "detailedAnalysis": detailed_dict,
+        # The readiness report is the Chapter 9 hand-off contract the native adapter reads (compact, no per-face data).
+        "generationReadiness": readiness_report.to_dict() if readiness_report is not None else None,
+        "cavityAnalysis": compact_detailed_report(cavity_report.to_dict(), omitted) if cavity_report is not None else None,
+        "stageErrors": stage_errors,
         "omitted": omitted,
     }
     statistics = {"candidateCount": len(ranked), "faceCount": len(model.faces) if hasattr(model, "faces") else None,
@@ -216,10 +241,18 @@ def run_moldability_analysis(job_id: str, params: dict[str, Any]) -> dict[str, A
     warnings = tuple(
         EngineeringReportWarning(code="PULL_DIRECTION_SELECTION", message=text,
                                  source="detailed_mold_analysis")
-        for text in (selection.warnings if selection is not None else ()))
+        for text in (selection.warnings if selection is not None else ())
+    ) + tuple(
+        EngineeringReportWarning(code=f"{stage.upper()}_FAILED".replace("CAVITYANALYSIS", "CAVITY_ANALYSIS")
+                                 .replace("GENERATIONREADINESS", "GENERATION_READINESS"),
+                                 message=f"{stage} did not complete: {text}", source="analysis_worker")
+        for stage, text in stage_errors.items())
 
     status = detailed.status
-    if status is DetailedMoldAnalysisStatus.COMPLETED:
+    if status is DetailedMoldAnalysisStatus.COMPLETED and stage_errors:
+        report = create_engineering_report(data=data, statistics=statistics, warnings=warnings,
+                                           status=EngineeringReportStatus.PARTIAL, success=True, **common)
+    elif status is DetailedMoldAnalysisStatus.COMPLETED:
         report = create_engineering_report(data=data, statistics=statistics, warnings=warnings, **common)
     elif status is DetailedMoldAnalysisStatus.PARTIAL:
         report = create_engineering_report(data=data, statistics=statistics, warnings=warnings,

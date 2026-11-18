@@ -141,6 +141,13 @@ class AnalysisBridgeTest : public QObject {
     QVERIFY(report["success"].toBool());
     const QJsonObject data = report["data"].toObject();
     QCOMPARE(data["pullDirection"].toObject()["rankedCandidates"].toArray().size(), 8);  // 4 faces: face-normal + axis candidates
+    // Cavity analysis and the Chapter 9 readiness hand-off ride in the same envelope (the readiness contract is
+    // exactly what the native adapter consumes).
+    QVERIFY(data["cavityAnalysis"].toObject().contains("cavity_analysis_decision"));
+    const QJsonObject readiness = data["generationReadiness"].toObject();
+    QVERIFY(readiness.contains("contract"));
+    QVERIFY(readiness["contract"].toObject().contains("parting_strategies"));
+    QVERIFY(data["stageErrors"].toObject().isEmpty());
     // Bounded payload: per-face lists are replaced by counts and listed under data.omitted.
     QVERIFY(data["omitted"].toObject().contains("face_evaluations"));
     QVERIFY(!QJsonDocument(data["detailedAnalysis"].toObject()).toJson().contains("\"face_evaluations\":["));

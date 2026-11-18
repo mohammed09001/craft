@@ -13,6 +13,7 @@
 #include <functional>
 
 #include "reports/EngineeringReports.h"
+#include "reports/GenerationReadiness.h"
 #include "reports/PullDirection.h"
 #include "reports/PullDirectionEvaluation.h"
 
@@ -531,6 +532,43 @@ class ReportsEquivalenceTest : public QObject {
     QCOMPARE(QString::fromStdString(card.result), QStringLiteral("Review"));
     QCOMPARE(QString::fromUtf8(pullDirectionCompletionStatusName(completePullDirection(ranked).status)), QStringLiteral("Poor"));
     QVERIFY(!card.warnings.empty());  // tie with the runner-up, low confidence, review recommended
+  }
+
+  // --- generation readiness adapter (real Python reports + synthetic edge cases through the real TS adapter) -------------
+
+  void generationReadinessMatchesReference_data() {
+    QTest::addColumn<int>("caseIndex");
+    QFile f(QStringLiteral(CRAFT_REFERENCE_FIXTURE_DIR "/readiness-reference.json"));
+    QVERIFY2(f.open(QIODevice::ReadOnly), "readiness-reference.json is missing; run generate-reference-fixtures.ps1 -Only reports");
+    const QJsonArray all = QJsonDocument::fromJson(f.readAll()).object()["cases"].toArray();
+    for (int i = 0; i < all.size(); ++i) QTest::newRow(qPrintable(all[i].toObject()["name"].toString())) << i;
+  }
+
+  void generationReadinessMatchesReference() {
+    QFETCH(int, caseIndex);
+    QFile f(QStringLiteral(CRAFT_REFERENCE_FIXTURE_DIR "/readiness-reference.json"));
+    QVERIFY(f.open(QIODevice::ReadOnly));
+    const QJsonObject root = QJsonDocument::fromJson(f.readAll()).object();
+    const QJsonObject c = root["cases"].toArray()[caseIndex].toObject();
+    const ReportJson snapshot = buildGenerationReadinessSnapshot(toReport(c["input"]), root["fixedNow"].toString().toStdString());
+    COMPARE_JSON(c["snapshot"], toQt(snapshot), c["name"].toString());
+  }
+
+  void realPythonReportsAreBlockedUntilAStrategyIsSelected() {
+    // Documents the reference behaviour on real engine output: the Python engine never selects a parting strategy, so the
+    // adapter reports every analyzable part as blocked pending manual review (and canGenerate stays false).
+    QFile f(QStringLiteral(CRAFT_REFERENCE_FIXTURE_DIR "/readiness-python-samples.json"));
+    QVERIFY(f.open(QIODevice::ReadOnly));
+    const QJsonArray samples = QJsonDocument::fromJson(f.readAll()).array();
+    QVERIFY(samples.size() >= 5);
+    for (const QJsonValue& value : samples) {
+      const QJsonObject sample = value.toObject();
+      const QJsonObject snapshot = toQt(buildGenerationReadinessSnapshot(toReport(sample["report"]), "2026-01-01T00:00:00.000Z")).toObject();
+      QCOMPARE(snapshot["status"].toString(), QStringLiteral("blocked"));
+      QVERIFY(!snapshot["canGenerate"].toBool());
+      QVERIFY(snapshot["requiresManualReview"].toBool());
+      QVERIFY(snapshot["selectedPartingStrategyId"].isNull());
+    }
   }
 
   void nullReportViewModelIsBlocked() {
