@@ -63,6 +63,7 @@ bool AppController::cutFaceSelectionActive() const { return selectionBoxVisible(
 bool AppController::pickAt(qreal x, qreal y, qreal w, qreal h) {
   camera_.setViewportSize(w, h);
   if (tool_ == "sprue") return placeSprueAt(x, y, w, h);
+  if (tool_ == "eraser") return eraseAt(x, y, w, h);  // a click on a plane removes it; elsewhere it does nothing
   const Ray ray = camera_.pose().rayThroughPixel(x, y, w, h);
 
   // With the part selected the box faces are pickable too (the reference raycasts the model together with its box).

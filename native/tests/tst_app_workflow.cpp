@@ -405,6 +405,185 @@ class WorkflowTest : public QObject {
     QCOMPARE(app->sprueIntents().front().profileDesign.profile.entryNeckDiameterMm, main);
   }
 
+  // --- cutting planes and the Eraser (reference: cuttingPlane3dRuntime.ts, removeSplitFace) --------------------------------
+
+  void cutPlanesAreDrawnWhileSettingUpAndTheEraserRemovesOne() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->camera()->setViewportSize(800, 600);
+
+    // No faces chosen: no planes, and the Eraser has nothing to work on.
+    QVERIFY(!app->cutPlanes().value("visible").toBool());
+    QVERIFY(!app->eraserAvailable());
+    app->setTool("eraser");
+    QCOMPARE(app->tool(), QStringLiteral("select"));
+
+    app->setCutFaceEnabled("front", true);
+    app->setCutFaceEnabled("top", true);
+    app->setCutFacePosition("top", 0.5);
+    app->setCutFaceEnabled("left", true);
+    app->setCutFacePosition("left", 0.7);
+    QVERIFY(app->cutPlanes().value("visible").toBool());
+    QCOMPARE(app->cutPlaneSlabs()->rowCount(), 3);
+    QVERIFY(app->eraserAvailable());
+
+    // Slab geometry: thin along the plane's axis, as wide as the reference mold block (K2) on the others.
+    const auto row = [&](const QString& face) {
+      for (int r = 0; r < app->cutPlaneSlabs()->rowCount(); ++r) {
+        if (app->cutPlaneSlabs()->data(app->cutPlaneSlabs()->index(r), CutPlaneModel::FaceRole).toString() == face) return r;
+      }
+      return -1;
+    };
+    const auto at = [&](int r, int role) { return app->cutPlaneSlabs()->data(app->cutPlaneSlabs()->index(r), role); };
+    const QVector3D topSize = at(row("top"), CutPlaneModel::SizeRole).value<QVector3D>();
+    QCOMPARE(topSize.z(), 0.02f);
+    QCOMPARE(topSize.x(), 40.0f + 2 * 10.0f);   // K1 is 40 x 30 x 12; the mold block adds the 10 mm clearance each side
+    QCOMPARE(topSize.y(), 30.0f + 2 * 10.0f);
+    QCOMPARE(at(row("top"), CutPlaneModel::ColorRole).value<QColor>(), QColor("#f59e0b"));
+    QCOMPARE(at(row("top"), CutPlaneModel::SurfaceOpacityRole).toDouble(), 0.22);
+
+    // The Eraser: hover turns the plane red; a click removes it.
+    app->setTool("eraser");
+    QCOMPARE(app->tool(), QStringLiteral("eraser"));
+    QPoint onPlane(-1, -1);
+    for (int y = 100; y < 500 && onPlane.x() < 0; y += 3)
+      for (int x = 150; x < 650 && onPlane.x() < 0; x += 3)
+        if (app->eraserHoverAt(x, y, 800, 600)) onPlane = QPoint(x, y);
+    QVERIFY2(onPlane.x() >= 0, "no pixel on a plane");
+    const QString hovered = app->cutPlanes().value("hoveredFace").toString();
+    QVERIFY(!hovered.isEmpty());
+    QCOMPARE(at(row(hovered), CutPlaneModel::ColorRole).value<QColor>(), QColor("#ef3038"));
+    QCOMPARE(at(row(hovered), CutPlaneModel::SurfaceOpacityRole).toDouble(), 0.42);
+    QCOMPARE(at(row(hovered), CutPlaneModel::EdgeOpacityRole).toDouble(), 1.0);
+    for (int r = 0; r < app->cutPlaneSlabs()->rowCount(); ++r) {
+      if (r != row(hovered)) QCOMPARE(at(r, CutPlaneModel::ColorRole).value<QColor>(), QColor("#f59e0b"));  // only one is red
+    }
+    QVERIFY(!app->eraserHoverAt(3, 3, 800, 600));   // away from every plane: nothing hovered
+    QVERIFY(app->cutPlanes().value("hoveredFace").toString().isEmpty());
+    QVERIFY(!app->pickAt(3, 3, 800, 600));            // a click on nothing removes nothing
+    QCOMPARE(app->cutPlaneSlabs()->rowCount(), 3);
+
+    QVERIFY(app->pickAt(onPlane.x(), onPlane.y(), 800, 600));
+    QCOMPARE(app->cutPlaneSlabs()->rowCount(), 2);
+    const QStringList chosen{"front", "top", "left"};
+    for (const QVariant& f : app->cutFaces()) {
+      const QString face = f.toMap().value("face").toString();
+      const bool expectedEnabled = face != hovered && chosen.contains(face);
+      QCOMPARE(f.toMap().value("enabled").toBool(), expectedEnabled);
+    }
+    QVERIFY(app->statusText().contains("Removed the " + hovered));
+
+    // Removing the remaining planes returns the tool to Select: the Eraser needs planes.
+    for (const QString& face : {QStringLiteral("front"), QStringLiteral("top"), QStringLiteral("left")}) app->removeCutFace(face);
+    QCOMPARE(app->cutPlaneSlabs()->rowCount(), 0);
+    QCOMPARE(app->tool(), QStringLiteral("select"));
+    QVERIFY(!app->eraserAvailable());
+    QVERIFY(!app->removeCutFace("front"));  // already gone
+
+    // A face chosen again starts from its own default position (the removed plane's position is forgotten).
+    app->setCutFaceEnabled("top", true);
+    double topPosition = 0;
+    for (const QVariant& f : app->cutFaces()) if (f.toMap().value("face").toString() == "top") topPosition = f.toMap().value("position").toDouble();
+    QVERIFY(topPosition > 0.99);
+  }
+
+  void theEraserRemovesAPlaneFromACompleteMoldAndKeepsTheSprues() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->camera()->setViewportSize(800, 600);
+    app->camera()->lookFrom("top");
+    app->setCutFaceEnabled("left", true);
+    app->setCutFacePosition("left", 0.5);
+    app->generateMold();
+
+    // While the mold is generating nothing can be removed (the reference's guard) and the Eraser is not offered.
+    QCOMPARE(app->moldPhase(), QStringLiteral("generating"));
+    QVERIFY(!app->eraserAvailable());
+    QVERIFY(!app->removeCutFace("left"));
+    QVERIFY(app->cutPlanes().value("visible").toBool());   // planes are drawn while generating
+    QVERIFY(waitFor([&] { return app->moldPhase() != "generating"; }, 120000));
+    QCOMPARE(app->moldPhase(), QStringLiteral("complete"));
+
+    // A complete mold hides the planes, unless the Eraser needs them.
+    QVERIFY(!app->cutPlanes().value("visible").toBool());
+    QCOMPARE(app->cutPlaneSlabs()->rowCount(), 0);
+    QVERIFY(app->eraserAvailable());
+    app->setTool("eraser");
+    QVERIFY(app->cutPlanes().value("visible").toBool());
+    QCOMPARE(app->cutPlaneSlabs()->rowCount(), 1);
+
+    // Place a sprue (the Sprue tool), then come back to the Eraser.
+    app->setTool("sprue");
+    bool placed = false;
+    for (int y = 150; y <= 450 && !placed; y += 15)
+      for (int x = 100; x <= 700 && !placed; x += 10) {
+        app->previewSprueAt(x, y, 800, 600);
+        placed = app->sprueCandidate().value("valid").toBool() && app->placeSprueAt(x, y, 800, 600);
+      }
+    QVERIFY2(placed, "no pixel over the cavity found");
+    QVERIFY(waitFor([&] { return app->spruePhase() == "idle" && app->sprueEvaluation().has_value(); }));
+    QCOMPARE(app->sprueIntents().size(), std::size_t{1});
+    app->setTool("eraser");
+
+    // Click the plane: the plane goes, the mold built with it is dropped, the sprue intent stays.
+    QPoint onPlane(-1, -1);
+    for (int y = 60; y < 560 && onPlane.x() < 0; y += 3)
+      for (int x = 60; x < 740 && onPlane.x() < 0; x += 3)
+        if (app->eraserHoverAt(x, y, 800, 600)) onPlane = QPoint(x, y);
+    QVERIFY2(onPlane.x() >= 0, "no pixel on the plane");
+    QVERIFY(app->pickAt(onPlane.x(), onPlane.y(), 800, 600));
+    QCOMPARE(app->moldPhase(), QStringLiteral("ready"));
+    QVERIFY(!app->moldResult().has_value());
+    QCOMPARE(app->sprueIntents().size(), std::size_t{1});
+    QCOMPARE(app->tool(), QStringLiteral("select"));  // no planes left
+    QVERIFY(!app->cutPlanes().value("visible").toBool());
+  }
+
+  void removingPlanesFollowsTheReferenceStoreScenarios() {
+    QFile file(QStringLiteral(CRAFT_REFERENCE_FIXTURE_DIR "/cutplane-reference.json"));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const QJsonArray scenarios = QJsonDocument::fromJson(file.readAll()).object().value("lifecycle").toArray();
+    int replayed = 0, ignored = 0;
+    for (const QJsonValue& value : scenarios) {
+      const QJsonObject s = value.toObject();
+      if (s.value("how").toString() != "remove") continue;  // the rebuild scenarios are checked on the partition in tst_cutplane_equivalence
+      const QString name = s.value("name").toString();
+      auto app = makeApp();
+      app->importStlFile(bracket());
+      QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+      for (const QJsonValue& face : s.value("faces").toArray()) app->setCutFaceEnabled(face.toString(), true);
+      const bool generating = s.value("generating").toBool();
+      if (generating) {
+        app->generateMold();
+        QCOMPARE(app->moldPhase(), QStringLiteral("generating"));
+      }
+      const bool removed = app->removeCutFace(s.value("remove").toString());
+
+      // The planes left (and their positions) are the reference store's.
+      const QJsonArray expected = s.value("after").toObject().value("planes").toArray();
+      QList<QPair<QString, double>> remaining;
+      for (const QVariant& f : app->cutFaces()) {
+        const QVariantMap m = f.toMap();
+        if (m.value("enabled").toBool()) remaining.append({m.value("face").toString(), m.value("position").toDouble()});
+      }
+      QVERIFY2(remaining.size() == expected.size(), qPrintable(name + QStringLiteral(": %1 planes left, the reference keeps %2").arg(remaining.size()).arg(expected.size())));
+      for (int i = 0; i < expected.size(); ++i) {
+        QCOMPARE(remaining.at(i).first, expected.at(i).toObject().value("sourceFaceId").toString());
+        QVERIFY2(std::fabs(remaining.at(i).second - expected.at(i).toObject().value("normalizedPosition").toDouble()) < 1e-9, qPrintable(name + " position"));
+      }
+      // Whether anything was removed agrees with the reference (it changes the history only when it removed something).
+      const bool referenceRemoved = s.value("after").toObject().value("undoDepth").toInt() > s.value("before").toObject().value("undoDepth").toInt();
+      QCOMPARE(removed, referenceRemoved);
+      if (!referenceRemoved) ++ignored;
+      if (generating) QVERIFY(waitFor([&] { return app->moldPhase() != "generating"; }, 120000));
+      ++replayed;
+    }
+    QVERIFY(replayed >= 5);
+    QVERIFY(ignored >= 2);  // an absent face and the generating guard
+  }
+
   void sprueWorkflowPlaceEditRegenerateRemove() {
     auto app = makeApp();
     app->importStlFile(bracket());

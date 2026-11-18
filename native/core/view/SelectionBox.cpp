@@ -1,5 +1,7 @@
 #include "view/SelectionBox.h"
 
+#include "geometry/ThreeRayTriangle.h"
+
 #include <algorithm>
 #include <cmath>
 #include <optional>
@@ -9,33 +11,6 @@ namespace craft {
 namespace {
 
 constexpr std::array<const char*, 6> kNames{"front", "back", "left", "right", "top", "bottom"};
-
-// Three.js Ray.intersectTriangle, double-sided (rayIntersectsTriangle in three/src/core/Raycaster path via
-// Ray.intersectTriangle): barycentric test with the boundary inclusive, parameter along the (unit) ray.
-std::optional<double> intersectTriangle(const Ray& ray, const Vec3& a, const Vec3& b, const Vec3& c) {
-  const Vec3 edge1 = b - a;
-  const Vec3 edge2 = c - a;
-  const Vec3 normal = edge1.cross(edge2);
-  double ddn = ray.direction.dot(normal);
-  double sign = 0;
-  if (ddn > 0) {
-    sign = 1;
-  } else if (ddn < 0) {
-    sign = -1;
-    ddn = -ddn;
-  } else {
-    return std::nullopt;
-  }
-  const Vec3 diff = ray.origin - a;
-  const double ddqxe2 = sign * ray.direction.dot(diff.cross(edge2));
-  if (ddqxe2 < 0) return std::nullopt;
-  const double dde1xq = sign * ray.direction.dot(edge1.cross(diff));
-  if (dde1xq < 0) return std::nullopt;
-  if (ddqxe2 + dde1xq > ddn) return std::nullopt;
-  const double qdn = -sign * diff.dot(normal);
-  if (qdn < 0) return std::nullopt;
-  return qdn / ddn;
-}
 
 
 std::optional<unsigned> parseCssHex(std::string_view text) {
@@ -107,7 +82,7 @@ std::vector<SelectionBoxHit> pickSelectionBoxFaces(const Ray& ray, const Bounds3
     const auto& c = quad.corners;
     // The reference splits each quad into (a,b,c) and (a,c,d).
     for (int half = 0; half < 2; ++half) {
-      const auto t = half == 0 ? intersectTriangle(ray, c[0], c[1], c[2]) : intersectTriangle(ray, c[0], c[2], c[3]);
+      const auto t = half == 0 ? intersectTriangleThree(ray, c[0], c[1], c[2], false) : intersectTriangleThree(ray, c[0], c[2], c[3], false);
       if (!t || *t < 0) continue;
       hits.push_back({quad.face, *t, ray.origin + ray.direction * *t});
     }

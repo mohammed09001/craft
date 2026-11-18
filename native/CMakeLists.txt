@@ -61,6 +61,8 @@ add_library(craft_core STATIC
   core/geometry/MeshAnalysis.cpp
   core/geometry/MeshAnalysis.h
   core/geometry/RayPicking.cpp
+  core/geometry/ThreeRayTriangle.cpp
+  core/geometry/ThreeRayTriangle.h
   core/geometry/RayPicking.h
   core/geometry/SignedDistance.cpp
   core/geometry/SignedDistance.h
@@ -133,6 +135,8 @@ add_library(craft_mold STATIC
   core/mold/SegmentationIdentity.cpp
   core/mold/SegmentationIdentity.h
   core/mold/SprueGeneration.cpp
+  core/mold/CuttingPlaneSlabs.cpp
+  core/mold/CuttingPlaneSlabs.h
   core/mold/SprueGizmo.cpp
   core/mold/SprueGizmo.h
   core/mold/SpruePreview.cpp

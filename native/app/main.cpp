@@ -203,12 +203,72 @@ class Smoke : public QObject {
     (*poll)();
 #endif
   }
+  // The Eraser through REAL mouse events: hovering a plane turns it red (after the 33 ms hover throttle), a click on it
+  // removes it, a click on empty space removes nothing.
+  void eraserEventsSequence() {
+#ifndef CRAFT_SMOKE_REAL_EVENTS
+    return fail(QStringLiteral("--eraser-events needs a build with CRAFT_BUILD_TESTS"));
+#else
+    QWindowSystemInterface::setSynchronousWindowSystemEvents(true);
+    auto* item = window_->findChild<QQuickItem*>(QStringLiteral("viewport"));
+    if (!item) return fail(QStringLiteral("the viewport item was not found"));
+    const int w = static_cast<int>(item->width()), h = static_cast<int>(item->height());
+    app_.camera()->setViewportSize(w, h);
+    app_.setCutFaceEnabled(QStringLiteral("left"), true);
+    app_.setCutFacePosition(QStringLiteral("left"), 0.7);
+    app_.setCutFaceEnabled(QStringLiteral("top"), true);
+    app_.setCutFacePosition(QStringLiteral("top"), 0.5);
+    app_.setCutFaceEnabled(QStringLiteral("front"), true);
+    app_.setTool(QStringLiteral("eraser"));
+    if (app_.tool() != "eraser") return fail(QStringLiteral("the Eraser tool was not available with three planes chosen"));
+    const auto send = [this, item](QEvent::Type type, QPoint local, Qt::MouseButton button, Qt::MouseButtons buttons) {
+      const QPointF scene = item->mapToScene(QPointF(local));
+      QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), buttons, button, type);
+    };
+    QPoint onPlane(-1, -1);
+    for (int y = h / 6; y < h * 5 / 6 && onPlane.x() < 0; y += 3)
+      for (int x = w / 8; x < w * 7 / 8 && onPlane.x() < 0; x += 3)
+        if (app_.eraserHoverAt(x, y, w, h)) onPlane = QPoint(x, y);
+    app_.eraserLeave();
+    if (onPlane.x() < 0) return fail(QStringLiteral("no pixel on a cutting plane"));
+
+    // Hover: the QML throttles it, so give the timer time to fire.
+    send(QEvent::MouseMove, onPlane, Qt::NoButton, Qt::NoButton);
+    QTimer::singleShot(120, this, [this, send, onPlane] {
+      if (app_.cutPlanes().value("hoveredFace").toString().isEmpty()) return fail(QStringLiteral("hovering a plane with the mouse did not highlight it"));
+      const int before = app_.cutPlanes().value("planeCount").toInt();
+      send(QEvent::MouseButtonPress, QPoint(3, 3), Qt::LeftButton, Qt::LeftButton);   // empty space: nothing happens
+      send(QEvent::MouseButtonRelease, QPoint(3, 3), Qt::LeftButton, Qt::NoButton);
+      if (app_.cutPlanes().value("planeCount").toInt() != before) return fail(QStringLiteral("a click on empty space removed a plane"));
+      send(QEvent::MouseButtonPress, onPlane, Qt::LeftButton, Qt::LeftButton);
+      send(QEvent::MouseButtonRelease, onPlane, Qt::LeftButton, Qt::NoButton);
+      if (app_.cutPlanes().value("planeCount").toInt() != before - 1) return fail(QStringLiteral("clicking a plane with the Eraser did not remove it (%1 planes, was %2)").arg(app_.cutPlanes().value("planeCount").toInt()).arg(before));
+      renderNow();
+    });
+#endif
+  }
   void render() {
+    if (eraserEvents_) return eraserEventsSequence();
     if (spruePreview_ && sprueGizmoEvents_) return gizmoEventsSequence();
     if (spruePreview_ && sprueGizmo_) return gizmoSequence();
     renderNow();
   }
+  // Cut by Face planes drawn as slabs, with the Eraser hovering one of them (red).
+  void eraserForSmoke() {
+    const int w = static_cast<int>(window_->width()), h = static_cast<int>(window_->height());
+    app_.camera()->setViewportSize(w, h);
+    app_.setCutFaceEnabled(QStringLiteral("left"), true);
+    app_.setCutFacePosition(QStringLiteral("left"), 0.7);
+    app_.setCutFaceEnabled(QStringLiteral("top"), true);
+    app_.setCutFacePosition(QStringLiteral("top"), 0.5);
+    app_.setCutFaceEnabled(QStringLiteral("front"), true);
+    app_.setTool(QStringLiteral("eraser"));
+    for (int y = h / 6; y < h * 5 / 6; y += 3)
+      for (int x = w / 8; x < w * 7 / 8; x += 3)
+        if (app_.eraserHoverAt(x, y, w, h)) return;
+  }
   void renderNow() {
+    if (eraser_) eraserForSmoke();
     if (spruePreview_) spruePreviewForSmoke();
     if (selectPart_) selectPartForSmoke();
     QTimer::singleShot(1500, this, [this] {
@@ -234,6 +294,7 @@ class Smoke : public QObject {
       s.insert("sprueCandidate", app_.sprueCandidate());
       s.insert("sprueGlass", app_.sprueGlass());
       s.insert("sprueGizmo", app_.sprueGizmo());
+      s.insert("cutPlanes", app_.cutPlanes());
       s.insert("selection", app_.selection());
       s.insert("engineeringReportsSummary", app_.engineeringReports());
       finish(s, !frame.isNull() && distinct > 50);
@@ -262,13 +323,14 @@ class Smoke : public QObject {
   void setSelectPart(bool value) { selectPart_ = value; }
   void setSpruePreview(bool value, bool invalid = false) { spruePreview_ = value; spruePreviewInvalid_ = invalid; }
   void setSprueGizmo(bool value, bool events = false) { sprueGizmo_ = value; sprueGizmoEvents_ = events; }
+  void setEraser(bool value, bool events = false) { eraser_ = value; eraserEvents_ = events; }
   void setScreenshot(const QString& path) { screenshot_ = path; }
 
  private:
   AppController& app_;
   QQuickWindow* window_;
   QString importPath_, summary_, screenshot_;
-  bool selectPart_ = false, spruePreview_ = false, spruePreviewInvalid_ = false, sprueGizmo_ = false, sprueGizmoEvents_ = false;
+  bool selectPart_ = false, spruePreview_ = false, spruePreviewInvalid_ = false, sprueGizmo_ = false, sprueGizmoEvents_ = false, eraser_ = false, eraserEvents_ = false;
   bool mold_, analyse_, moldability_;
   bool imported_ = false, moldDone_ = false, analysisDone_ = false, reportsDone_ = false, done_ = false;
 };
@@ -297,6 +359,8 @@ int main(int argc, char* argv[]) {
   parser.addOption({"sprue-preview", "Select the Sprue tool and preview the funnel on the generated mold (smoke test; use with --generate-mold)."});
   parser.addOption({"sprue-invalid", "With --sprue-preview: preview where the axis misses the cavity (the red case)."});
   parser.addOption({"sprue-gizmo", "With --sprue-preview: place a sprue, then drag one of its resize rings (smoke test)."});
+  parser.addOption({"eraser", "Enable three Cut by Face planes and hover one with the Eraser tool (smoke test)."});
+  parser.addOption({"eraser-events", "The Eraser through real mouse events: hover a plane, click empty space, click the plane (smoke test)."});
   parser.addOption({"sprue-gizmo-events", "With --sprue-preview: the same through real mouse events, plus a double click (smoke test)."});
   parser.process(application);
 
@@ -319,6 +383,7 @@ int main(int argc, char* argv[]) {
     smoke->setSelectPart(parser.isSet("select-part"));
     smoke->setSpruePreview(parser.isSet("sprue-preview"), parser.isSet("sprue-invalid"));
     smoke->setSprueGizmo(parser.isSet("sprue-gizmo"), parser.isSet("sprue-gizmo-events"));
+    smoke->setEraser(parser.isSet("eraser"), parser.isSet("eraser-events"));
     smoke->setScreenshot(parser.value("screenshot"));
     QTimer::singleShot(0, smoke.get(), [&smoke] { smoke->start(); });
   } else if (!parser.positionalArguments().isEmpty()) {

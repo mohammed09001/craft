@@ -221,6 +221,12 @@ ApplicationWindow {
             ToolButton { text: qsTr("Select"); checkable: true; checked: app.tool === "select"; onClicked: app.tool = "select" }
             ToolButton { text: qsTr("Measure"); checkable: true; checked: app.tool === "measure"; onClicked: app.tool = "measure" }
             ToolButton {
+                text: qsTr("Eraser"); checkable: true; checked: app.tool === "eraser"
+                enabled: app.eraserAvailable || app.tool === "eraser"
+                ToolTip.visible: hovered; ToolTip.text: qsTr("Click a cutting plane to remove it")
+                onClicked: app.tool = "eraser"
+            }
+            ToolButton {
                 text: qsTr("Sprue"); checkable: true; checked: app.tool === "sprue"
                 enabled: app.moldPhase === "complete"
                 onClicked: app.tool = "sprue"

@@ -1,0 +1,2163 @@
+{
+ "generatedFrom": "mold/frontend/src/features/viewport/runtime/cuttingPlane3dRuntime.ts and split-face/splitFace.store.ts",
+ "viewport": {
+  "width": 800,
+  "height": 600
+ },
+ "camera": {
+  "fov": 45,
+  "near": 0.1,
+  "far": 1000,
+  "position": {
+   "x": 45,
+   "y": -70,
+   "z": 75
+  },
+  "target": {
+   "x": 0,
+   "y": 0,
+   "z": 15
+  },
+  "up": {
+   "x": 0,
+   "y": 0,
+   "z": 1
+  }
+ },
+ "k1": {
+  "min": {
+   "x": -20,
+   "y": -15,
+   "z": 0
+  },
+  "max": {
+   "x": 20,
+   "y": 15,
+   "z": 12
+  }
+ },
+ "k2": {
+  "min": {
+   "x": -30,
+   "y": -25,
+   "z": -10
+  },
+  "max": {
+   "x": 30,
+   "y": 25,
+   "z": 22
+  }
+ },
+ "clearanceMm": 10,
+ "records": [
+  {
+   "id": "cutting-plane:front",
+   "sourceFaceId": "front",
+   "axis": "y",
+   "normalizedPosition": 0.999999,
+   "enabled": true,
+   "worldCoordinate": 14.999969999999998
+  },
+  {
+   "id": "cutting-plane:top",
+   "sourceFaceId": "top",
+   "axis": "z",
+   "normalizedPosition": 0.4,
+   "enabled": true,
+   "worldCoordinate": 4.800000000000001
+  },
+  {
+   "id": "cutting-plane:left",
+   "sourceFaceId": "left",
+   "axis": "x",
+   "normalizedPosition": 0.75,
+   "enabled": true,
+   "worldCoordinate": 10
+  },
+  {
+   "id": "cutting-plane:bottom",
+   "sourceFaceId": "bottom",
+   "axis": "z",
+   "normalizedPosition": 0.000001,
+   "enabled": true,
+   "worldCoordinate": 0.000012
+  },
+  {
+   "id": "cutting-plane:right",
+   "sourceFaceId": "right",
+   "axis": "x",
+   "normalizedPosition": 0.999999,
+   "enabled": false,
+   "worldCoordinate": 19.99996
+  }
+ ],
+ "slabs": [
+  {
+   "planeId": "cutting-plane:front",
+   "position": {
+    "x": 0,
+    "y": 14.999969999999998,
+    "z": 6
+   },
+   "dims": {
+    "width": 60,
+    "height": 0.02,
+    "depth": 32
+   },
+   "idle": {
+    "colorHex": 16096779,
+    "opacity": 0.22,
+    "transparent": true,
+    "depthWrite": false,
+    "doubleSided": true
+   },
+   "edges": {
+    "colorHex": 16096779,
+    "opacity": 0.7,
+    "vertexCount": 24
+   }
+  },
+  {
+   "planeId": "cutting-plane:top",
+   "position": {
+    "x": 0,
+    "y": 0,
+    "z": 4.800000000000001
+   },
+   "dims": {
+    "width": 60,
+    "height": 50,
+    "depth": 0.02
+   },
+   "idle": {
+    "colorHex": 16096779,
+    "opacity": 0.22,
+    "transparent": true,
+    "depthWrite": false,
+    "doubleSided": true
+   },
+   "edges": {
+    "colorHex": 16096779,
+    "opacity": 0.7,
+    "vertexCount": 24
+   }
+  },
+  {
+   "planeId": "cutting-plane:left",
+   "position": {
+    "x": 10,
+    "y": 0,
+    "z": 6
+   },
+   "dims": {
+    "width": 0.02,
+    "height": 50,
+    "depth": 32
+   },
+   "idle": {
+    "colorHex": 16096779,
+    "opacity": 0.22,
+    "transparent": true,
+    "depthWrite": false,
+    "doubleSided": true
+   },
+   "edges": {
+    "colorHex": 16096779,
+    "opacity": 0.7,
+    "vertexCount": 24
+   }
+  },
+  {
+   "planeId": "cutting-plane:bottom",
+   "position": {
+    "x": 0,
+    "y": 0,
+    "z": 0.000012
+   },
+   "dims": {
+    "width": 60,
+    "height": 50,
+    "depth": 0.02
+   },
+   "idle": {
+    "colorHex": 16096779,
+    "opacity": 0.22,
+    "transparent": true,
+    "depthWrite": false,
+    "doubleSided": true
+   },
+   "edges": {
+    "colorHex": 16096779,
+    "opacity": 0.7,
+    "vertexCount": 24
+   }
+  }
+ ],
+ "hoverLook": {
+  "colorHex": 15675448,
+  "opacity": 0.42,
+  "edgeColorHex": 15675448,
+  "edgeOpacity": 1
+ },
+ "picks": [
+  {
+   "label": "cutting-plane:front@0,0,0",
+   "x": 449.74823354703767,
+   "y": 299.51517343841624,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.38017016060841297,
+     "y": 0.7180989388135626,
+     "z": -0.5829275795995665
+    }
+   },
+   "hovered": "cutting-plane:left",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:front@0,0,0+edge",
+   "x": 454.74823354703767,
+   "y": 296.51517343841624,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.37549327548968725,
+     "y": 0.7234895801806266,
+     "z": -0.5792819930155663
+    }
+   },
+   "hovered": "cutting-plane:left",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:front@0.45,0.2,0",
+   "x": 610.125204807193,
+   "y": 357.6549709656193,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.16223015141021477,
+     "y": 0.7661226068649309,
+     "z": -0.6218822470724673
+    }
+   },
+   "hovered": "cutting-plane:front",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:front@0.45,0.2,0+edge",
+   "x": 615.125204807193,
+   "y": 354.6549709656193,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.15767726342007168,
+     "y": 0.7704448167173833,
+     "z": -0.6176994940856559
+    }
+   },
+   "hovered": "cutting-plane:front",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:front@-0.45,-0.3,0",
+   "x": 318.5942717347868,
+   "y": 251.97676565953574,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5494906577695252,
+     "y": 0.6486582289131136,
+     "z": -0.5265952136957921
+    }
+   },
+   "hovered": "cutting-plane:front",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:front@-0.45,-0.3,0+edge",
+   "x": 323.5942717347868,
+   "y": 248.97676565953574,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5452827832000857,
+     "y": 0.6546825214138244,
+     "z": -0.5235049975891402
+    }
+   },
+   "hovered": "cutting-plane:front",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:front@0.49,0.49,0.5",
+   "x": 648.2192822679796,
+   "y": 271.554913965794,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.15386814632142506,
+     "y": 0.8384804954557924,
+     "z": -0.5227571637843117
+    }
+   },
+   "hovered": "cutting-plane:front",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:front@0.49,0.49,0.5+edge",
+   "x": 653.2192822679796,
+   "y": 268.554913965794,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.14927559061713633,
+     "y": 0.8420110074572579,
+     "z": -0.5183958539250855
+    }
+   },
+   "hovered": null,
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:front@-0.49,0.2,-0.5",
+   "x": 314.246149836471,
+   "y": 318.5744259781244,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5262712128330215,
+     "y": 0.6012787955311971,
+     "z": -0.6012507135861158
+    }
+   },
+   "hovered": "cutting-plane:top",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:front@-0.49,0.2,-0.5+edge",
+   "x": 319.246149836471,
+   "y": 315.5744259781244,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5222656355887795,
+     "y": 0.6075416688135173,
+     "z": -0.5984410802563063
+    }
+   },
+   "hovered": "cutting-plane:top",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:front@0.3,-0.45,0.4",
+   "x": 563.9445314331776,
+   "y": 266.39949302832525,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.25614686645962054,
+     "y": 0.8063026164023337,
+     "z": -0.5331649590752083
+    }
+   },
+   "hovered": "cutting-plane:front",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:front@0.3,-0.45,0.4+edge",
+   "x": 568.9445314331776,
+   "y": 263.39949302832525,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.2513390993009021,
+     "y": 0.8105512974398552,
+     "z": -0.5289945664949486
+    }
+   },
+   "hovered": "cutting-plane:front",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:top@0,0,0",
+   "x": 400,
+   "y": 355.19996228834384,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.41333067641373544,
+     "y": 0.6429588299769218,
+     "z": -0.6447958552054067
+    }
+   },
+   "hovered": "cutting-plane:left",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:top@0,0,0+edge",
+   "x": 405,
+   "y": 352.19996228834384,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.4089617432489073,
+     "y": 0.6488958391420313,
+     "z": -0.6416264353211876
+    }
+   },
+   "hovered": "cutting-plane:left",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:top@0.45,0.2,0",
+   "x": 596.7014963808105,
+   "y": 383.19486613178015,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.16675218053770324,
+     "y": 0.7411208023897505,
+     "z": -0.6503335040970085
+    }
+   },
+   "hovered": "cutting-plane:top",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:top@0.45,0.2,0+edge",
+   "x": 601.7014963808105,
+   "y": 380.19486613178015,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.16222516165976059,
+     "y": 0.7456746524447866,
+     "z": -0.6462602491456605
+    }
+   },
+   "hovered": "cutting-plane:top",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:top@-0.45,-0.3,0",
+   "x": 197.35767020515905,
+   "y": 346.77036767700747,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.6281794649447744,
+     "y": 0.4798593134994741,
+     "z": -0.612474978321164
+    }
+   },
+   "hovered": "cutting-plane:top",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:top@-0.45,-0.3,0+edge",
+   "x": 202.35767020515905,
+   "y": 343.77036767700747,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.6251094655756179,
+     "y": 0.4863805902394186,
+     "z": -0.6104687358793405
+    }
+   },
+   "hovered": "cutting-plane:top",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:top@0.49,0.49,0.5",
+   "x": 644.7850337511829,
+   "y": 335.5171746497179,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.13137455319217736,
+     "y": 0.7958266202987557,
+     "z": -0.5911012749076219
+    }
+   },
+   "hovered": "cutting-plane:top",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:top@0.49,0.49,0.5+edge",
+   "x": 649.7850337511829,
+   "y": 332.5171746497179,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.12687328471326617,
+     "y": 0.7997405095084053,
+     "z": -0.5867864066909722
+    }
+   },
+   "hovered": null,
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:top@-0.49,0.2,-0.5",
+   "x": 290.9040927248529,
+   "y": 266.4871358026448,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5729045680814395,
+     "y": 0.6160264172918474,
+     "z": -0.5406401844757656
+    }
+   },
+   "hovered": "cutting-plane:top",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:top@-0.49,0.2,-0.5+edge",
+   "x": 295.9040927248529,
+   "y": 263.4871358026448,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5689153072056461,
+     "y": 0.6222225025371246,
+     "z": -0.5377495054052055
+    }
+   },
+   "hovered": "cutting-plane:top",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:top@0.3,-0.45,0.4",
+   "x": 425.2516532514073,
+   "y": 512.5037623578615,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.3035400807172303,
+     "y": 0.5340056975580819,
+     "z": -0.7891142720631046
+    }
+   },
+   "hovered": "cutting-plane:top",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:top@0.3,-0.45,0.4+edge",
+   "x": 430.2516532514073,
+   "y": 509.50376235786155,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.29948690425441105,
+     "y": 0.5400082377245947,
+     "z": -0.7865740253591434
+    }
+   },
+   "hovered": "cutting-plane:top",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:left@0,0,0",
+   "x": 458.8811312080502,
+   "y": 373.23860736166563,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.3354546986695068,
+     "y": 0.6709093973390136,
+     "z": -0.6613249773770473
+    }
+   },
+   "hovered": "cutting-plane:left",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:left@0,0,0+edge",
+   "x": 463.8811312080502,
+   "y": 370.23860736166563,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.3309380601400407,
+     "y": 0.6765160529089482,
+     "z": -0.657879951440416
+    }
+   },
+   "hovered": "cutting-plane:left",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:left@0.45,0.2,0",
+   "x": 490.8018680499917,
+   "y": 336.4218164051807,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.31441398877192434,
+     "y": 0.7188453917222684,
+     "z": -0.6200041503604525
+    }
+   },
+   "hovered": "cutting-plane:left",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:left@0.45,0.2,0+edge",
+   "x": 495.8018680499917,
+   "y": 333.4218164051807,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.3097476187299126,
+     "y": 0.724074142275302,
+     "z": -0.6162572913803408
+    }
+   },
+   "hovered": "cutting-plane:left",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:left@-0.45,-0.3,0",
+   "x": 402.2748369288581,
+   "y": 438.57522352957574,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.3687890585767973,
+     "y": 0.5793766809027414,
+     "z": -0.7268543814961582
+    }
+   },
+   "hovered": "cutting-plane:left",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:left@-0.45,-0.3,0+edge",
+   "x": 407.2748369288581,
+   "y": 435.57522352957574,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.36463190173050036,
+     "y": 0.5854619494462207,
+     "z": -0.7240703570724532
+    }
+   },
+   "hovered": "cutting-plane:left",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:left@0.49,0.49,0.5",
+   "x": 541.6103546989165,
+   "y": 204.81157916223225,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.307315323089301,
+     "y": 0.8299837677961173,
+     "z": -0.46549354172692825
+    }
+   },
+   "hovered": "cutting-plane:left",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:left@0.49,0.49,0.5+edge",
+   "x": 546.6103546989165,
+   "y": 201.81157916223225,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.3023865779938691,
+     "y": 0.8340798443731073,
+     "z": -0.4613818057311002
+    }
+   },
+   "hovered": null,
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:left@-0.49,0.2,-0.5",
+   "x": 483.59873332440617,
+   "y": 412.0928231242783,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.2872872622148949,
+     "y": 0.6564727869679833,
+     "z": -0.6975023361534778
+    }
+   },
+   "hovered": "cutting-plane:top",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:left@-0.49,0.2,-0.5+edge",
+   "x": 488.59873332440617,
+   "y": 409.0928231242783,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.2828203635647776,
+     "y": 0.6620189596186756,
+     "z": -0.6940774733835506
+    }
+   },
+   "hovered": "cutting-plane:top",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:left@0.3,-0.45,0.4",
+   "x": 366.3125846913111,
+   "y": 400.168950552749,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.42947058229131163,
+     "y": 0.5829528678869919,
+     "z": -0.6897252878999679
+    }
+   },
+   "hovered": "cutting-plane:left",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:left@0.3,-0.45,0.4+edge",
+   "x": 371.3125846913111,
+   "y": 397.168950552749,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.425379573834647,
+     "y": 0.5891605370975646,
+     "z": -0.6869804070649784
+    }
+   },
+   "hovered": "cutting-plane:left",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:bottom@0,0,0",
+   "x": 400,
+   "y": 379.1300716871907,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.4016896872161378,
+     "y": 0.6248506245584288,
+     "z": -0.6694827049096511
+    }
+   },
+   "hovered": "cutting-plane:left",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:bottom@0,0,0+edge",
+   "x": 405,
+   "y": 376.1300716871907,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.3973841754904257,
+     "y": 0.6308493727038607,
+     "z": -0.6664194520187268
+    }
+   },
+   "hovered": "cutting-plane:left",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:bottom@0.45,0.2,0",
+   "x": 591.5090222221324,
+   "y": 407.51557997343747,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.16197822719998306,
+     "y": 0.7199032319999322,
+     "z": -0.6749091720144292
+    }
+   },
+   "hovered": "cutting-plane:top",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:bottom@0.45,0.2,0+edge",
+   "x": 596.5090222221324,
+   "y": 404.51557997343747,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.1574954344567667,
+     "y": 0.7246014847039565,
+     "z": -0.6709306048244456
+    }
+   },
+   "hovered": "cutting-plane:top",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:bottom@-0.45,-0.3,0",
+   "x": 202.39311875597522,
+   "y": 370.56926474051994,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.6121511067407235,
+     "y": 0.4676154287602746,
+     "z": -0.6376573008297262
+    }
+   },
+   "hovered": "cutting-plane:top",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:bottom@-0.45,-0.3,0+edge",
+   "x": 207.39311875597522,
+   "y": 367.56926474051994,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.6090999299125497,
+     "y": 0.47414572152985013,
+     "z": -0.6357539698149474
+    }
+   },
+   "hovered": "cutting-plane:top",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:bottom@0.49,0.49,0.5",
+   "x": 638.8189258189265,
+   "y": 359.1343616377039,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.12824373916931833,
+     "y": 0.7768611122756942,
+     "z": -0.6164741321399002
+    }
+   },
+   "hovered": "cutting-plane:bottom",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:bottom@0.49,0.49,0.5+edge",
+   "x": 643.8189258189265,
+   "y": 356.1343616377039,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.12376711051866637,
+     "y": 0.780946855292234,
+     "z": -0.6122121458800295
+    }
+   },
+   "hovered": null,
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:bottom@-0.49,0.2,-0.5",
+   "x": 293.24036151329943,
+   "y": 288.7162696018335,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.561419769058239,
+     "y": 0.6036771710303657,
+     "z": -0.5660227169357853
+    }
+   },
+   "hovered": "cutting-plane:top",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:bottom@-0.49,0.2,-0.5+edge",
+   "x": 298.24036151329943,
+   "y": 285.7162696018335,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.5574736778010604,
+     "y": 0.6099354382876815,
+     "z": -0.563206764589856
+    }
+   },
+   "hovered": "cutting-plane:top",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:bottom@0.3,-0.45,0.4",
+   "x": 424.44713503202524,
+   "y": 537.7371950687724,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.2909954462841986,
+     "y": 0.5119364332777553,
+     "z": -0.808234333918518
+    }
+   },
+   "hovered": "cutting-plane:bottom",
+   "cursor": ""
+  },
+  {
+   "label": "cutting-plane:bottom@0.3,-0.45,0.4+edge",
+   "x": 429.44713503202524,
+   "y": 534.7371950687724,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.28700815568952304,
+     "y": 0.5179280167914986,
+     "z": -0.8058392445085582
+    }
+   },
+   "hovered": "cutting-plane:top",
+   "cursor": ""
+  },
+  {
+   "label": "far-corner",
+   "x": 4,
+   "y": 4,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.8488855466210846,
+     "y": 0.485400921747308,
+     "z": -0.2092349729483247
+    }
+   },
+   "hovered": null,
+   "cursor": ""
+  },
+  {
+   "label": "far-corner-2",
+   "x": 796,
+   "y": 596,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": 0.1243362711109314,
+     "y": 0.6416757290462541,
+     "z": -0.7568307277318933
+    }
+   },
+   "hovered": null,
+   "cursor": ""
+  },
+  {
+   "label": "mid-left",
+   "x": 6,
+   "y": 300,
+   "ray": {
+    "origin": {
+     "x": 45,
+     "y": -70,
+     "z": 75
+    },
+    "direction": {
+     "x": -0.7872811769582592,
+     "y": 0.34095973590429957,
+     "z": -0.5137458582794496
+    }
+   },
+   "hovered": null,
+   "cursor": ""
+  }
+ ],
+ "presses": [
+  {
+   "label": "cutting-plane:front@0,0,0",
+   "erased": [
+    "left"
+   ]
+  },
+  {
+   "label": "cutting-plane:front@0,0,0+edge",
+   "erased": [
+    "left"
+   ]
+  },
+  {
+   "label": "cutting-plane:front@0.45,0.2,0",
+   "erased": [
+    "front"
+   ]
+  },
+  {
+   "label": "cutting-plane:front@0.45,0.2,0+edge",
+   "erased": [
+    "front"
+   ]
+  },
+  {
+   "label": "cutting-plane:front@-0.45,-0.3,0",
+   "erased": [
+    "front"
+   ]
+  },
+  {
+   "label": "cutting-plane:front@-0.45,-0.3,0+edge",
+   "erased": [
+    "front"
+   ]
+  },
+  {
+   "label": "cutting-plane:front@0.49,0.49,0.5",
+   "erased": [
+    "front"
+   ]
+  },
+  {
+   "label": "cutting-plane:front@0.49,0.49,0.5+edge",
+   "erased": []
+  },
+  {
+   "label": "cutting-plane:front@-0.49,0.2,-0.5",
+   "erased": [
+    "top"
+   ]
+  },
+  {
+   "label": "cutting-plane:front@-0.49,0.2,-0.5+edge",
+   "erased": [
+    "top"
+   ]
+  },
+  {
+   "label": "cutting-plane:front@0.3,-0.45,0.4",
+   "erased": [
+    "front"
+   ]
+  },
+  {
+   "label": "cutting-plane:front@0.3,-0.45,0.4+edge",
+   "erased": [
+    "front"
+   ]
+  },
+  {
+   "label": "cutting-plane:top@0,0,0",
+   "erased": [
+    "left"
+   ]
+  },
+  {
+   "label": "cutting-plane:top@0,0,0+edge",
+   "erased": [
+    "left"
+   ]
+  },
+  {
+   "label": "cutting-plane:top@0.45,0.2,0",
+   "erased": [
+    "top"
+   ]
+  },
+  {
+   "label": "cutting-plane:top@0.45,0.2,0+edge",
+   "erased": [
+    "top"
+   ]
+  },
+  {
+   "label": "cutting-plane:top@-0.45,-0.3,0",
+   "erased": [
+    "top"
+   ]
+  },
+  {
+   "label": "cutting-plane:top@-0.45,-0.3,0+edge",
+   "erased": [
+    "top"
+   ]
+  },
+  {
+   "label": "cutting-plane:top@0.49,0.49,0.5",
+   "erased": [
+    "top"
+   ]
+  },
+  {
+   "label": "cutting-plane:top@0.49,0.49,0.5+edge",
+   "erased": []
+  },
+  {
+   "label": "cutting-plane:top@-0.49,0.2,-0.5",
+   "erased": [
+    "top"
+   ]
+  },
+  {
+   "label": "cutting-plane:top@-0.49,0.2,-0.5+edge",
+   "erased": [
+    "top"
+   ]
+  },
+  {
+   "label": "cutting-plane:top@0.3,-0.45,0.4",
+   "erased": [
+    "top"
+   ]
+  },
+  {
+   "label": "cutting-plane:top@0.3,-0.45,0.4+edge",
+   "erased": [
+    "top"
+   ]
+  },
+  {
+   "label": "cutting-plane:left@0,0,0",
+   "erased": [
+    "left"
+   ]
+  },
+  {
+   "label": "cutting-plane:left@0,0,0+edge",
+   "erased": [
+    "left"
+   ]
+  },
+  {
+   "label": "cutting-plane:left@0.45,0.2,0",
+   "erased": [
+    "left"
+   ]
+  },
+  {
+   "label": "cutting-plane:left@0.45,0.2,0+edge",
+   "erased": [
+    "left"
+   ]
+  },
+  {
+   "label": "cutting-plane:left@-0.45,-0.3,0",
+   "erased": [
+    "left"
+   ]
+  },
+  {
+   "label": "cutting-plane:left@-0.45,-0.3,0+edge",
+   "erased": [
+    "left"
+   ]
+  },
+  {
+   "label": "cutting-plane:left@0.49,0.49,0.5",
+   "erased": [
+    "left"
+   ]
+  },
+  {
+   "label": "cutting-plane:left@0.49,0.49,0.5+edge",
+   "erased": []
+  },
+  {
+   "label": "cutting-plane:left@-0.49,0.2,-0.5",
+   "erased": [
+    "top"
+   ]
+  },
+  {
+   "label": "cutting-plane:left@-0.49,0.2,-0.5+edge",
+   "erased": [
+    "top"
+   ]
+  },
+  {
+   "label": "cutting-plane:left@0.3,-0.45,0.4",
+   "erased": [
+    "left"
+   ]
+  },
+  {
+   "label": "cutting-plane:left@0.3,-0.45,0.4+edge",
+   "erased": [
+    "left"
+   ]
+  },
+  {
+   "label": "cutting-plane:bottom@0,0,0",
+   "erased": [
+    "left"
+   ]
+  },
+  {
+   "label": "cutting-plane:bottom@0,0,0+edge",
+   "erased": [
+    "left"
+   ]
+  },
+  {
+   "label": "cutting-plane:bottom@0.45,0.2,0",
+   "erased": [
+    "top"
+   ]
+  },
+  {
+   "label": "cutting-plane:bottom@0.45,0.2,0+edge",
+   "erased": [
+    "top"
+   ]
+  },
+  {
+   "label": "cutting-plane:bottom@-0.45,-0.3,0",
+   "erased": [
+    "top"
+   ]
+  },
+  {
+   "label": "cutting-plane:bottom@-0.45,-0.3,0+edge",
+   "erased": [
+    "top"
+   ]
+  },
+  {
+   "label": "cutting-plane:bottom@0.49,0.49,0.5",
+   "erased": [
+    "bottom"
+   ]
+  },
+  {
+   "label": "cutting-plane:bottom@0.49,0.49,0.5+edge",
+   "erased": []
+  },
+  {
+   "label": "cutting-plane:bottom@-0.49,0.2,-0.5",
+   "erased": [
+    "top"
+   ]
+  },
+  {
+   "label": "cutting-plane:bottom@-0.49,0.2,-0.5+edge",
+   "erased": [
+    "top"
+   ]
+  },
+  {
+   "label": "cutting-plane:bottom@0.3,-0.45,0.4",
+   "erased": [
+    "bottom"
+   ]
+  },
+  {
+   "label": "cutting-plane:bottom@0.3,-0.45,0.4+edge",
+   "erased": [
+    "top"
+   ]
+  },
+  {
+   "label": "far-corner",
+   "erased": []
+  },
+  {
+   "label": "far-corner-2",
+   "erased": []
+  },
+  {
+   "label": "mid-left",
+   "erased": []
+  }
+ ],
+ "secondaryPress": {
+  "erased": []
+ },
+ "deactivate": {
+  "hoverBefore": "cutting-plane:left",
+  "hoverAfter": null
+ },
+ "lifecycle": [
+  {
+   "name": "remove-keeps-the-rest",
+   "faces": [
+    "front",
+    "back"
+   ],
+   "parts": false,
+   "remove": "front",
+   "how": "remove",
+   "before": {
+    "selectedFaceIds": [
+     "front",
+     "back"
+    ],
+    "selectedSplitFaceId": "back",
+    "planes": [
+     {
+      "id": "cutting-plane:front",
+      "sourceFaceId": "front",
+      "axis": "y",
+      "normalizedPosition": 0.999999,
+      "enabled": true,
+      "creationOrder": 0
+     },
+     {
+      "id": "cutting-plane:back",
+      "sourceFaceId": "back",
+      "axis": "y",
+      "normalizedPosition": 0.000001,
+      "enabled": true,
+      "creationOrder": 1
+     }
+    ],
+    "workflow": "planesReady",
+    "definitionNull": true,
+    "bodyCount": null,
+    "cavityStatus": "unavailable",
+    "undoDepth": 3,
+    "redoDepth": 0,
+    "revision": 2,
+    "activePlaneId": null,
+    "error": null
+   },
+   "after": {
+    "selectedFaceIds": [
+     "back"
+    ],
+    "selectedSplitFaceId": "back",
+    "planes": [
+     {
+      "id": "cutting-plane:back",
+      "sourceFaceId": "back",
+      "axis": "y",
+      "normalizedPosition": 0.000001,
+      "enabled": true,
+      "creationOrder": 1
+     }
+    ],
+    "workflow": "planesReady",
+    "definitionNull": true,
+    "bodyCount": null,
+    "cavityStatus": "unavailable",
+    "undoDepth": 4,
+    "redoDepth": 0,
+    "revision": 3,
+    "activePlaneId": null,
+    "error": null
+   },
+   "returned": null
+  },
+  {
+   "name": "remove-last-returns-to-selection",
+   "faces": [
+    "top"
+   ],
+   "parts": false,
+   "remove": "top",
+   "how": "remove",
+   "before": {
+    "selectedFaceIds": [
+     "top"
+    ],
+    "selectedSplitFaceId": "top",
+    "planes": [
+     {
+      "id": "cutting-plane:top",
+      "sourceFaceId": "top",
+      "axis": "z",
+      "normalizedPosition": 0.999999,
+      "enabled": true,
+      "creationOrder": 4
+     }
+    ],
+    "workflow": "planesReady",
+    "definitionNull": true,
+    "bodyCount": null,
+    "cavityStatus": "unavailable",
+    "undoDepth": 2,
+    "redoDepth": 0,
+    "revision": 1,
+    "activePlaneId": null,
+    "error": null
+   },
+   "after": {
+    "selectedFaceIds": [],
+    "selectedSplitFaceId": null,
+    "planes": [],
+    "workflow": "selectingFaces",
+    "definitionNull": true,
+    "bodyCount": null,
+    "cavityStatus": "unavailable",
+    "undoDepth": 3,
+    "redoDepth": 0,
+    "revision": 2,
+    "activePlaneId": null,
+    "error": null
+   },
+   "returned": null
+  },
+  {
+   "name": "remove-absent-face-does-nothing",
+   "faces": [
+    "left"
+   ],
+   "parts": false,
+   "remove": "right",
+   "how": "remove",
+   "before": {
+    "selectedFaceIds": [
+     "left"
+    ],
+    "selectedSplitFaceId": "left",
+    "planes": [
+     {
+      "id": "cutting-plane:left",
+      "sourceFaceId": "left",
+      "axis": "x",
+      "normalizedPosition": 0.000001,
+      "enabled": true,
+      "creationOrder": 2
+     }
+    ],
+    "workflow": "planesReady",
+    "definitionNull": true,
+    "bodyCount": null,
+    "cavityStatus": "unavailable",
+    "undoDepth": 2,
+    "redoDepth": 0,
+    "revision": 1,
+    "activePlaneId": null,
+    "error": null
+   },
+   "after": {
+    "selectedFaceIds": [
+     "left"
+    ],
+    "selectedSplitFaceId": "left",
+    "planes": [
+     {
+      "id": "cutting-plane:left",
+      "sourceFaceId": "left",
+      "axis": "x",
+      "normalizedPosition": 0.000001,
+      "enabled": true,
+      "creationOrder": 2
+     }
+    ],
+    "workflow": "planesReady",
+    "definitionNull": true,
+    "bodyCount": null,
+    "cavityStatus": "unavailable",
+    "undoDepth": 2,
+    "redoDepth": 0,
+    "revision": 1,
+    "activePlaneId": null,
+    "error": null
+   },
+   "returned": null
+  },
+  {
+   "name": "remove-three-keeps-order",
+   "faces": [
+    "bottom",
+    "front",
+    "right"
+   ],
+   "parts": false,
+   "remove": "front",
+   "how": "remove",
+   "before": {
+    "selectedFaceIds": [
+     "front",
+     "right",
+     "bottom"
+    ],
+    "selectedSplitFaceId": "right",
+    "planes": [
+     {
+      "id": "cutting-plane:front",
+      "sourceFaceId": "front",
+      "axis": "y",
+      "normalizedPosition": 0.999999,
+      "enabled": true,
+      "creationOrder": 0
+     },
+     {
+      "id": "cutting-plane:right",
+      "sourceFaceId": "right",
+      "axis": "x",
+      "normalizedPosition": 0.999999,
+      "enabled": true,
+      "creationOrder": 3
+     },
+     {
+      "id": "cutting-plane:bottom",
+      "sourceFaceId": "bottom",
+      "axis": "z",
+      "normalizedPosition": 0.000001,
+      "enabled": true,
+      "creationOrder": 5
+     }
+    ],
+    "workflow": "planesReady",
+    "definitionNull": true,
+    "bodyCount": null,
+    "cavityStatus": "unavailable",
+    "undoDepth": 4,
+    "redoDepth": 0,
+    "revision": 3,
+    "activePlaneId": null,
+    "error": null
+   },
+   "after": {
+    "selectedFaceIds": [
+     "right",
+     "bottom"
+    ],
+    "selectedSplitFaceId": "right",
+    "planes": [
+     {
+      "id": "cutting-plane:right",
+      "sourceFaceId": "right",
+      "axis": "x",
+      "normalizedPosition": 0.999999,
+      "enabled": true,
+      "creationOrder": 3
+     },
+     {
+      "id": "cutting-plane:bottom",
+      "sourceFaceId": "bottom",
+      "axis": "z",
+      "normalizedPosition": 0.000001,
+      "enabled": true,
+      "creationOrder": 5
+     }
+    ],
+    "workflow": "planesReady",
+    "definitionNull": true,
+    "bodyCount": null,
+    "cavityStatus": "unavailable",
+    "undoDepth": 5,
+    "redoDepth": 0,
+    "revision": 4,
+    "activePlaneId": null,
+    "error": null
+   },
+   "returned": null
+  },
+  {
+   "name": "remove-ignored-while-generating-parts",
+   "faces": [
+    "front",
+    "back"
+   ],
+   "parts": false,
+   "remove": "front",
+   "how": "remove",
+   "generating": true,
+   "before": {
+    "selectedFaceIds": [
+     "front",
+     "back"
+    ],
+    "selectedSplitFaceId": "back",
+    "planes": [
+     {
+      "id": "cutting-plane:front",
+      "sourceFaceId": "front",
+      "axis": "y",
+      "normalizedPosition": 0.999999,
+      "enabled": true,
+      "creationOrder": 0
+     },
+     {
+      "id": "cutting-plane:back",
+      "sourceFaceId": "back",
+      "axis": "y",
+      "normalizedPosition": 0.000001,
+      "enabled": true,
+      "creationOrder": 1
+     }
+    ],
+    "workflow": "generatingParts",
+    "definitionNull": true,
+    "bodyCount": null,
+    "cavityStatus": "unavailable",
+    "undoDepth": 3,
+    "redoDepth": 0,
+    "revision": 2,
+    "activePlaneId": null,
+    "error": null
+   },
+   "after": {
+    "selectedFaceIds": [
+     "front",
+     "back"
+    ],
+    "selectedSplitFaceId": "back",
+    "planes": [
+     {
+      "id": "cutting-plane:front",
+      "sourceFaceId": "front",
+      "axis": "y",
+      "normalizedPosition": 0.999999,
+      "enabled": true,
+      "creationOrder": 0
+     },
+     {
+      "id": "cutting-plane:back",
+      "sourceFaceId": "back",
+      "axis": "y",
+      "normalizedPosition": 0.000001,
+      "enabled": true,
+      "creationOrder": 1
+     }
+    ],
+    "workflow": "generatingParts",
+    "definitionNull": true,
+    "bodyCount": null,
+    "cavityStatus": "unavailable",
+    "undoDepth": 3,
+    "redoDepth": 0,
+    "revision": 2,
+    "activePlaneId": null,
+    "error": null
+   },
+   "returned": null
+  },
+  {
+   "name": "rebuild-after-remove",
+   "faces": [
+    "front",
+    "right"
+   ],
+   "parts": true,
+   "remove": "right",
+   "how": "rebuild",
+   "before": {
+    "selectedFaceIds": [
+     "front",
+     "right"
+    ],
+    "selectedSplitFaceId": "right",
+    "planes": [
+     {
+      "id": "cutting-plane:front",
+      "sourceFaceId": "front",
+      "axis": "y",
+      "normalizedPosition": 0.999999,
+      "enabled": true,
+      "creationOrder": 0
+     },
+     {
+      "id": "cutting-plane:right",
+      "sourceFaceId": "right",
+      "axis": "x",
+      "normalizedPosition": 0.999999,
+      "enabled": true,
+      "creationOrder": 3
+     }
+    ],
+    "workflow": "partsReady",
+    "definitionNull": false,
+    "bodyCount": 4,
+    "cavityStatus": "ready",
+    "undoDepth": 4,
+    "redoDepth": 0,
+    "revision": 3,
+    "activePlaneId": null,
+    "error": null
+   },
+   "after": {
+    "selectedFaceIds": [
+     "front"
+    ],
+    "selectedSplitFaceId": "front",
+    "planes": [
+     {
+      "id": "cutting-plane:front",
+      "sourceFaceId": "front",
+      "axis": "y",
+      "normalizedPosition": 0.999999,
+      "enabled": true,
+      "creationOrder": 0
+     }
+    ],
+    "workflow": "partsReady",
+    "definitionNull": false,
+    "bodyCount": 2,
+    "cavityStatus": "ready",
+    "undoDepth": 5,
+    "redoDepth": 0,
+    "revision": 4,
+    "activePlaneId": null,
+    "error": null
+   },
+   "returned": true
+  },
+  {
+   "name": "rebuild-last-plane",
+   "faces": [
+    "top"
+   ],
+   "parts": true,
+   "remove": "top",
+   "how": "rebuild",
+   "before": {
+    "selectedFaceIds": [
+     "top"
+    ],
+    "selectedSplitFaceId": "top",
+    "planes": [
+     {
+      "id": "cutting-plane:top",
+      "sourceFaceId": "top",
+      "axis": "z",
+      "normalizedPosition": 0.999999,
+      "enabled": true,
+      "creationOrder": 4
+     }
+    ],
+    "workflow": "partsReady",
+    "definitionNull": false,
+    "bodyCount": 2,
+    "cavityStatus": "ready",
+    "undoDepth": 3,
+    "redoDepth": 0,
+    "revision": 2,
+    "activePlaneId": null,
+    "error": null
+   },
+   "after": {
+    "selectedFaceIds": [],
+    "selectedSplitFaceId": null,
+    "planes": [],
+    "workflow": "selectingFaces",
+    "definitionNull": true,
+    "bodyCount": null,
+    "cavityStatus": "unavailable",
+    "undoDepth": 4,
+    "redoDepth": 0,
+    "revision": 3,
+    "activePlaneId": null,
+    "error": null
+   },
+   "returned": true
+  },
+  {
+   "name": "rebuild-three-planes",
+   "faces": [
+    "front",
+    "right",
+    "top"
+   ],
+   "parts": true,
+   "remove": "front",
+   "how": "rebuild",
+   "before": {
+    "selectedFaceIds": [
+     "front",
+     "right",
+     "top"
+    ],
+    "selectedSplitFaceId": "top",
+    "planes": [
+     {
+      "id": "cutting-plane:front",
+      "sourceFaceId": "front",
+      "axis": "y",
+      "normalizedPosition": 0.999999,
+      "enabled": true,
+      "creationOrder": 0
+     },
+     {
+      "id": "cutting-plane:right",
+      "sourceFaceId": "right",
+      "axis": "x",
+      "normalizedPosition": 0.999999,
+      "enabled": true,
+      "creationOrder": 3
+     },
+     {
+      "id": "cutting-plane:top",
+      "sourceFaceId": "top",
+      "axis": "z",
+      "normalizedPosition": 0.999999,
+      "enabled": true,
+      "creationOrder": 4
+     }
+    ],
+    "workflow": "partsReady",
+    "definitionNull": false,
+    "bodyCount": 8,
+    "cavityStatus": "ready",
+    "undoDepth": 5,
+    "redoDepth": 0,
+    "revision": 4,
+    "activePlaneId": null,
+    "error": null
+   },
+   "after": {
+    "selectedFaceIds": [
+     "right",
+     "top"
+    ],
+    "selectedSplitFaceId": "top",
+    "planes": [
+     {
+      "id": "cutting-plane:right",
+      "sourceFaceId": "right",
+      "axis": "x",
+      "normalizedPosition": 0.999999,
+      "enabled": true,
+      "creationOrder": 3
+     },
+     {
+      "id": "cutting-plane:top",
+      "sourceFaceId": "top",
+      "axis": "z",
+      "normalizedPosition": 0.999999,
+      "enabled": true,
+      "creationOrder": 4
+     }
+    ],
+    "workflow": "partsReady",
+    "definitionNull": false,
+    "bodyCount": 4,
+    "cavityStatus": "ready",
+    "undoDepth": 6,
+    "redoDepth": 0,
+    "revision": 5,
+    "activePlaneId": null,
+    "error": null
+   },
+   "returned": true
+  },
+  {
+   "name": "rebuild-absent-face",
+   "faces": [
+    "front"
+   ],
+   "parts": true,
+   "remove": "left",
+   "how": "rebuild",
+   "before": {
+    "selectedFaceIds": [
+     "front"
+    ],
+    "selectedSplitFaceId": "front",
+    "planes": [
+     {
+      "id": "cutting-plane:front",
+      "sourceFaceId": "front",
+      "axis": "y",
+      "normalizedPosition": 0.999999,
+      "enabled": true,
+      "creationOrder": 0
+     }
+    ],
+    "workflow": "partsReady",
+    "definitionNull": false,
+    "bodyCount": 2,
+    "cavityStatus": "ready",
+    "undoDepth": 3,
+    "redoDepth": 0,
+    "revision": 2,
+    "activePlaneId": null,
+    "error": null
+   },
+   "after": {
+    "selectedFaceIds": [
+     "front"
+    ],
+    "selectedSplitFaceId": "front",
+    "planes": [
+     {
+      "id": "cutting-plane:front",
+      "sourceFaceId": "front",
+      "axis": "y",
+      "normalizedPosition": 0.999999,
+      "enabled": true,
+      "creationOrder": 0
+     }
+    ],
+    "workflow": "partsReady",
+    "definitionNull": false,
+    "bodyCount": 2,
+    "cavityStatus": "ready",
+    "undoDepth": 3,
+    "redoDepth": 0,
+    "revision": 2,
+    "activePlaneId": null,
+    "error": null
+   },
+   "returned": false
+  },
+  {
+   "name": "rebuild-selected-plane",
+   "faces": [
+    "front",
+    "right"
+   ],
+   "parts": true,
+   "remove": "right",
+   "how": "selected",
+   "selectFirst": "right",
+   "before": {
+    "selectedFaceIds": [
+     "front",
+     "right"
+    ],
+    "selectedSplitFaceId": "right",
+    "planes": [
+     {
+      "id": "cutting-plane:front",
+      "sourceFaceId": "front",
+      "axis": "y",
+      "normalizedPosition": 0.999999,
+      "enabled": true,
+      "creationOrder": 0
+     },
+     {
+      "id": "cutting-plane:right",
+      "sourceFaceId": "right",
+      "axis": "x",
+      "normalizedPosition": 0.999999,
+      "enabled": true,
+      "creationOrder": 3
+     }
+    ],
+    "workflow": "partsReady",
+    "definitionNull": false,
+    "bodyCount": 4,
+    "cavityStatus": "ready",
+    "undoDepth": 4,
+    "redoDepth": 0,
+    "revision": 3,
+    "activePlaneId": null,
+    "error": null
+   },
+   "after": {
+    "selectedFaceIds": [
+     "front"
+    ],
+    "selectedSplitFaceId": "front",
+    "planes": [
+     {
+      "id": "cutting-plane:front",
+      "sourceFaceId": "front",
+      "axis": "y",
+      "normalizedPosition": 0.999999,
+      "enabled": true,
+      "creationOrder": 0
+     }
+    ],
+    "workflow": "partsReady",
+    "definitionNull": false,
+    "bodyCount": 2,
+    "cavityStatus": "ready",
+    "undoDepth": 5,
+    "redoDepth": 0,
+    "revision": 4,
+    "activePlaneId": null,
+    "error": null
+   },
+   "returned": true
+  }
+ ]
+}

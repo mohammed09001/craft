@@ -37,6 +37,8 @@
 #include "view/SelectionBox.h"
 #include "mold/SpruePreview.h"
 #include "SprueHandleModel.h"
+#include "CutPlaneModel.h"
+#include "mold/CuttingPlaneSlabs.h"
 #include "mold/Segmentation.h"
 #include "mold/SprueGeneration.h"
 
@@ -104,6 +106,11 @@ class AppController : public QObject {
   /// The resize rings at each sprue opening (see AppControllerSprueGizmo.cpp) and the gizmo's interaction state.
   Q_PROPERTY(craft::app::SprueHandleModel* sprueHandles READ sprueHandles CONSTANT)
   Q_PROPERTY(QVariantMap sprueGizmo READ sprueGizmo NOTIFY sprueGizmoChanged)
+  /// The Cut by Face planes as translucent slabs, and the Eraser tool (see AppControllerCutPlanes.cpp).
+  Q_PROPERTY(craft::app::CutPlaneModel* cutPlaneSlabs READ cutPlaneSlabs CONSTANT)
+  Q_PROPERTY(QQuick3DGeometry* cutPlaneEdgeGeometry READ cutPlaneEdgeGeometry CONSTANT)
+  Q_PROPERTY(QVariantMap cutPlanes READ cutPlanes NOTIFY cutPlanesChanged)
+  Q_PROPERTY(bool eraserAvailable READ eraserAvailable NOTIFY cutPlanesChanged)
   Q_PROPERTY(QString spruePhase READ spruePhase NOTIFY spruesChanged)
   Q_PROPERTY(QString analysisPhase READ analysisPhase NOTIFY analysisChanged)
   Q_PROPERTY(QString analysisError READ analysisError NOTIFY analysisChanged)
@@ -254,6 +261,18 @@ class AppController : public QObject {
   /// Placement preview under a viewport pixel (status/inspector only).
   Q_INVOKABLE void clearSprueCandidate();
 
+  // --- cutting planes and the Eraser (reference: cuttingPlane3dRuntime.ts, removeSplitFace) ---------------------------
+  CutPlaneModel* cutPlaneSlabs() { return &cutPlaneSlabs_; }
+  QQuick3DGeometry* cutPlaneEdgeGeometry() { return &cutPlaneEdges_; }
+  QVariantMap cutPlanes() const;
+  bool eraserAvailable() const;
+  /// Eraser tool hover: the plane under the pointer turns red. True when over a plane.
+  Q_INVOKABLE bool eraserHoverAt(qreal x, qreal y, qreal viewportWidth, qreal viewportHeight);
+  Q_INVOKABLE void eraserLeave();
+  /// Removes a plane (the face stops being cut): refused while the mold is generating or when the face is not cut.
+  /// The mold built with it is dropped; sprue intents are kept.
+  Q_INVOKABLE bool removeCutFace(const QString& face);
+
   // --- sprue resize gizmo (rings at the sprue openings; reference: sprueResizeRuntime.ts) -----------------------------
   SprueHandleModel* sprueHandles() { return &sprueHandles_; }
   QVariantMap sprueGizmo() const;
@@ -377,6 +396,7 @@ class AppController : public QObject {
   void selectionOverlayChanged();
   void sprueGlassChanged();
   void sprueGizmoChanged();
+  void cutPlanesChanged();
   /// A user-visible failure worth a dialog (import, mold, export, analysis).
   void errorOccurred(const QString& title, const QString& message, const QString& code);
   void exportFinished(bool ok, const QString& message, const QStringList& files);
@@ -431,6 +451,11 @@ class AppController : public QObject {
   std::optional<SpruePlacement> placementAt(qreal x, qreal y, qreal w, qreal h) const;
   void refreshSprueGlass();
   void refreshSprueGizmo();
+  bool hasCutPlanes() const;
+  bool cutPlanesVisible() const;
+  void refreshCutPlanes();
+  void setEraserHover(std::optional<FaceId> face);
+  bool eraseAt(qreal x, qreal y, qreal viewportWidth, qreal viewportHeight);
   void resetSprueGizmoInteraction();
   void setGizmoHover(int index);
   void commitSprueDiameter(const SprueHandle& handle, double diameterMm);
@@ -511,6 +536,13 @@ class AppController : public QObject {
   QVariantMap sprueCandidate_;
   viewport::MeshGeometry spruePreview_;
   bool sprueGlass_ = false;
+
+  // cutting-plane slabs and the Eraser
+  CutPlaneModel cutPlaneSlabs_;
+  viewport::LineGeometry cutPlaneEdges_;  // the twelve edges of a unit box, scaled per slab in QML
+  std::vector<PlaneSlab> cutSlabs_;
+  std::string cutSlabSignature_;
+  std::optional<FaceId> eraserHover_;
 
   // sprue resize gizmo
   struct GizmoDrag {

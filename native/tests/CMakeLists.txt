@@ -42,6 +42,11 @@ craft_add_test(tst_sprue_gizmo_equivalence
   LIBS craft_mold Qt6::Core)
 target_compile_definitions(tst_sprue_gizmo_equivalence PRIVATE
   CRAFT_REFERENCE_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/reference")
+craft_add_test(tst_cutplane_equivalence
+  SOURCES tst_cutplane_equivalence.cpp
+  LIBS craft_mold Qt6::Core)
+target_compile_definitions(tst_cutplane_equivalence PRIVATE
+  CRAFT_REFERENCE_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/reference")
 craft_add_test(tst_master_store SOURCES tst_master_store.cpp LIBS craft_mold craft_mesh_manifold)
 craft_add_test(tst_master_export SOURCES tst_master_export.cpp LIBS craft_export Qt6::Core)
 craft_add_test(tst_master_equivalence
@@ -84,7 +89,8 @@ if(CRAFT_BUILD_APP)
     CRAFT_REFERENCE_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/reference")
   craft_add_test(tst_app_workflow SOURCES tst_app_workflow.cpp LIBS craft_app_lib)
   target_compile_definitions(tst_app_workflow PRIVATE
-    CRAFT_DEV_PYTHON="${CRAFT_PYTHON_EXECUTABLE_NORMALIZED}")
+    CRAFT_DEV_PYTHON="${CRAFT_PYTHON_EXECUTABLE_NORMALIZED}"
+    CRAFT_REFERENCE_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/reference")
 
   # End-to-end smoke test: launches the real executable, imports a fixture,
   # generates a mold, renders a frame, and checks the JSON summary.
@@ -102,6 +108,16 @@ if(CRAFT_BUILD_APP)
   set_tests_properties(app_smoke_sprue_gizmo PROPERTIES
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${CRAFT_QT_BIN_DIR}"
     TIMEOUT 180
+    PASS_REGULAR_EXPRESSION "CRAFT_SMOKE_OK")
+  # The Eraser through REAL mouse events delivered to the window.
+  add_test(NAME app_smoke_eraser
+    COMMAND craft --smoke-test
+            --import "${CRAFT_REPO_ROOT}/native/tests/fixtures/models/bracket.stl"
+            --eraser-events
+            --summary "${CMAKE_CURRENT_BINARY_DIR}/app_smoke_eraser_summary.json")
+  set_tests_properties(app_smoke_eraser PROPERTIES
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${CRAFT_QT_BIN_DIR}"
+    TIMEOUT 120
     PASS_REGULAR_EXPRESSION "CRAFT_SMOKE_OK")
   set_tests_properties(app_smoke PROPERTIES
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${CRAFT_QT_BIN_DIR}"

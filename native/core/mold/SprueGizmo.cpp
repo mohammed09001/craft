@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdio>
 
+#include "geometry/ThreeRayTriangle.h"
 #include "mold/SprueProfile.h"
 
 namespace craft {
@@ -14,33 +15,6 @@ constexpr double kTwoPi = 6.283185307179586476925286766559;
 float f32(double v) { return static_cast<float>(v); }
 
 Vec3 toVec(const Point3& p) { return {p.x, p.y, p.z}; }
-
-// three.js Ray.intersectTriangle with backfaceCulling = true (a FrontSide material): a ray travelling along the
-// triangle's normal is a back-face hit and is rejected. Returns the distance along the (unit) ray.
-std::optional<double> intersectFrontFace(const Ray& ray, const Vec3& a, const Vec3& b, const Vec3& c) {
-  const Vec3 edge1 = b - a;
-  const Vec3 edge2 = c - a;
-  const Vec3 normal = edge1.cross(edge2);
-  double ddn = ray.direction.dot(normal);
-  double sign = 0;
-  if (ddn > 0) {
-    return std::nullopt;  // back face
-  } else if (ddn < 0) {
-    sign = -1;
-    ddn = -ddn;
-  } else {
-    return std::nullopt;
-  }
-  const Vec3 diff = ray.origin - a;
-  const double ddqxe2 = sign * ray.direction.dot(diff.cross(edge2));
-  if (ddqxe2 < 0) return std::nullopt;
-  const double dde1xq = sign * ray.direction.dot(edge1.cross(diff));
-  if (dde1xq < 0) return std::nullopt;
-  if (ddqxe2 + dde1xq > ddn) return std::nullopt;
-  const double qdn = -sign * diff.dot(normal);
-  if (qdn < 0) return std::nullopt;
-  return qdn / ddn;
-}
 
 }  // namespace
 
@@ -150,7 +124,7 @@ std::optional<SprueHandlePick> pickSprueHandle(const Ray& ray, const std::vector
     bool hit = false;
     for (std::size_t t = 0; t + 2 < target.indices.size(); t += 3) {
       const auto vertex = [&](std::uint32_t i) { return Vec3{target.positions[i * 3ull], target.positions[i * 3ull + 1], target.positions[i * 3ull + 2]}; };
-      if (const auto distance = intersectFrontFace(local, vertex(target.indices[t]), vertex(target.indices[t + 1]), vertex(target.indices[t + 2]))) {
+      if (const auto distance = intersectTriangleThree(local, vertex(target.indices[t]), vertex(target.indices[t + 1]), vertex(target.indices[t + 2]), true)) {
         if (!hit || *distance < nearest) {
           nearest = *distance;
           hit = true;

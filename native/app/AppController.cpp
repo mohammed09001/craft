@@ -64,6 +64,19 @@ AppController::AppController(std::shared_ptr<IMeshGeometryEngine> engine,
   }
   connect(&scene_, &SceneModel::sceneChanged, this, &AppController::refreshSelectionOverlay);
   // The Sprue tool's glass look and preview follow the tool and the mold.
+  // Cutting-plane slabs follow the faces, the mold, the tool and the part.
+  for (auto signal : {&AppController::moldChanged, &AppController::moldInputsChanged, &AppController::segmentationChanged,
+                      &AppController::toolChanged, &AppController::modelChanged}) {
+    connect(this, signal, this, &AppController::refreshCutPlanes);
+  }
+  connect(&scene_, &SceneModel::sceneChanged, this, &AppController::refreshCutPlanes);
+  {
+    std::vector<std::array<QVector3D, 2>> unitEdges;
+    for (const Segment3& edge : selectionBoxEdges({{-0.5, -0.5, -0.5}, {0.5, 0.5, 0.5}})) {
+      unitEdges.push_back({QVector3D(float(edge.from.x), float(edge.from.y), float(edge.from.z)), QVector3D(float(edge.to.x), float(edge.to.y), float(edge.to.z))});
+    }
+    cutPlaneEdges_.setBuffers(viewport::buildSegmentListBuffers(unitEdges));
+  }
   connect(this, &AppController::spruesChanged, this, &AppController::refreshSprueGizmo);
   connect(this, &AppController::sprueGlassChanged, this, &AppController::refreshSprueGizmo);
   connect(this, &AppController::toolChanged, this, &AppController::refreshSprueGlass);
@@ -664,6 +677,10 @@ void AppController::resetView() { camera_.reset(); }
 
 void AppController::setTool(const QString& tool) {
   if (tool == tool_) return;
+  if (tool == QLatin1String("eraser") && !eraserAvailable()) {  // the Eraser needs cutting planes (and no evaluation running)
+    setStatus(QStringLiteral("The Eraser needs a cutting plane: choose a face to cut by first."));
+    return;
+  }
   tool_ = tool;
   measurePoints_.clear();
   measurement_.clear();

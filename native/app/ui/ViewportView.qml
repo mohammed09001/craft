@@ -121,6 +121,41 @@ Item {
             }
         }
 
+        // The Cut by Face planes as thin translucent slabs with their edges: amber, red under the Eraser.
+        Repeater3D {
+            model: app.cutPlaneSlabs
+            delegate: Node {
+                required property vector3d slabCenter
+                required property vector3d slabSize
+                required property color slabColor
+                required property real slabSurfaceOpacity
+                required property real slabEdgeOpacity
+                position: slabCenter
+                Model {
+                    source: "#Cube"                       // 100 units: scaled to the slab
+                    pickable: false
+                    scale: Qt.vector3d(slabSize.x / 100, slabSize.y / 100, slabSize.z / 100)
+                    materials: DefaultMaterial {
+                        lighting: DefaultMaterial.NoLighting
+                        diffuseColor: slabColor
+                        opacity: slabSurfaceOpacity
+                        cullMode: Material.NoCulling
+                        depthDrawMode: Material.NeverDepthDraw
+                    }
+                }
+                Model {
+                    geometry: app.cutPlaneEdgeGeometry    // the unit box edges
+                    pickable: false
+                    scale: slabSize
+                    materials: DefaultMaterial {
+                        lighting: DefaultMaterial.NoLighting
+                        diffuseColor: slabColor
+                        opacity: slabEdgeOpacity
+                    }
+                }
+            }
+        }
+
         // One surface model (+ optional feature-edge overlay) per scene row.
         Repeater3D {
             model: app.scene
@@ -255,6 +290,7 @@ Item {
         // The Sprue tool shows the reference's funnel cursor (a horizontal-resize cursor over a ring); the Select tool a
         // pointing hand over the part.
         property string cursorName: app.tool === "sprue" ? (app.sprueGizmo.active ? app.sprueGizmo.cursor : "cross")
+                                  : app.tool === "eraser" ? "eraser"
                                   : (app.tool === "select" && root.overPart ? "hand" : "arrow")
         onCursorNameChanged: app.applyViewportCursor(mouse, cursorName)
         Component.onCompleted: app.applyViewportCursor(mouse, cursorName)
@@ -262,7 +298,10 @@ Item {
         Timer {
             id: hoverTimer
             interval: 33
-            onTriggered: root.overPart = app.hoverAt(mouse.hoverX, mouse.hoverY, mouse.width, mouse.height)
+            onTriggered: {
+                if (app.tool === "eraser") app.eraserHoverAt(mouse.hoverX, mouse.hoverY, mouse.width, mouse.height)
+                else root.overPart = app.hoverAt(mouse.hoverX, mouse.hoverY, mouse.width, mouse.height)
+            }
         }
         // The Sprue preview is throttled the same way (the reference coalesces pointer moves to one per frame).
         Timer {
@@ -271,7 +310,7 @@ Item {
             // Over a ring the pointer belongs to the gizmo and there is no placement preview.
             onTriggered: { if (!app.sprueGizmoHoverAt(mouse.hoverX, mouse.hoverY, mouse.width, mouse.height)) app.previewSprueAt(mouse.hoverX, mouse.hoverY, mouse.width, mouse.height) }
         }
-        onExited: { hoverTimer.stop(); sprueTimer.stop(); app.clearHover(); app.clearSprueCandidate(); app.sprueGizmoLeave(); root.overPart = false }
+        onExited: { hoverTimer.stop(); sprueTimer.stop(); app.clearHover(); app.clearSprueCandidate(); app.sprueGizmoLeave(); app.eraserLeave(); root.overPart = false }
         onPositionChanged: (e) => {
             if (root.gizmoPress) {   // resizing a ring: the pointer drives the diameter, not the camera
                 if (app.sprueGizmo.dragging) {
@@ -283,6 +322,10 @@ Item {
             if (app.tool === "sprue") {
                 if (e.buttons === 0) { hoverX = e.x; hoverY = e.y; if (!sprueTimer.running) sprueTimer.start() }
                 else { sprueTimer.stop(); app.clearSprueCandidate() }  // dragging orbits/pans: the preview hides
+            }
+            if (app.tool === "eraser") {
+                if (e.buttons === 0) { hoverX = e.x; hoverY = e.y; if (!hoverTimer.running) hoverTimer.start() }
+                else { hoverTimer.stop(); app.eraserLeave() }   // orbiting/panning: no hover
             }
             if (app.tool === "select") {
                 if (e.buttons === 0) { hoverX = e.x; hoverY = e.y; if (!hoverTimer.running) hoverTimer.start() }

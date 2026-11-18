@@ -47,6 +47,32 @@ QCursor funnelCursor() {
   return QCursor(pixmap, 14, 7);
 }
 
+/// The reference's eraser cursor: an eraser outline with a red edge line, hot spot at its tip.
+QCursor eraserCursor() {
+  QPixmap pixmap(28, 28);
+  pixmap.fill(Qt::transparent);
+  QPainter painter(&pixmap);
+  painter.setRenderHint(QPainter::Antialiasing);
+  QPainterPath body;  // M6.2 18.2 L15.8 8.6 a2.4 2.4 0 0 1 3.4 0 l3.2 3.2 a2.4 2.4 0 0 1 0 3.4 l-7.6 7.6 H10.8 Z (arcs as curves)
+  body.moveTo(6.2, 18.2);
+  body.lineTo(15.8, 8.6);
+  body.quadTo(17.5, 7.2, 19.2, 8.6);
+  body.lineTo(22.4, 11.8);
+  body.quadTo(23.8, 13.5, 22.4, 15.2);
+  body.lineTo(14.8, 22.8);
+  body.lineTo(10.8, 22.8);
+  body.closeSubpath();
+  painter.setPen(QPen(QColor("#111827"), 1.5, Qt::SolidLine, Qt::FlatCap, Qt::RoundJoin));
+  painter.setBrush(QColor("#f3f4f6"));
+  painter.drawPath(body);
+  painter.setPen(QPen(QColor("#dc2626"), 1.7, Qt::SolidLine, Qt::RoundCap));
+  painter.setBrush(Qt::NoBrush);
+  painter.drawLine(QPointF(11.2, 13.2), QPointF(16.8, 18.8));
+  painter.drawLine(QPointF(14.8, 22.8), QPointF(21.8, 22.8));
+  painter.end();
+  return QCursor(pixmap, 7, 23);
+}
+
 }  // namespace
 
 // --- state ---------------------------------------------------------------------------------------------------------
@@ -290,6 +316,7 @@ void AppController::applyViewportCursor(QObject* object, const QString& name) {
   auto* item = qobject_cast<QQuickItem*>(object);
   if (!item) return;
   if (name == QLatin1String("funnel")) item->setCursor(funnelCursor());
+  else if (name == QLatin1String("eraser")) item->setCursor(eraserCursor());
   else if (name == QLatin1String("resize")) item->setCursor(QCursor(Qt::SizeHorCursor));
   else if (name == QLatin1String("hand")) item->setCursor(QCursor(Qt::PointingHandCursor));
   else if (name == QLatin1String("cross")) item->setCursor(QCursor(Qt::CrossCursor));
