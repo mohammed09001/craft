@@ -363,9 +363,20 @@ class Smoke : public QObject {
       auto* hint = window_->findChild<QQuickItem*>(QStringLiteral("interactionHint"));
       auto* viewport = window_->findChild<QQuickItem*>(QStringLiteral("viewport"));
       if (!hint || !viewport) return fail(QStringLiteral("the hint badge or the viewport was not found"));
-      QTimer::singleShot(150, this, [=, this] {
-        if (!hint->isVisible()) return fail(QStringLiteral("the hint badge is not shown for a loaded model that nobody has touched"));
-        if (hint->opacity() != 1.0) return fail(QStringLiteral("the hint badge is transparent"));
+      // The badge shows once the model is ready and nothing is busy: poll for it (up to three seconds) instead of looking once after a
+      // fixed delay, and say why when it never comes (the failure used to carry no state at all).
+      auto waited = std::make_shared<int>(0);
+      auto afterShown = std::make_shared<std::function<void()>>();
+      *afterShown = [=, this]() {
+        if (!hint->isVisible()) {
+          if ((*waited += 30) < 3000) { QTimer::singleShot(30, this, *afterShown); return; }
+          return fail(QStringLiteral("the hint badge is not shown for a loaded model that nobody has touched (model phase '%1', busy %2, window active %3, viewport %4x%5)")
+                          .arg(app_.modelPhase()).arg(app_.busy()).arg(window_->isActive()).arg(static_cast<int>(viewport->width())).arg(static_cast<int>(viewport->height())));
+        }
+        if (hint->opacity() != 1.0) {   // the badge fades in: wait for the end of the fade as well
+          if ((*waited += 30) < 3000) { QTimer::singleShot(30, this, *afterShown); return; }
+          return fail(QStringLiteral("the hint badge is transparent (opacity %1)").arg(hint->opacity()));
+        }
         const QPointF local(viewport->width() / 2, viewport->height() / 3);
         const QPointF scene = viewport->mapToScene(local);
         if (hintWheel_) {
@@ -379,7 +390,8 @@ class Smoke : public QObject {
           if (hint->isVisible()) return fail(QStringLiteral("the hint badge stayed after the first %1").arg(hintWheel_ ? "wheel" : "press"));
           renderNow();
         });
-      });
+      };
+      QTimer::singleShot(30, this, *afterShown);
 #endif
     });
   }

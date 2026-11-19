@@ -456,3 +456,11 @@ Ran the two full comparisons (display cadence and uncapped, `compare-viewport.ps
 Found: the ruler costs no measurable frame time (R-Ruler-2 resolved); the torus at the display's cadence reads 58 fps on both builds today and read 74 fps on 18 November (the machine, not the code); a disturbed first run looked like a regression and was not one; the pixel metrics are unchanged by the ruler (IoU 0.978 to 0.999).
 
 Not done: the cause of the first run's disturbance (R-Viewport-9), the cause of the torus dips (R-Viewport-10), the fixed ~4.3 ms per frame (R-Viewport-3), other GPUs, refresh rates and viewport sizes.
+
+### Session 34: R-Smoke-1 re-examined
+
+After the Bad Image dialog (Session 31/32 correction) showed that a failure which vanishes on rerun and correlates with duration can be a wait, the three unexplained real-event smoke failures were looked at again. Built `scripts/native/smoke-stress.ps1` (the smoke group repeated, with optional all-CPU load and a topmost modal dialog, and a refusal to run unless those conditions are verified). Its first version was wrong in a way worth recording: the CPU burners were started with an unquoted `while True: pass` argument and exited at once (total CPU 15 %), and the dialog was created in a way that never appeared, so the first two "clean" results (84 and 28 runs) were for conditions that did not exist; both were discovered by checking the conditions and discarded. With verified conditions: 105 runs idle, 56 under 100 % CPU (about three times slower per test), 56 with a dialog in the foreground at the start (it was gone by the end in every run, cause unknown): no failure in 217 counted runs.
+
+Changed: the hint-events smoke test polls for the badge for up to three seconds instead of one look after 150 ms, and its failure message carries the model phase, busy, window-active and the viewport size; checked by forcing the badge hidden (it then fails after three seconds with those fields).
+
+Not found: why the three runs failed (R-Smoke-1 stays open as unexplained, with a hypothesis).
