@@ -1,6 +1,8 @@
 # Viewport comparison: native Qt Quick 3D against the Three.js reference
 
 Measured 2026-11-18 on one machine, twice: once before the native viewport was given the reference's look and once after.
+The timing and memory tables were measured again on 2026-11-19 with the ground-plane ruler and everything built since (they are the
+ones below; the section "Re-measurement with the ruler" says what that took).
 This document says what was measured, how, what the numbers are, and what they do not prove. The code is
 `scripts/native/compare-viewport.ps1` (runner), `scripts/native/viewport/` (reference capture, models, memory sampling),
 `native/app/ViewportBench.*` (native measurements, development builds only) and `native/tools/ImageCompare.*` (image metrics,
@@ -9,8 +11,8 @@ tested by `tst_imagecompare`). The look itself is `native/core/view/ViewportLook
 
 ## Short version
 
-- **Framing and geometry match closely.** The part lands in the same place at the same size: mask overlap (IoU) 0.977 to 0.999,
-  area ratio 0.986 to 1.001, centroid offset 0 to 1.3 px at 960 x 640. Getting there found and fixed a real bug (the view
+- **Framing and geometry match closely.** The part lands in the same place at the same size: mask overlap (IoU) 0.978 to 0.999,
+  area ratio 0.985 to 1.001, centroid offset 0 to 1.5 px at 960 x 640. Getting there found and fixed a real bug (the view
   direction after an import, D-077).
 - **The look now follows the reference.** First measurements showed native with a different palette, headlight-style lighting and no
   tone mapping. Native now uses the reference's part and mold colours, background, five-point lighting rig, ACES tone mapping,
@@ -19,14 +21,14 @@ tested by `tst_imagecompare`). The look itself is `native/core/view/ViewportLook
   0.60 to 0.84 and the colour difference 0.025 to 0.031: shading is close but not the same (below).
 - **The ground-plane ruler and the hint badge are ported** (below): the numbered ticks along the grid axes with the reference's
   label step and hysteresis, checked against the real reference modules, and the badge that hides at the first press or wheel.
-- **Still different:** a fine shadow-map moire pattern on the reference's flat faces, shadows, and native's own caption. The
-  timing tables below were measured before the ruler existed and have not been repeated with it (the run was stopped, see the
-  ruler section).
-- **Performance, for what was measured:** at the display's 75 Hz both hold full rate up to 405k triangles. Uncapped, native costs
-  about 4.4 ms per frame (about 215 fps) up to 405k triangles, the reference 1.4 ms on a tiny part (695 fps) growing to 7.6 ms at
-  405k (131 fps): the reference is faster on small parts and native on large ones, crossing between 82k and 405k triangles.
-  Native imports 3 to 17 times faster and uses a quarter to a third of the memory. Native loads a 1.3M-triangle, 62.5 MiB file that the
-  reference refuses.
+- **Still different:** a fine shadow-map moire pattern on the reference's flat faces, shadows, and native's own caption.
+- **Performance, for what was measured (2026-11-19, with the ruler):** at the display's 75 Hz both hold full rate up to 82k
+  triangles. At 405k triangles native held 59 fps that day against the reference's 75; the build from before the ruler, run beside it,
+  read the same (58 fps), and native held 74 fps on 18 November, so that is the machine, not the ruler. Uncapped, native costs about
+  4.3 ms per frame (about 218 fps) up to 82k triangles and 4.6 ms at 405k, the reference 1.4 ms on a tiny part (705 fps) growing to
+  8.2 ms at 405k (122 fps): the reference is faster on small parts and native on large ones, crossing between 82k and 405k triangles.
+  Side by side with the build before the ruler, the ruler costs no measurable frame time. Native imports 2.5 to 17 times faster and
+  uses about 30 % of the memory. Native loads a 1.3M-triangle, 62.5 MiB file that the reference refuses.
 - **Not shown:** anything about other GPUs, other refresh rates, other viewport sizes, or the 512 MiB ceiling.
 
 ## Method
@@ -72,16 +74,19 @@ the two Windows counters ("local" and "shared") report the same number, so one f
 
 ## Results
 
-### Pixels (the two renderers' parts, same frame size), after the look was aligned
+### Pixels (the two renderers' parts, same frame size), after the look was aligned and the ruler added (2026-11-19)
 
 | scene | mask IoU | area native/ref | centroid offset (px) | boundary mean / p95 / max (px) | SSIM in part | mean abs diff in part |
 |---|---|---|---|---|---|---|
-| box_30mm dark | 0.995 | 0.999 | 0.3 | 2.7 / 15.3 / 47.7 | 0.603 | 0.031 |
-| box_30mm light | 0.999 | 1.000 | 0.1 | 0.3 / 1.0 / 137.0 | 0.602 | 0.031 |
-| sphere_9k dark | 0.981 | 0.989 | 1.3 | 2.6 / 9.7 / 68.0 | 0.794 | 0.027 |
-| sphere_9k light | 0.998 | 1.001 | 0.0 | 0.7 / 1.0 / 81.0 | 0.799 | 0.029 |
-| sphere_82k dark | 0.982 | 0.988 | 1.3 | 2.7 / 9.3 / 68.0 | 0.789 | 0.027 |
-| torus_405k dark | 0.977 | 0.986 | 0.5 | 1.1 / 3.3 / 30.7 | 0.842 | 0.025 |
+| box_30mm dark | 0.997 | 1.001 | 0.1 | 2.5 / 19.7 / 75.7 | 0.603 | 0.031 |
+| box_30mm light | 0.999 | 1.000 | 0.1 | 0.1 / 1.0 / 2.0 | 0.602 | 0.031 |
+| sphere_9k dark | 0.981 | 0.987 | 1.4 | 1.3 / 5.0 / 33.0 | 0.794 | 0.027 |
+| sphere_9k light | 0.998 | 1.001 | 0.0 | 2.6 / 1.0 / 90.7 | 0.799 | 0.029 |
+| sphere_82k dark | 0.982 | 0.986 | 1.5 | 1.3 / 5.0 / 31.0 | 0.789 | 0.027 |
+| torus_405k dark | 0.978 | 0.985 | 0.6 | 1.0 / 3.0 / 30.7 | 0.853 | 0.025 |
+
+(The same run's frames also contain the ruler, in both renderers. The values are within a few hundredths of the first alignment's;
+the part's region is unchanged by the ruler.)
 
 ### Before and after the look was aligned (same frames of the same scenes)
 
@@ -111,59 +116,63 @@ reference's image-based environment light and specular response are approximated
 
 | scene | triangles | file MiB | native ready | native first frame | reference ready | reference first frame |
 |---|---|---|---|---|---|---|
-| box_30mm | 12 | 0.0 | 9 to 11 | 31 to 40 | 27 to 30 | 158 to 163 |
-| sphere_9k | 9,024 | 2.7 | 35 to 48 | 56 to 89 | 97 to 109 | 232 to 255 |
-| sphere_82k | 81,920 | 3.9 | 29 | 52 to 101 | 380 to 388 | 593 to 605 |
-| torus_405k | 405,000 | 19.3 | 98 to 100 | 130 to 289 | 1,696 to 1,737 | 1,842 to 1,886 |
-| sphere_1_3m | 1,310,720 | 62.5 | 302 to 309 | 683 to 715 | refused | refused |
+| box_30mm | 12 | 0.0 | 10 to 11 | 36 to 55 | 27 to 29 | 156 to 163 |
+| sphere_9k | 9,024 | 2.7 | 35 to 37 | 61 to 75 | 97 to 102 | 227 to 233 |
+| sphere_82k | 81,920 | 3.9 | 30 to 31 | 56 to 94 | 374 to 388 | 578 to 591 |
+| torus_405k | 405,000 | 19.3 | 104 to 106 | 143 to 268 | 1,760 to 1,856 | 1,904 to 2,010 |
+| sphere_1_3m | 1,310,720 | 62.5 | 313 to 326 | 692 to 727 | refused | refused |
 
 The reference's message for the last row is "The STL file is too large for local loading." (the 25 MiB limit; native allows 512 MiB,
-see PARITY_MATRIX). Native's import is about four to five times faster than in the first measurement (torus 458 ms before, 98 ms
-now) because it no longer builds feature-edge lines for the imported part: the reference does not outline the part either (D-082).
+see PARITY_MATRIX). Native's ready time is 2.5 times shorter on the smallest part and 17 times shorter on the largest the reference
+accepts. It is about as fast as before the ruler (torus 98 to 100 ms then, 104 to 106 now): the ruler adds a few dozen label images
+(written once each to the cache) and two line models, which the import does not wait for.
 
 ### Orbit, at the display's cadence (the 75 Hz monitor, so 13.3 ms is a full-rate frame)
 
 | scene | native fps | native p50 / p95 / p99 / max (ms) | reference fps pipelined / synced | reference synced p50 / p95 / p99 / max (ms) |
 |---|---|---|---|---|
-| box_30mm | 74.7 | 13.3 / 13.8 / 14.3 / 25.1 | 75.2 / 75.3 | 13.3 / 13.9 / 14.3 / 15.3 |
-| sphere_9k | 74.7 | 13.3 / 13.8 / 14.4 / 25.1 | 75.2 / 75.2 | 13.3 / 13.9 / 14.3 / 15.0 |
-| sphere_82k | 74.7 | 13.3 / 13.7 / 14.4 / 25.0 | 75.4 / 75.2 | 13.4 / 14.5 / 15.6 / 17.2 |
-| torus_405k | 74.2 | 13.3 / 14.0 / 15.7 / 25.5 | 74.9 / 74.9 | 13.4 / 14.6 / 15.3 / 16.1 |
-| sphere_1_3m | 37.5 | 26.7 / 27.4 / 27.8 / 28.0 | refused | |
+| box_30mm | 74.7 | 13.3 / 13.8 / 14.6 / 24.9 | 75.2 / 75.3 | 13.3 / 13.8 / 14.3 / 16.1 |
+| sphere_9k | 74.7 | 13.3 / 13.9 / 14.5 / 24.9 | 75.2 / 75.3 | 13.3 / 14.0 / 14.5 / 15.4 |
+| sphere_82k | 74.7 | 13.3 / 13.8 / 14.7 / 24.7 | 75.4 / 75.2 | 13.4 / 14.8 / 15.7 / 16.3 |
+| torus_405k | 59.3 | 13.4 / 26.9 / 27.6 / 28.8 | 74.9 / 74.9 | 13.4 / 14.7 / 15.3 / 16.1 |
+| sphere_1_3m | 37.5 | 26.7 / 27.4 / 28.0 / 32.3 | refused | |
 
-Both hold the full 75 Hz up to 405k triangles. Native shows one slow frame (about 25 ms) per run (not investigated). At 1.3M
-triangles native presents every second refresh. In the full run two of three runs of `sphere_9k` in the light theme were disturbed
-(61.7 and 59.5 fps, a 60 ms stall) while the same scene in the dark theme was clean; six reruns of that scene afterwards were all
-74.7 fps, and the table uses the undisturbed behaviour. The cause was not found (R-Viewport-5).
+Both hold the full 75 Hz up to 82k triangles. Native shows one slow frame (about 25 ms) per run (not investigated). At 405k triangles
+native held 59 fps in this run (78 of 300 frames over 20 ms; they miss a refresh now and then); on 18 November the same scene held
+74 fps. Side by side the same day, the build from before the ruler read 58.5 fps median (18 runs) and the current one 58.2 (18 runs),
+so this is the machine's state and not the ruler (the section "Re-measurement with the ruler"). At 1.3M triangles native presents
+every second refresh, as before.
 
 ### Orbit, uncapped (the cost of a frame)
 
 | scene | native fps | native p50 / p95 / p99 (ms) | reference fps pipelined | reference fps synced | reference synced p50 / p95 (ms) |
 |---|---|---|---|---|---|
-| box_30mm | 216 | 4.3 / 5.3 / 13.3 | 695 | 348 | 2.8 / 3.4 |
-| sphere_9k | 215 | 4.4 / 5.3 / 13.3 | 687 | 319 | 3.1 / 3.4 |
-| sphere_82k | 222 | 4.3 / 5.3 / 13.3 | 320 | 201 | 5.0 / 5.9 |
-| torus_405k | 202 | 4.5 / 6.4 / 13.4 | 132 | 91 | 11.0 / 12.8 |
-| sphere_1_3m | 108 | 9.2 / 10.7 / 13.3 | refused | | |
+| box_30mm | 219 | 4.3 / 5.3 / 13.2 | 705 | 339 | 2.9 / 3.4 |
+| sphere_9k | 218 | 4.3 / 5.3 / 13.3 | 680 | 344 | 2.9 / 3.3 |
+| sphere_82k | 217 | 4.3 / 5.3 / 13.3 | 303 | 202 | 4.9 / 5.8 |
+| torus_405k | 202 | 4.6 / 6.6 / 13.4 | 122 | 91 | 11.2 / 13.1 |
+| sphere_1_3m | 107 | 9.2 / 10.7 / 13.3 | refused | | |
 
-Native's frame costs about 4.3 to 4.5 ms from 12 to 405,000 triangles (it was about 5.5 ms before the part's edge lines were removed):
-the cost is not the part. It is probably the rest of the Qt Quick window (two 3D views, the inspector and toolbars) and the swap chain,
-but that was not profiled (R-Viewport-3). The reference's cost grows with the part and crosses native's between 82k and 405k triangles
-on this GPU.
+Native's frame costs about 4.3 ms from 12 to 82,000 triangles and 4.6 ms at 405,000: the cost is not the part. It is probably the
+rest of the Qt Quick window (two 3D views, the inspector and toolbars) and the swap chain, but that was not profiled (R-Viewport-3).
+The ruler did not change it measurably: run side by side with the build from before it, 4.2 to 4.6 ms per frame against 4.3 to 5.0 ms
+(three scenes, two rounds of three runs each). The reference's cost grows with the part and crosses native's between 82k and 405k
+triangles on this GPU.
 
 ### Memory after the orbit (MiB; vsync run to uncapped run)
 
 | scene | native working set | native private | native GPU | reference working set | reference private | reference GPU | reference JS heap |
 |---|---|---|---|---|---|---|---|
-| box_30mm | 172 to 239 | 128 to 195 | 56 to 65 | 595 to 630 | 323 to 360 | 110 to 128 | 8 |
-| sphere_9k | 178 to 240 | 134 to 197 | 58 to 67 | 626 to 644 | 350 to 379 | 111 to 129 | 17 to 18 |
-| sphere_82k | 186 to 250 | 145 to 208 | 70 to 71 | 744 to 761 | 442 to 471 | 121 to 142 | 58 |
-| torus_405k | 253 to 350 | 213 to 310 | 93 to 94 | 1,001 to 1,003 | 695 to 701 | 166 to 177 | 155 |
-| sphere_1_3m | 437 to 598 | 431 to 593 | 157 to 158 | refused | | | |
+| box_30mm | 179 to 193 | 134 to 148 | 57 | 598 to 621 | 326 to 353 | 118 to 128 | 8 |
+| sphere_9k | 194 | 150 | 58 to 59 | 625 to 655 | 353 to 389 | 118 to 128 | 18 |
+| sphere_82k | 205 to 210 | 162 to 168 | 62 to 63 | 707 to 733 | 420 to 457 | 121 to 142 | 48 to 58 |
+| torus_405k | 243 to 305 | 203 to 265 | 85 to 86 | 980 to 1,038 | 678 to 734 | 166 to 180 | 155 |
+| sphere_1_3m | 431 to 554 | 424 to 548 | 148 to 149 | refused | | | |
 
 The ranges are the display-cadence run to the uncapped run (the applications' own start-up memory varies between runs by tens of MiB,
-so the part's share is only visible on the large models: the torus adds about 14 to 111 MiB to native and about 424 to 426 MiB to the
+so the part's share is only visible on the large models: the torus adds about 49 to 111 MiB to native and about 403 to 463 MiB to the
 reference's process tree). The reference number includes the whole browser, which is a larger idle baseline than a Qt application.
+Native's start-up memory is about the same as before the ruler (a plain empty window: 172 to 239 MiB then, 179 to 194 now).
 
 ## What was found
 
@@ -236,10 +245,33 @@ colour at 84 %, subtle border, muted text, shown while a model is loaded and not
 viewport, once per session (`Viewport.tsx` `showHint`). Two smoke tests send a real mouse press and a real wheel event; three
 mutations (press, wheel, always hidden) each fail one.
 
-**Not measured:** the timing tables above were taken before the ruler was added. A full re-measurement in both modes was started
-and was stopped by the system after three scenes because it ran low on memory; it has not been repeated. The ruler adds a few
-dozen label quads and two line models to every frame, so the frame cost and the import time should be re-measured before the
-timing tables are quoted for the current build (R-Ruler-2).
+**Timing after the ruler:** measured on 2026-11-19 (the tables above). In steady state the ruler costs no frame time that could be
+measured: run side by side with a build of the commit before it, the cost of a frame was 4.2 to 4.6 ms against 4.3 to 5.0 ms, and the
+orbit at the display's cadence held the same 74.7 fps on the box and the 9k sphere with both builds. See the next section.
+
+## Re-measurement with the ruler (2026-11-19)
+
+The first full re-measurement (both modes, the standard scenes) was disturbed: native read 67 to 71 fps at the display's cadence on
+the small scenes (it held 74.7 before), 43 fps on the torus, and 5.3 to 5.6 ms per frame uncapped (4.3 to 4.5 before), and it was
+tempting to blame the ruler. The same command, run again once the machine had been left alone, gave the clean figures in the tables
+above (74.7 fps on every scene up to 82k, 4.3 ms uncapped). The cause of the first run's disturbance was not found; it was the
+machine's state at the time (other activity on the machine, or its clocks), the files are kept (`remeasure-vsync`, `remeasure-uncapped`
+in the viewport-compare build folder) and the tables use the second run (`remeasure2-vsync`, `remeasure2-uncapped`).
+
+Because absolute numbers drift with the machine, whether the ruler (and the hint badge and everything else built since) cost anything
+was decided by a side-by-side run against a build of the commit before it (`31d4112`, "Give the native viewport the reference's
+look"), alternating the two builds so that drift hits both (`scripts/native/ab-viewport.ps1`):
+
+| measurement | build before the ruler | current build |
+|---|---|---|
+| uncapped frame cost, box_30mm / sphere_9k / torus_405k, p50 of 3 runs x 2 rounds (ms) | 4.3 to 4.4 / 4.3 to 4.4 / 4.5 to 5.0 | 4.2 to 4.4 / 4.2 to 4.3 / 4.5 to 4.6 |
+| display cadence, box_30mm and sphere_9k, 3 runs x 2 rounds (fps) | 74.7 (73.7 once) | 74.7 (74.0 and 74.2 in two runs) |
+| display cadence, torus_405k, 6 runs x 3 rounds (fps) | median 58.5, 57.8 to 62.1, none below 57.8 | median 58.2, 47.4 to 59.0, 5 of 18 below 57 |
+
+So the steady-state cost is the same. Two things remain open. The torus under the display's cadence reads about 58 fps with both builds
+today where it read 74 on 18 November: the machine's state, since the unchanged older build shows it too. And the current build has
+sporadic dips on that scene (5 of 18 runs at 47 to 56 fps, none for the older build) whose cause was not found; the ruler, the hint badge,
+the plane hover and the other commits since are all candidates and none was singled out (R-Viewport-10).
 
 ## Limits of these numbers
 
@@ -250,8 +282,10 @@ timing tables are quoted for the current build (R-Ruler-2).
   real window. The cadence protocols are comparable in intent, not identical, and the synced column is deliberately pessimistic.
 - Native timings come from a Release build with the test-only code compiled in (`CRAFT_BUILD_TESTS`); the Debug build is much
   slower and was not used for any number here.
-- Three runs per scene: the run logs agree closely run to run, with the one disturbed scene described above, but no confidence
-  intervals were computed.
+- Three runs per scene: the run logs agree closely run to run, but no confidence intervals were computed. Between days and between
+  neighbouring runs the machine does not: one full re-measurement was disturbed (above) and the torus under the display's cadence moved
+  from 74 to 58 fps in two days with an unchanged build. The comparison with the reference is therefore a same-run comparison, and a
+  claim that a change costs or saves frame time needs an alternating A/B of the two builds.
 - The mask method has known weak points: it includes the reference's shadow where it touches the part, and the grid labels as
   described above. IoU near 0.99 therefore means "the silhouettes agree", not "the images agree".
 - The lighting is an approximation (R-Viewport-7): the colour difference inside the part is 0.025 to 0.031 on a 0 to 1 scale and the
@@ -266,6 +300,7 @@ cmake --build --preset windows-release --target craft craft_imgcompare          
 node node_modules\vite\bin\vite.js build --outDir D:\CraftNative\build\reference-dist --emptyOutDir   (from mold/frontend/)
 .\scripts\native\compare-viewport.ps1                 # display cadence, writes summary.md and summary.json
 .\scripts\native\compare-viewport.ps1 -NoVsync        # uncapped
+.\scripts\native\ab-viewport.ps1 -Baseline <commit> [-NoVsync] [-Only torus_405k -Runs 6 -Rounds 3]   # alternating A/B of the current build and an earlier commit
 .\scripts\native\compare-viewport.ps1 -Recompare <run folder>     # only the pixel metrics, from saved frames
 .\scripts\native\generate-reference-fixtures.ps1 -Only look       # the look constants from the reference modules
 ```
