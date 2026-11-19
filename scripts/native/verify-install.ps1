@@ -39,6 +39,14 @@ Check 'bundled python.exe' (Test-Path (Join-Path $InstallDir 'python\python.exe'
 $pth = Get-ChildItem (Join-Path $InstallDir 'python') -Filter 'python*._pth' -ErrorAction SilentlyContinue | Select-Object -First 1
 Check 'python _pth present and relative' ($null -ne $pth -and (Get-Content $pth.FullName -Raw) -match '\.\.\\analysis\\site' -and (Get-Content $pth.FullName -Raw) -notmatch '[A-Za-z]:\\')
 Check 'worker script' (Test-Path (Join-Path $InstallDir 'analysis\craft_analysis_worker.py'))
+Check 'native evaluation module' (Test-Path (Join-Path $InstallDir 'analysis\craft_native_evaluation.py'))
+$kernelsDll = Join-Path $InstallDir 'analysis\craft_analysis_kernels.dll'
+Check 'native kernels library' (Test-Path $kernelsDll)
+# The installed kernels, loaded by the BUNDLED interpreter the way the worker loads them: the library must find its runtime there and
+# pass the bit-for-bit check against that interpreter's own arithmetic.
+$kernelProbe = 'import sys; sys.path[:0] = [sys.argv[1], sys.argv[2]]; import craft_native_evaluation as n; k, s = n.load_kernels(sys.argv[3]); print(s); sys.exit(0 if k is not None else 1)'
+$kernelStatus = & (Join-Path $InstallDir 'python\python.exe') -I -c $kernelProbe (Join-Path $InstallDir 'analysis') (Join-Path $InstallDir 'analysis\site') $kernelsDll 2>&1 | Out-String
+Check 'native kernels load and pass their check in the bundled interpreter' ($LASTEXITCODE -eq 0) $kernelStatus.Trim()
 foreach ($pkg in 'mold_generator_engine', 'engineering_reports', 'engineering_analysis') {
   Check "engine package $pkg" (Test-Path (Join-Path $InstallDir "analysis\site\$pkg\__init__.py"))
 }
@@ -128,6 +136,7 @@ if (Test-Path $summaryPath) {
   Check 'analysis served by the bundled runtime' ($s.analysisRuntimeSource -eq 'bundled runtime') "source=$($s.analysisRuntimeSource)"
   Check 'interpreter is inside the install folder' ($pythonPath.StartsWith($root + '\', [StringComparison]::OrdinalIgnoreCase)) $pythonPath
   Check 'worker script is inside the install folder' ((& $norm $s.analysisWorkerScript).StartsWith($root + '\', [StringComparison]::OrdinalIgnoreCase)) $s.analysisWorkerScript
+  Check 'the application resolved the installed native kernels' ($s.analysisKernels -and (& $norm $s.analysisKernels) -eq (& $norm (Join-Path $InstallDir 'analysis\craft_analysis_kernels.dll'))) "kernels=$($s.analysisKernels)"
   Check 'worker reports Python 3.13.17' ($s.analysisWorkerInfo.python -eq '3.13.17') "python=$($s.analysisWorkerInfo.python)"
   Check 'engine version resolved from the bundled metadata' ($s.analysisWorkerInfo.engine.version -match '^\d+\.\d+\.\d+') "engine=$($s.analysisWorkerInfo.engine | ConvertTo-Json -Compress)"
   Check 'STL imported' ($s.modelPhase -eq 'ready')

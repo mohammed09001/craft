@@ -157,6 +157,68 @@ class AnalysisBridgeTest : public QObject {
     QVERIFY(stages.contains("analyzing"));
   }
 
+  // The native kernels do the candidate loop when the application gives the worker one, and the Python loop otherwise; the report
+  // is the same either way (the kernel is checked bit for bit against the Python arithmetic on load, and its results are only ever
+  // sums the engine turns into the report).
+  void moldabilityGivesTheSameReportWithAndWithoutTheNativeKernels() {
+    REQUIRE_PYTHON();
+    const QString models[] = {fixture("closed_tetrahedron_ascii.stl"),
+                              QStringLiteral(CRAFT_REPO_ROOT "/native/tests/fixtures/models/bracket.stl")};
+    for (const QString& model : models) {
+      const auto run = [&](const QString& kernels, QJsonObject* data, QJsonObject* diagnostics) {
+        WorkerConfig config = realConfig();
+        config.kernelsLibrary = kernels;
+        WorkerClient client(config);
+        QSignalSpy succeeded(&client, &WorkerClient::jobSucceeded);
+        QSignalSpy failed(&client, &WorkerClient::jobFailed);
+        client.startJob(QLatin1String(kCommandMoldabilityAnalysis), {{"sourcePath", model}, {"modelId", "m"}, {"geometryVersion", "g"}}, 300000);
+        if (!succeeded.wait(120000)) return false;
+        const QJsonObject message = succeeded.first().at(1).toJsonObject();
+        *diagnostics = message["diagnostics"].toObject();
+        *data = message["report"].toObject()["data"].toObject();
+        return true;
+      };
+      QJsonObject withKernels, withoutKernels, nativeData, pythonData;
+      QVERIFY(run(QStringLiteral(CRAFT_KERNELS_LIBRARY), &nativeData, &withKernels));
+      QVERIFY(run(QString(), &pythonData, &withoutKernels));
+      QCOMPARE(withKernels["pullDirectionEvaluation"].toString(), QStringLiteral("native kernel"));
+      QCOMPARE(withoutKernels["pullDirectionEvaluation"].toString(), QStringLiteral("python loop"));
+      QVERIFY(withoutKernels["kernels"].toString().contains(QStringLiteral("no native kernels")));
+      QVERIFY(!nativeData.isEmpty());
+      QCOMPARE(nativeData, pythonData);  // every ranked candidate, score, metric and warning
+    }
+  }
+
+  void aMissingOrBrokenKernelFallsBackToThePythonLoop() {
+    REQUIRE_PYTHON();
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString junk = directory.filePath(QStringLiteral("craft_analysis_kernels.dll"));
+    QFile file(junk);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("this is not a library");
+    file.close();
+    const struct { QString path; const char* mentions; } cases[] = {
+        {directory.filePath(QStringLiteral("missing.dll")), "not found"},
+        {junk, "could not be loaded"},
+    };
+    for (const auto& item : cases) {
+      WorkerConfig config = realConfig();
+      config.kernelsLibrary = item.path;
+      WorkerClient client(config);
+      QSignalSpy succeeded(&client, &WorkerClient::jobSucceeded);
+      QSignalSpy failed(&client, &WorkerClient::jobFailed);
+      client.startJob(QLatin1String(kCommandMoldabilityAnalysis),
+                      {{"sourcePath", fixture("closed_tetrahedron_ascii.stl")}, {"modelId", "m"}, {"geometryVersion", "g"}}, 300000);
+      QVERIFY2(succeeded.wait(60000), failed.isEmpty() ? "timed out" : qPrintable(failed.first().at(2).toString()));
+      const QJsonObject message = succeeded.first().at(1).toJsonObject();
+      QVERIFY(message["report"].toObject()["success"].toBool());
+      const QJsonObject diagnostics = message["diagnostics"].toObject();
+      QCOMPARE(diagnostics["pullDirectionEvaluation"].toString(), QStringLiteral("python loop"));
+      QVERIFY2(diagnostics["kernels"].toString().contains(QLatin1String(item.mentions)), qPrintable(diagnostics["kernels"].toString()));
+    }
+  }
+
   void moldabilityAnalysisFailuresAreStructured() {
     REQUIRE_PYTHON();
     WorkerClient client(realConfig());

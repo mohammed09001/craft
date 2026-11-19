@@ -11,8 +11,13 @@ namespace {
 
 #ifdef Q_OS_WIN
 constexpr const char* kPythonRelative = "python/python.exe";
+constexpr const char* kKernelsRelative = "analysis/craft_analysis_kernels.dll";
+#elif defined(Q_OS_MACOS)
+constexpr const char* kPythonRelative = "python/bin/python3";
+constexpr const char* kKernelsRelative = "analysis/craft_analysis_kernels.dylib";
 #else
 constexpr const char* kPythonRelative = "python/bin/python3";
+constexpr const char* kKernelsRelative = "analysis/craft_analysis_kernels.so";
 #endif
 
 QString bundleRoot() {
@@ -51,6 +56,17 @@ Resolution resolveAnalysisRuntime() {
   }
 #endif
   if (!environmentWorker.isEmpty()) resolution.config.workerScript = environmentWorker;
+
+  // The native kernels are an optimisation, never a requirement: without them the worker runs the same arithmetic in Python.
+  const QString bundledKernels = QDir(root).filePath(QLatin1String(kKernelsRelative));
+  if (QFileInfo::exists(bundledKernels)) {
+    resolution.config.kernelsLibrary = bundledKernels;
+  }
+#ifdef CRAFT_DEV_KERNELS
+  else if (QFileInfo::exists(QStringLiteral(CRAFT_DEV_KERNELS))) {
+    resolution.config.kernelsLibrary = QStringLiteral(CRAFT_DEV_KERNELS);
+  }
+#endif
 
   if (!environmentPython.isEmpty()) {
     resolution.config.pythonExecutable = environmentPython;

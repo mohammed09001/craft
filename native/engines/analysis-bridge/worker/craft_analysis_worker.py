@@ -197,6 +197,26 @@ def ranked_pull_direction_candidates(detailed: Any) -> list[dict[str, Any]]:
     return ranked
 
 
+def pull_direction_evaluator(engine_evaluator: Any) -> tuple[Any, str]:
+    """The evaluator for a job: native when the kernel is available and checked, the engine's own loop in every other case.
+
+    The native evaluation (craft_native_evaluation.py, next to this file) is an optimisation: a package that lacks it, or a kernel
+    that cannot be loaded or fails its check, leaves the engine's own Python evaluation, with the reason in the second value.
+    """
+    here = str(Path(__file__).resolve().parent)
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    try:
+        from craft_native_evaluation import create_evaluator
+    except ImportError as error:
+        return engine_evaluator(retain_face_evaluations=False), f"native evaluation unavailable: {error}"
+    return create_evaluator()
+
+
+# What the current job reports about how it ran (reset for every request, sent beside the report; see handle()).
+JOB_DIAGNOSTICS: dict[str, Any] = {}
+
+
 def run_moldability_analysis(job_id: str, params: dict[str, Any]) -> dict[str, Any]:
     source = params.get("sourcePath")
     if not isinstance(source, str) or not source:
@@ -243,8 +263,16 @@ def run_moldability_analysis(job_id: str, params: dict[str, Any]) -> dict[str, A
     started = time.perf_counter()
     # The report carries per-face evaluation COUNTS, never the evaluations (candidates x faces of them: millions for a smooth mesh),
     # so the evaluator is told not to build them: same metrics and scores, far less time and memory.
-    detailed = DetailedMoldAnalysisService(
-        pull_direction_evaluator=PullDirectionEvaluator(retain_face_evaluations=False)).analyze(import_report, model)
+    # The candidate loop runs in the native kernel when the application gave the worker one that passes its check on load, and in the
+    # engine's own Python loop otherwise (craft_native_evaluation.py); the results are the same bit for bit either way.
+    evaluator, kernel_status = pull_direction_evaluator(PullDirectionEvaluator)
+    log(kernel_status)
+    detailed = DetailedMoldAnalysisService(pull_direction_evaluator=evaluator).analyze(import_report, model)
+    kernels = getattr(evaluator, "kernels", None)
+    implementation = "native kernel" if kernels is not None and kernels.runs > 0 else "python loop"
+    log("pull-direction evaluation: " + implementation)
+    # Next to the report in the result envelope, never inside it: which implementation did the work (the report is the same either way).
+    JOB_DIAGNOSTICS.update({"pullDirectionEvaluation": implementation, "kernels": kernel_status})
     elapsed_ms = (time.perf_counter() - started) * 1000.0
     # Cavity analysis and generation readiness are cheap on top of the detailed stage (0.06 s against 2.7 s on a
     # 768-face box). A stage that raises must not hide the moldability result: it is recorded and reported.
@@ -352,6 +380,7 @@ def handle(request: dict[str, Any]) -> bool:
         return True
 
     started = time.perf_counter()
+    JOB_DIAGNOSTICS.clear()
     try:
         if command == "ping":
             payload: dict[str, Any] = {"pong": True}
@@ -382,6 +411,7 @@ def handle(request: dict[str, Any]) -> bool:
         "geometryVersion": params.get("geometryVersion"),
         "report": payload,
         "elapsedMs": (time.perf_counter() - started) * 1000.0,
+        **({"diagnostics": dict(JOB_DIAGNOSTICS)} if JOB_DIAGNOSTICS else {}),
     })
     return True
 

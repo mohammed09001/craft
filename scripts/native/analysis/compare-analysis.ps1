@@ -16,7 +16,9 @@ param(
   [int]$Runs = 1,
   [int]$OriginalMaxFaces = 3200,
   [string]$ModelDir = 'D:\CraftNative\build\analysis-perf\models',
-  [string]$Python = 'D:\CraftNative\sdk\python-3.13.17\python.exe'
+  [string]$Python = 'D:\CraftNative\sdk\python-3.13.17\python.exe',
+  # The native kernels (a release build): timed as a third column, with its own report diff. Without the file that column is skipped.
+  [string]$Kernels = 'D:\CraftNative\build\windows-release\craft_analysis_kernels.dll'
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
@@ -36,8 +38,9 @@ if ($LASTEXITCODE -ne 0) { throw "extracting $archive failed" }
 $baseEngine = Join-Path $base 'mold\src'
 $baseWorker = Join-Path $base 'native\engines\analysis-bridge\worker'
 
-function Invoke-Timed($engine, $worker, $model, $payload) {
+function Invoke-Timed($engine, $worker, $model, $payload, $kernels = $null) {
   $env:CRAFT_ENGINE_SRC = $engine; $env:CRAFT_WORKER_DIR = $worker
+  if ($kernels) { $env:CRAFT_ANALYSIS_KERNELS = $kernels } else { Remove-Item Env:\CRAFT_ANALYSIS_KERNELS -ErrorAction SilentlyContinue }
   try {
     $out = Join-Path $work 'timing.json'
     $p = Start-Process $Python -ArgumentList '-I', (Join-Path $PSScriptRoot 'time_worker.py'), $model, $payload -PassThru -NoNewWindow -RedirectStandardOutput $out
@@ -45,17 +48,30 @@ function Invoke-Timed($engine, $worker, $model, $payload) {
     while (-not $p.HasExited) { $p.Refresh(); if ($p.PeakWorkingSet64 -gt $peak) { $peak = $p.PeakWorkingSet64 }; Start-Sleep -Milliseconds 300 }
     $j = Get-Content $out -Raw | ConvertFrom-Json
     return [pscustomobject]@{ seconds = $j.withJsonSeconds; bytes = $j.jsonBytes; peakMiB = [math]::Round($peak / 1MB) }
-  } finally { Remove-Item Env:\CRAFT_ENGINE_SRC, Env:\CRAFT_WORKER_DIR -ErrorAction SilentlyContinue }
+  } finally { Remove-Item Env:\CRAFT_ENGINE_SRC, Env:\CRAFT_WORKER_DIR, Env:\CRAFT_ANALYSIS_KERNELS -ErrorAction SilentlyContinue }
 }
 
 $rows = foreach ($name in $Models) {
   $model = Join-Path $ModelDir "$name.stl"
   $faces = [int](($name -split '_')[-1])
-  $old = $null; $new = $null; $same = 'n/a'
+  $old = $null; $new = $null; $nat = $null; $same = 'n/a'; $sameNative = 'n/a'
   for ($run = 1; $run -le $Runs; $run++) {
     $payloadNew = Join-Path $work "payload-$name-new.json"
     $n = Invoke-Timed '' '' $model $payloadNew
     if (-not $new -or $n.seconds -lt $new.seconds) { $new = $n }
+    if (Test-Path $Kernels) {
+      $payloadNative = Join-Path $work "payload-$name-native.json"
+      $k = Invoke-Timed '' '' $model $payloadNative $Kernels
+      if (-not $nat -or $k.seconds -lt $nat.seconds) { $nat = $k }
+      if ($faces -le $OriginalMaxFaces) {
+        & $Python -I (Join-Path $PSScriptRoot 'diff_payloads.py') $payloadNew $payloadNative *> $null
+        $sameNative = if ($LASTEXITCODE -eq 0) { 'identical' } else { 'DIFFERENT' }
+      } else {
+        # no baseline to compare with at this size: the Python loop of the current engine is the reference
+        & $Python -I (Join-Path $PSScriptRoot 'diff_payloads.py') $payloadNew $payloadNative *> $null
+        $sameNative = if ($LASTEXITCODE -eq 0) { 'identical to python loop' } else { 'DIFFERENT' }
+      }
+    }
     if ($faces -le $OriginalMaxFaces) {
       $payloadOld = Join-Path $work "payload-$name-baseline.json"
       $o = Invoke-Timed $baseEngine $baseWorker $model $payloadOld
@@ -64,10 +80,10 @@ $rows = foreach ($name in $Models) {
       $same = if ($LASTEXITCODE -eq 0) { 'identical' } else { 'DIFFERENT' }
     }
   }
-  [pscustomobject]@{ model = $name; faces = $faces; baselineSeconds = $old.seconds; nowSeconds = $new.seconds
+  [pscustomobject]@{ model = $name; faces = $faces; baselineSeconds = $old.seconds; nowSeconds = $new.seconds; nativeSeconds = $nat.seconds; nativeMiB = $nat.peakMiB; nativeReport = $sameNative
     speedup = if ($old) { [math]::Round($old.seconds / [math]::Max(0.001, $new.seconds), 1) } else { $null }
     baselineMiB = $old.peakMiB; nowMiB = $new.peakMiB; report = $same }
 }
 $rows | Format-Table -AutoSize
 $rows | ConvertTo-Json | Set-Content (Join-Path $work "compare-$Baseline.json") -Encoding utf8
-if ($rows | Where-Object { $_.report -eq 'DIFFERENT' }) { throw 'A report differs from the baseline.' }
+if ($rows | Where-Object { $_.report -eq 'DIFFERENT' -or $_.nativeReport -eq 'DIFFERENT' }) { throw 'A report differs from its reference.' }

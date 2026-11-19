@@ -115,7 +115,6 @@ class PullDirectionEvaluator:
         )
         weighted_quality_sum = 0.0  # the default scoring policy's sum, accumulated here when the evaluations are not kept
         face_evaluations: list[FacePullDirectionEvaluation] = []
-        warnings: list[PullDirectionEvaluationWarning] = []
 
         analyzed_face_count = 0
         ignored_face_count = 0
@@ -197,6 +196,48 @@ class PullDirectionEvaluator:
             else:
                 low_draft_area_sq_mm += area
 
+        return self.finish_candidate_evaluation(
+            candidate_direction,
+            face_count=len(face_data),
+            analyzed_face_count=analyzed_face_count,
+            ignored_face_count=ignored_face_count,
+            total_analyzed_area_sq_mm=total_analyzed_area_sq_mm,
+            positive_side_area_sq_mm=positive_side_area_sq_mm,
+            negative_side_area_sq_mm=negative_side_area_sq_mm,
+            neutral_area_sq_mm=neutral_area_sq_mm,
+            low_draft_area_sq_mm=low_draft_area_sq_mm,
+            weighted_draft_sum=weighted_draft_sum,
+            minimum_observed_draft_angle_degrees=minimum_observed_draft_angle_degrees,
+            faces_meeting_recommended_draft_count=faces_meeting_recommended_draft_count,
+            weighted_quality_sum=weighted_quality_sum,
+            kept_face_evaluations=tuple(face_evaluations) if retain else None,
+        )
+    def finish_candidate_evaluation(
+        self,
+        candidate_direction: PullDirectionCandidate,
+        *,
+        face_count: int,
+        analyzed_face_count: int,
+        ignored_face_count: int,
+        total_analyzed_area_sq_mm: float,
+        positive_side_area_sq_mm: float,
+        negative_side_area_sq_mm: float,
+        neutral_area_sq_mm: float,
+        low_draft_area_sq_mm: float,
+        weighted_draft_sum: float,
+        minimum_observed_draft_angle_degrees: float | None,
+        faces_meeting_recommended_draft_count: int,
+        weighted_quality_sum: float,
+        kept_face_evaluations: tuple[FacePullDirectionEvaluation, ...] | None,
+    ) -> CandidatePullDirectionEvaluation:
+        """Build one candidate's result from the sums the per-face loop accumulated.
+
+        The loop in ``_evaluate`` and any other implementation of it (the worker's native kernel) hand over the same
+        accumulators, so the metrics, warnings, evaluability and score are assembled by one piece of code. With
+        ``kept_face_evaluations=None`` the per-face evaluations are not kept and the default scoring policy's score is
+        computed from ``weighted_quality_sum``.
+        """
+        warnings: list[PullDirectionEvaluationWarning] = []
         if ignored_face_count > 0:
             warnings.append(
                 PullDirectionEvaluationWarning(
@@ -253,15 +294,15 @@ class PullDirectionEvaluator:
             faces_meeting_recommended_draft_count=faces_meeting_recommended_draft_count,
         )
         stored_face_evaluations: Sequence[FacePullDirectionEvaluation]
-        if retain:
-            stored_face_evaluations = tuple(face_evaluations)
+        if kept_face_evaluations is not None:
+            stored_face_evaluations = kept_face_evaluations
             engineering_score = self.scoring_policy.score(
                 face_evaluations=stored_face_evaluations,
                 aggregate_metrics=aggregate_metrics,
                 settings=self.settings,
             )
         else:
-            stored_face_evaluations = UnretainedFaceEvaluations(len(face_data))
+            stored_face_evaluations = UnretainedFaceEvaluations(face_count)
             # AreaWeightedDraftScoringPolicy.score from the sum accumulated above.
             if total_analyzed_area_sq_mm <= 0.0:
                 engineering_score = 0.0

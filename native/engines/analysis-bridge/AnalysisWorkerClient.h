@@ -21,6 +21,7 @@ struct WorkerConfig {
   QString pythonExecutable;    // empty => every job fails with analysis_runtime_missing
   QString workerScript;
   QStringList pythonPath;      // prepended to PYTHONPATH (engine sources / bundled site)
+  QString kernelsLibrary;      // native numerical kernels (CRAFT_ANALYSIS_KERNELS for the worker); empty or missing => the worker runs the Python loops
   int startupTimeoutMs = 20000;
   int jobTimeoutMs = 120000;
 };

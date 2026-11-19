@@ -1,6 +1,7 @@
 # Python analysis speed
 
-Measured 2026-11-19 on one machine (Windows 11, Python 3.13.17, one core used). The engine is the existing pure-Python
+Measured 2026-11-19 on one machine (Windows 11, Intel Core i7-8550U with 4 cores and 8 threads, Python 3.13.17; Python itself uses one
+core, the native kernel up to 8 threads). The engine is the existing pure-Python
 `mold_generator_engine` that the native application runs behind its local worker (`native/engines/analysis-bridge/worker`). This
 document says what was slow, what was changed, why the results cannot have changed, how that was checked, what the numbers are
 and what is still slow. The code is in `mold/src/mold_generator_engine` (ray queries, candidate evaluation), the worker, and
@@ -18,6 +19,9 @@ and what is still slow. The code is in `mold/src/mold_generator_engine` (ray que
   Behind that: 45 new Python test cases that compare each change with the original code for exact equality, 17 deliberate bugs that the
   tests catch, and the native tests that run the real worker pass.
 - **The engine's own default behaviour is unchanged.** One change is an opt-in mode that only the worker uses.
+- **A native kernel now does the candidate evaluation (second stage of the work, below).** On the smooth 20,480-face sphere the
+  evaluation alone went from 294 s to 2.8 s, with the same results to the last bit, and the whole job takes 43 s. Smooth meshes no
+  longer grow with candidates x faces in Python; what is left of their cost is the ray queries and the report.
 
 ## What was slow
 
@@ -94,13 +98,93 @@ commit d58b3d1:
 The time per stage for the 10,800-face box: detailed analysis 2.9 s, cavity analysis 1.1 s (the cavity stage's ray queries use the
 hierarchy too; its other work was not touched).
 
+## The native candidate evaluation (second stage)
+
+After the first stage, a smooth mesh still spent its time in the candidates x faces loop: 16 s of the 19 s job on the 5,120-face
+sphere. That loop is now a C++ function (`native/engines/analysis-kernels`, D-089), called from the worker through ctypes.
+
+**What it is.** `craft_evaluate_pull_directions` takes the analyzable faces (unit normal and area), the unit candidate directions and
+the two settings, and returns per candidate the sums the engine builds its evaluation from (analyzed area, area on each side, low-draft
+area, area x draft angle, minimum draft, count meeting the recommended draft, and the default score's weighted quality). It is the
+loop of `PullDirectionEvaluator._evaluate` with the same operations in the same order. Everything else (the metrics, the warnings,
+the evaluability, the score) is still built by the engine's own code, now one method (`finish_candidate_evaluation`) that both the
+Python loop and the kernel call, so there is one implementation of it.
+
+**Why it gives the same bits.** Each sum is the same sequence of IEEE-754 double operations as in Python: the library is built
+without fused multiply-add and without fast-math (`/fp:strict`, `-ffp-contract=off`), uses the release C runtime that `python.exe`
+itself uses (so `asin` is the very function CPython calls), and multiplies by `180/pi` computed in double like `math.degrees`. The
+threads split the candidates, never the faces of one candidate, so the result does not depend on the thread count.
+
+**It is never trusted blindly.**
+- The worker loads it only from the path the application gives it (`CRAFT_ANALYSIS_KERNELS`; the bundled `analysis/` folder, or the
+  build tree in development), and only if its interface version is the one the worker speaks.
+- On load it is checked against the Python arithmetic: 249 faces (random unit normals, axis-aligned ones, and four deliberately not unit length), 69 directions (including ones parallel
+  and opposite to a face, whose dot product rounds to 1 or just past it), four settings including ones taken from the data so that a pair
+  lands exactly on the tolerance or the recommended draft, with one thread and with four. One differing bit rejects the library.
+  The check costs about 0.7 s once per worker start (most of it importing the engine).
+- If the library is missing, cannot be loaded, fails the check, or reports an error during a run, the engine's own Python
+  evaluation runs and the reason is logged and reported next to the report (`diagnostics.pullDirectionEvaluation`, `diagnostics.kernels`
+  in the result envelope, not in the report).
+- It is used only by the evaluator that does not keep per-face evaluations with the default scoring policy, which is the only mode the
+  worker runs; every other configuration is the engine's code unchanged.
+
+**How it was checked.**
+- `native/engines/analysis-bridge/tests/test_native_evaluation.py` (28 tests): the whole evaluation against the Python loops by exact
+  equality on random faces including broken ones (zero, NaN and infinite area, missing and non-finite normals), non-default settings,
+  nothing analyzable, no candidates, a zero direction raising as before, thread counts 1, 2, 3, 7, 16 and automatic giving identical
+  bytes, more threads than candidates, arguments the Python loop could not honour being refused and counted, a failing kernel falling
+  back, the kernel not used for the other modes, the check rejecting a kernel wrong by one bit and one that depends on the thread
+  count, every way loading is refused, and the check's own oracle against the engine's loop.
+- 17 deliberate bugs in the C++ (a different summation order of the dot product, either alignment clamp removed, `>=` and `<=` where
+  the loop has `>` and `<`, `>` for the draft threshold, the minimum keeping the largest, the quality clamp removed, a sum off by a
+  millionth, two record fields swapped, an area added to the wrong side, a thread chunk dropping its last candidate, fused
+  multiply-add allowed in an optimized build, a non-finite tolerance or a zero recommended draft accepted): 15 are caught and 2
+  change no bit (the lower clamp of the quality ratio cannot fire because a draft angle is never negative, and the `180/pi` constant
+  written out equals the computed one). Four of them survived the first version of the check data and led to the boundary faces and
+  the settings taken from the data.
+- Through the application's bridge: `tst_analysis_bridge` runs the real worker with and without the kernel on a tetrahedron and on
+  the bracket fixture and requires the same report `data` object (every ranked candidate, score, metric and warning) and the right
+  diagnostics, and requires a missing or corrupt library to fall back with its reason.
+- The installed package: `verify-install.ps1` checks that the kernel and the module are in the package, that the bundled interpreter
+  loads the installed library and passes its check, and that the application resolved it. Run on the package built from this commit:
+  all checks pass, including the run from a hostile environment.
+- Whole worker report, native kernel against the Python loop of the same engine and against the commit before the work: identical on
+  every model where both were run (`compare-analysis.ps1`, `nativeReport` column).
+
+**Numbers** (release kernel; evaluation alone, `time_evaluation.py`):
+
+| model | faces | candidates | evaluations | Python loop | native | speed-up | results |
+|---|---|---|---|---|---|---|---|
+| sphere | 1,280 | 1,286 | 1.6 million | 0.87 s | 0.023 s | 38x | identical |
+| sphere | 5,120 | 5,126 | 26 million | 16.3 s | 0.20 s | 81x | identical |
+| sphere | 20,480 | 20,486 | 420 million | 294 s | 2.8 s | 104x | identical |
+
+Whole job (`compare-analysis.ps1`, one run, release kernel; the baseline is commit d58b3d1, whose timings move by a third between
+runs on this machine, 44 s and 59 s for the 3,072-face box):
+
+| model | faces | before the work | stage 1 (Python loop) | with the kernel | report |
+|---|---|---|---|---|---|
+| box | 768 | 3.4 s | 0.40 s | 0.42 s | identical |
+| box | 3,072 | 43.6 s | 0.97 s | 0.99 s | identical |
+| sphere | 320 | 4.2 s | 0.58 s | 0.56 s | identical |
+| sphere | 1,280 | 62.4 s | 2.4 s | 1.6 s | identical |
+| box | 10,800 | 561 s (earlier) | 3.3 s | 3.4 s | identical to the Python loop |
+| sphere | 5,120 | not run | 18.9 s | 6.4 s | identical to the Python loop |
+| sphere | 20,480 | not run | about 5 minutes (the evaluation alone took 294 s) | 42.6 s, 449 MiB peak, 103 MB of JSON | not compared (two 100 MB reports) |
+
+Boxes have few distinct normals, so they have few candidates and the kernel changes nothing for them; smooth meshes are where it
+matters. After the kernel, a profile of the 5,120-face sphere shows the remaining time in the ray queries (undercut analysis and the
+cavity openings, 102,400 rays through the hierarchy in Python, about 9 of the 19 profiled seconds) and in turning the report into JSON
+(about 5).
+
 ## What is still slow
 
-- **Smooth meshes grow faster than their face count.** Candidates x faces evaluations are inherent to the algorithm: 1,280 to 5,120
-  faces (4x) took 2.8 to 20.7 s (7x). A smooth part of 20,000 faces would take minutes, not seconds (not measured). Removing that
-  would change what is computed (fewer or merged candidates) and so the results; the behaviour-preserving alternative is to
-  reimplement the evaluation natively, where 100 million evaluations are a fraction of a second (R-Analysis-1).
-- **The pure-Python floor.** What remains for a smooth mesh is the arithmetic itself, about a microsecond per (candidate, face).
+- **Ray queries and the report on large smooth meshes.** The candidate evaluation is no longer the limit (R-Analysis-1 is closed);
+  the 20,480-face sphere takes 43 s, mostly rays (one ray set per face, each through the hierarchy in Python) and the 103 MB result.
+  A native ray query would be the next step; it must reproduce the brute-force answers bit for bit like the hierarchy does, and it has
+  not been started (R-Analysis-5).
+- **Models with 100,000 faces or more were not measured.** Candidates x faces would be 10 billion evaluations: roughly 70 s in the
+  kernel on this machine, but memory (the JSON, the model objects) and the ray queries will matter before that.
 - **Models with real undercuts** (many occluded faces, long ray paths) were not measured: the generated parts have no complicated
   geometry. The hierarchy does not depend on that, but the numbers above should not be read as typical for a complex part.
 - The default engine, used outside the worker, still keeps every per-face evaluation: unchanged reference behaviour, unchanged cost.
@@ -113,12 +197,16 @@ python -I scripts\native\analysis\time_analysis.py <model.stl> [--backend brute|
 python -I scripts\native\analysis\time_worker.py <model.stl> [payload.json]                      # the whole worker job
 .\scripts\native\analysis\compare-analysis.ps1 -Baseline <commit>                                # against an older commit
 cd mold; python -m pytest tests -q                                                              # engine tests (venv with pytest)
-python -m pytest native\engines\analysis-bridge\tests -q                                        # worker tests (from the repository root)
+python -I scripts\native\analysis\time_evaluation.py <model.stl> <craft_analysis_kernels.dll>      # the evaluation alone, Python against native
+.\scripts\native\analysis\compare-analysis.ps1 -Baseline <commit> -Kernels <dll>                 # three columns: before, Python loop, kernel
+set CRAFT_ANALYSIS_KERNELS=<dll>; python -m pytest native\engines\analysis-bridge\tests native\tests\python -q   # worker + kernel tests (repository root)
 ```
 
 ## Limits of these numbers
 
-One machine, one core, Windows, Python 3.13.17, generated shapes (boxes and icospheres), one run per cell. No real scanned or
+One machine, Windows, Python 3.13.17, generated shapes (boxes and icospheres), one run per cell. No real scanned or
 production parts. The exactness argument for the hierarchy rests on IEEE-754 double arithmetic being applied in the same order
 (true for CPython floats; no fused multiply-add) and on monotonic rounding in the box test; it is backed by the tests, not proven
-formally, and was only run on Windows.
+formally, and was only run on Windows. The kernel's equality with Python rests on the C runtime's `asin` being the one CPython calls and
+on the compiler not contracting multiplies and adds; both are checked by the load-time check on the machine that runs the analysis,
+not assumed. A kernel built for macOS or Linux has not been built or run (macOS validation was stopped at the user's request).

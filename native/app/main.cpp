@@ -397,6 +397,7 @@ class Smoke : public QObject {
       s.insert("analysisRuntimeSource", AppPaths::analysisRuntimeSource());
       s.insert("analysisPython", config.pythonExecutable);
       s.insert("analysisWorkerScript", config.workerScript);
+      s.insert("analysisKernels", config.kernelsLibrary);
       s.insert("analysisWorkerInfo", app_.analysisWorkerInfo());
       s.insert("applicationDir", QCoreApplication::applicationDirPath());
       s.insert("selectionBox", app_.selectionBox());

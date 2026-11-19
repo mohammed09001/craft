@@ -30,8 +30,10 @@ if(CRAFT_EMBED_DEV_RUNTIME_PATHS)
   target_compile_definitions(craft_app_lib PRIVATE
     CRAFT_DEV_WORKER_SCRIPT="${CRAFT_WORKER_SCRIPT}"
     CRAFT_DEV_ENGINE_SRC="${CRAFT_ENGINE_SRC}"
-    CRAFT_DEV_PYTHON="${CRAFT_PYTHON_EXECUTABLE_NORMALIZED}")
+    CRAFT_DEV_PYTHON="${CRAFT_PYTHON_EXECUTABLE_NORMALIZED}"
+    CRAFT_DEV_KERNELS="$<TARGET_FILE:craft_analysis_kernels>")
 endif()
+add_dependencies(craft_app_lib craft_analysis_kernels)
 craft_target_defaults(craft_app_lib)
 
 # --- the application ----------------------------------------------------------

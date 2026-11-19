@@ -70,7 +70,9 @@ target_compile_definitions(tst_reference_equivalence PRIVATE
   CRAFT_REFERENCE_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/reference")
 
 craft_add_test(tst_analysis_bridge SOURCES tst_analysis_bridge.cpp LIBS craft_analysis_bridge)
+add_dependencies(tst_analysis_bridge craft_analysis_kernels)
 target_compile_definitions(tst_analysis_bridge PRIVATE
+  CRAFT_KERNELS_LIBRARY="$<TARGET_FILE:craft_analysis_kernels>"
   CRAFT_WORKER_SCRIPT="${CRAFT_WORKER_SCRIPT}"
   CRAFT_ENGINE_SRC="${CRAFT_ENGINE_SRC}"
   CRAFT_DEV_PYTHON="${CRAFT_PYTHON_EXECUTABLE_NORMALIZED}")
@@ -81,6 +83,15 @@ if(CRAFT_PYTHON_EXECUTABLE_NORMALIZED)
   add_test(NAME py_worker_stage_failures
     COMMAND ${CRAFT_PYTHON_EXECUTABLE_NORMALIZED} -m pytest -q -p no:cacheprovider ${CMAKE_CURRENT_SOURCE_DIR}/python/test_worker_stage_failures.py)
   set_tests_properties(py_worker_stage_failures PROPERTIES ENVIRONMENT "PYTHONPATH=${CRAFT_ENGINE_SRC}" TIMEOUT 120)
+endif()
+
+# The native candidate evaluation against the engine's Python loop, bit for bit (see craft_native_evaluation.py).
+if(CRAFT_PYTHON_EXECUTABLE_NORMALIZED)
+  add_test(NAME py_native_evaluation
+    COMMAND ${CRAFT_PYTHON_EXECUTABLE_NORMALIZED} -m pytest -q -p no:cacheprovider
+            ${CRAFT_REPO_ROOT}/native/engines/analysis-bridge/tests)
+  set_tests_properties(py_native_evaluation PROPERTIES
+    ENVIRONMENT "CRAFT_ANALYSIS_KERNELS=$<TARGET_FILE:craft_analysis_kernels>" TIMEOUT 300)
 endif()
 
 if(CRAFT_BUILD_APP)

@@ -4,7 +4,7 @@
 
 Writes closed, outward-facing binary STL files in millimetres with correct facet normals:
   box_<n>.stl        a 30 mm box whose six faces are each split into a grid (12 * k * k faces)
-  sphere_<n>.stl     an icosphere of radius 15 mm (20 * 4^s faces)
+  sphere_<n>.stl     an icosphere of radius 15 mm (20 * 4^s faces, s = 1..5)
   bracket_<n>.stl    an L-shaped bracket (a part with concave edges and real undercut candidates), split into a grid
 Sizes are chosen to show how the analysis grows with the face count.
 """
@@ -98,7 +98,7 @@ def main() -> int:
     for k in (2, 4, 8, 12, 16):
         triangles = box((30, 30, 30), k)
         write_stl(out / f"box_{len(triangles)}.stl", triangles)
-    for s in (1, 2, 3, 4):
+    for s in (1, 2, 3, 4, 5):
         triangles = icosphere(s, 15.0)
         write_stl(out / f"sphere_{len(triangles)}.stl", triangles)
     for k in (2, 4, 8):

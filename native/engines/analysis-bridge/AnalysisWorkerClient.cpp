@@ -119,6 +119,9 @@ void WorkerClient::ensureStarted() {
   // Never litter the source tree (or a read-only install) with __pycache__.
   environment.insert(QStringLiteral("PYTHONDONTWRITEBYTECODE"), QStringLiteral("1"));
   environment.insert(QStringLiteral("PYTHONUTF8"), QStringLiteral("1"));
+  // The native kernels are located by the application, never searched for by the worker; an inherited value must not point it elsewhere.
+  environment.remove(QStringLiteral("CRAFT_ANALYSIS_KERNELS"));
+  if (!config_.kernelsLibrary.isEmpty()) environment.insert(QStringLiteral("CRAFT_ANALYSIS_KERNELS"), config_.kernelsLibrary);
   process_.setProcessEnvironment(environment);
 
   process_.setProgram(config_.pythonExecutable);

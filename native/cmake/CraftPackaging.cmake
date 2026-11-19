@@ -8,7 +8,7 @@
 #
 #   Craft.exe, Qt DLLs/plugins/QML (windeployqt), MSVC runtime
 #   python/                       the embeddable CPython (CRAFT_PYTHON_RUNTIME_DIR)
-#   analysis/craft_analysis_worker.py
+#   analysis/craft_analysis_worker.py, craft_native_evaluation.py, craft_analysis_kernels.dll
 #   analysis/site/                mold_generator_engine, engineering_reports,
 #                                 engineering_analysis (+ dist-info, precompiled)
 #   licenses/                     third-party licenses and notices
@@ -62,6 +62,10 @@ if(CRAFT_PYTHON_RUNTIME_DIR)
 endif()
 
 install(FILES "${CRAFT_WORKER_SCRIPT}" DESTINATION analysis COMPONENT Runtime)
+# The worker's native evaluation hook and the kernels it loads (an optimisation; the worker runs without them).
+get_filename_component(_craft_worker_dir "${CRAFT_WORKER_SCRIPT}" DIRECTORY)
+install(FILES "${_craft_worker_dir}/craft_native_evaluation.py" DESTINATION analysis COMPONENT Runtime)
+install(TARGETS craft_analysis_kernels RUNTIME DESTINATION analysis LIBRARY DESTINATION analysis COMPONENT Runtime)
 foreach(_package IN LISTS CRAFT_ENGINE_PACKAGES)
   install(DIRECTORY "${CRAFT_ENGINE_SRC}/${_package}" DESTINATION analysis/site COMPONENT Runtime
           PATTERN "__pycache__" EXCLUDE PATTERN "*.pyc" EXCLUDE)

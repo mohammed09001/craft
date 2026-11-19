@@ -199,6 +199,9 @@ add_library(craft_mesh_manifold STATIC
 target_link_libraries(craft_mesh_manifold PUBLIC craft_mesh_api PRIVATE manifold::manifold)
 craft_target_defaults(craft_mesh_manifold)
 
+# --- craft_analysis_kernels: native numerical kernels the Python worker loads through ctypes ---
+add_subdirectory(engines/analysis-kernels)
+
 # --- craft_analysis_bridge: local Python worker over QProcess ----------------
 add_library(craft_analysis_bridge STATIC
   engines/analysis-bridge/AnalysisProtocol.h

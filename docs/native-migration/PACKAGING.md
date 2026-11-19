@@ -10,6 +10,8 @@ Qt6*.dll, platforms/, styles/, qml/ …  Qt runtime, deployed by windeployqt
 msvcp140*.dll, vcruntime140*.dll       MSVC runtime, app-local
 python/                                CPython 3.13.17, the official embeddable distribution
 analysis/craft_analysis_worker.py      the worker the app launches
+analysis/craft_native_evaluation.py    the worker's native evaluation hook (loads and checks the kernels)
+analysis/craft_analysis_kernels.dll    native kernels the worker loads through ctypes (an optimisation; the worker runs without it)
 analysis/site/                         mold_generator_engine, engineering_reports, engineering_analysis
                                        (+ dist-info for the version, precompiled .pyc)
 licenses/                              THIRD_PARTY_NOTICES.txt, Manifold and Clipper2 licenses

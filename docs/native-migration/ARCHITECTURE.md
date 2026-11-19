@@ -1,4 +1,4 @@
-﻿# Architecture
+# Architecture
 
 Layers (no upward dependencies, QML holds no engineering logic):
 
@@ -9,6 +9,7 @@ Layers (no upward dependencies, QML holds no engineering logic):
 | Mold algorithms (reference block, Cut by Face, part solid, cavity) | `native/core/mold` | no |
 | Kernel seam `IMeshGeometryEngine` + native Manifold 3.5.1 | `native/engines/mesh` | no |
 | Python analysis bridge (QProcess, JSON lines) | `native/engines/analysis-bridge` | Core |
+| Analysis kernels (the pull-direction candidate loop in C++, loaded by the Python worker through ctypes) | `native/engines/analysis-kernels` | Core |
 | Engineering data -> Qt Quick 3D buffers, camera | `native/viewport` | Quick3D |
 | Controller, scene model, jobs, paths, logging, QML | `native/app` | Quick3D |
 
