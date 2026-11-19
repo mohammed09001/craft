@@ -290,6 +290,14 @@ void AppController::setCavityClearanceMm(double value) {
   invalidateMoldInputs();
 }
 
+void AppController::setCavityQuality(const QString& value) {
+  const CavityQualityMode mode = value == QLatin1String("standard") ? CavityQualityMode::Standard : CavityQualityMode::High;
+  if (mode == cavityQuality_) return;
+  pushHistory();
+  cavityQuality_ = mode;
+  invalidateMoldInputs();
+}
+
 // The reference's Molds browser (MoldBodiesBrowser.tsx): every mold body with an eye toggle, and the original model. It lists what is on the
 // scene, so it follows the working mold and an adopted segmentation; generated Master Mold tooling has its own pieces list and is left out.
 QVariantMap AppController::moldBrowser() const {
@@ -413,6 +421,7 @@ void AppController::generateMold() {
   request.groundedPart = model_->groundedSoup;
   request.moldClearanceMm = effectiveMoldClearanceMm();
   request.cavityClearanceMm = cavityClearanceMm_;
+  request.qualityMode = cavityQuality_;
   if (segmentation_.adopted) {
     request.segmentedBodies = segmentation_.executedBodies;  // Segmentation replaces Cut by Face
   } else {
@@ -563,6 +572,7 @@ QVariantMap AppController::moldSummary() const {
           {"offsetMethod", QString::fromStdString(r.cavity.cavityTool.implementationMethod)},
           {"usedFallback", r.cavity.usedFallback},
           {"cavityClearanceMm", r.cavity.cavityTool.clearanceMm},
+          {"cavityQuality", QString::fromLatin1(qualityModeName(r.cavity.cavityTool.qualityMode))},
           {"operationId", QString::fromStdString(r.cavity.operationId)},
           {"signature", QString::fromStdString(r.cavity.sourceSignature)},
           {"referenceBlock", boundsMap(r.definition.referenceMoldBlockBounds)},

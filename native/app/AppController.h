@@ -87,6 +87,8 @@ class AppController : public QObject {
   Q_PROPERTY(double moldClearanceMm READ moldClearanceMm WRITE setMoldClearanceMm NOTIFY moldInputsChanged)
   Q_PROPERTY(double cavityClearanceMm READ cavityClearanceMm WRITE setCavityClearanceMm NOTIFY moldInputsChanged)
   Q_PROPERTY(double maxCavityClearanceMm READ maxCavityClearanceMm CONSTANT)
+  // "high" (the reference's only mode: its store starts there and has no setter) or "standard" (faster, coarser). A session setting.
+  Q_PROPERTY(QString cavityQuality READ cavityQuality WRITE setCavityQuality NOTIFY moldInputsChanged)
   Q_PROPERTY(double minMoldClearanceMm READ minMoldClearanceMm CONSTANT)
   Q_PROPERTY(double maxMoldClearanceMm READ maxMoldClearanceMm CONSTANT)
   Q_PROPERTY(QVariantList cutFaces READ cutFaces NOTIFY moldInputsChanged)
@@ -192,6 +194,8 @@ class AppController : public QObject {
   void setMoldClearanceMm(double value);
   double cavityClearanceMm() const { return cavityClearanceMm_; }
   void setCavityClearanceMm(double value);
+  QString cavityQuality() const { return cavityQuality_ == CavityQualityMode::High ? QStringLiteral("high") : QStringLiteral("standard"); }
+  void setCavityQuality(const QString& value);
   double maxCavityClearanceMm() const { return 5.0; }  // MAX_CAVITY_CLEARANCE_MM in the reference
   double minMoldClearanceMm() const { return kMinReferenceMoldClearanceMm; }
   double maxMoldClearanceMm() const { return kMaxReferenceMoldClearanceMm; }
@@ -504,6 +508,7 @@ class AppController : public QObject {
   struct HistoryEntry {
     std::array<CutFaceState, 6> cutFaces{};
     double moldClearanceMm = 0, cavityClearanceMm = 0;
+    CavityQualityMode cavityQuality = CavityQualityMode::High;
     std::vector<SprueOperationDefinition> sprueIntents;
     int nextSprueNumber = 1;
     QString moldPhase, moldError, moldErrorCode;
@@ -562,6 +567,7 @@ class AppController : public QObject {
   // mold
   double moldClearanceMm_ = kDefaultReferenceMoldClearanceMm;
   double cavityClearanceMm_ = kDefaultCavityClearanceMm;
+  CavityQualityMode cavityQuality_ = CavityQualityMode::High;
   std::array<CutFaceState, 6> cutFaces_{};
   QString moldPhase_ = QStringLiteral("unavailable");
   QString moldError_;

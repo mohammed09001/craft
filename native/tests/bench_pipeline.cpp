@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <cstdio>
 #include <filesystem>
+#include <string>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -41,6 +42,7 @@ int main(int argc, char** argv) {
   struct Size { int segments, rings; };
   const Size sizes[] = {{48, 24}, {160, 80}, {360, 180}, {700, 350}};
   const double cavityClearance = argc > 2 ? std::atof(argv[2]) : 0.0;  // 2nd arg: cavity clearance mm
+  const bool high = argc > 3 && std::string(argv[3]) == "high";            // 3rd arg: "high" or "standard" (the default here)
   auto engine = createManifoldMeshEngine();
 
   std::printf("| triangles | STL MiB | read+validate ms | ground ms | render buffers ms | edge buffers ms | mold (1 split) ms | bodies | peak RSS MiB |\n");
@@ -79,6 +81,7 @@ int main(int argc, char** argv) {
     request.partGeometryVersion = partGeometryVersion(*grounded);
     request.cuttingPlanes = {createCuttingPlane(FaceId::Top, 0.5)};
     request.cavityClearanceMm = cavityClearance;
+    request.qualityMode = high ? CavityQualityMode::High : CavityQualityMode::Standard;
     t = Clock::now();
     std::size_t bodies = 0;
     try {

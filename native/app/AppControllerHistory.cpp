@@ -27,6 +27,7 @@ AppController::HistoryEntry AppController::captureHistory() const {
   entry.cutFaces = cutFaces_;
   entry.moldClearanceMm = moldClearanceMm_;
   entry.cavityClearanceMm = cavityClearanceMm_;
+  entry.cavityQuality = cavityQuality_;
   entry.sprueIntents = sprueIntents_;
   entry.nextSprueNumber = nextSprueNumber_;
   entry.moldResult = moldResult_;
@@ -118,6 +119,7 @@ void AppController::restoreHistory(const HistoryEntry& entry) {
   cutFaces_ = entry.cutFaces;
   moldClearanceMm_ = entry.moldClearanceMm;
   cavityClearanceMm_ = entry.cavityClearanceMm;
+  cavityQuality_ = entry.cavityQuality;
   sprueIntents_ = entry.sprueIntents;
   nextSprueNumber_ = entry.nextSprueNumber;
   moldError_ = entry.moldError;

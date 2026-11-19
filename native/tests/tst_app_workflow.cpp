@@ -1863,6 +1863,52 @@ class WorkflowTest : public QObject {
   }
 
   // The reference's Molds browser (MoldBodiesBrowser.tsx): every mold body and the original model can be shown or hidden.
+  // The reference's cavity quality is "high" (its store starts there and has no setter), so that is the default here; "standard" is the faster
+  // alternative the inspector offers. Each generation records the mode it ran in, and a change of mode invalidates the mold like any other input.
+  void cavityQualityDefaultsToHighAndIsUsedByGeneration() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    QCOMPARE(app->cavityQuality(), QStringLiteral("high"));
+    app->setCavityClearanceMm(1.0);
+
+    const auto generate = [&](const QString& quality) {
+      app->setCavityQuality(quality);
+      QCOMPARE(app->cavityQuality(), quality);
+      QElapsedTimer timer;
+      timer.start();
+      app->generateMold();
+      QVERIFY(waitFor([&] { return app->moldPhase() == "complete" || app->moldPhase() == "error"; }, 300000));
+      QCOMPARE(app->moldPhase(), QStringLiteral("complete"));
+      QCOMPARE(app->moldSummary().value("cavityQuality").toString(), quality);
+      qInfo().noquote() << "cavity quality" << quality << ":" << timer.elapsed() << "ms, method" << app->moldSummary().value("offsetMethod").toString()
+                        << ", removed" << app->moldSummary().value("removedVolumeMm3").toDouble() << "mm3";
+    };
+    generate(QStringLiteral("high"));
+    const double highRemoved = app->moldSummary().value("removedVolumeMm3").toDouble();
+    QVERIFY(highRemoved > 0);
+
+    // Changing the mode drops the finished mold (an input changed) and the next generation uses the new mode.
+    app->setCavityQuality(QStringLiteral("standard"));
+    QVERIFY(app->moldPhase() != QLatin1String("complete"));
+    app->undo();   // the change of mode is an undo step of its own: it brings back the finished mold made in High
+    QCOMPARE(app->cavityQuality(), QStringLiteral("high"));
+    QCOMPARE(app->moldPhase(), QStringLiteral("complete"));
+    QCOMPARE(app->moldSummary().value("cavityQuality").toString(), QStringLiteral("high"));
+    app->redo();
+    QCOMPARE(app->cavityQuality(), QStringLiteral("standard"));
+    generate(QStringLiteral("standard"));
+
+    // Undo steps back through the generation (still "standard"), then through the change of mode (back to "high").
+    app->undo();
+    QCOMPARE(app->cavityQuality(), QStringLiteral("standard"));
+    app->undo();
+    QCOMPARE(app->cavityQuality(), QStringLiteral("high"));
+    // Anything that is not "standard" is the reference's mode.
+    app->setCavityQuality(QStringLiteral("nonsense"));
+    QCOMPARE(app->cavityQuality(), QStringLiteral("high"));
+  }
+
   void theMoldsBrowserShowsAndHidesBodiesAndTheModel() {
     auto app = makeApp();
     app->importStlFile(bracket());

@@ -351,6 +351,20 @@ ScrollView {
                         onPressedChanged: pressed ? app.beginHistoryGesture() : app.endHistoryGesture()
                     }
                 }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Label { text: qsTr("Cavity quality") }
+                    ComboBox {
+                        id: qualityBox
+                        objectName: "cavityQuality"
+                        Layout.fillWidth: true
+                        enabled: app.cavityClearanceMm > 0   // the mode only shapes an offset cavity; with no clearance there is none
+                        model: [qsTr("High (as the reference)"), qsTr("Standard (faster)")]
+                        currentIndex: app.cavityQuality === "standard" ? 1 : 0
+                        onActivated: app.cavityQuality = currentIndex === 1 ? "standard" : "high"
+                        Accessible.name: qsTr("Cavity quality")
+                    }
+                }
                 Label { text: qsTr("Cut by face"); font.bold: true }
                 Repeater {
                     model: app.cutFaces

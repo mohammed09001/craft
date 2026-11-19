@@ -334,6 +334,24 @@ class Smoke : public QObject {
     app_.setBodyVisible(bodyId, true);
     settle(150);
     if (!bodyToggle->property("checked").toBool()) return fail(QStringLiteral("the checkbox did not follow a body shown from outside"));
+    // (Last: a change of cavity clearance or quality is an input change and drops the generated mold.)
+    // The cavity quality selector of the Mold section: disabled without a clearance, and its choice reaches the controller.
+    if (QQuickItem* quality = findItem(window_->contentItem(), QStringLiteral("cavityQuality"))) {
+      if (quality->property("enabled").toBool()) return fail(QStringLiteral("the cavity quality selector is enabled with no cavity clearance"));
+      app_.setCavityClearanceMm(1.0);
+      settle(150);
+      if (!quality->property("enabled").toBool()) return fail(QStringLiteral("the cavity quality selector stayed disabled with a clearance"));
+      if (quality->property("currentIndex").toInt() != 0) return fail(QStringLiteral("the cavity quality selector does not start on High"));
+      quality->setProperty("currentIndex", 1);
+      QMetaObject::invokeMethod(quality, "activated", Q_ARG(int, 1));
+      if (app_.cavityQuality() != QLatin1String("standard")) return fail(QStringLiteral("choosing Standard in the selector did not reach the controller"));
+      app_.setCavityQuality(QStringLiteral("high"));
+      settle(150);
+      if (quality->property("currentIndex").toInt() != 0) return fail(QStringLiteral("the selector did not follow the controller back to High"));
+      app_.setCavityClearanceMm(0.0);
+    } else {
+      return fail(QStringLiteral("the cavity quality selector was not found"));
+    }
     renderNow();
 #endif
   }
