@@ -17,6 +17,7 @@ ViewportLook referenceLook(bool dark) {
   look.edgeRgb = 0x380f0e;
   look.edgeOpacity = 0.65;
   look.edgeAngleDegrees = 25.0;
+  look.staleMasterOpacity = 0.2;
 
   // createEngineeringGrid.ts: opacities 0.32 and 0.50. The minor colour is the palette's "rgba(r g b / a)" string, which
   // three.js cannot parse, so its default white is used in both themes; the major colour is the palette's parseable

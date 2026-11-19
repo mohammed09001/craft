@@ -238,11 +238,15 @@ void AppController::showMasterBodies() {
   for (const MasterMoldRenderableBody& body : renderable) {
     inputs.push_back({QString::fromStdString(body.id), QString::fromStdString(body.name), std::make_shared<MeshPayload>(*body.mesh), body.bounds, body.volumeMm3});
     const std::string partId = body.id.substr(0, body.id.find(':'));
-    palette.push_back(body.stale ? QColor("#8a8f98") : setPalette()[setIndex[partId] % setPalette().size()]);
+    palette.push_back(setPalette()[setIndex[partId] % setPalette().size()]);  // a stale piece keeps its own colour and is ghosted instead
   }
   scene_.setMoldBodies(inputs);
   scene_.setPartOffset({0, 0, 0});
   scene_.recolor(QColor::fromRgb(referenceLook(true).partRgb), palette);
+  QStringList ghosts;
+  for (const MasterMoldRenderableBody& body : renderable)
+    if (body.stale) ghosts << QString::fromStdString(body.id);
+  scene_.setGhostBodies(ghosts);
   const auto& items = scene_.items();
   for (const MasterMoldRenderableBody& body : renderable) {
     for (std::size_t row = 0; row < items.size(); ++row) {

@@ -1209,17 +1209,40 @@ class WorkflowTest : public QObject {
     QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("current"));
     QCOMPARE(app->masterMold().value("generationVersion").toInt(), version + 1);
 
+    // The pieces of a current result are solid; remember their colours.
+    const auto bodyRows = [&] {
+      QList<QPair<QColor, bool>> rows;  // colour, ghost
+      for (int r = 0; r < app->scene()->rowCount(); ++r) {
+        const QModelIndex i = app->scene()->index(r);
+        if (app->scene()->data(i, SceneModel::KindRole).toString() == "mold-body")
+          rows.append({app->scene()->data(i, SceneModel::ColorRole).value<QColor>(), app->scene()->data(i, SceneModel::GhostRole).toBool()});
+      }
+      return rows;
+    };
+    const auto solid = bodyRows();
+    QCOMPARE(solid.size(), 2);
+    for (const auto& row : solid) QVERIFY(!row.second);
+
     // A printer build-volume change is a Master input: the result stays visible but is flagged stale.
     app->setPrinterVolume(500, 500, 500);
     QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("stale"));
     QCOMPARE(app->masterMold().value("uiKind").toString(), QStringLiteral("stale"));
     QVERIFY(app->masterMold().value("banner").toString().contains("needs regeneration"));
     QCOMPARE(app->scene()->count(), partRows + 2);
+    // Stale pieces are ghosted in their own colours (the reference never replaces the per-role colour), not painted grey.
+    const auto ghosted = bodyRows();
+    QCOMPARE(ghosted.size(), 2);
+    for (int i = 0; i < ghosted.size(); ++i) {
+      QVERIFY(ghosted[i].second);
+      QCOMPARE(ghosted[i].first, solid[i].first);
+    }
+    QCOMPARE(app->viewLook().value("staleMasterOpacity").toDouble(), 0.2);
 
     // Regenerating clears the stale flag.
     app->generateMasterMold();
     QVERIFY(waitFor([&] { return app->masterMold().value("status").toString() != "generating" && !app->busy(); }, 120000));
     QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("current"));
+    for (const auto& row : bodyRows()) QVERIFY(!row.second);
 
     app->resetMasterMold();
     QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("unavailable"));

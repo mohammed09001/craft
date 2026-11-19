@@ -47,6 +47,9 @@ struct ViewportLook {
   double edgeOpacity;
   double edgeAngleDegrees;
 
+  // A stale Master Mold body is ghosted to this opacity at most (STALE_MASTER_MOLD_OPACITY, masterMoldBody3dRuntime.ts).
+  double staleMasterOpacity;
+
   LookGridLine gridMinor;
   LookGridLine gridMajor;
 

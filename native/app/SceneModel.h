@@ -34,6 +34,7 @@ struct SceneItem {
   int triangleCount = 0;
   Bounds3 bounds;    // canonical bounds, before `offset`
   bool selected = false;  // the part, highlighted while selected (the reference highlights the model, not bodies)
+  bool ghost = false;         // a stale Master Mold piece: drawn as a ghosted holdover in its own colour (masterMoldBody3dRuntime.ts)
   bool gizmoHidden = false;  // hidden while a sprue ring is hovered, so the ring behind the body shows
 
   // Exactly one of the two is set.
@@ -69,6 +70,7 @@ class SceneModel : public QAbstractListModel {
     SelectedRole,
     GlassEdgeGeometryRole,
     GizmoHiddenRole,
+    GhostRole,
   };
 
   explicit SceneModel(QObject* parent = nullptr);
@@ -102,6 +104,7 @@ class SceneModel : public QAbstractListModel {
   void setGlass(bool on);
   /// Hides exactly the mold-body rows with these ids (the sprue gizmo's hover); an empty list restores all of them.
   void setGizmoHiddenBodies(const QStringList& bodyIds);
+  void setGhostBodies(const QStringList& bodyIds);
   bool glass() const { return glass_; }
 
   /// Shows or hides the row with this id (the part or a mold body) and remembers it: a mold rebuilt with the same ids comes back as the user left it.

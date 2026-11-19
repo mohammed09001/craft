@@ -238,6 +238,11 @@ struct UiTour::Impl {
     pump(1000);
     captureState(QStringLiteral("09-master-mold"));
 
+    // A printer change makes the finished pieces stale: they stay, ghosted in their own colours.
+    app.setPrinterVolume(250, 250, 250);
+    pump(800);
+    captureState(QStringLiteral("09b-master-mold-stale"));
+
     app.setPrinterVolume(30, 30, 30);
     app.planSegmentation();
     waitFor([&] {

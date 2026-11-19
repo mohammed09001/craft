@@ -229,6 +229,7 @@ Item {
                 required property bool itemSelected
                 required property var itemGlassEdgeGeometry
                 required property bool itemGizmoHidden
+                required property bool itemGhost
                 position: itemOffset
                 visible: itemVisible && !itemGizmoHidden   // a hovered sprue ring hides the bodies it cuts
 
@@ -243,8 +244,9 @@ Item {
                         roughness: itemSelected ? Math.min(root.look.roughness, root.style.highlightRoughness) : root.look.roughness
                         cullMode: Material.NoCulling
                         // While the Sprue tool is active the mold bodies turn to glass (0.28) so the preview shows through.
-                        opacity: itemKind === "mold-body" ? (app.sprueGlass ? root.sprue.glassOpacity : app.moldOpacity) : 1.0
-                        alphaMode: itemKind === "mold-body" && (app.sprueGlass || app.moldOpacity < 1)
+                        // A stale Master Mold piece is a ghosted holdover: never more opaque than 0.2, whatever the appearance mode.
+                        opacity: itemKind === "mold-body" ? Math.min(app.sprueGlass ? root.sprue.glassOpacity : app.moldOpacity, itemGhost ? root.look.staleMasterOpacity : 1.0) : 1.0
+                        alphaMode: itemKind === "mold-body" && (app.sprueGlass || app.moldOpacity < 1 || itemGhost)
                                    ? PrincipledMaterial.Blend : PrincipledMaterial.Opaque
                     }
                 }

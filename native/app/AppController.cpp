@@ -773,6 +773,7 @@ QVariantMap AppController::viewLook() const {
           {"rulerTickOpacity", kRulerTickOpacity},
           {"edgeColor", QColor::fromRgb(look.edgeRgb)},
           {"edgeOpacity", look.edgeOpacity},
+          {"staleMasterOpacity", look.staleMasterOpacity},
           {"roughness", look.roughness},
           {"metalness", look.metalness},
           {"lights", lights},
