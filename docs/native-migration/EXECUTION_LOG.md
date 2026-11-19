@@ -464,3 +464,9 @@ After the Bad Image dialog (Session 31/32 correction) showed that a failure whic
 Changed: the hint-events smoke test polls for the badge for up to three seconds instead of one look after 150 ms, and its failure message carries the model phase, busy, window-active and the viewport size; checked by forcing the badge hidden (it then fails after three seconds with those fields).
 
 Not found: why the three runs failed (R-Smoke-1 stays open as unexplained, with a hypothesis).
+
+### Session 35: a look at the window
+
+Asked what is left of the UI, the first honest step was to look: rendered the real window (the smoke test's frame grab) with a model, a mold and an analysis, dark and light. Three defects that no test had caught, all visible at once: the hint badge text was garbled ("Â·"), the third printer-size field was cut off, and the Light theme left the toolbar, menus and panels dark. Fixed: the middle dot is an escape and `source_encoding` (a ctest over native/) fails any double-encoded or non-UTF-8 text (it caught the bug before the fix and finds nothing after; the whole tree had exactly that one line); the printer fields share the panel width; the theme sets the application's colour scheme (`AppController::applyChromeScheme`, Qt 6.8 `QStyleHints::setColorScheme`), checked on screen in both themes and by `theThemeSetsTheColourSchemeOfTheWholeWindow` (fails when the scheme is not set). Smoke and workflow tests pass.
+
+Not done: a comparison of the chrome with the reference's UI (R-UI-1), HiDPI, keyboard and accessibility, translations (R-UI-3), the Windows title bar in the light theme, the lower sections of the inspector (reports, selection, Master Mold results) were not viewed (R-Reports-3).

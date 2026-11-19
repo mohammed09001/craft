@@ -2,6 +2,9 @@
 
 #include <QtTest/QtTest>
 
+#include <QGuiApplication>
+#include <QStyleHints>
+
 #include <QCryptographicHash>
 #include <QFileInfo>
 #include <QImage>
@@ -1803,6 +1806,21 @@ class WorkflowTest : public QObject {
 
   // The reference fits a newly imported model from the CURRENT view direction (localStlImport: fitCameraToModel); only the
   // Reset View command goes to the fixed (1, -1, 0.78) direction. Found by the viewport comparison: native used to reset.
+  // The menus, toolbars and panels follow the theme too, not only the viewport: they take their colours from the application's colour
+  // scheme, which the theme sets (it used to stay the operating system's: a light viewport inside dark chrome and the reverse).
+  void theThemeSetsTheColourSchemeOfTheWholeWindow() {
+    auto app = makeApp();
+    QCOMPARE(app->theme(), QStringLiteral("dark"));
+    QCOMPARE(QGuiApplication::styleHints()->colorScheme(), Qt::ColorScheme::Dark);   // the app's own theme from the start, whatever the system uses
+    app->setTheme("light");
+    QCOMPARE(QGuiApplication::styleHints()->colorScheme(), Qt::ColorScheme::Light);
+    app->setTheme("dark");
+    QCOMPARE(QGuiApplication::styleHints()->colorScheme(), Qt::ColorScheme::Dark);
+    app->setTheme("nonsense");   // refused: nothing changes
+    QCOMPARE(app->theme(), QStringLiteral("dark"));
+    QCOMPARE(QGuiApplication::styleHints()->colorScheme(), Qt::ColorScheme::Dark);
+  }
+
   void importFitsFromTheCurrentViewDirection() {
     const auto direction = [](AppController& app) { return (app.camera()->position() - app.camera()->target()).normalized(); };
     auto app = makeApp();

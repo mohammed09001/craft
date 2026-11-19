@@ -5,6 +5,8 @@
 #include <QFile>
 #include <QElapsedTimer>
 #include <QFileInfo>
+#include <QGuiApplication>
+#include <QStyleHints>
 #include <QJsonObject>
 #include <QLoggingCategory>
 
@@ -59,6 +61,7 @@ AppController::AppController(std::shared_ptr<IMeshGeometryEngine> engine,
   connectAnalysis();
   connectReports();
   initProject();
+  applyChromeScheme();  // the chrome starts in the app's theme (dark), not the operating system's
   connect(&scene_, &SceneModel::sceneChanged, this, [this] { refreshSceneFrame(false); });
   // The selection box follows the part (offset, visibility) and the states that show or hide it.
   for (auto signal : {&AppController::moldChanged, &AppController::moldInputsChanged, &AppController::segmentationChanged,
@@ -656,8 +659,17 @@ void AppController::cancelAnalysis() { analysis_.cancel(analysisJobId_); }
 void AppController::setTheme(const QString& theme) {
   if (theme == theme_ || (theme != "dark" && theme != "light")) return;
   theme_ = theme;
+  applyChromeScheme();
   applySceneColors();
   emit themeChanged();
+}
+
+// The menus, toolbars and panels are Qt Quick Controls (the Fusion style) and take their colours from the application's colour scheme, which
+// is the operating system's unless told otherwise: the theme setting used to recolour the viewport only, so with Windows in dark mode the
+// light theme gave a light viewport inside dark chrome (and the reverse). Qt 6.8 can set the scheme for the whole application.
+void AppController::applyChromeScheme() {
+  if (!qGuiApp) return;
+  qGuiApp->styleHints()->setColorScheme(theme_ == QLatin1String("dark") ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light);
 }
 
 void AppController::applySceneColors() {

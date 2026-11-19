@@ -453,6 +453,7 @@ class AppController : public QObject {
   void refreshSceneFrame(bool refit);
   void rebuildGrid();
   void applySceneColors();
+  void applyChromeScheme();
   std::vector<CuttingPlane> activeCuttingPlanes() const;
   /// The part's bounds in scene coordinates (display offset applied); nullopt without a visible part.
   std::optional<Bounds3> partBoxBounds() const;

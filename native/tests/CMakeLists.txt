@@ -90,6 +90,13 @@ if(CRAFT_PYTHON_EXECUTABLE_NORMALIZED)
   set_tests_properties(py_worker_stage_failures PROPERTIES ENVIRONMENT "PYTHONPATH=${CRAFT_ENGINE_SRC}" TIMEOUT 120)
 endif()
 
+# No double-encoded text in the native sources (a middle dot once read as two characters on screen).
+if(CRAFT_PYTHON_EXECUTABLE_NORMALIZED)
+  add_test(NAME source_encoding
+    COMMAND ${CRAFT_PYTHON_EXECUTABLE_NORMALIZED} -I ${CRAFT_REPO_ROOT}/scripts/native/check-source-encoding.py ${CRAFT_REPO_ROOT}/native)
+  set_tests_properties(source_encoding PROPERTIES TIMEOUT 60)
+endif()
+
 # The native candidate evaluation against the engine's Python loop, bit for bit (see craft_native_evaluation.py).
 if(CRAFT_PYTHON_EXECUTABLE_NORMALIZED)
   add_test(NAME py_native_evaluation

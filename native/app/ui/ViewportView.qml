@@ -501,7 +501,7 @@ Item {
         Label {
             id: hintText
             anchors.centerIn: parent
-            text: qsTr("Left drag Rotate Â· Right drag Pan Â· Wheel Zoom")
+            text: qsTr("Left drag Rotate \u00b7 Right drag Pan \u00b7 Wheel Zoom")
             font.pixelSize: 13
             color: root.dark ? "#8795a3" : "#647281"
         }

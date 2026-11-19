@@ -44,11 +44,14 @@ ScrollView {
                     text: qsTr("Splits an oversized mold into pieces that fit the printer.")
                     wrapMode: Text.Wrap; Layout.fillWidth: true
                 }
+                Label { text: qsTr("Printer build volume (mm)") }
+                // Three fields that share the panel's width (the panel is 260 px wide at the narrowest): fixed 90 px fields plus the
+                // label were wider than the panel and the third was cut off.
                 RowLayout {
-                    Label { text: qsTr("Printer (mm)") }
-                    SpinBox { id: printerX; from: 10; to: 5000; stepSize: 10; value: app.printerVolume.x || 220; editable: true; implicitWidth: 90 }
-                    SpinBox { id: printerY; from: 10; to: 5000; stepSize: 10; value: app.printerVolume.y || 220; editable: true; implicitWidth: 90 }
-                    SpinBox { id: printerZ; from: 10; to: 5000; stepSize: 10; value: app.printerVolume.z || 250; editable: true; implicitWidth: 90 }
+                    Layout.fillWidth: true
+                    SpinBox { id: printerX; Layout.fillWidth: true; Layout.minimumWidth: 70; from: 10; to: 5000; stepSize: 10; value: app.printerVolume.x || 220; editable: true; implicitWidth: 70 }
+                    SpinBox { id: printerY; Layout.fillWidth: true; Layout.minimumWidth: 70; from: 10; to: 5000; stepSize: 10; value: app.printerVolume.y || 220; editable: true; implicitWidth: 70 }
+                    SpinBox { id: printerZ; Layout.fillWidth: true; Layout.minimumWidth: 70; from: 10; to: 5000; stepSize: 10; value: app.printerVolume.z || 250; editable: true; implicitWidth: 70 }
                 }
                 Button {
                     text: qsTr("Plan segmentation")
