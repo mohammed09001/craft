@@ -93,7 +93,7 @@ endif()
 # No double-encoded text in the native sources (a middle dot once read as two characters on screen).
 if(CRAFT_PYTHON_EXECUTABLE_NORMALIZED)
   add_test(NAME source_encoding
-    COMMAND ${CRAFT_PYTHON_EXECUTABLE_NORMALIZED} -I ${CRAFT_REPO_ROOT}/scripts/native/check-source-encoding.py ${CRAFT_REPO_ROOT}/native)
+    COMMAND ${CRAFT_PYTHON_EXECUTABLE_NORMALIZED} -I ${CRAFT_REPO_ROOT}/scripts/native/check-source-encoding.py)
   set_tests_properties(source_encoding PROPERTIES TIMEOUT 60)
 endif()
 

@@ -1,10 +1,10 @@
 """Fails when a native source file is not valid UTF-8 or contains text that was encoded twice.
 
-    python -I scripts/native/check-source-encoding.py [directory ...]       (default: native/ of this repository)
+    python -I scripts/native/check-source-encoding.py [directory ...]       (default: native/, scripts/ and docs/ of this repository)
 
 Double encoding is UTF-8 text read as a single-byte code page and written out as UTF-8 again: a middle dot comes back as
 "A-circumflex, middle dot" (two characters), an em dash as three. It is invisible in a diff and in every test that only checks that a
-string is present, and it shows on screen: the interaction hint badge once read "Left drag Rotate Â· Right drag Pan Â· Wheel Zoom".
+string is present, and it shows on screen: the interaction hint badge once had a stray A-circumflex before each separator dot.
 This check looks for that pattern in QML, C++, CMake and script sources.
 """
 from __future__ import annotations
@@ -39,7 +39,8 @@ def check(path: Path) -> list[str]:
 
 
 def main() -> int:
-    roots = [Path(arg) for arg in sys.argv[1:]] or [Path(__file__).resolve().parents[2] / "native"]
+    repo = Path(__file__).resolve().parents[2]
+    roots = [Path(arg) for arg in sys.argv[1:]] or [repo / "native", repo / "scripts", repo / "docs"]
     problems: list[str] = []
     checked = 0
     for root in roots:
