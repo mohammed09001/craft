@@ -100,6 +100,7 @@ void SceneModel::setPart(const QString& id, const QString& name,
     item.id = id;
     item.name = name;
     item.kind = kPartKind;
+    item.visible = !hiddenIds_.contains(id);
     item.color = color;
     item.bounds = boundsOfSoup(*soup);
     item.triangleCount = static_cast<int>(soup->triangleCount());
@@ -170,6 +171,18 @@ void SceneModel::setGizmoHiddenBodies(const QStringList& bodyIds) {
 
 void SceneModel::clearMoldBodies() { setMoldBodies({}); }
 
+void SceneModel::setVisibleById(const QString& id, bool visible) {
+  if (visible) hiddenIds_.remove(id);
+  else hiddenIds_.insert(id);
+  for (int row = 0; row < count(); ++row)
+    if (items_[static_cast<std::size_t>(row)].id == id) setItemVisible(row, visible);
+}
+
+void SceneModel::clearHidden() {
+  hiddenIds_.clear();
+  for (int row = 0; row < count(); ++row) setItemVisible(row, true);
+}
+
 void SceneModel::setMoldBodies(const std::vector<BodyInput>& bodies) {
   for (int row = count() - 1; row >= 0; --row) {
     if (items_[static_cast<std::size_t>(row)].kind != kBodyKind) continue;
@@ -185,6 +198,7 @@ void SceneModel::setMoldBodies(const std::vector<BodyInput>& bodies) {
     item.id = body.id;
     item.name = body.name;
     item.kind = kBodyKind;
+    item.visible = !hiddenIds_.contains(body.id);
     item.color = bodyPalette_.empty()
                      ? QColor(120, 160, 200)
                      : bodyPalette_[static_cast<std::size_t>(paletteIndex) % bodyPalette_.size()];

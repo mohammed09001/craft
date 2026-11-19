@@ -174,6 +174,16 @@ if(CRAFT_BUILD_APP)
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${CRAFT_QT_BIN_DIR}"
     TIMEOUT 120
     PASS_REGULAR_EXPRESSION "CRAFT_SMOKE_OK")
+  # The Molds browser through REAL clicks, with a mold generated.
+  add_test(NAME app_smoke_molds
+    COMMAND craft --smoke-test
+            --import "${CRAFT_REPO_ROOT}/native/tests/fixtures/models/bracket.stl"
+            --generate-mold --molds-events
+            --summary "${CMAKE_CURRENT_BINARY_DIR}/app_smoke_molds_summary.json")
+  set_tests_properties(app_smoke_molds PROPERTIES
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${CRAFT_QT_BIN_DIR}"
+    TIMEOUT 120
+    PASS_REGULAR_EXPRESSION "CRAFT_SMOKE_OK")
   # The inspector's sections through REAL mouse and keyboard events.
   add_test(NAME app_smoke_sections
     COMMAND craft --smoke-test
@@ -207,7 +217,7 @@ if(CRAFT_BUILD_APP)
   # Each smoke test works in an autosave and cache folder of its own in the build tree. They used to share the user's real ones: a run that
   # ended without a clean shutdown (the UI tour did, and so would a killed test) left an autosave behind, the next launch opened with the
   # "Recover unsaved work?" dialog over the window, and every test that sends real mouse events failed because the dialog swallowed them.
-  foreach(_smoke app_smoke app_smoke_sprue_gizmo app_smoke_hint_events app_smoke_hint_wheel app_smoke_undo app_smoke_eraser app_smoke_drop app_smoke_sections app_smoke_plane_drag)
+  foreach(_smoke app_smoke app_smoke_sprue_gizmo app_smoke_hint_events app_smoke_hint_wheel app_smoke_undo app_smoke_eraser app_smoke_drop app_smoke_sections app_smoke_molds app_smoke_plane_drag)
     if(TEST ${_smoke})
       set_property(TEST ${_smoke} APPEND PROPERTY ENVIRONMENT
         "CRAFT_AUTOSAVE_DIR=${CMAKE_CURRENT_BINARY_DIR}/smoke-state/${_smoke}/autosave"

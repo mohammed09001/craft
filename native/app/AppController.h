@@ -96,6 +96,8 @@ class AppController : public QObject {
   Q_PROPERTY(QVariantList moldIssues READ moldIssues NOTIFY moldChanged)
 
   Q_PROPERTY(QVariantMap masterMold READ masterMold NOTIFY masterMoldChanged)
+  /// The reference's Molds browser: every mold body on the scene and the original model, each with its visibility (MoldBodiesBrowser.tsx).
+  Q_PROPERTY(QVariantMap moldBrowser READ moldBrowser NOTIFY moldBrowserChanged)
   Q_PROPERTY(QVariantMap engineeringReports READ engineeringReports NOTIFY engineeringReportsChanged)
   Q_PROPERTY(QVariantMap project READ project NOTIFY projectChanged)
   Q_PROPERTY(QVariantMap recovery READ recovery NOTIFY recoveryChanged)
@@ -194,6 +196,10 @@ class AppController : public QObject {
   double minMoldClearanceMm() const { return kMinReferenceMoldClearanceMm; }
   double maxMoldClearanceMm() const { return kMaxReferenceMoldClearanceMm; }
   QVariantList cutFaces() const;
+  QVariantMap moldBrowser() const;
+  /// Shows or hides a mold body or the original model by id. Not an undo step (D-073). Hidden bodies stay hidden when the same mold is rebuilt;
+  /// importing a model shows everything again, as in the reference.
+  Q_INVOKABLE void setBodyVisible(const QString& id, bool visible);
   Q_INVOKABLE void setCutFaceEnabled(const QString& face, bool enabled);
   Q_INVOKABLE void setCutFacePosition(const QString& face, double normalizedPosition);
   Q_INVOKABLE void resetCutFacePosition(const QString& face);
@@ -437,6 +443,7 @@ class AppController : public QObject {
   void sprueGlassChanged();
   void sprueGizmoChanged();
   void cutPlanesChanged();
+  void moldBrowserChanged();
   void historyChanged();
   /// A user-visible failure worth a dialog (import, mold, export, analysis).
   void errorOccurred(const QString& title, const QString& message, const QString& code);

@@ -271,6 +271,72 @@ class Smoke : public QObject {
   }
   // The inspector's sections through REAL input: a click on a header folds and unfolds it, Space and Enter do the same from the keyboard once
   // the header has the focus (it shows a focus ring and names itself to a screen reader), and Collapse all / Expand all fold every section.
+  // The Molds browser through REAL clicks: with the mold generated, a click on a body's checkbox hides that body on the scene and a second one shows it
+  // again; the click on "Original" hides the model. (Everything else is folded first so the section sits at the top of the inspector, in view.)
+  void moldsEventsSequence() { whenViewportSettled([this] { moldsEventsBody(); }); }
+  void moldsEventsBody() {
+#ifndef CRAFT_SMOKE_REAL_EVENTS
+    return fail(QStringLiteral("--molds-events needs a build with CRAFT_BUILD_TESTS"));
+#else
+    QWindowSystemInterface::setSynchronousWindowSystemEvents(true);
+    window_->requestActivate();
+    const auto find = [this](const QString& name) { return window_->findChild<QQuickItem*>(name); };
+    const auto settle = [](int ms) { QEventLoop loop; QTimer::singleShot(ms, &loop, &QEventLoop::quit); loop.exec(); };
+    const auto click = [this, &settle](QQuickItem* item) {
+      const QPointF scene = item->mapToScene(QPointF(item->width() / 2, item->height() / 2));
+      QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::NoButton, Qt::NoButton, QEvent::MouseMove);
+      QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonPress);
+      QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::NoButton, Qt::LeftButton, QEvent::MouseButtonRelease);
+      settle(120);
+    };
+    const auto rowVisible = [this](const QString& id) {
+      for (int r = 0; r < app_.scene()->rowCount(); ++r)
+        if (app_.scene()->data(app_.scene()->index(r), SceneModel::IdRole).toString() == id) return app_.scene()->data(app_.scene()->index(r), SceneModel::VisibleRole).toBool();
+      return true;
+    };
+    if (!app_.moldBrowser().value("available").toBool()) return fail(QStringLiteral("the Molds browser is not available with a mold generated"));
+    const QVariantList bodies = app_.moldBrowser().value("bodies").toList();
+    const QString bodyId = bodies.value(0).toMap().value("id").toString();
+    const QString modelId = app_.moldBrowser().value("model").toMap().value("id").toString();
+
+    QQuickItem* collapseAll = find(QStringLiteral("collapseAll"));
+    QQuickItem* header = find(QStringLiteral("sectionHeader:Molds"));
+    if (!collapseAll || !header) return fail(QStringLiteral("the Collapse all button or the Molds section was not found"));
+    click(collapseAll);
+    click(header);   // only Molds is open, at the top of the inspector
+    // Repeater delegates are children of the visual tree, not always of the object tree findChild walks: look through the items.
+    std::function<QQuickItem*(QQuickItem*, const QString&)> findItem = [&findItem](QQuickItem* from, const QString& name) -> QQuickItem* {
+      if (from->objectName() == name) return from;
+      for (QQuickItem* child : from->childItems())
+        if (QQuickItem* found = findItem(child, name)) return found;
+      return nullptr;
+    };
+    QQuickItem* bodyToggle = findItem(window_->contentItem(), QStringLiteral("bodyToggle:") + bodyId);
+    QQuickItem* modelToggle = findItem(window_->contentItem(), QStringLiteral("bodyToggle:model"));
+    if (!bodyToggle || !modelToggle) return fail(QStringLiteral("the checkboxes of the Molds section were not found"));
+
+    click(bodyToggle);
+    if (rowVisible(bodyId)) return fail(QStringLiteral("a click on a body's checkbox did not hide it"));
+    if (app_.moldBrowser().value("bodies").toList().value(0).toMap().value("visible").toBool()) return fail(QStringLiteral("the browser still lists the hidden body as visible"));
+    if (!rowVisible(bodies.value(1).toMap().value("id").toString())) return fail(QStringLiteral("hiding one body hid another"));
+    if (findItem(window_->contentItem(), QStringLiteral("bodyToggle:") + bodyId) != bodyToggle)
+      return fail(QStringLiteral("toggling a body rebuilt its checkbox (it would lose the keyboard focus)"));
+    click(bodyToggle);
+    if (!rowVisible(bodyId)) return fail(QStringLiteral("a second click did not show the body again"));
+    click(modelToggle);
+    if (rowVisible(modelId)) return fail(QStringLiteral("a click on Original did not hide the model"));
+    click(modelToggle);
+    if (!rowVisible(modelId)) return fail(QStringLiteral("a second click on Original did not show the model"));
+    // The checkbox follows the scene when the visibility changes from somewhere else (it keeps no state of its own after a click).
+    app_.setBodyVisible(bodyId, false);
+    settle(150);
+    if (bodyToggle->property("checked").toBool()) return fail(QStringLiteral("the checkbox did not follow a body hidden from outside"));
+    app_.setBodyVisible(bodyId, true);
+    settle(150);
+    if (!bodyToggle->property("checked").toBool()) return fail(QStringLiteral("the checkbox did not follow a body shown from outside"));
+    renderNow();
+#endif
+  }
   void sectionsEventsSequence() { whenViewportSettled([this] { sectionsEventsBody(); }); }
   void sectionsEventsBody() {
 #ifndef CRAFT_SMOKE_REAL_EVENTS
@@ -553,6 +619,7 @@ class Smoke : public QObject {
     if (undoEvents_) return undoEventsSequence();
     if (eraserEvents_) return eraserEventsSequence();
     if (sectionsEvents_) return sectionsEventsSequence();
+    if (moldsEvents_) return moldsEventsSequence();
     if (planeDragEvents_) return planeDragEventsSequence();
     if (spruePreview_ && sprueGizmoEvents_) return gizmoEventsSequence();
     if (spruePreview_ && sprueGizmo_) return gizmoSequence();
@@ -633,6 +700,7 @@ class Smoke : public QObject {
   void setUndoEvents(bool value) { undoEvents_ = value; }
   void setPlaneDragEvents(bool value) { planeDragEvents_ = value; }
   void setSectionsEvents(bool value) { sectionsEvents_ = value; }
+  void setMoldsEvents(bool value) { moldsEvents_ = value; }
   void setDropEvents(bool value) { dropEvents_ = value; }
   void setHintEvents(bool value, bool wheel) { hintEvents_ = value; hintWheel_ = wheel; }
   void setScreenshot(const QString& path) { screenshot_ = path; }
@@ -641,7 +709,7 @@ class Smoke : public QObject {
   AppController& app_;
   QQuickWindow* window_;
   QString importPath_, summary_, screenshot_;
-  bool selectPart_ = false, spruePreview_ = false, spruePreviewInvalid_ = false, sprueGizmo_ = false, sprueGizmoEvents_ = false, eraser_ = false, eraserEvents_ = false, planeDragEvents_ = false, sectionsEvents_ = false, dropEvents_ = false, undoEvents_ = false, hintEvents_ = false, hintWheel_ = false;
+  bool selectPart_ = false, spruePreview_ = false, spruePreviewInvalid_ = false, sprueGizmo_ = false, sprueGizmoEvents_ = false, eraser_ = false, eraserEvents_ = false, planeDragEvents_ = false, sectionsEvents_ = false, moldsEvents_ = false, dropEvents_ = false, undoEvents_ = false, hintEvents_ = false, hintWheel_ = false;
   bool mold_, analyse_, moldability_;
   bool imported_ = false, moldDone_ = false, analysisDone_ = false, reportsDone_ = false, done_ = false;
 };
@@ -684,6 +752,7 @@ int main(int argc, char* argv[]) {
   parser.addOption({"hint-wheel", "The interaction hint through a real wheel event (smoke test)."});
   parser.addOption({"undo-events", "Undo/redo through real input: the toolbar buttons and Ctrl+Z / Ctrl+Y (smoke test)."});
   parser.addOption({"eraser-events", "The Eraser through real mouse events: hover a plane, click empty space, click the plane (smoke test)."});
+  parser.addOption({"molds-events", "The Molds browser through real clicks, with a mold generated (smoke test)."});
   parser.addOption({"sections-events", "The inspector's sections through real mouse and keyboard events (smoke test)."});
   parser.addOption({"drop-events", "Dropping files on the window through real platform drag-and-drop events (smoke test)."});
   parser.addOption({"plane-drag-events", "Dragging a cutting plane with the right mouse button through real mouse events (smoke test)."});
@@ -750,6 +819,7 @@ int main(int argc, char* argv[]) {
     smoke->setPlaneDragEvents(parser.isSet("plane-drag-events"));
     smoke->setDropEvents(parser.isSet("drop-events"));
     smoke->setSectionsEvents(parser.isSet("sections-events"));
+    smoke->setMoldsEvents(parser.isSet("molds-events"));
     smoke->setHintEvents(parser.isSet("hint-events") || parser.isSet("hint-wheel"), parser.isSet("hint-wheel"));
     smoke->setScreenshot(parser.value("screenshot"));
     QTimer::singleShot(0, smoke.get(), [&smoke] { smoke->start(); });

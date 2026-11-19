@@ -10,6 +10,7 @@
 
 #include <QAbstractListModel>
 #include <QColor>
+#include <QSet>
 #include <QVector3D>
 
 #include <memory>
@@ -103,6 +104,11 @@ class SceneModel : public QAbstractListModel {
   void setGizmoHiddenBodies(const QStringList& bodyIds);
   bool glass() const { return glass_; }
 
+  /// Shows or hides the row with this id (the part or a mold body) and remembers it: a mold rebuilt with the same ids comes back as the user left it.
+  void setVisibleById(const QString& id, bool visible);
+  /// Forgets every hidden id and shows every row (a new model).
+  void clearHidden();
+  bool isHidden(const QString& id) const { return hiddenIds_.contains(id); }
   Q_INVOKABLE void setItemVisible(int row, bool visible);
   Q_INVOKABLE void setKindVisible(const QString& kind, bool visible);
 
@@ -125,6 +131,7 @@ class SceneModel : public QAbstractListModel {
   bool glass_ = false;
   std::vector<SceneItem> items_;
   std::vector<QColor> bodyPalette_;
+  QSet<QString> hiddenIds_;   // the ids the user hid: bodies and the part
 };
 
 }  // namespace craft::app

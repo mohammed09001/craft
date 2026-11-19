@@ -25,6 +25,22 @@ ScrollView {
         }
         return found
     }
+    // The Molds section's rows: the ids of the bodies (stable while they exist) and a lookup of one body's current name and visibility.
+    property var moldBodyIds: []
+    function syncMoldBodyIds() {
+        var ids = []
+        var bodies = app.moldBrowser.bodies || []
+        for (var i = 0; i < bodies.length; ++i) ids.push(bodies[i].id)
+        if (JSON.stringify(ids) !== JSON.stringify(moldBodyIds)) moldBodyIds = ids
+    }
+    function moldBodyInfo(id) {
+        var bodies = app.moldBrowser.bodies || []
+        for (var i = 0; i < bodies.length; ++i) if (bodies[i].id === id) return bodies[i]
+        return null
+    }
+    Component.onCompleted: syncMoldBodyIds()
+    Connections { target: app; function onMoldBrowserChanged() { root.syncMoldBodyIds() } }
+
     function setAllCollapsed(value) {
         var all = collectSections(inspectorColumn, [])
         for (var i = 0; i < all.length; ++i) all[i].collapsed = value
@@ -415,6 +431,38 @@ ScrollView {
                     }
                 }
                 Button { text: qsTr("Export STL…"); Layout.fillWidth: true; onClicked: window.exportMold() }
+            }
+        }
+
+        // The reference's Molds browser: show or hide each mold body and the original model (not an undo step).
+        CraftSection {
+            visible: app.moldBrowser.available
+            title: qsTr("Molds")
+            ColumnLayout {
+                Layout.fillWidth: true
+                // The repeater runs on the list of ids, which changes only when bodies come or go: a toggle changes a body's "visible" and must not
+                // rebuild the delegates (that would destroy the checkbox that was just toggled and take the keyboard focus with it).
+                Repeater {
+                    model: root.moldBodyIds
+                    delegate: CraftCheckBox {
+                        id: bodyBox
+                        required property var modelData
+                        readonly property var info: root.moldBodyInfo(modelData)
+                        objectName: "bodyToggle:" + modelData
+                        Layout.fillWidth: true
+                        text: info ? info.name : ""
+                        onToggled: app.setBodyVisible(modelData, checked)
+                        Binding { target: bodyBox; property: "checked"; value: bodyBox.info ? bodyBox.info.visible : true }
+                    }
+                }
+                Label { text: qsTr("Model"); font.bold: true; Layout.topMargin: 4 }
+                CraftCheckBox {
+                    objectName: "bodyToggle:model"
+                    Layout.fillWidth: true
+                    text: qsTr("Original")
+                    checked: !!app.moldBrowser.model && app.moldBrowser.model.visible !== false
+                    onToggled: app.setBodyVisible(app.moldBrowser.model.id, checked)
+                }
             }
         }
 

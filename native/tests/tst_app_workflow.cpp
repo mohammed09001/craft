@@ -1839,6 +1839,88 @@ class WorkflowTest : public QObject {
     QCOMPARE(app->modelPhase(), QStringLiteral("empty"));   // validating imports nothing: the caller does, after the unsaved-changes prompt
   }
 
+  // The reference's Molds browser (MoldBodiesBrowser.tsx): every mold body and the original model can be shown or hidden.
+  void theMoldsBrowserShowsAndHidesBodiesAndTheModel() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->camera()->setViewportSize(800, 600);
+    QVERIFY(!app->moldBrowser().value("available").toBool());   // nothing to browse before a mold exists
+
+    app->setCutFaceEnabled("top", true);
+    app->setCutFacePosition("top", 0.5);
+    app->generateMold();
+    QVERIFY(waitFor([&] { return app->moldPhase() == "complete" || app->moldPhase() == "error"; }));
+    QCOMPARE(app->moldPhase(), QStringLiteral("complete"));
+    QVariantMap browser = app->moldBrowser();
+    QVERIFY(browser.value("available").toBool());
+    const QVariantList bodies = browser.value("bodies").toList();
+    QVERIFY(bodies.size() >= 2);
+    for (const QVariant& b : bodies) QVERIFY(b.toMap().value("visible").toBool());
+    QCOMPARE(browser.value("model").toMap().value("name").toString(), QStringLiteral("bracket.stl"));
+    const auto rowVisible = [&](const QString& id) {
+      for (int r = 0; r < app->scene()->rowCount(); ++r)
+        if (app->scene()->data(app->scene()->index(r), SceneModel::IdRole).toString() == id) return app->scene()->data(app->scene()->index(r), SceneModel::VisibleRole).toBool();
+      return false;
+    };
+
+    // Hiding one body hides exactly that scene row, and the browser says so; the others stay.
+    const QString first = bodies.at(0).toMap().value("id").toString(), second = bodies.at(1).toMap().value("id").toString();
+    const int undoDepth = app->history().value("undoDepth").toInt();
+    app->setBodyVisible(first, false);
+    QVERIFY(!rowVisible(first));
+    QVERIFY(rowVisible(second));
+    QCOMPARE(app->moldBrowser().value("bodies").toList().at(0).toMap().value("visible").toBool(), false);
+    QCOMPARE(app->moldBrowser().value("bodies").toList().at(1).toMap().value("visible").toBool(), true);
+    app->setBodyVisible(first, true);
+    QVERIFY(rowVisible(first));
+    QCOMPARE(app->history().value("undoDepth").toInt(), undoDepth);   // a view toggle, not an undo step (D-073)
+
+    // Hidden bodies stay hidden when the same mold is built again (the reference keeps its body visibility map).
+    app->setBodyVisible(first, false);
+    app->setCutFaceEnabled("left", true);
+    app->setCutFaceEnabled("left", false);   // the inputs are back as they were
+    app->generateMold();
+    QVERIFY(waitFor([&] { return app->moldPhase() == "complete" || app->moldPhase() == "error"; }));
+    QVERIFY(!rowVisible(first));
+    QCOMPARE(app->moldBrowser().value("bodies").toList().at(0).toMap().value("id").toString(), first);
+    QCOMPARE(app->moldBrowser().value("bodies").toList().at(0).toMap().value("visible").toBool(), false);
+
+    // The original model: hidden, it cannot be picked; shown, it can.
+    const QString modelId = app->moldBrowser().value("model").toMap().value("id").toString();
+    QVERIFY(!modelId.isEmpty());
+    // (A mold body is pickable too, so hide them all: then a pick can only be the part.)
+    for (const QVariant& b : app->moldBrowser().value("bodies").toList()) app->setBodyVisible(b.toMap().value("id").toString(), false);
+    QPoint onPart(-1, -1);
+    for (int y = 150; y < 450 && onPart.x() < 0; y += 5)
+      for (int x = 200; x < 600 && onPart.x() < 0; x += 5)
+        if (app->pickAt(x, y, 800, 600)) onPart = QPoint(x, y);
+    QVERIFY2(onPart.x() >= 0, "no pixel on the part");
+    app->clearSelection();
+    app->setBodyVisible(modelId, false);
+    QVERIFY(!rowVisible(modelId));
+    QCOMPARE(app->moldBrowser().value("model").toMap().value("visible").toBool(), false);
+    QVERIFY2(!app->pickAt(onPart.x(), onPart.y(), 800, 600), "a hidden model must not be pickable");
+    app->setBodyVisible(modelId, true);
+    QVERIFY(rowVisible(modelId));
+    QVERIFY(app->pickAt(onPart.x(), onPart.y(), 800, 600));
+    app->clearSelection();
+
+    // A new model shows everything again; generated Master Mold tooling has its own pieces list and the browser steps aside.
+    app->setBodyVisible(first, false);
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    QVERIFY(!app->moldBrowser().value("available").toBool());   // the mold went with the old model
+    app->setCutFaceEnabled("top", true);
+    app->setCutFacePosition("top", 0.5);
+    app->generateMold();
+    QVERIFY(waitFor([&] { return app->moldPhase() == "complete" || app->moldPhase() == "error"; }));
+    for (const QVariant& b : app->moldBrowser().value("bodies").toList()) QVERIFY2(b.toMap().value("visible").toBool(), "a new model must show every body again");
+    app->generateMasterMold();
+    QVERIFY(waitFor([&] { return !app->masterMold().value("generating").toBool() && app->masterMold().value("status").toString() != QLatin1String("idle"); }, 120000));
+    QVERIFY(!app->moldBrowser().value("available").toBool());
+  }
+
   void theThemeSetsTheColourSchemeOfTheWholeWindow() {
     auto app = makeApp();
     QCOMPARE(app->theme(), QStringLiteral("dark"));

@@ -76,6 +76,12 @@ AppController::AppController(std::shared_ptr<IMeshGeometryEngine> engine,
     connect(this, signal, this, &AppController::refreshCutPlanes);
   }
   connect(&scene_, &SceneModel::sceneChanged, this, &AppController::refreshCutPlanes);
+  // The Molds browser follows the scene and the states that decide whether it is shown.
+  for (auto signal : {&AppController::moldChanged, &AppController::masterMoldChanged, &AppController::segmentationChanged}) {
+    connect(this, signal, this, &AppController::moldBrowserChanged);
+  }
+  connect(&scene_, &SceneModel::sceneChanged, this, &AppController::moldBrowserChanged);
+  connect(&scene_, &SceneModel::countChanged, this, &AppController::moldBrowserChanged);
   {
     std::vector<std::array<QVector3D, 2>> unitEdges;
     for (const Segment3& edge : selectionBoxEdges({{-0.5, -0.5, -0.5}, {0.5, 0.5, 0.5}})) {
@@ -240,6 +246,7 @@ void AppController::applyModel(LoadedModel model) {
   model_ = std::move(model);
   modelPhase_ = QStringLiteral("ready");
   modelMessage_ = model_->fileName;
+  scene_.clearHidden();   // a new model: everything is shown again (the reference resets its model and body visibility on import)
   scene_.setPart(QString::fromStdString(model_->modelId), model_->fileName, model_->groundedSoup,
                  QColor::fromRgb(referenceLook(true).partRgb));
   scene_.setPartOffset({0, 0, 0});
@@ -282,6 +289,21 @@ void AppController::setCavityClearanceMm(double value) {
   cavityClearanceMm_ = clamped;
   invalidateMoldInputs();
 }
+
+// The reference's Molds browser (MoldBodiesBrowser.tsx): every mold body with an eye toggle, and the original model. It lists what is on the
+// scene, so it follows the working mold and an adopted segmentation; generated Master Mold tooling has its own pieces list and is left out.
+QVariantMap AppController::moldBrowser() const {
+  QVariantList bodies;
+  QVariantMap model;
+  for (const SceneItem& item : scene_.items()) {
+    const QVariantMap row{{"id", item.id}, {"name", item.name}, {"visible", item.visible}};
+    if (item.kind == QLatin1String("mold-body")) bodies << row;
+    else if (item.kind == QLatin1String("part")) model = row;
+  }
+  return {{"available", !bodies.isEmpty() && !masterShown_}, {"bodies", bodies}, {"model", model}};
+}
+
+void AppController::setBodyVisible(const QString& id, bool visible) { scene_.setVisibleById(id, visible); }
 
 QVariantList AppController::cutFaces() const {
   QVariantList list;

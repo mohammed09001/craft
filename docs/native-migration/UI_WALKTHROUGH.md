@@ -11,9 +11,9 @@ fixed, and what it did not look at. The tools are `scripts/native/ui/` (`native-
 - **The two UIs are organised differently on purpose.** The reference is a viewport-centred workspace: an icon toolbar, popovers and a
   session panel on the canvas, a status area. The directive prescribes the native one (menus, toolbars, status bar, a context inspector),
   and it is that, so this is a comparison of what the user can do and of how well it is presented, not of layout.
-- **Every capability of the reference's toolbar has a native counterpart, with two exceptions:** Flip (manual part orientation, known and
-  recorded as not ported: R-Viewport-4) and the Molds browser's per-body "show / hide" eye. Drag and drop of an STL onto the window was
-  missing and is now ported.
+- **Every capability of the reference's toolbar has a native counterpart, with one exception:** Flip (manual part orientation, known and
+  recorded as not ported: R-Viewport-4). Drag and drop of an STL onto the window and the Molds browser (show or hide each mold body and the
+  original model) were missing and are now ported.
 - **Looking found ten defects that no test had caught** (below), of which nine are fixed. The seed was one picture: the hint badge had a stray
   A-circumflex before each separator dot.
 - **The cause of a whole group of failing smoke tests turned out to be a stale autosave** left by the new tour: the next launch opened with
@@ -66,7 +66,7 @@ repeated.
 | Master Mold, Master Mold pieces | Generate Master Mold and the pieces list with its toggles | done |
 | Undo, Redo | toolbar, Edit menu, Ctrl+Z / Ctrl+Y | done |
 | Printer build volume prompt, X / Y / Z axis buttons | Printer build volume fields, Add X / Y / Z cut | done |
-| Molds browser: eye per mold body, eye for the original model | the Mold result list names the bodies; no per-body or model visibility toggle | **gap** |
+| Molds browser: eye per mold body, eye for the original model | "Molds" section of the inspector: a checkbox per mold body and one for "Original" | done (checkboxes instead of eye icons; see below) |
 | Engineering reports list, pull direction card | Engineering reports section of the inspector | done |
 | Status area (Frontend, Mode, Engine, Analysis Session, Viewport, Model, Measurement, Selection) | status line with the last message, units and Z-up | partial: no indicators |
 | Live announcements ("Model selected.") for screen readers | none | gap (accessibility) |
@@ -87,6 +87,7 @@ repeated.
 | 8 | **Drag and drop of an STL onto the window did nothing** (the reference tells the user to) | the reference's text inventory | `DropArea` with the reference's validation and messages (exactly one file, `.stl` in any case, not empty), checked before the unsaved-changes prompt; an outline while a drag is over the window | `droppedFilesAreValidatedLikeTheReference`, `app_smoke_drop` through real platform drag events; 8 mutations caught |
 | 9 | The recovery dialog covered the window in every capture after a run that had not closed cleanly | the second tour's pictures | `native-tour.ps1` isolates autosave and cache; see the next section | the wrapper |
 | 10 | (Not fixed) The Windows title bar stays in the system theme | the light capture | not fixable from QML | R-UI-2 |
+| 12 | The reference's Molds browser had no counterpart: no way to hide a mold body or the model to look at what is inside | a "Molds" section (hidden under Master tooling, which has its own pieces list): a checkbox per body and one for the original model, accessible by name; visibility is kept by id in the scene model, survives the same mold being rebuilt, is reset by a new model, and is not an undo step (D-073). The checkbox list runs on the body ids so that toggling does not rebuild (and so destroy and unfocus) the checkbox that was toggled | `theMoldsBrowserShowsAndHidesBodiesAndTheModel` (picking skips a hidden model, undo depth unchanged), `app_smoke_molds` through real clicks; 7 of 9 mutations caught, the other two equivalent in practice |
 | 11 | The inspector was one 3,400 px column of fixed group boxes | the full-height capture | `CraftSection`: every section folds from its header (click, Space or Enter), the header takes focus with Tab, shows a focus ring and names itself and its state to a screen reader; "Collapse all" and "Expand all" at the top; nested sections too. Fold state lasts for the session, it is not saved with the project or between runs | `app_smoke_sections` through real clicks and keys, 9 mutations caught; a tour state with every section folded |
 
 ## The stale autosave, and what it says about R-Smoke-1
@@ -109,7 +110,6 @@ or timed-out run of the application leaves an autosave), and it is now closed.
 
 ## Open findings
 
-- **Molds browser** (per-body and model visibility): not in the native window; the body list is text only.
 - **Status indicators and the instruction text** of the reference have no equivalent; the status line carries the last message only.
 - **The inspector's sections fold now** (item 11), but the content of an expanded reports section is still long and dense, there is no index to jump to a
   section, and the fold state is not remembered between runs.
