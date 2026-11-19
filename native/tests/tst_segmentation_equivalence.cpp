@@ -269,8 +269,40 @@ class SegmentationEquivalenceTest : public QObject {
       const QJsonArray preview = fixture["preview"].toArray();
       QCOMPARE(bodies.size(), static_cast<std::size_t>(preview.size()));
       for (qsizetype i = 0; i < preview.size(); ++i) compareBody(bodies[static_cast<std::size_t>(i)], preview[i].toObject());
+
+      // The keyed preview the viewport shows: the canonical registration over the unkeyed preview bodies, run asynchronously in the reference
+      // (generateSegmentationPlanPreview) and compared here with its real result.
+      QVERIFY2(fixture.contains("previewRegistration"), "the reference records a preview registration for every valid plan");
+      const QJsonObject pr = fixture["previewRegistration"].toObject();
+      const DerivedRegistrationState previewState =
+          generateSegmentationRegistration(*engine_, plan, source, preliminary->definition, bodies, "segmentation-preview-registration");
+      QVERIFY(previewState.report.has_value());
+      QCOMPARE(q(previewState.status), pr["status"].toString());
+      QCOMPARE(q(previewState.report->reasonCode), pr["reasonCode"].toString());
+      QCOMPARE(q(previewState.report->message), pr["message"].toString());
+      QCOMPARE(q(previewState.report->tolerancePolicy.policyId), pr["policyId"].toString());
+      std::vector<std::string> previewInterfaces, previewFeatures;
+      for (const RegistrationInterface& i : previewState.report->interfaces) previewInterfaces.push_back(i.id);
+      for (const RegistrationFeature& f : previewState.report->features) previewFeatures.push_back(f.id);
+      QCOMPARE(previewInterfaces, stringsOf(pr["interfaceIds"]));
+      QCOMPARE(previewFeatures, stringsOf(pr["featureIds"]));
+      const QJsonArray keyed = pr["bodies"].toArray();
+      QCOMPARE(previewState.bodies.size(), static_cast<std::size_t>(keyed.size()));
+      for (qsizetype i = 0; i < keyed.size(); ++i) {
+        const QJsonObject b = keyed[i].toObject();
+        const MoldBody& a = previewState.bodies[static_cast<std::size_t>(i)];
+        QCOMPARE(q(a.id), b["id"].toString());
+        VERIFY_CLOSE(a.volumeMm3, b["volumeMm3"].toDouble());
+        QCOMPARE(a.triangleCount, static_cast<std::size_t>(b["triangleCount"].toInt()));
+        std::size_t keys = 0;
+        for (const MeshFaceRun& run : a.mesh.faceRuns) {
+          if (run.role == FaceRole::RegistrationKey) keys += run.triangleCount;
+        }
+        QCOMPARE(keys, static_cast<std::size_t>(b["keyTriangleCount"].toInt()));
+      }
     } else {
       QVERIFY(plan.validation.status != "planning-valid");
+      QVERIFY(!fixture.contains("previewRegistration"));
     }
 
     // --- execution ------------------------------------------------------------------------------------------------------------

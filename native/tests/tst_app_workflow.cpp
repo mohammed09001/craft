@@ -1150,6 +1150,108 @@ class WorkflowTest : public QObject {
     QCOMPARE(issues.front().toMap().value("code").toString(), QStringLiteral("registration_interface_not_found"));
   }
 
+  // The plan preview shows the sections with their registration keys (segmentationPreview.ts), computed in the background: the sections appear at
+  // once as planned, the keys follow without moving the camera, and a newer plan, a reset or an execution supersedes a preview still running.
+  void theSegmentationPlanPreviewGainsItsKeysInTheBackground() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->camera()->setViewportSize(800, 600);
+    app->setPrinterVolume(150, 300, 300);
+    QCOMPARE(app->segmentation().value("previewState").toString(), QStringLiteral("none"));
+    const auto keyTrianglesShown = [&] {
+      std::size_t keys = 0;
+      for (const MoldBody& body : app->segmentationBodies())
+        for (const MeshFaceRun& run : body.mesh.faceRuns)
+          if (run.role == FaceRole::RegistrationKey) keys += run.triangleCount;
+      return keys;
+    };
+
+    app->planSegmentation();
+    QCOMPARE(app->segmentation().value("phase").toString(), QStringLiteral("planned"));
+    QCOMPARE(app->scene()->count(), 3);                                                    // the sections are there at once ...
+    QCOMPARE(app->segmentation().value("previewState").toString(), QStringLiteral("running"));
+    QCOMPARE(keyTrianglesShown(), std::size_t{0});                                         // ... without keys
+    app->camera()->lookFrom("front");   // the user moves the view while the keys are still being computed
+    const QVector3D position = app->camera()->position(), target = app->camera()->target();
+
+    QVERIFY(waitFor([&] { return app->segmentation().value("previewState").toString() != "running"; }, 120000));
+    QCOMPARE(app->segmentation().value("previewState").toString(), QStringLiteral("keyed"));
+    QVERIFY(keyTrianglesShown() > 0);
+    QCOMPARE(app->segmentation().value("previewKeyTriangles").toULongLong(), static_cast<qulonglong>(keyTrianglesShown()));
+    QCOMPARE(app->scene()->count(), 3);                                                    // the same sections, now keyed
+    QCOMPARE(app->camera()->position(), position);                                         // the view stays where it was
+    QCOMPARE(app->camera()->target(), target);
+
+    // What the preview shows is what the cut will produce: the same keys as the executed, keyed sections.
+    const std::size_t previewKeys = keyTrianglesShown();
+    app->executeSegmentation();
+    QVERIFY(waitFor([&] { return app->segmentation().value("phase").toString() != "executing" && !app->busy(); }));
+    QCOMPARE(app->segmentation().value("phase").toString(), QStringLiteral("executed"));
+    QCOMPARE(keyTrianglesShown(), previewKeys);
+    QCOMPARE(app->segmentation().value("previewState").toString(), QStringLiteral("none"));   // nothing is left "running" after the cut
+  }
+
+  // A preview still running when the plan is reset and made again must never land on the later plan: the revision counter starts over with
+  // the reset, so the generation is what tells them apart. The later plan (3 x 3 x 3) can never be keyed, so "keyed" must never be seen.
+  void aPreviewOfAnEarlierPlanNeverLandsOnALaterOne() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    QStringList states;
+    QObject::connect(app.get(), &AppController::segmentationChanged, app.get(), [&] { states << app->segmentation().value("previewState").toString(); });
+    app->setPrinterVolume(150, 300, 300);
+    app->planSegmentation();                 // two sections: their preview is under way
+    app->resetSegmentation();
+    app->setPrinterVolume(100, 100, 100);
+    app->planSegmentation();                 // 27 sections: blocked, never keyed
+    QCOMPARE(app->segmentation().value("sectionCount").toULongLong(), qulonglong{27});
+    QVERIFY(waitFor([&] { return app->segmentation().value("previewState").toString() != "running"; }, 120000));
+    QTest::qWait(500);                       // let a late result from the first plan arrive, if it was going to
+    QVERIFY2(!states.contains("keyed"), "the preview of the first plan was applied to the second");
+    QCOMPARE(app->segmentation().value("previewState").toString(), QStringLiteral("unkeyed"));
+    QCOMPARE(app->scene()->count(), 28);
+  }
+
+  // For a plan of many small sections the canonical registration cannot find a safe area for its keys (the real reference says the same for 3 x 3 x 3):
+  // the preview stays as planned, unkeyed, and says why.
+  void aPlanWhoseRegistrationIsBlockedStaysUnkeyed() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->setPrinterVolume(100, 100, 100);
+    app->planSegmentation();
+    QCOMPARE(app->segmentation().value("sectionCount").toULongLong(), qulonglong{27});
+    QVERIFY(waitFor([&] { return app->segmentation().value("previewState").toString() != "running"; }, 120000));
+    QCOMPARE(app->segmentation().value("previewState").toString(), QStringLiteral("unkeyed"));
+    QCOMPARE(app->segmentation().value("previewReason").toString(), QStringLiteral("registration_insufficient_safe_area"));
+    QCOMPARE(app->segmentation().value("previewKeyTriangles").toULongLong(), qulonglong{0});
+    QCOMPARE(app->scene()->count(), 28);   // the part and the 27 planned sections, as planned
+  }
+
+  void aSupersededPlanPreviewIsDropped() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->setPrinterVolume(150, 300, 300);
+    app->planSegmentation();                      // two sections, their preview starts ...
+    app->addSegmentationExtension("y");           // ... and is replaced by the four-section plan before it can finish
+    QCOMPARE(app->segmentation().value("sectionCount").toULongLong(), qulonglong{4});
+    QVERIFY(waitFor([&] { return app->segmentation().value("previewState").toString() != "running"; }, 120000));
+    QCOMPARE(app->segmentation().value("previewState").toString(), QStringLiteral("keyed"));
+    QCOMPARE(app->scene()->count(), 5);           // part + four sections, never the two of the first plan
+    QCOMPARE(app->segmentationBodies().size(), std::size_t{4});
+
+    // A reset drops a preview that is still running: it must not bring the sections back.
+    app->moveSegmentationExtension("y", 1);
+    QCOMPARE(app->segmentation().value("previewState").toString(), QStringLiteral("running"));
+    app->resetSegmentation();
+    QCOMPARE(app->segmentation().value("phase").toString(), QStringLiteral("idle"));
+    QTest::qWait(1500);
+    QCOMPARE(app->segmentation().value("previewState").toString(), QStringLiteral("none"));
+    QCOMPARE(app->scene()->count(), 1);
+  }
+
   void segmentationPlansCutsKeysAndFeedsTheMoldPipeline() {
     auto app = makeApp();
     app->importStlFile(bracket());

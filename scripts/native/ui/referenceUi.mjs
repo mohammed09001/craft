@@ -6,7 +6,7 @@
 //                         [--steps "click:Flip;shot:03-flip;dump:03-flip"]
 //
 // Steps (after the import), separated by ';': click:<accessible name> (a button, link or any element with that label or text), clickxy:<x>,<y> (page
-// pixels), shot:<name>, dump:<name>, wait:<ms>, key:<Playwright key>, hover:<accessible name>, text:<name> (writes the page's visible text to <name>.txt).
+// pixels), shot:<name>, dump:<name>, wait:<ms>, fill:<field label>=<value>, wheel:<deltaY>, key:<Playwright key>, hover:<accessible name>, text:<name> (writes the page's visible text to <name>.txt).
 //
 // Without --stl only the empty workspace is captured. With --dump 1 it also writes controls.json: every visible button, link, checkbox,
 // slider, tab and field with its accessible name, so that the controls of the two applications can be compared by name. Nothing in the
@@ -84,13 +84,15 @@ try {
       if (verb === "click") await page.getByRole("button", { name: arg, exact: true }).or(page.getByLabel(arg, { exact: true })).or(page.getByText(arg, { exact: true })).first().click({ timeout: 5000 });
       else if (verb === "hover") await page.getByRole("button", { name: arg, exact: true }).first().hover({ timeout: 5000 });
       else if (verb === "clickxy") { const [x, y] = arg.split(",").map(Number); await page.mouse.click(x, y); }
+      else if (verb === "fill") { const [label, ...value] = arg.split("="); await page.getByLabel(label, { exact: true }).fill(value.join("=")); }
+      else if (verb === "wheel") { await page.mouse.move(width / 2, height / 2); await page.mouse.wheel(0, Number(arg)); }
       else if (verb === "key") await page.keyboard.press(arg);
       else if (verb === "wait") await page.waitForTimeout(Number(arg));
       else if (verb === "shot") await shot(arg);
       else if (verb === "dump") await dump(arg);
       else if (verb === "text") fs.writeFileSync(path.join(outDir, `${arg}.txt`), await page.evaluate(() => document.body.innerText));
       else console.log(`unknown step '${step}'`);
-      if (["click", "clickxy", "key", "hover"].includes(verb)) await page.waitForTimeout(600);
+      if (["click", "clickxy", "key", "hover", "fill", "wheel"].includes(verb)) await page.waitForTimeout(600);
     } catch (error) {
       console.log(`step '${step}' failed: ${String(error.message).split("\n")[0]}`);
       problems.push(`step '${step}': ${String(error.message).split("\n")[0]}`);

@@ -9,8 +9,9 @@
 
 param(
   # "all" regenerates every fixture (about 25 minutes); "reports" only the engineering-reports fixtures and
-  # "selection" only the viewport selection fixture and "spruepreview" only the Sprue 3D preview fixture (seconds each).
-  [ValidateSet('all', 'reports', 'selection', 'spruepreview', 'sprueresize', 'cutplane', 'undo', 'look', 'ruler')][string]$Only = 'all'
+  # "selection" only the viewport selection fixture and "spruepreview" only the Sprue 3D preview fixture (seconds each);
+  # "segmentation" only the segmentation fixture (a few minutes).
+  [ValidateSet('all', 'reports', 'selection', 'spruepreview', 'sprueresize', 'cutplane', 'undo', 'look', 'ruler', 'segmentation')][string]$Only = 'all'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -32,8 +33,10 @@ $stage = Join-Path $frontend '.tmp\native-reference'
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
 if ($Only -eq 'all') {
   Copy-Item (Join-Path $referenceDir 'craftReference.test.ts') $stage -Force
-  Copy-Item (Join-Path $referenceDir 'craftSegmentationReference.test.ts') $stage -Force
   Copy-Item (Join-Path $referenceDir 'craftMasterReference.test.ts') $stage -Force
+}
+if ($Only -in 'all', 'segmentation') {
+  Copy-Item (Join-Path $referenceDir 'craftSegmentationReference.test.ts') $stage -Force
 }
 if ($Only -in 'all', 'reports') {
   Copy-Item (Join-Path $referenceDir 'craftReportsReference.test.ts') $stage -Force
@@ -81,7 +84,7 @@ $env:CRAFT_READINESS_SAMPLES = Join-Path $repoRoot 'native\tests\fixtures\refere
 # when a development Python is available; otherwise the committed samples are used.
 $samplePython = $env:CRAFT_PYTHON
 if (-not $samplePython -and (Test-Path 'D:\CraftNative\python\venv\Scripts\python.exe')) { $samplePython = 'D:\CraftNative\python\venv\Scripts\python.exe' }
-if ($Only -in 'selection', 'spruepreview', 'sprueresize', 'cutplane', 'undo', 'look', 'ruler') { $samplePython = $null }  # these fixtures have nothing to do with Python
+if ($Only -in 'selection', 'spruepreview', 'sprueresize', 'cutplane', 'undo', 'look', 'ruler', 'segmentation') { $samplePython = $null }  # these fixtures have nothing to do with Python
 if ($samplePython) {
   & $samplePython -I (Join-Path $referenceDir 'make_readiness_samples.py') $repoRoot $env:CRAFT_READINESS_SAMPLES
   if ($LASTEXITCODE -ne 0) { throw "Readiness sample generation failed (exit $LASTEXITCODE)." }

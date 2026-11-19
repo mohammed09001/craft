@@ -481,7 +481,8 @@ class AppController : public QObject {
   void connectAnalysis();
   void rebuildSegmentationPlan();
   void invalidateSegmentation(const QString& message);
-  void showSegmentationBodies();
+  void showSegmentationBodies(bool refit = true);
+  void startSegmentationPreviewRegistration();
   double effectiveMoldClearanceMm() const;
   void editSprues(const std::function<bool(std::vector<SprueOperationDefinition>&)>& edit);
   std::optional<std::string> masterLiveIdentity() const;
@@ -591,6 +592,12 @@ class AppController : public QObject {
     std::optional<SegmentationExecutionResult> execution;
     bool adopted = false;
     quint64 generation = 0;
+    // The keyed preview of the plan (segmentationPreview.ts): registration run in the background over the unkeyed section bodies.
+    // "none" | "running" | "keyed" | "unkeyed" (the registration did not generate keys: the sections stay as planned) | "failed".
+    QString previewState = QStringLiteral("none");
+    QString previewReason;
+    std::size_t previewKeyCount = 0;
+    quint64 previewRevision = 0;
   } segmentation_;
   std::optional<Point3> printerVolume_;
 

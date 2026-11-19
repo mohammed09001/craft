@@ -1123,7 +1123,7 @@ void AppController::invalidateSegmentation(const QString& message) {
   emit moldInputsChanged();
 }
 
-void AppController::showSegmentationBodies() {
+void AppController::showSegmentationBodies(bool refit) {
   masterShown_ = false;
   std::vector<SceneModel::BodyInput> bodies;
   for (const MoldBody& body : segmentation_.shownBodies) {
@@ -1137,7 +1137,7 @@ void AppController::showSegmentationBodies() {
   }
   applySceneColors();
   applySceneColors();
-  refreshSceneFrame(true);
+  refreshSceneFrame(refit);
 }
 
 void AppController::rebuildSegmentationPlan() {
@@ -1158,8 +1158,58 @@ void AppController::rebuildSegmentationPlan() {
   segmentation_.plan = std::move(plan);
   segmentation_.phase = QStringLiteral("planned");
   showSegmentationBodies();
+  startSegmentationPreviewRegistration();
   emit segmentationChanged();
   setStatus(segmentation_.message);
+}
+
+// The viewport's plan preview shows the sections with their registration keys (segmentationPreview.ts, generateSegmentationPlanPreview): the canonical
+// registration run over the unkeyed preview bodies, asynchronously because it is slow for many sections. It is display geometry only, never an execution
+// result. A newer plan, a reset or an execution supersedes it; if the registration yields no keys the sections stay as planned.
+void AppController::startSegmentationPreviewRegistration() {
+  segmentation_.previewState = QStringLiteral("none");
+  segmentation_.previewReason.clear();
+  segmentation_.previewKeyCount = 0;
+  const quint64 revision = ++segmentation_.previewRevision;
+  if (!segmentation_.plan || !segmentation_.source || segmentation_.plan->validation.status != "planning-valid" || segmentation_.shownBodies.empty()) return;
+  segmentation_.previewState = QStringLiteral("running");
+
+  const quint64 generation = segmentation_.generation;
+  auto engine = engine_;
+  const SegmentationPlan plan = *segmentation_.plan;
+  const SegmentationSourceSnapshot snapshot = segmentation_.source->snapshot;
+  const ReferenceMoldDefinition definition = segmentation_.source->definition;
+  const std::vector<MoldBody> unkeyed = segmentation_.shownBodies;
+  runJob<DerivedRegistrationState>(
+      this, CancellationToken(),
+      [engine, plan, snapshot, definition, unkeyed](const CancellationToken&, const ProgressCallback&) {
+        return generateSegmentationRegistration(*engine, plan, snapshot, definition, unkeyed, "segmentation-preview-registration");
+      },
+      [this, generation, revision](JobOutcome<DerivedRegistrationState> outcome) {
+        // Superseded (a newer plan, a reset, an execution) or no longer showing the plan: drop it.
+        if (generation != segmentation_.generation || revision != segmentation_.previewRevision || segmentation_.phase != QLatin1String("planned")) return;
+        if (outcome.state != JobState::Succeeded || !outcome.result) {
+          segmentation_.previewState = QStringLiteral("failed");
+          segmentation_.previewReason = outcome.errorMessage;
+          emit segmentationChanged();
+          return;
+        }
+        DerivedRegistrationState& state = *outcome.result;
+        if (state.status == "generated" && !state.bodies.empty()) {
+          std::size_t keys = 0;
+          for (const MoldBody& body : state.bodies)
+            for (const MeshFaceRun& run : body.mesh.faceRuns)
+              if (run.role == FaceRole::RegistrationKey) keys += run.triangleCount;
+          segmentation_.previewKeyCount = keys;
+          segmentation_.shownBodies = std::move(state.bodies);
+          segmentation_.previewState = QStringLiteral("keyed");
+          showSegmentationBodies(false);  // the same bodies with their keys: the camera stays where the user left it
+        } else {
+          segmentation_.previewState = QStringLiteral("unkeyed");
+          segmentation_.previewReason = state.report ? QString::fromStdString(state.report->reasonCode) : QString::fromStdString(state.status);
+        }
+        emit segmentationChanged();
+      });
 }
 
 void AppController::planSegmentation() {
@@ -1251,7 +1301,8 @@ void AppController::executeSegmentation() {
     emit errorOccurred(QStringLiteral("Segmentation"), segmentation_.message, QStringLiteral("invalid_plan"));
     return;
   }
-  const quint64 generation = ++segmentation_.generation;
+  const quint64 generation = ++segmentation_.generation;  // also supersedes a preview still running
+  segmentation_.previewState = QStringLiteral("none");
   segmentation_.phase = QStringLiteral("executing");
   emit segmentationChanged();
   setBusy(true, QStringLiteral("segmenting"), 0);
@@ -1338,7 +1389,9 @@ void AppController::executeSegmentation() {
 }
 
 QVariantMap AppController::segmentation() const {
-  QVariantMap m{{"phase", segmentation_.phase}, {"message", segmentation_.message}, {"adopted", segmentation_.adopted}};
+  QVariantMap m{{"phase", segmentation_.phase}, {"message", segmentation_.message}, {"adopted", segmentation_.adopted},
+                {"previewState", segmentation_.previewState}, {"previewReason", segmentation_.previewReason},
+                {"previewKeyTriangles", static_cast<qulonglong>(segmentation_.previewKeyCount)}};
   if (!segmentation_.source) return m;
   m.insert("moldClearanceMm", segmentation_.source->definition.clearanceMm);
   m.insert("blockSize", QVariantMap{{"x", segmentation_.source->snapshot.aggregateBounds.size().x},

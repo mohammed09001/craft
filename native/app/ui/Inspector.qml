@@ -116,6 +116,13 @@ ScrollView {
                              + root.fmt(app.segmentation.blockSize.y, 0) + "×" + root.fmt(app.segmentation.blockSize.z, 0) + " mm" : "")
                     wrapMode: Text.Wrap; Layout.fillWidth: true
                 }
+                Label {
+                    objectName: "previewKeysHint"
+                    visible: app.segmentation.previewState === "running"
+                    text: qsTr("Previewing the alignment keys…")
+                    font.italic: true
+                    wrapMode: Text.Wrap; Layout.fillWidth: true
+                }
                 Repeater {
                     model: app.segmentation.blockers || []
                     delegate: Label { required property var modelData; text: "⚠ " + modelData; color: "#e5484d"; wrapMode: Text.Wrap; Layout.fillWidth: true }

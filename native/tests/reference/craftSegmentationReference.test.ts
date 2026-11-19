@@ -30,6 +30,7 @@ import { readCurrentSegmentationSourceSnapshot } from "@/features/mold-generatio
 import {
   buildSegmentationPlanPreviewBodies,
   generateCommittedSegmentationRegistration,
+  generateSegmentationPlanPreview,
 } from "@/features/mold-generation/segmentation/application/segmentationPreview";
 import { executePlaneSegmentation } from "@/features/mold-generation/segmentation/execution/segmentationPlaneExecutor";
 import { buildCavityGenerationInput } from "@/features/mold-generation/cavity-generation/cavityGeneration.input";
@@ -77,6 +78,9 @@ const cases: CaseSpec[] = [
     name: "segmented mold: cavity subtraction and lineage-keyed registration",
     partBounds: { min: [-10, -10, 0], max: [10, 10, 20] }, clearanceMm: 10, printerVolume: [150, 300, 300], execute: true, cavityCube: true,
   },
+  // Larger plans, for the keyed preview only (no execution): 3 x 3 x 3 and 4 x 4 x 4 sections.
+  { name: "3 x 3 x 3 grid (preview only)", partBounds: PART, clearanceMm: 10, printerVolume: [100, 100, 100] },
+  { name: "4 x 4 x 4 grid (preview only)", partBounds: PART, clearanceMm: 10, printerVolume: [60, 60, 60] },
   { name: "invalid printer volume", partBounds: PART, clearanceMm: 10, printerVolume: [0, 100, 100] },
   { name: "printer smaller than any feasible grid is still planned", partBounds: PART, clearanceMm: 10, printerVolume: [239, 229, 211] },
   {
@@ -191,6 +195,18 @@ async function runCase(spec: CaseSpec) {
     // The store never builds preview geometry (or accepts) an invalid plan.
     if (plan.validation.status === "planning-valid") {
       record.preview = buildSegmentationPlanPreviewBodies({ plan, definition }).map(describeBody);
+      // The keyed preview the viewport shows (asynchronous in the reference): the canonical registration run over the unkeyed preview bodies.
+      const previewState = await generateSegmentationPlanPreview({ plan, source, definition });
+      const previewReport = previewState.registration.report;
+      record.previewRegistration = {
+        status: previewState.registration.status,
+        reasonCode: previewReport?.reasonCode ?? null,
+        message: previewReport?.message ?? null,
+        policyId: previewReport?.tolerancePolicy.policyId ?? null,
+        interfaceIds: previewReport?.interfaces.map((i) => i.id) ?? [],
+        featureIds: previewReport?.features.map((f) => f.id) ?? [],
+        bodies: (previewState.registration.bodies ?? []).map(describeBody),
+      };
     }
   }
 
