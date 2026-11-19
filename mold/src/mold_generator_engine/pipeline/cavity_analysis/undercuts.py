@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from mold_generator_engine.config.geometry import DEFAULT_LINEAR_TOLERANCE_MM
 from mold_generator_engine.exceptions import InvalidVectorError
 from mold_generator_engine.geometry.mesh_adjacency import build_face_adjacency_graph
-from mold_generator_engine.geometry.ray_mesh_query import BruteForceRayMeshQuery
+from mold_generator_engine.geometry.ray_mesh_bvh import BvhRayMeshQuery
 from mold_generator_engine.geometry.vector import Vector3D
 from mold_generator_engine.models.cavity_analysis import (
     CavityAnalysisContext,
@@ -79,7 +79,7 @@ class DirectionalInternalUndercutAnalyzer:
             )
 
         target_faces = _target_face_indices(candidate_detection, opening_detection)
-        ray_query = BruteForceRayMeshQuery.from_model(
+        ray_query = BvhRayMeshQuery.from_model(
             context.model,
             intersection_epsilon_mm=self.linear_tolerance_mm,
         )
@@ -244,7 +244,7 @@ def _target_face_indices(
 
 def _evaluate_face(
     model: ImportedModel,
-    ray_query: BruteForceRayMeshQuery,
+    ray_query: BvhRayMeshQuery,
     *,
     face_index: int,
     direction: Vector3D,
@@ -279,7 +279,7 @@ def _evaluate_face(
 
 
 def _evaluate_samples_from_origin_side(
-    ray_query: BruteForceRayMeshQuery,
+    ray_query: BvhRayMeshQuery,
     *,
     face_index: int,
     samples: tuple[Vector3D, ...],

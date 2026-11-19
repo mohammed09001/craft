@@ -31,8 +31,8 @@ Jobs run one at a time. The host cancels a running job by terminating the
 process (it is restarted on the next request), which is why this script holds
 no state between jobs.
 
-The analysis itself is the existing, unmodified
-``mold_generator_engine.pipeline.import_analysis`` service.
+The analysis itself is the existing ``mold_generator_engine`` (its results are unchanged; its ray queries use a bounding-volume
+hierarchy that returns exactly what the original brute-force scan returned, see docs/native-migration/ANALYSIS_PERFORMANCE.md).
 """
 
 from __future__ import annotations
@@ -42,6 +42,9 @@ import platform
 import sys
 import time
 import traceback
+from collections.abc import Mapping, Sequence
+from dataclasses import fields, is_dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -128,6 +131,54 @@ def compact_detailed_report(value: Any, omitted: dict[str, int]) -> Any:
     return value
 
 
+def serialize_compact(value: Any, omitted: dict[str, int]) -> Any:
+    """``compact_detailed_report(value.to_dict(), omitted)`` in one pass, without building the per-face lists first.
+
+    The engine's ``to_dict`` turns every per-face evaluation of every candidate into a dict (millions of them for a smooth mesh,
+    where each face normal is a candidate) only for the compaction to drop the lists again; that serialization was most of the
+    worker's time. This walks the report with the engine's own serialization rules (enums by value, paths as strings,
+    dataclasses by field, mappings with string keys, sequences as lists) and writes ``<key>Count`` for an omitted key at the place
+    where the list would have been, adding its length to ``omitted``: the same dict, in the same key order, with the same counts.
+    ``tests/test_compact_serialization.py`` checks that against the two-step version.
+    """
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, Path):
+        return str(value)
+    if is_dataclass(value):
+        result: dict[str, Any] = {}
+        for data_field in fields(value):
+            item = getattr(value, data_field.name)
+            if data_field.name in OMITTED_PER_FACE_KEYS and _is_serialized_as_list(item):
+                result[f"{data_field.name}Count"] = len(item)
+                omitted[data_field.name] = omitted.get(data_field.name, 0) + len(item)
+            else:
+                result[data_field.name] = serialize_compact(item, omitted)
+        return result
+    if isinstance(value, Mapping):
+        result = {}
+        for key, item in value.items():
+            text_key = _serialized_mapping_key(key)
+            if text_key in OMITTED_PER_FACE_KEYS and _is_serialized_as_list(item):
+                result[f"{text_key}Count"] = len(item)
+                omitted[text_key] = omitted.get(text_key, 0) + len(item)
+            else:
+                result[text_key] = serialize_compact(item, omitted)
+        return result
+    if _is_serialized_as_list(value):
+        return [serialize_compact(item, omitted) for item in value]
+    return value
+
+
+def _is_serialized_as_list(value: Any) -> bool:
+    return isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray))
+
+
+def _serialized_mapping_key(key: Any) -> str:
+    serialized = serialize_compact(key, {})
+    return serialized if isinstance(serialized, str) else str(serialized)
+
+
 def ranked_pull_direction_candidates(detailed: Any) -> list[dict[str, Any]]:
     """Ranked candidates in the shape the native evaluation layer reads."""
     ranking = detailed.pull_direction_ranking
@@ -190,8 +241,10 @@ def run_moldability_analysis(job_id: str, params: dict[str, Any]) -> dict[str, A
 
     emit({"type": "progress", "jobId": job_id, "stage": "analyzing", "fraction": 0.2})
     started = time.perf_counter()
-    detailed = DetailedMoldAnalysisService(pull_direction_evaluator=PullDirectionEvaluator()).analyze(
-        import_report, model)
+    # The report carries per-face evaluation COUNTS, never the evaluations (candidates x faces of them: millions for a smooth mesh),
+    # so the evaluator is told not to build them: same metrics and scores, far less time and memory.
+    detailed = DetailedMoldAnalysisService(
+        pull_direction_evaluator=PullDirectionEvaluator(retain_face_evaluations=False)).analyze(import_report, model)
     elapsed_ms = (time.perf_counter() - started) * 1000.0
     # Cavity analysis and generation readiness are cheap on top of the detailed stage (0.06 s against 2.7 s on a
     # 768-face box). A stage that raises must not hide the moldability result: it is recorded and reported.
@@ -214,7 +267,7 @@ def run_moldability_analysis(job_id: str, params: dict[str, Any]) -> dict[str, A
     emit({"type": "progress", "jobId": job_id, "stage": "serializing", "fraction": 0.9})
 
     omitted: dict[str, int] = {}
-    detailed_dict = compact_detailed_report(detailed.to_dict(), omitted)
+    detailed_dict = serialize_compact(detailed, omitted)
     ranked = ranked_pull_direction_candidates(detailed)
     selection = detailed.preliminary_pull_direction_selection
     selected = selection.selected_candidate if selection is not None else None
@@ -232,7 +285,7 @@ def run_moldability_analysis(job_id: str, params: dict[str, Any]) -> dict[str, A
         "detailedAnalysis": detailed_dict,
         # The readiness report is the Chapter 9 hand-off contract the native adapter reads (compact, no per-face data).
         "generationReadiness": readiness_report.to_dict() if readiness_report is not None else None,
-        "cavityAnalysis": compact_detailed_report(cavity_report.to_dict(), omitted) if cavity_report is not None else None,
+        "cavityAnalysis": serialize_compact(cavity_report, omitted) if cavity_report is not None else None,
         "stageErrors": stage_errors,
         "omitted": omitted,
     }
