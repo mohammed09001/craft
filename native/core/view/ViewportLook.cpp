@@ -18,11 +18,12 @@ ViewportLook referenceLook(bool dark) {
   look.edgeOpacity = 0.65;
   look.edgeAngleDegrees = 25.0;
 
-  // createEngineeringGrid.ts opacities. The colours are what the frames show (measured): the dark theme's lines are
-  // white at that opacity (the palette's rgba() strings are not understood by three.js, so its default white is used);
-  // the light theme's lines are the palette's greys.
-  look.gridMinor = {dark ? 0xbababau : 0x7d8994u, 0.32};
-  look.gridMajor = {dark ? 0xbababau : 0xb7c3cfu, 0.50};
+  // createEngineeringGrid.ts: opacities 0.32 and 0.50. The minor colour is the palette's "rgba(r g b / a)" string, which
+  // three.js cannot parse, so its default white is used in both themes; the major colour is the palette's parseable
+  // rgb(48, 57, 67) (dark) or rgb(183, 195, 207) (light). Checked against the real code by ruler-reference.json.
+  look.gridMinor = {0xffffffu, 0.32};
+  look.gridMajor = {dark ? 0x303943u : 0xb7c3cfu, 0.50};
+  look.rulerLabelRgb = dark ? 0xfbbf24u : 0x1d4ed8u;  // deriveRulerLabelColor
 
   // viewportLightingRig.ts, dark variant (the one the application shows in both themes, see above).
   look.key = {{90, -110, 150}, 0xffffff, 1.45};

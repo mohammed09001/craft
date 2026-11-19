@@ -69,7 +69,8 @@ class ViewportLookTest : public QObject {
     QCOMPARE(light.key.intensity, dark.key.intensity);
     QCOMPARE(light.ambientIntensity, dark.ambientIntensity);
     QVERIFY(light.backgroundRgb != dark.backgroundRgb);
-    QVERIFY(light.gridMinor.colorRgb != dark.gridMinor.colorRgb);
+    QCOMPARE(light.gridMinor.colorRgb, dark.gridMinor.colorRgb);        // white in both: three.js cannot parse the palette's rgba() string
+    QVERIFY(light.gridMajor.colorRgb != dark.gridMajor.colorRgb);       // the major grid takes the palette's rgb() colour
     // ... and the reference really does have different light-theme values, so this is a deliberate difference.
     const QJsonObject f = fixture();
     QVERIFY(f.value("lightingRig").toObject().value("light").toObject().value("key").toObject().value("intensity").toDouble() !=
@@ -101,6 +102,26 @@ class ViewportLookTest : public QObject {
     const QJsonObject edge = f.value("featureEdges").toObject().value("colorHex").toObject();
     QCOMPARE(static_cast<int>(look.edgeRgb), edge.value("color").toInt());
     QCOMPARE(look.edgeOpacity, edge.value("opacity").toDouble());
+  }
+
+  // The grid colours the reference really draws, from the real createEngineeringGrid with the palette strings the application
+  // passes (ruler-reference.json): the minor colour is white in both themes (three.js cannot parse "rgba(r g b / a)"), the
+  // major colour is the parseable rgb() of the palette.
+  void gridColoursAreWhatTheReferenceDrawsInBothThemes() {
+    QFile file(QStringLiteral(CRAFT_REFERENCE_FIXTURE_DIR "/ruler-reference.json"));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const QJsonObject grid = QJsonDocument::fromJson(file.readAll()).object().value("grid").toObject();
+    for (const bool dark : {true, false}) {
+      const QJsonObject reference = grid.value(dark ? "dark" : "light").toObject();
+      const ViewportLook look = referenceLook(dark);
+      QCOMPARE(static_cast<int>(look.gridMinor.colorRgb), reference.value("minorColorHex").toInt());
+      QCOMPARE(look.gridMinor.opacity, reference.value("minorOpacity").toDouble());
+      QCOMPARE(static_cast<int>(look.gridMajor.colorRgb), reference.value("majorColorHex").toInt());
+      QCOMPARE(look.gridMajor.opacity, reference.value("majorOpacity").toDouble());
+    }
+    // The ruler labels: yellow on the dark background, blue on the light one.
+    QCOMPARE(referenceLook(true).rulerLabelRgb, 0xfbbf24u);
+    QCOMPARE(referenceLook(false).rulerLabelRgb, 0x1d4ed8u);
   }
 
   void featureEdgesAppearAtTheReferencesAngles() {

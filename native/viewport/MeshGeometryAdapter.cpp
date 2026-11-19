@@ -192,6 +192,8 @@ LineBuffers buildSegmentBuffers(const QVector3D& from, const QVector3D& to) {
   return finishLines({from.x(), from.y(), from.z(), to.x(), to.y(), to.z()});
 }
 
+LineBuffers buildLineListBuffers(const std::vector<float>& xyz) { return finishLines(xyz); }
+
 LineBuffers buildSegmentListBuffers(const std::vector<std::array<QVector3D, 2>>& segments) {
   std::vector<float> values;
   values.reserve(segments.size() * 6);

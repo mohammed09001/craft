@@ -277,6 +277,36 @@ class Smoke : public QObject {
     QTimer::singleShot(30, this, *afterHover);
 #endif
   }
+  // The interaction hint badge through REAL input: shown once a model is loaded, hidden by the first press (or wheel) in the viewport.
+  void hintEventsSequence() {
+    whenViewportSettled([this] {
+#ifndef CRAFT_SMOKE_REAL_EVENTS
+      return fail(QStringLiteral("--hint-events needs a build with CRAFT_BUILD_TESTS"));
+#else
+      QWindowSystemInterface::setSynchronousWindowSystemEvents(true);
+      auto* hint = window_->findChild<QQuickItem*>(QStringLiteral("interactionHint"));
+      auto* viewport = window_->findChild<QQuickItem*>(QStringLiteral("viewport"));
+      if (!hint || !viewport) return fail(QStringLiteral("the hint badge or the viewport was not found"));
+      QTimer::singleShot(150, this, [=, this] {
+        if (!hint->isVisible()) return fail(QStringLiteral("the hint badge is not shown for a loaded model that nobody has touched"));
+        if (hint->opacity() != 1.0) return fail(QStringLiteral("the hint badge is transparent"));
+        const QPointF local(viewport->width() / 2, viewport->height() / 3);
+        const QPointF scene = viewport->mapToScene(local);
+        if (hintWheel_) {
+          QWindowSystemInterface::handleWheelEvent(window_, scene, window_->mapToGlobal(scene), QPoint(), QPoint(0, 120), Qt::NoModifier);
+        } else {
+          QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::NoButton, Qt::NoButton, QEvent::MouseMove);
+          QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonPress);
+          QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::NoButton, Qt::LeftButton, QEvent::MouseButtonRelease);
+        }
+        QTimer::singleShot(100, this, [=, this] {
+          if (hint->isVisible()) return fail(QStringLiteral("the hint badge stayed after the first %1").arg(hintWheel_ ? "wheel" : "press"));
+          renderNow();
+        });
+      });
+#endif
+    });
+  }
   // Undo/redo through REAL input: the toolbar buttons clicked with the mouse and Ctrl+Z / Ctrl+Y as key events.
   void undoEventsSequence() {
 #ifndef CRAFT_SMOKE_REAL_EVENTS
@@ -325,6 +355,7 @@ class Smoke : public QObject {
 #endif
   }
   void render() {
+    if (hintEvents_) return hintEventsSequence();
     if (undoEvents_) return undoEventsSequence();
     if (eraserEvents_) return eraserEventsSequence();
     if (spruePreview_ && sprueGizmoEvents_) return gizmoEventsSequence();
@@ -403,13 +434,14 @@ class Smoke : public QObject {
   void setSprueGizmo(bool value, bool events = false) { sprueGizmo_ = value; sprueGizmoEvents_ = events; }
   void setEraser(bool value, bool events = false) { eraser_ = value; eraserEvents_ = events; }
   void setUndoEvents(bool value) { undoEvents_ = value; }
+  void setHintEvents(bool value, bool wheel) { hintEvents_ = value; hintWheel_ = wheel; }
   void setScreenshot(const QString& path) { screenshot_ = path; }
 
  private:
   AppController& app_;
   QQuickWindow* window_;
   QString importPath_, summary_, screenshot_;
-  bool selectPart_ = false, spruePreview_ = false, spruePreviewInvalid_ = false, sprueGizmo_ = false, sprueGizmoEvents_ = false, eraser_ = false, eraserEvents_ = false, undoEvents_ = false;
+  bool selectPart_ = false, spruePreview_ = false, spruePreviewInvalid_ = false, sprueGizmo_ = false, sprueGizmoEvents_ = false, eraser_ = false, eraserEvents_ = false, undoEvents_ = false, hintEvents_ = false, hintWheel_ = false;
   bool mold_, analyse_, moldability_;
   bool imported_ = false, moldDone_ = false, analysisDone_ = false, reportsDone_ = false, done_ = false;
 };
@@ -446,6 +478,8 @@ int main(int argc, char* argv[]) {
   parser.addOption({"bench-hold-ms", "With --viewport-bench: stay alive this long after measuring.", "ms"});
   parser.addOption({"bench-no-vsync", "With --viewport-bench: present without waiting for the display refresh, to see the rendering cost."});
   parser.addOption({"bench-label", "With --viewport-bench: a label stored in the result.", "text"});
+  parser.addOption({"hint-events", "The interaction hint through a real mouse press (smoke test)."});
+  parser.addOption({"hint-wheel", "The interaction hint through a real wheel event (smoke test)."});
   parser.addOption({"undo-events", "Undo/redo through real input: the toolbar buttons and Ctrl+Z / Ctrl+Y (smoke test)."});
   parser.addOption({"eraser-events", "The Eraser through real mouse events: hover a plane, click empty space, click the plane (smoke test)."});
   parser.addOption({"sprue-gizmo-events", "With --sprue-preview: the same through real mouse events, plus a double click (smoke test)."});
@@ -500,6 +534,7 @@ int main(int argc, char* argv[]) {
     smoke->setSprueGizmo(parser.isSet("sprue-gizmo"), parser.isSet("sprue-gizmo-events"));
     smoke->setEraser(parser.isSet("eraser"), parser.isSet("eraser-events"));
     smoke->setUndoEvents(parser.isSet("undo-events"));
+    smoke->setHintEvents(parser.isSet("hint-events") || parser.isSet("hint-wheel"), parser.isSet("hint-wheel"));
     smoke->setScreenshot(parser.value("screenshot"));
     QTimer::singleShot(0, smoke.get(), [&smoke] { smoke->start(); });
   } else if (!parser.positionalArguments().isEmpty()) {

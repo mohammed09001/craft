@@ -63,6 +63,9 @@ LineBuffers buildGridBuffers(double size, double step, double skipStep = 0.0);
 /// A single segment (axes, measurement line).
 LineBuffers buildSegmentBuffers(const QVector3D& from, const QVector3D& to);
 
+/// Segments as consecutive xyz pairs (the ground-plane ruler's axes and ticks).
+LineBuffers buildLineListBuffers(const std::vector<float>& xyz);
+
 /// Many segments in one line list (the dashed selection box). Empty input gives an empty buffer.
 LineBuffers buildSegmentListBuffers(const std::vector<std::array<QVector3D, 2>>& segments);
 

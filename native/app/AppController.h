@@ -36,6 +36,7 @@
 #include "master/MasterMoldStore.h"
 #include "tooling/MasterToolingExport.h"
 #include "view/SelectionBox.h"
+#include "view/GroundPlaneRuler.h"
 #include "view/ViewportLook.h"
 #include "mold/SpruePreview.h"
 #include "Held.h"
@@ -138,9 +139,11 @@ class AppController : public QObject {
   Q_PROPERTY(craft::viewport::ViewportCamera* camera READ camera CONSTANT)
   Q_PROPERTY(QQuick3DGeometry* gridMinorGeometry READ gridMinorGeometry CONSTANT)
   Q_PROPERTY(QQuick3DGeometry* gridMajorGeometry READ gridMajorGeometry CONSTANT)
-  Q_PROPERTY(QQuick3DGeometry* axisXGeometry READ axisXGeometry CONSTANT)
-  Q_PROPERTY(QQuick3DGeometry* axisYGeometry READ axisYGeometry CONSTANT)
-  Q_PROPERTY(QQuick3DGeometry* axisZGeometry READ axisZGeometry CONSTANT)
+  /// The ground-plane ruler (the Axes option shows it): axes and ticks as lines, the labels as camera-facing quads.
+  Q_PROPERTY(QQuick3DGeometry* rulerAxesGeometry READ rulerAxesGeometry CONSTANT)
+  Q_PROPERTY(QQuick3DGeometry* rulerTicksGeometry READ rulerTicksGeometry CONSTANT)
+  Q_PROPERTY(QVariantList rulerLabels READ rulerLabels NOTIFY rulerChanged)
+  Q_PROPERTY(QVariantMap ruler READ rulerInfo NOTIFY rulerChanged)
   /// The part's selection box (dashed edges), the hovered box face and the faces selected for Cut by Face, as scene
   /// geometry in scene coordinates; selectionBox says which of them to show.
   Q_PROPERTY(QQuick3DGeometry* selectionBoxGeometry READ selectionBoxGeometry CONSTANT)
@@ -351,6 +354,7 @@ class AppController : public QObject {
   double moldOpacity() const { return moldOpacity_; }
   void setMoldOpacity(double value);
   QVariantMap gridInfo() const;
+  AdaptiveGridConfig gridConfig() const { return grid_; }
   Q_INVOKABLE void fitView();
   Q_INVOKABLE void resetView();
 
@@ -371,9 +375,10 @@ class AppController : public QObject {
   viewport::ViewportCamera* camera() { return &camera_; }
   QQuick3DGeometry* gridMinorGeometry() { return &gridMinor_; }
   QQuick3DGeometry* gridMajorGeometry() { return &gridMajor_; }
-  QQuick3DGeometry* axisXGeometry() { return &axisX_; }
-  QQuick3DGeometry* axisYGeometry() { return &axisY_; }
-  QQuick3DGeometry* axisZGeometry() { return &axisZ_; }
+  QQuick3DGeometry* rulerAxesGeometry() { return &rulerAxes_; }
+  QQuick3DGeometry* rulerTicksGeometry() { return &rulerTicks_; }
+  QVariantList rulerLabels() const { return rulerLabels_; }
+  QVariantMap rulerInfo() const;
   QQuick3DGeometry* selectionBoxGeometry() { return &selectionBoxLines_; }
   QQuick3DGeometry* hoverFaceGeometry() { return &hoverFaceQuad_; }
   QQuick3DGeometry* selectedFacesGeometry() { return &selectedFaceQuads_; }
@@ -409,6 +414,7 @@ class AppController : public QObject {
   void themeChanged();
   void viewOptionsChanged();
   void gridChanged();
+  void rulerChanged();
   void toolChanged();
   void selectionChanged();
   void selectionOverlayChanged();
@@ -457,6 +463,7 @@ class AppController : public QObject {
   void connectReports();
   void initProject();
   void refreshDirty();
+  void refreshRuler();
   void scheduleDirtyCheck();
   void refreshRecovery();
   void restoreProjectInputs(const project::Document& document);
@@ -505,7 +512,9 @@ class AppController : public QObject {
 
   SceneModel scene_;
   viewport::ViewportCamera camera_;
-  viewport::LineGeometry gridMinor_, gridMajor_, axisX_, axisY_, axisZ_, measureLine_;
+  viewport::LineGeometry gridMinor_, gridMajor_, measureLine_, rulerAxes_, rulerTicks_;
+  GroundPlaneRuler ruler_;
+  QVariantList rulerLabels_;
   viewport::LineGeometry selectionBoxLines_;
   viewport::MeshGeometry hoverFaceQuad_, selectedFaceQuads_;
   std::optional<SelectionBoxFace> hoverFace_;

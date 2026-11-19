@@ -37,6 +37,9 @@ class ViewportCamera : public QObject {
   qreal clipFar() const { return pose_.farPlane(); }
 
   const ViewPose& pose() const { return pose_; }
+  qreal viewportWidth() const { return width_; }
+  qreal viewportHeight() const { return height_; }
+  double aspectRatio() const { return aspect(); }
 
   /// Bounds the view commands frame; nullopt = empty scene (default pose).
   void setSceneBounds(const std::optional<Bounds3>& bounds);
@@ -58,6 +61,7 @@ class ViewportCamera : public QObject {
 
  signals:
   void poseChanged();
+  void viewportChanged();  // the viewport size (and with it the aspect ratio) changed
 
  private:
   double aspect() const;

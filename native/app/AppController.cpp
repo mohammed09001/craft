@@ -51,6 +51,9 @@ AppController::AppController(std::shared_ptr<IMeshGeometryEngine> engine,
       analysis_(analysisConfig),
       analysisConfig_(std::move(analysisConfig)) {
   camera_.setSceneBounds(std::nullopt);
+  // The ruler follows the camera and the viewport size (the label step is chosen from the on-screen scale).
+  connect(&camera_, &viewport::ViewportCamera::poseChanged, this, &AppController::refreshRuler);
+  connect(&camera_, &viewport::ViewportCamera::viewportChanged, this, &AppController::refreshRuler);
   rebuildGrid();
   applySceneColors();
   connectAnalysis();
@@ -714,6 +717,9 @@ QVariantMap AppController::viewLook() const {
           {"gridMinorOpacity", look.gridMinor.opacity},
           {"gridMajorColor", QColor::fromRgb(look.gridMajor.colorRgb)},
           {"gridMajorOpacity", look.gridMajor.opacity},
+          {"rulerLabelColor", QColor::fromRgb(look.rulerLabelRgb)},
+          {"rulerAxisOpacity", kRulerAxisOpacity},
+          {"rulerTickOpacity", kRulerTickOpacity},
           {"edgeColor", QColor::fromRgb(look.edgeRgb)},
           {"edgeOpacity", look.edgeOpacity},
           {"roughness", look.roughness},
@@ -723,7 +729,7 @@ QVariantMap AppController::viewLook() const {
 }
 
 void AppController::setShowGrid(bool v) { if (v != showGrid_) { showGrid_ = v; emit viewOptionsChanged(); } }
-void AppController::setShowAxes(bool v) { if (v != showAxes_) { showAxes_ = v; emit viewOptionsChanged(); } }
+void AppController::setShowAxes(bool v) { if (v != showAxes_) { showAxes_ = v; emit viewOptionsChanged(); emit rulerChanged(); } }
 void AppController::setShowEdges(bool v) { if (v != showEdges_) { showEdges_ = v; emit viewOptionsChanged(); } }
 void AppController::setMoldOpacity(double v) {
   v = std::clamp(v, 0.05, 1.0);
@@ -735,12 +741,14 @@ QVariantMap AppController::gridInfo() const {
 }
 
 void AppController::rebuildGrid() {
-  gridMinor_.setBuffers(viewport::buildGridBuffers(grid_.size, grid_.minorStep, grid_.majorStep));
+  // Both grids draw every line, as the reference does (a major line lies over a minor one).
+  gridMinor_.setBuffers(viewport::buildGridBuffers(grid_.size, grid_.minorStep));
   gridMajor_.setBuffers(viewport::buildGridBuffers(grid_.size, grid_.majorStep));
-  const float h = static_cast<float>(grid_.size / 2);
-  axisX_.setBuffers(viewport::buildSegmentBuffers({0, 0, 0}, {h, 0, 0}));
-  axisY_.setBuffers(viewport::buildSegmentBuffers({0, 0, 0}, {0, h, 0}));
-  axisZ_.setBuffers(viewport::buildSegmentBuffers({0, 0, 0}, {0, 0, h}));
+  // The ruler is marked dirty by every grid, as the reference's setGridConfig does, and rebuilt on the next turn of the event loop
+  // (the reference: on the next frame), after whatever else the change brings has been applied: a model import fits the camera
+  // right after the grid is built, and the labels' size depends on the zoom they are built at.
+  ruler_.setGrid(grid_.size, grid_.minorStep);
+  QMetaObject::invokeMethod(this, &AppController::refreshRuler, Qt::QueuedConnection);
   emit gridChanged();
 }
 

@@ -85,6 +85,9 @@ endif()
 
 if(CRAFT_BUILD_APP)
   craft_add_test(tst_viewport SOURCES tst_viewport.cpp LIBS craft_viewport craft_io)
+  craft_add_test(tst_ground_ruler SOURCES tst_ground_ruler.cpp LIBS craft_core Qt6::Core)
+  target_compile_definitions(tst_ground_ruler PRIVATE
+    CRAFT_REFERENCE_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/reference")
   craft_add_test(tst_viewport_look SOURCES tst_viewport_look.cpp LIBS craft_viewport Qt6::Core)
   target_compile_definitions(tst_viewport_look PRIVATE
     CRAFT_REFERENCE_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/reference")
@@ -115,6 +118,19 @@ if(CRAFT_BUILD_APP)
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${CRAFT_QT_BIN_DIR}"
     TIMEOUT 180
     PASS_REGULAR_EXPRESSION "CRAFT_SMOKE_OK")
+  # The interaction hint badge through REAL input: a mouse press, and a wheel event, each hide it.
+  foreach(_mode hint-events hint-wheel)
+    string(REPLACE "-" "_" _name "app_smoke_${_mode}")
+    add_test(NAME ${_name}
+      COMMAND craft --smoke-test
+              --import "${CRAFT_REPO_ROOT}/native/tests/fixtures/models/bracket.stl"
+              --${_mode}
+              --summary "${CMAKE_CURRENT_BINARY_DIR}/${_name}_summary.json")
+    set_tests_properties(${_name} PROPERTIES
+      ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${CRAFT_QT_BIN_DIR}"
+      TIMEOUT 120
+      PASS_REGULAR_EXPRESSION "CRAFT_SMOKE_OK")
+  endforeach()
   # Undo/redo through REAL input: the toolbar buttons and the standard keys.
   add_test(NAME app_smoke_undo
     COMMAND craft --smoke-test

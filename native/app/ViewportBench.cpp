@@ -253,6 +253,9 @@ struct ViewportBench::Impl {
     describeRenderer();
     // The empty frame: the same viewport with nothing loaded, its "Open an STL" hint hidden so only the scene remains.
     if (QQuickItem* hint = window->findChild<QQuickItem*>(QStringLiteral("emptyHint"))) hint->setVisible(false);
+    // The reference's hint badge is hidden in its frames too (it is page text, not scene). Opacity, not visibility: the
+    // visibility is bound to the model and would come back when the part loads.
+    if (QQuickItem* hint = window->findChild<QQuickItem*>(QStringLiteral("interactionHint"))) hint->setOpacity(0);
     const QImage empty = grabViewport();
     if (!options.frameDirectory.isEmpty()) {
       QDir().mkpath(options.frameDirectory);

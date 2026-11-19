@@ -3,6 +3,9 @@
 #include <QtTest/QtTest>
 
 #include <QCryptographicHash>
+#include <QFileInfo>
+#include <QImage>
+#include <QUrl>
 #include <QDir>
 #include <QFile>
 #include <QJsonArray>
@@ -18,6 +21,7 @@
 #include "AppPaths.h"
 #include "ManifoldMeshEngine.h"
 #include "geometry/MeshAnalysis.h"
+#include "view/GroundPlaneRuler.h"
 #include "project/ProjectFile.h"
 
 using namespace craft;
@@ -1645,6 +1649,101 @@ class WorkflowTest : public QObject {
     app->resetView();
     const QVector3D reset = QVector3D(1, -1, 0.78).normalized();
     QVERIFY2((direction(*app) - reset).length() < 1e-4, "Reset View uses the fixed direction");
+  }
+
+  // --- the ground-plane ruler in the controller ---------------------------------------------------------------------------------
+
+  void theRulerFollowsTheCameraLikeTheReferenceAndRebuildsOnlyWhenTheStepChanges() {
+    auto app = makeApp();
+    app->camera()->setViewportSize(960, 640);
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    QTest::qWait(100);  // the ruler is rebuilt on the next turn of the event loop after the grid and the fitted camera
+    QSignalSpy rebuilt(app.get(), &AppController::rulerChanged);
+
+    // An independent ruler fed the same poses must make the same choices, including the moments it rebuilds.
+    GroundPlaneRuler expected;
+    const AdaptiveGridConfig grid = app->gridConfig();
+    expected.setGrid(grid.size, grid.minorStep);
+    QVERIFY(expected.update(app->camera()->pose(), app->camera()->aspectRatio(), app->camera()->viewportHeight()));
+    QCOMPARE(app->rulerInfo().value("step").toDouble(), expected.geometry().step);
+    QCOMPARE(app->rulerLabels().size(), static_cast<qsizetype>(expected.geometry().labels.size()));
+
+    int rebuilds = 0, kept = 0;
+    for (int notch = 0; notch < 60; ++notch) {
+      const int before = static_cast<int>(rebuilt.count());
+      app->camera()->zoomByWheel(notch < 30 ? 120 : -120);  // in, then out; the controller reacts to the pose change at once
+      const bool expectedRebuild = expected.update(app->camera()->pose(), app->camera()->aspectRatio(), app->camera()->viewportHeight());
+      QCOMPARE(static_cast<int>(rebuilt.count()) - before, expectedRebuild ? 1 : 0);
+      QCOMPARE(app->rulerInfo().value("step").toDouble(), expected.geometry().step);
+      QCOMPARE(app->rulerInfo().value("pixelsPerWorldUnit").toDouble(), expected.geometry().pixelsPerWorldUnit);
+      expectedRebuild ? ++rebuilds : ++kept;
+    }
+    QVERIFY2(rebuilds >= 2, "zooming across the whole range must change the label step");
+    QVERIFY2(kept >= 20, "most wheel notches keep the step (the hysteresis), so the ruler is not rebuilt");
+  }
+
+  void theRulerIsBuiltAtTheZoomOfTheFittedModelNotTheOneBeforeIt() {
+    auto app = makeApp();
+    app->camera()->setViewportSize(960, 640);
+    QTest::qWait(50);
+    // The 30 mm box keeps the same label step before and after the fit (the bracket happens to change it), which is the case
+    // where building the ruler too early leaves oversized labels.
+    app->importStlFile(QStringLiteral(CRAFT_REPO_ROOT "/mold/frontend/e2e/fixtures/box_30mm_ascii.stl"));
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    QTest::qWait(100);
+    // The grid changes and the camera is fitted in the same step; the reference rebuilds the ruler on the next frame, so its
+    // label sizes belong to the fitted camera. (Rebuilding at once used the pose before the fit: labels twice too large.)
+    const auto ppu = projectWorldLengthToPixels(app->camera()->pose(), app->camera()->aspectRatio(), {0, 0, 0}, {1, 0, 0}, 1,
+                                                app->camera()->viewportHeight());
+    QVERIFY(ppu);
+    const double built = app->rulerInfo().value("pixelsPerWorldUnit").toDouble();
+    QVERIFY2(std::fabs(built - *ppu) <= 1e-9 * *ppu, qPrintable(QStringLiteral("built at %1 px/unit, the camera is at %2").arg(built).arg(*ppu)));
+  }
+
+  void theRulerLabelsAreCameraFacingQuadsWithTextImagesAndTheAxesOptionHidesThem() {
+    auto app = makeApp();
+    app->camera()->setViewportSize(960, 640);
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    QTest::qWait(100);
+    const QVariantList labels = app->rulerLabels();
+    QVERIFY(labels.size() >= 5);
+    bool zero = false;
+    for (const QVariant& value : labels) {
+      const QVariantMap label = value.toMap();
+      const QString source = label.value("source").toString();
+      QVERIFY2(source.startsWith(QStringLiteral("file:")), qPrintable(source));
+      QVERIFY2(QFileInfo::exists(QUrl(source).toLocalFile()), qPrintable(source));
+      const QImage image(QUrl(source).toLocalFile());
+      QVERIFY(!image.isNull());
+      QVERIFY(image.hasAlphaChannel());
+      QCOMPARE(image.height(), 40);                      // 32 px of text and 4 px of padding on each side
+      QCOMPARE(label.value("position").value<QVector3D>().z(), 0.5f);
+      const QVector3D scale = label.value("scale").value<QVector3D>();
+      QVERIFY(scale.x() > 0 && scale.y() > 0);
+      QVERIFY(std::fabs(scale.x() / scale.y() - static_cast<double>(image.width()) / image.height()) < 1e-3);   // the quad has the image's aspect
+      if (label.value("text").toString() == QLatin1String("0")) zero = true;
+    }
+    QVERIFY2(zero, "the origin is labelled once");
+    QVERIFY(app->rulerInfo().value("visible").toBool());
+    app->setShowAxes(false);
+    QVERIFY(!app->rulerInfo().value("visible").toBool());
+    QVERIFY(app->rulerLabels().size() == labels.size());  // hidden, not discarded
+  }
+
+  void theLookCarriesTheRulersColours() {
+    auto app = makeApp();
+    const QVariantMap dark = app->viewLook();
+    QCOMPARE(dark.value("rulerLabelColor").value<QColor>(), QColor::fromRgb(0xfbbf24));
+    QCOMPARE(dark.value("gridMajorColor").value<QColor>(), QColor::fromRgb(0x303943));
+    QCOMPARE(dark.value("gridMinorColor").value<QColor>(), QColor::fromRgb(0xffffff));
+    app->setTheme("light");
+    const QVariantMap light = app->viewLook();
+    QCOMPARE(light.value("rulerLabelColor").value<QColor>(), QColor::fromRgb(0x1d4ed8));
+    QCOMPARE(light.value("gridMajorColor").value<QColor>(), QColor::fromRgb(0xb7c3cf));
+    QCOMPARE(light.value("rulerAxisOpacity").toDouble(), 0.66);
+    QCOMPARE(light.value("rulerTickOpacity").toDouble(), 0.52);
   }
 
   void dirtyTrackingFollowsInputsNotThePose() {

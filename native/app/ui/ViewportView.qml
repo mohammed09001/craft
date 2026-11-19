@@ -12,6 +12,7 @@ Item {
     property var style: app.selectionStyle      // highlight, selection box and overlay colours (one source: C++)
     property var look: app.viewLook             // background, grid, edge style and lighting rig of the reference (one source: C++)
     property var sprue: app.sprueStyle          // Sprue preview colours and the mold glass look (one source: C++)
+    property bool interacted: false             // the first press or wheel in the viewport hides the hint badge, once per session
     property bool overPart: false               // the pointer is over the part or its selection box (pointer cursor)
     property bool gizmoPress: false             // a press that landed on a sprue ring: this gesture belongs to the gizmo
     property bool swallowRelease: false         // the release that ends a double click the gizmo handled is not a click
@@ -75,13 +76,53 @@ Item {
                 opacity: root.look.gridMajorOpacity
             }
         }
-        // Axes: X red, Y green, Z blue.
-        Model { visible: app.showAxes; geometry: app.axisXGeometry
-            materials: DefaultMaterial { lighting: DefaultMaterial.NoLighting; diffuseColor: "#e5484d" } }
-        Model { visible: app.showAxes; geometry: app.axisYGeometry
-            materials: DefaultMaterial { lighting: DefaultMaterial.NoLighting; diffuseColor: "#46a758" } }
-        Model { visible: app.showAxes; geometry: app.axisZGeometry
-            materials: DefaultMaterial { lighting: DefaultMaterial.NoLighting; diffuseColor: "#3e63dd" } }
+        // The ground-plane ruler (the Axes option): the two axes and a tick across them at every minor step, the axes in the
+        // major grid colour and the ticks in the minor one, and numbered labels that always face the camera. Like the reference
+        // the labels are depth tested against the part (a part in front of a label hides it).
+        Model {
+            visible: app.showAxes
+            geometry: app.rulerAxesGeometry
+            materials: DefaultMaterial {
+                lighting: DefaultMaterial.NoLighting
+                diffuseColor: root.look.gridMajorColor
+                opacity: root.look.rulerAxisOpacity
+            }
+        }
+        Model {
+            visible: app.showAxes
+            geometry: app.rulerTicksGeometry
+            materials: DefaultMaterial {
+                lighting: DefaultMaterial.NoLighting
+                diffuseColor: root.look.gridMinorColor
+                opacity: root.look.rulerTickOpacity
+            }
+        }
+        Repeater3D {
+            model: app.showAxes ? app.rulerLabels : []
+            delegate: Model {
+                required property var modelData
+                source: "#Rectangle"
+                pickable: false
+                position: modelData.position
+                scale: modelData.scale
+                rotation: app.camera.rotation      // the label faces the camera
+                materials: PrincipledMaterial {
+                    lighting: PrincipledMaterial.NoLighting
+                    baseColor: root.look.rulerLabelColor
+                    // The texture is white text on transparent: its alpha channel is the glyph coverage.
+                    opacityMap: Texture {
+                        source: modelData.source
+                        generateMipmaps: true
+                        mipFilter: Texture.Linear
+                        minFilter: Texture.Linear
+                        magFilter: Texture.Linear
+                    }
+                    opacityChannel: Material.A
+                    alphaMode: PrincipledMaterial.Blend
+                    cullMode: Material.NoCulling
+                }
+            }
+        }
 
         Model {
             geometry: app.measureLineGeometry
@@ -288,6 +329,7 @@ Item {
         property real pressY: 0
         property bool moved: false
         onPressed: (e) => {
+            root.interacted = true
             lastX = pressX = e.x; lastY = pressY = e.y; moved = false
             // A press on a sprue ring starts resizing it instead of orbiting (and is never a click that places a sprue).
             root.gizmoPress = e.button === Qt.LeftButton && app.tool === "sprue" && app.sprueGizmoPressAt(e.x, e.y, width, height)
@@ -364,7 +406,7 @@ Item {
             if (swallow) return
             if (!moved && e.button === Qt.LeftButton) app.pickAt(e.x, e.y, width, height)
         }
-        onWheel: (w) => app.camera.zoomByWheel(w.angleDelta.y)
+        onWheel: (w) => { root.interacted = true; app.camera.zoomByWheel(w.angleDelta.y) }
     }
 
     // The diameter label (7.00 mm with the diameter sign) next to the pointer while a ring is dragged; it takes the
@@ -430,6 +472,27 @@ Item {
     onWidthChanged: app.camera.setViewportSize(width, height)
     onHeightChanged: app.camera.setViewportSize(width, height)
 
+    // The interaction hint of the reference (Viewport.tsx showHint, .hint): bottom right, until the first press or wheel in the
+    // viewport, while a model is loaded and nothing is busy. Colours are the reference's theme tokens (panel at 84 %, subtle
+    // border, muted text).
+    Rectangle {
+        objectName: "interactionHint"
+        visible: app.modelPhase === "ready" && !root.interacted && !app.busy
+        anchors { right: parent.right; bottom: parent.bottom; margins: 16 }
+        width: hintText.implicitWidth + 24
+        height: hintText.implicitHeight + 16
+        radius: 6
+        border.width: 1
+        border.color: root.dark ? "#202832" : "#d8e0e8"
+        color: root.dark ? Qt.rgba(0x11 / 255, 0x18 / 255, 0x21 / 255, 0.84) : Qt.rgba(1, 1, 1, 0.84)
+        Label {
+            id: hintText
+            anchors.centerIn: parent
+            text: qsTr("Left drag Rotate Â· Right drag Pan Â· Wheel Zoom")
+            font.pixelSize: 13
+            color: root.dark ? "#8795a3" : "#647281"
+        }
+    }
     Label {
         objectName: "emptyHint"
         anchors.centerIn: parent

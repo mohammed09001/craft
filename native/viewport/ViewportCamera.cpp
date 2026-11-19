@@ -28,8 +28,11 @@ double ViewportCamera::aspect() const { return height_ > 0 ? width_ / height_ : 
 void ViewportCamera::setSceneBounds(const std::optional<Bounds3>& bounds) { sceneBounds_ = bounds; }
 
 void ViewportCamera::setViewportSize(qreal width, qreal height) {
-  width_ = width > 0 ? width : 1;
-  height_ = height > 0 ? height : 1;
+  const qreal w = width > 0 ? width : 1, h = height > 0 ? height : 1;
+  if (w == width_ && h == height_) return;
+  width_ = w;
+  height_ = h;
+  emit viewportChanged();
 }
 
 void ViewportCamera::orbitByPixels(qreal dx, qreal dy, qreal viewportHeight) {

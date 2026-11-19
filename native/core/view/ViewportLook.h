@@ -50,6 +50,10 @@ struct ViewportLook {
   LookGridLine gridMinor;
   LookGridLine gridMajor;
 
+  // The ground-plane ruler: its axes take the major grid colour and its ticks the minor one (createGroundPlaneRulerRuntime.ts);
+  // the labels are yellow on a dark background and blue on a light one.
+  std::uint32_t rulerLabelRgb;
+
   // Lighting.
   LookLight key, fill, rim;
   double ambientIntensity;
