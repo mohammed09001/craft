@@ -32,6 +32,7 @@
 #ifdef CRAFT_SMOKE_REAL_EVENTS
 #include "ViewportBench.h"
 #include "UiTour.h"
+#include "CrashDrill.h"
 #endif
 
 using namespace craft::app;
@@ -828,6 +829,8 @@ int main(int argc, char* argv[]) {
   parser.addOption({"bench-hold-ms", "With --viewport-bench: stay alive this long after measuring.", "ms"});
   parser.addOption({"bench-no-vsync", "With --viewport-bench: present without waiting for the display refresh, to see the rendering cost."});
   parser.addOption({"bench-label", "With --viewport-bench: a label stored in the result.", "text"});
+  parser.addOption({"crash-victim", "Crash drill, the part to be killed: edit with a very short autosave interval and write this ready file (development builds; with --import).", "path"});
+  parser.addOption({"recover-probe", "Crash drill, the part after the kill: open the first recovery offer and write what was found here (development builds).", "path"});
   parser.addOption({"ui-tour", "Walk through the UI states and write screenshots, inspector captures and a layout lint here (development builds).", "dir"});
   parser.addOption({"tour-bad-stl", "With --ui-tour: a file the importer rejects, for the error state.", "path"});
   parser.addOption({"hint-events", "The interaction hint through a real mouse press (smoke test)."});
@@ -864,6 +867,7 @@ int main(int argc, char* argv[]) {
 #ifdef CRAFT_SMOKE_REAL_EVENTS
   std::unique_ptr<craft::app::ViewportBench> bench;
   std::unique_ptr<craft::app::UiTour> tour;
+  std::unique_ptr<craft::app::CrashDrill> drill;
   if (parser.isSet("viewport-bench")) {
     craft::app::ViewportBenchOptions options;
     options.importPath = parser.value("import");
@@ -881,6 +885,13 @@ int main(int argc, char* argv[]) {
     if (parser.isSet("bench-hold-ms")) options.holdMilliseconds = parser.value("bench-hold-ms").toInt();
     bench = std::make_unique<craft::app::ViewportBench>(controller, window, options);
     QTimer::singleShot(0, bench.get(), [&bench] { bench->start(); });
+  } else if (parser.isSet("crash-victim") || parser.isSet("recover-probe")) {
+    craft::app::CrashDrillOptions options;
+    options.role = parser.isSet("crash-victim") ? craft::app::DrillRole::Victim : craft::app::DrillRole::Probe;
+    options.importPath = parser.value("import");
+    options.file = parser.isSet("crash-victim") ? parser.value("crash-victim") : parser.value("recover-probe");
+    drill = std::make_unique<craft::app::CrashDrill>(controller, options);
+    QTimer::singleShot(300, drill.get(), [&drill] { drill->start(); });
   } else if (parser.isSet("ui-tour")) {
     craft::app::UiTourOptions options;
     options.importPath = parser.value("import");

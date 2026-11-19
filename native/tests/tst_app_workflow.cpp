@@ -2404,6 +2404,33 @@ class WorkflowTest : public QObject {
     QFile::remove(junk.fileName());
   }
 
+  // A process killed in the middle of an autosave leaves QSaveFile's temporary file ("<id>.craft.<6 characters>") behind (found by crash-drill.ps1 with a real
+  // kill: up to the size of the project). One that has not been written to for two minutes belongs to a writer that is gone and is removed; a recent one may be
+  // being written right now by another running instance and stays, and so does everything that is not exactly that name.
+  void theLeftoverOfAnInterruptedAutosaveIsRemovedOnceItIsStale() {
+    const QDir dir(qEnvironmentVariable("CRAFT_AUTOSAVE_DIR"));
+    QDir().mkpath(dir.path());
+    const auto make = [&](const QString& name, int ageSeconds) {
+      QFile file(dir.filePath(name));
+      QVERIFY(file.open(QIODevice::WriteOnly));
+      file.write("leftover");
+      QVERIFY(file.setFileTime(QDateTime::currentDateTime().addSecs(-ageSeconds), QFileDevice::FileModificationTime));
+      file.close();
+    };
+    make("aaa.craft.AbC123", 600);    // a dead writer's temporary file
+    make("bbb.craft.XyZ789", 5);      // written to a moment ago: possibly live
+    make("ccc.craft.bak", 600);       // not the temporary-file name (a backup)
+    make("ddd.craft.AbC12", 600);     // one character short
+    make("eee.craft.AbC1234", 600);   // one character too many
+    make("notes.txt", 600);
+    auto app = makeApp();
+    app->discardRecovery();           // any refresh of the recovery list looks at the folder
+    QVERIFY2(!QFileInfo::exists(dir.filePath("aaa.craft.AbC123")), "a stale temporary file must be removed");
+    for (const QString& kept : {"bbb.craft.XyZ789", "ccc.craft.bak", "ddd.craft.AbC12", "eee.craft.AbC1234", "notes.txt"})
+      QVERIFY2(QFileInfo::exists(dir.filePath(kept)), qPrintable(kept + " must be left alone"));
+    for (const QString& name : {"bbb.craft.XyZ789", "ccc.craft.bak", "ddd.craft.AbC12", "eee.craft.AbC1234", "notes.txt"}) QFile::remove(dir.filePath(name));
+  }
+
   void aDamagedProjectIsRefusedAndTheCurrentDocumentSurvives() {
     QTemporaryDir dir;
     auto app = makeApp();

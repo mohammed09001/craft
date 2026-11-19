@@ -495,6 +495,7 @@ class AppController : public QObject {
   void refreshRuler();
   void scheduleDirtyCheck();
   void refreshRecovery();
+  void removeStaleAutosaveTemps();
   void restoreProjectInputs(const project::Document& document);
   void adoptProjectIdentity(const QString& path, const project::Document& document, const QString& recoveredFrom);
   void startNewProject();

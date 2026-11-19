@@ -9,6 +9,7 @@
 // rebuilt automatically (they are expensive and on demand).
 
 #include <QDateTime>
+#include <QRegularExpression>
 #include <QDir>
 #include <QDirIterator>
 #include <QFileInfo>
@@ -345,7 +346,22 @@ void AppController::autosaveNow() {
       });
 }
 
+// A process killed in the middle of an autosave leaves QSaveFile's temporary file ("<id>.craft.<6 characters>") behind, as large as the project
+// (a real kill during a 62.5 MiB write left up to 62.5 MiB). Every later write uses a new name, so nothing would ever remove it. A file with exactly
+// that name that has not been written to for two minutes belongs to a writer that is gone; a younger one may be this or another running instance
+// writing right now and is left alone.
+void AppController::removeStaleAutosaveTemps() {
+  static const QRegularExpression pattern(QStringLiteral("^.+\\.craft\\.[A-Za-z0-9]{6}$"));
+  const QDateTime cutoff = QDateTime::currentDateTime().addSecs(-120);
+  const QDir dir(AppPaths::autosaveDirectory());
+  for (const QFileInfo& info : dir.entryInfoList(QDir::Files)) {
+    if (!pattern.match(info.fileName()).hasMatch() || info.lastModified() > cutoff) continue;
+    if (QFile::remove(info.absoluteFilePath())) qCInfo(lcApp) << "Removed the leftover of an interrupted autosave:" << info.fileName() << info.size() << "bytes";
+  }
+}
+
 void AppController::refreshRecovery() {
+  removeStaleAutosaveTemps();
   struct Item {
     QVariantMap map;
     std::string modifiedAt;

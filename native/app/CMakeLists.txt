@@ -44,7 +44,7 @@ if(CRAFT_BUILD_TESTS)
   # platform event interface, so packaged (tests-off) builds neither link it nor contain the code.
   target_link_libraries(craft PRIVATE Qt6::GuiPrivate)
   target_compile_definitions(craft PRIVATE CRAFT_SMOKE_REAL_EVENTS=1)
-  target_sources(craft PRIVATE ViewportBench.cpp ViewportBench.h UiTour.cpp UiTour.h)
+  target_sources(craft PRIVATE ViewportBench.cpp ViewportBench.h UiTour.cpp UiTour.h CrashDrill.cpp CrashDrill.h)
 endif()
 craft_target_defaults(craft)
 
