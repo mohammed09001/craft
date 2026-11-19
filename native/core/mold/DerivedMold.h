@@ -30,6 +30,6 @@ struct DerivedMoldEvaluation {
 /// Stages report as "sprues" and "registration" with a 0..1 fraction.
 DerivedMoldEvaluation evaluateDerivedMold(IMeshGeometryEngine& engine, const MoldGenerationResult& mold,
                                           std::vector<SprueOperationDefinition> sprueDefinitions,
-                                          const ProgressCallback& progress = {});
+                                          const ProgressCallback& progress = {}, SprueResultCache* sprueCache = nullptr);
 
 }  // namespace craft

@@ -190,6 +190,7 @@ bool AppController::acceptDroppedStl(const QList<QUrl>& urls) {
 }
 
 void AppController::importStlFile(const QString& path) {
+  sprueCache_->clear();
   const quint64 generation = ++importGeneration_;
   const quint64 requestId = ++nextImportRequestId_;
   modelPhase_ = QStringLiteral("loading");
@@ -447,10 +448,10 @@ void AppController::generateMold() {
   };
   runJob<MoldJobResult>(
       this, cancel,
-      [engine, request, intents = sprueIntents_](const CancellationToken& token, const ProgressCallback& progress) {
+      [engine, request, intents = sprueIntents_, cache = sprueCache_](const CancellationToken& token, const ProgressCallback& progress) {
         MoldJobResult job;
         job.mold = craft::generateMold(*engine, request, token, progress);
-        job.derived = evaluateDerivedMold(*engine, job.mold, intents, progress);
+        job.derived = evaluateDerivedMold(*engine, job.mold, intents, progress, cache.get());
         return job;
       },
       [this, generation, inputs, recordHistory, before = captureHistory()](JobOutcome<MoldJobResult> outcome) {
@@ -570,6 +571,8 @@ QVariantMap AppController::moldSummary() const {
   }
   return {{"registration", registration},
           {"sprueCount", static_cast<qulonglong>(sprueEvaluation_ ? sprueEvaluation_->resolvedSprues.size() : 0)},
+          {"sprueCacheHits", static_cast<qulonglong>(sprueEvaluation_ ? sprueEvaluation_->cacheHits : 0)},
+          {"sprueCacheMisses", static_cast<qulonglong>(sprueEvaluation_ ? sprueEvaluation_->cacheMisses : 0)},
           {"implementation", QString::fromStdString(r.cavity.implementation)},
           {"offsetEngine", QString::fromStdString(r.cavity.selectedEngine)},
           {"offsetMethod", QString::fromStdString(r.cavity.cavityTool.implementationMethod)},
@@ -1047,8 +1050,8 @@ void AppController::startSprueEvaluation() {
   activeCancel_ = cancel;
   runJob<DerivedMoldEvaluation>(
       this, cancel,
-      [engine, moldCopy, intents = sprueIntents_](const CancellationToken&, const ProgressCallback& progress) {
-        return evaluateDerivedMold(*engine, moldCopy, intents, progress);
+      [engine, moldCopy, intents = sprueIntents_, cache = sprueCache_](const CancellationToken&, const ProgressCallback& progress) {
+        return evaluateDerivedMold(*engine, moldCopy, intents, progress, cache.get());
       },
       [this, generation, moldGeneration](JobOutcome<DerivedMoldEvaluation> outcome) {
         activeCancel_.reset();

@@ -44,6 +44,42 @@ SprueOperationDefinition intent(double x, double y, double z, const SprueProfile
   d.profileDesign = design;
   return d;
 }
+
+// Three sprues side by side on the cavity roof, in creation order 0, 1, 2.
+std::vector<SprueOperationDefinition> threeSprues(const SprueProfileDesignResult& design) {
+  std::vector<SprueOperationDefinition> list;
+  const double xs[] = {-6, 0, 6};
+  for (int i = 0; i < 3; ++i) {
+    SprueOperationDefinition d = intent(xs[i], 0, 40, design);
+    d.operationId = "sprue:" + std::to_string(i);
+    d.creationOrder = i;
+    list.push_back(d);
+  }
+  return list;
+}
+
+// Everything a caller can observe of an evaluation, so "the same result" means all of it.
+bool sameEvaluation(const SprueEvaluation& a, const SprueEvaluation& b) {
+  if (a.bodies.size() != b.bodies.size() || a.resolvedSprues.size() != b.resolvedSprues.size() || a.definitions.size() != b.definitions.size() ||
+      a.warnings != b.warnings)
+    return false;
+  for (std::size_t i = 0; i < a.bodies.size(); ++i) {
+    const MoldBody &x = a.bodies[i], &y = b.bodies[i];
+    if (x.id != y.id || x.geometryVersion != y.geometryVersion || x.volumeMm3 != y.volumeMm3 || x.triangleCount != y.triangleCount ||
+        x.sprueOperationId != y.sprueOperationId || x.mesh.positions != y.mesh.positions || x.mesh.indices != y.mesh.indices)
+      return false;
+  }
+  for (std::size_t i = 0; i < a.resolvedSprues.size(); ++i) {
+    const SprueDefinition &x = a.resolvedSprues[i], &y = b.resolvedSprues[i];
+    if (x.operationId != y.operationId || x.targetBodyIds != y.targetBodyIds || x.depthMm != y.depthMm || x.moldFrameId != y.moldFrameId) return false;
+  }
+  for (std::size_t i = 0; i < a.definitions.size(); ++i) {
+    if (a.definitions[i].operationId != b.definitions[i].operationId || a.definitions[i].validation.status != b.definitions[i].validation.status ||
+        a.definitions[i].validation.reasonCode != b.definitions[i].validation.reasonCode)
+      return false;
+  }
+  return true;
+}
 }  // namespace
 
 class SprueTest : public QObject {
@@ -181,6 +217,109 @@ class SprueTest : public QObject {
     const auto a = evaluateSprues(*engine_, bodiesOf(mold), mold.cavity.cavityTool.solid.mesh, "sig-a", "f", {intent(0, 0, 40, design)});
     const auto b = evaluateSprues(*engine_, bodiesOf(mold), mold.cavity.cavityTool.solid.mesh, "sig-b", "f", {intent(0, 0, 40, design)});
     QVERIFY(a.bodies.front().geometryVersion != b.bodies.front().geometryVersion);
+  }
+
+  // --- the per-sprue result cache (evaluateDerivedMold.ts `sprueResultCache`) -----------------------------------------------------------
+  // A sprue's result depends only on its own definition and the revision of the bodies it sees, so after the first evaluation the same intents
+  // cost no Boolean pass, and editing sprue k leaves sprues 0..k-1 cached. The result must be exactly the uncached one.
+  void aCacheServesAnUnchangedEvaluationWithoutRunningAnyBoolean() {
+    const MoldGenerationResult mold = cubeMold(*engine_);
+    const auto design = resolveSprueIntegration({mold.cavity.cavityTool.solid.volumeMm3, {20, 20, 20}, 10}).design;
+    const auto bodies = bodiesOf(mold);
+    const auto run = [&](std::vector<SprueOperationDefinition> list, SprueResultCache* cache, const std::string& signature = "") {
+      return evaluateSprues(*engine_, bodies, mold.cavity.cavityTool.solid.mesh, signature.empty() ? mold.cavity.sourceSignature : signature, "frame",
+                            std::move(list), cache);
+    };
+    const auto uncached = run(threeSprues(design), nullptr);
+    QCOMPARE(uncached.resolvedSprues.size(), std::size_t{3});
+    QCOMPARE(uncached.cacheHits, std::size_t{0});
+    QCOMPARE(uncached.cacheMisses, std::size_t{3});
+
+    SprueResultCache cache;
+    const auto first = run(threeSprues(design), &cache);
+    QCOMPARE(first.cacheHits, std::size_t{0});
+    QCOMPARE(first.cacheMisses, std::size_t{3});
+    QCOMPARE(cache.size(), std::size_t{3});
+    QVERIFY(sameEvaluation(first, uncached));
+
+    QElapsedTimer timer;
+    timer.start();
+    const auto second = run(threeSprues(design), &cache);
+    const qint64 cachedNs = timer.nsecsElapsed();
+    timer.restart();
+    run(threeSprues(design), nullptr);
+    qInfo().noquote() << "three sprues on a 20 mm cube cavity: computed" << timer.nsecsElapsed() / 1000000.0 << "ms, from the cache" << cachedNs / 1000000.0 << "ms";
+    QCOMPARE(second.cacheHits, std::size_t{3});
+    QCOMPARE(second.cacheMisses, std::size_t{0});
+    QVERIFY2(sameEvaluation(second, uncached), "a cached evaluation must equal the computed one exactly");
+
+    // A different cavity signature is a different mold revision: nothing may be reused.
+    const auto otherMold = run(threeSprues(design), &cache, "another-signature");
+    QCOMPARE(otherMold.cacheHits, std::size_t{0});
+    QCOMPARE(otherMold.cacheMisses, std::size_t{3});
+  }
+
+  void editingASprueKeepsTheEarlierOnesCachedAndRerunsTheLaterOnes() {
+    const MoldGenerationResult mold = cubeMold(*engine_);
+    const auto design = resolveSprueIntegration({mold.cavity.cavityTool.solid.volumeMm3, {20, 20, 20}, 10}).design;
+    const auto bodies = bodiesOf(mold);
+    SprueResultCache cache;
+    const auto run = [&](std::vector<SprueOperationDefinition> list, SprueResultCache* c) {
+      return evaluateSprues(*engine_, bodies, mold.cavity.cavityTool.solid.mesh, mold.cavity.sourceSignature, "frame", std::move(list), c);
+    };
+    run(threeSprues(design), &cache);
+
+    // Editing the LAST sprue (a different anchor): sprues 0 and 1 are served from the cache, only the edited one is generated.
+    auto edited = threeSprues(design);
+    edited[2].position = {7, 1, 40};
+    const auto lastEdited = run(edited, &cache);
+    QCOMPARE(lastEdited.cacheHits, std::size_t{2});
+    QCOMPARE(lastEdited.cacheMisses, std::size_t{1});
+    QVERIFY(sameEvaluation(lastEdited, run(edited, nullptr)));
+
+    // Editing the profile of the MIDDLE sprue: sprue 0 is cached; sprue 1 changed; sprue 2 sees different bodies, so it is generated again.
+    auto middle = edited;
+    middle[1].profileDesign.profile.mainDiameterMm += 1.0;
+    const auto middleEdited = run(middle, &cache);
+    QCOMPARE(middleEdited.cacheHits, std::size_t{1});
+    QCOMPARE(middleEdited.cacheMisses, std::size_t{2});
+    QVERIFY(sameEvaluation(middleEdited, run(middle, nullptr)));
+
+    // Editing the FIRST sprue changes the bodies every later sprue is cut into: nothing can be reused.
+    auto first = middle;
+    first[0].position = {-7, 2, 40};
+    const auto firstEdited = run(first, &cache);
+    QCOMPARE(firstEdited.cacheHits, std::size_t{0});
+    QCOMPARE(firstEdited.cacheMisses, std::size_t{3});
+    QVERIFY(sameEvaluation(firstEdited, run(first, nullptr)));
+  }
+
+  void theCacheHoldsExactlyTheLastEvaluationAndRemembersFailuresToo() {
+    const MoldGenerationResult mold = cubeMold(*engine_);
+    const auto design = resolveSprueIntegration({mold.cavity.cavityTool.solid.volumeMm3, {20, 20, 20}, 10}).design;
+    const auto bodies = bodiesOf(mold);
+    SprueResultCache cache;
+    const auto run = [&](std::vector<SprueOperationDefinition> list) {
+      return evaluateSprues(*engine_, bodies, mold.cavity.cavityTool.solid.mesh, mold.cavity.sourceSignature, "frame", std::move(list), &cache);
+    };
+    auto list = threeSprues(design);
+    list[1].position = {15, 0, 40};   // beside the cavity: SPRUE_DOES_NOT_REACH_CAVITY
+    const auto first = run(list);
+    QCOMPARE(first.cacheMisses, std::size_t{3});
+    QCOMPARE(first.warnings.size(), std::size_t{1});
+    const auto second = run(list);   // the failure is memoised like a success
+    QCOMPARE(second.cacheHits, std::size_t{3});
+    QCOMPARE(second.cacheMisses, std::size_t{0});
+    QVERIFY(sameEvaluation(first, second));
+    QCOMPARE(second.definitions[1].validation.reasonCode, std::string("SPRUE_DOES_NOT_REACH_CAVITY"));
+
+    // A deleted sprue's record goes with it, and the cache can be emptied (a new model).
+    list.pop_back();
+    run(list);
+    QCOMPARE(cache.size(), std::size_t{2});
+    cache.clear();
+    QCOMPARE(cache.size(), std::size_t{0});
+    QCOMPARE(run(list).cacheHits, std::size_t{0});
   }
 
   void failuresAreStructuredAndLaterSpruesStillRun() {

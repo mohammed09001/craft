@@ -1051,6 +1051,63 @@ class WorkflowTest : public QObject {
     QVERIFY(app->sprueIntents().empty());
   }
 
+  // The derived evaluation memoises each sprue (evaluateDerivedMold.ts): editing one sprue regenerates it and the sprues cut after it, never the ones before.
+  void editingASprueReusesTheCachedResultsOfTheSpruesBeforeIt() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->generateMold();
+    QVERIFY(waitFor([&] { return app->moldPhase() == "complete"; }));
+    app->camera()->setViewportSize(800, 600);
+    app->camera()->lookFrom("top");
+    app->setTool("sprue");
+    const auto place = [&](int fromX) {
+      for (int x = fromX; x <= 700; x += 10) {
+        app->previewSprueAt(x, 300, 800, 600);
+        if (app->sprueCandidate().value("valid").toBool() && app->placeSprueAt(x, 300, 800, 600)) {
+          if (!waitFor([&] { return app->spruePhase() == "idle" && !app->busy(); })) return -1;
+          return x;
+        }
+      }
+      return -1;
+    };
+    const auto counts = [&] {
+      const QVariantMap s = app->moldSummary();
+      return QPair<qulonglong, qulonglong>(s.value("sprueCacheHits").toULongLong(), s.value("sprueCacheMisses").toULongLong());
+    };
+    const int firstX = place(100);
+    QVERIFY2(firstX > 0, "no pixel over the cavity found");
+    QCOMPARE(app->sprueIntents().size(), std::size_t{1});
+    QCOMPARE(counts(), (QPair<qulonglong, qulonglong>(0, 1)));   // the only sprue was generated
+    const int secondX = place(firstX + 40);
+    QVERIFY2(secondX > 0, "no second pixel over the cavity found");
+    QCOMPARE(app->sprueIntents().size(), std::size_t{2});
+    QCOMPARE(counts(), (QPair<qulonglong, qulonglong>(1, 1)));   // the first came from the cache, the second was generated
+    for (const auto& intent : app->sprueIntents()) QCOMPARE(intent.validation.status, std::string("resolved"));
+    const std::string firstId = app->sprueIntents()[0].operationId, secondId = app->sprueIntents()[1].operationId;
+
+    // Generating the same mold again (the mold job, with the sprues already placed): the cavity and its signature are the same, so both are cached.
+    app->generateMold();
+    QVERIFY(waitFor([&] { return app->moldPhase() == "complete" || app->moldPhase() == "error"; }));
+    QCOMPARE(app->moldPhase(), QStringLiteral("complete"));
+    QCOMPARE(counts(), (QPair<qulonglong, qulonglong>(2, 0)));
+
+    // Resizing the LAST sprue: the first is served from the cache.
+    app->resizeSprue(QString::fromStdString(secondId), 6.0);
+    QVERIFY(waitFor([&] { return app->spruePhase() == "idle" && !app->busy(); }));
+    QCOMPARE(counts(), (QPair<qulonglong, qulonglong>(1, 1)));
+    // Resizing the FIRST changes the bodies the second is cut into: both are generated again.
+    app->resizeSprue(QString::fromStdString(firstId), 6.0);
+    QVERIFY(waitFor([&] { return app->spruePhase() == "idle" && !app->busy(); }));
+    QCOMPARE(counts(), (QPair<qulonglong, qulonglong>(0, 2)));
+    const double volumeBoth = app->moldSummary().value("bodies").toList().front().toMap().value("volumeMm3").toDouble();
+    // Removing the last one leaves the first exactly as it was cached, and the body keeps more material than with both.
+    app->removeSprue(QString::fromStdString(secondId));
+    QVERIFY(waitFor([&] { return app->sprueIntents().size() == 1 && !app->busy(); }));
+    QCOMPARE(counts(), (QPair<qulonglong, qulonglong>(1, 0)));
+    QVERIFY(app->moldSummary().value("bodies").toList().front().toMap().value("volumeMm3").toDouble() > volumeBoth);
+  }
+
   void splitMoldIsKeyedWithRegistration() {
     auto app = makeApp();
     app->importStlFile(bracket());

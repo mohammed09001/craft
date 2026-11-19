@@ -12,6 +12,8 @@
 // Deviation (docs D-011): the derived body geometry-version token is a native
 // FNV hash over the same inputs, not string-equal to the reference token.
 
+#include <map>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
@@ -96,6 +98,30 @@ struct SprueGenerationResult {
 
 SprueGenerationResult generateSprue(IMeshGeometryEngine& engine, const SprueGenerationInput& input);
 
+/// The per-sprue memo of evaluateDerivedMold.ts (`sprueResultCache`). A sprue's result depends only on its own definition and on the revision
+/// of the bodies it sees (which already encodes the cavity signature and every upstream body's geometry version), so editing sprue k leaves
+/// the results of sprues 0..k-1 reusable and skips their Boolean pass. Failures are memoised too. One record per operation id, and after each
+/// evaluation the cache holds exactly that evaluation's records (a deleted sprue's record goes). Thread-safe: derived evaluation runs on worker
+/// threads and a superseded job may still be finishing when the next one starts.
+class SprueResultCache {
+ public:
+  struct Entry {
+    std::string key;
+    SprueGenerationResult result;
+  };
+  std::optional<SprueGenerationResult> find(const std::string& operationId, const std::string& key) const;
+  void replaceAll(std::map<std::string, Entry> entries);
+  void clear();
+  std::size_t size() const;
+
+ private:
+  mutable std::mutex mutex_;
+  std::map<std::string, Entry> entries_;
+};
+
+/// The complete snapshot of what generateSprue is given for one sprue (the reference's `sprueCacheKey`, plus the frame id, which it also forwards).
+std::string sprueCacheKey(const std::string& moldRevision, const std::string& moldFrameId, const SprueOperationDefinition& definition);
+
 /// Result of evaluating every sprue intent in creation order against the
 /// cavity bodies (port of the sprue loop in evaluateDerivedMold).
 struct SprueEvaluation {
@@ -103,11 +129,13 @@ struct SprueEvaluation {
   std::vector<SprueDefinition> resolvedSprues;
   std::vector<SprueOperationDefinition> definitions;  // validation filled in
   std::vector<std::string> warnings;
+  std::size_t cacheHits = 0, cacheMisses = 0;  // sprues served from the cache / generated (all misses without a cache)
 };
+/// `cache` (optional) memoises per sprue as above; the result is identical with or without it.
 SprueEvaluation evaluateSprues(IMeshGeometryEngine& engine, const std::vector<MoldBody>& cavityBodies,
                                const MeshPayload& cavityTool, const std::string& cavitySourceSignature,
                                const std::string& moldFrameId,
-                               std::vector<SprueOperationDefinition> definitions);
+                               std::vector<SprueOperationDefinition> definitions, SprueResultCache* cache = nullptr);
 
 // --- placement ---------------------------------------------------------------
 

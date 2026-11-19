@@ -327,10 +327,39 @@ SprueGenerationResult generateSprue(IMeshGeometryEngine& engine, const SprueGene
   }
 }
 
+std::optional<SprueGenerationResult> SprueResultCache::find(const std::string& operationId, const std::string& key) const {
+  const std::lock_guard<std::mutex> lock(mutex_);
+  const auto it = entries_.find(operationId);
+  if (it == entries_.end() || it->second.key != key) return std::nullopt;
+  return it->second.result;
+}
+void SprueResultCache::replaceAll(std::map<std::string, Entry> entries) {
+  const std::lock_guard<std::mutex> lock(mutex_);
+  entries_ = std::move(entries);
+}
+void SprueResultCache::clear() {
+  const std::lock_guard<std::mutex> lock(mutex_);
+  entries_.clear();
+}
+std::size_t SprueResultCache::size() const {
+  const std::lock_guard<std::mutex> lock(mutex_);
+  return entries_.size();
+}
+
+std::string sprueCacheKey(const std::string& moldRevision, const std::string& moldFrameId, const SprueOperationDefinition& definition) {
+  char numbers[512];
+  const SprueProfileDimensions& p = definition.profileDesign.profile;
+  std::snprintf(numbers, sizeof(numbers), "|%.17g,%.17g,%.17g|%.17g,%.17g,%.17g|%.17g,%.17g,%.17g", definition.position.x, definition.position.y,
+                definition.position.z, definition.inwardDirection.x, definition.inwardDirection.y, definition.inwardDirection.z, p.mainDiameterMm,
+                p.entryNeckDiameterMm, p.entryNeckLengthMm);
+  // The operation id stays in the key so a record can never be read as another operation's.
+  return moldRevision + "|" + moldFrameId + "|" + definition.operationId + numbers;
+}
+
 SprueEvaluation evaluateSprues(IMeshGeometryEngine& engine, const std::vector<MoldBody>& cavityBodies,
                                const MeshPayload& cavityTool, const std::string& cavitySourceSignature,
                                const std::string& moldFrameId,
-                               std::vector<SprueOperationDefinition> definitions) {
+                               std::vector<SprueOperationDefinition> definitions, SprueResultCache* cache) {
   SprueEvaluation evaluation;
   evaluation.bodies = cavityBodies;
   for (MoldBody& body : evaluation.bodies) {
@@ -339,22 +368,34 @@ SprueEvaluation evaluateSprues(IMeshGeometryEngine& engine, const std::vector<Mo
   std::stable_sort(definitions.begin(), definitions.end(),
                    [](const auto& a, const auto& b) { return a.creationOrder < b.creationOrder; });
 
+  std::map<std::string, SprueResultCache::Entry> nextCache;
   for (SprueOperationDefinition& definition : definitions) {
     std::string moldRevision = cavitySourceSignature + ":";
     for (std::size_t i = 0; i < evaluation.bodies.size(); ++i) {
       if (i > 0) moldRevision += "|";
       moldRevision += evaluation.bodies[i].id + ":" + evaluation.bodies[i].geometryVersion;
     }
-    SprueGenerationInput input;
-    input.operationId = definition.operationId;
-    input.position = definition.position;
-    input.profileDesign = definition.profileDesign;
-    input.moldRevision = moldRevision;
-    input.targetBodies = evaluation.bodies;
-    input.cavity = cavityTool;
-    input.moldFrameId = moldFrameId;
-    input.geometryToleranceMm = kMoldGeometryToleranceMm;
-    const SprueGenerationResult result = generateSprue(engine, input);
+    const std::string key = sprueCacheKey(moldRevision, moldFrameId, definition);
+    std::optional<SprueGenerationResult> cached;
+    if (cache) cached = cache->find(definition.operationId, key);
+    SprueGenerationResult result;
+    if (cached) {
+      result = std::move(*cached);
+      ++evaluation.cacheHits;
+    } else {
+      SprueGenerationInput input;
+      input.operationId = definition.operationId;
+      input.position = definition.position;
+      input.profileDesign = definition.profileDesign;
+      input.moldRevision = moldRevision;
+      input.targetBodies = evaluation.bodies;
+      input.cavity = cavityTool;
+      input.moldFrameId = moldFrameId;
+      input.geometryToleranceMm = kMoldGeometryToleranceMm;
+      result = generateSprue(engine, input);
+      ++evaluation.cacheMisses;
+    }
+    if (cache) nextCache[definition.operationId] = {key, result};
     if (!result.success) {
       evaluation.warnings.push_back(definition.operationId + ": " + result.failure.message);
       definition.validation = {"invalid", result.failure.reasonCode, result.failure.message};
@@ -370,6 +411,7 @@ SprueEvaluation evaluateSprues(IMeshGeometryEngine& engine, const std::vector<Mo
     definition.validation = {"resolved", {}, {}};
     evaluation.definitions.push_back(definition);
   }
+  if (cache) cache->replaceAll(std::move(nextCache));
   return evaluation;
 }
 

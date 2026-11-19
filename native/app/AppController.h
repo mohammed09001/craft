@@ -607,6 +607,8 @@ class AppController : public QObject {
   // sprues
   std::vector<SprueOperationDefinition> sprueIntents_;
   Held<SprueEvaluation> sprueEvaluation_;
+  // The per-sprue memo of the derived evaluation (evaluateDerivedMold.ts): shared with the worker jobs, dropped with the model.
+  std::shared_ptr<SprueResultCache> sprueCache_ = std::make_shared<SprueResultCache>();
   Held<DerivedRegistrationState> registration_;
   QString spruePhase_ = QStringLiteral("idle");
   QVariantMap sprueCandidate_;

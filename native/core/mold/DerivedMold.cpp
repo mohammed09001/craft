@@ -4,7 +4,7 @@ namespace craft {
 
 DerivedMoldEvaluation evaluateDerivedMold(IMeshGeometryEngine& engine, const MoldGenerationResult& mold,
                                           std::vector<SprueOperationDefinition> sprueDefinitions,
-                                          const ProgressCallback& progress) {
+                                          const ProgressCallback& progress, SprueResultCache* sprueCache) {
   const auto report = [&](const char* stage, double fraction) {
     if (progress) progress(stage, fraction);
   };
@@ -15,7 +15,7 @@ DerivedMoldEvaluation evaluateDerivedMold(IMeshGeometryEngine& engine, const Mol
 
   report("sprues", 0);
   derived.sprues = evaluateSprues(engine, cavityBodies, mold.cavity.cavityTool.solid.mesh, mold.cavity.sourceSignature,
-                                  mold.definition.definitionId + ":z-up", std::move(sprueDefinitions));
+                                  mold.definition.definitionId + ":z-up", std::move(sprueDefinitions), sprueCache);
   report("sprues", 1);
 
   report("registration", 0);
