@@ -4,7 +4,10 @@
 #include <QGuiApplication>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QElapsedTimer>
+#include <QEventLoop>
 #include <QMimeData>
+#include <QRegularExpression>
 #include <QMouseEvent>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -266,6 +269,71 @@ class Smoke : public QObject {
     drop({QUrl::fromLocalFile(importPath_)}, nullptr);   // the model arriving continues the usual smoke flow (a mold, a frame, the summary)
 #endif
   }
+  // The inspector's sections through REAL input: a click on a header folds and unfolds it, Space and Enter do the same from the keyboard once
+  // the header has the focus (it shows a focus ring and names itself to a screen reader), and Collapse all / Expand all fold every section.
+  void sectionsEventsSequence() { whenViewportSettled([this] { sectionsEventsBody(); }); }
+  void sectionsEventsBody() {
+#ifndef CRAFT_SMOKE_REAL_EVENTS
+    return fail(QStringLiteral("--sections-events needs a build with CRAFT_BUILD_TESTS"));
+#else
+    QWindowSystemInterface::setSynchronousWindowSystemEvents(true);
+    window_->requestActivate();
+    const auto find = [this](const QString& name) { return window_->findChild<QQuickItem*>(name); };
+    QQuickItem* header = find(QStringLiteral("sectionHeader:Model"));
+    QQuickItem* section = find(QStringLiteral("section:Model"));
+    QQuickItem* content = find(QStringLiteral("inspectorContent"));
+    if (!header || !section || !content) return fail(QStringLiteral("the Model section, its header or the inspector was not found"));
+    const auto click = [this](QQuickItem* item) {
+      const QPointF scene = item->mapToScene(QPointF(item->width() / 2, item->height() / 2));
+      QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::NoButton, Qt::NoButton, QEvent::MouseMove);
+      QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonPress);
+      QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::NoButton, Qt::LeftButton, QEvent::MouseButtonRelease);
+    };
+    const auto key = [this](int code, const QString& text) {
+      QWindowSystemInterface::handleKeyEvent(window_, QEvent::KeyPress, code, Qt::NoModifier, text);
+      QWindowSystemInterface::handleKeyEvent(window_, QEvent::KeyRelease, code, Qt::NoModifier, text);
+    };
+    const auto collapsed = [&](QQuickItem* s) { return s->property("collapsed").toBool(); };
+    // The layout follows on the next frame: poll for it (up to three seconds) instead of reading the height at once.
+    const auto waitFor = [](const std::function<bool()>& condition) {
+      QElapsedTimer timer;
+      timer.start();
+      while (!condition() && timer.elapsed() < 3000) {
+        QEventLoop loop;
+        QTimer::singleShot(25, &loop, &QEventLoop::quit);
+        loop.exec();
+      }
+      return condition();
+    };
+    const double heightOpen = content->height();
+    if (collapsed(section)) return fail(QStringLiteral("the Model section starts folded"));
+
+    click(header);
+    if (!collapsed(section)) return fail(QStringLiteral("a click on the header did not fold the section"));
+    if (!waitFor([&] { return content->height() < heightOpen - 20; })) return fail(QStringLiteral("folding the section did not shorten the inspector (%1 px, was %2)").arg(content->height()).arg(heightOpen));
+    if (!header->hasActiveFocus()) return fail(QStringLiteral("clicking the header did not give it the focus"));
+    click(header);
+    if (collapsed(section)) return fail(QStringLiteral("a second click did not unfold the section"));
+    if (!waitFor([&] { return content->height() > heightOpen - 2; })) return fail(QStringLiteral("unfolding the section did not restore the inspector's height (%1 px, was %2)").arg(content->height()).arg(heightOpen));
+
+    key(Qt::Key_Space, QStringLiteral(" "));
+    if (!collapsed(section)) return fail(QStringLiteral("Space on the focused header did not fold the section"));
+    key(Qt::Key_Return, QStringLiteral("\r"));
+    if (collapsed(section)) return fail(QStringLiteral("Enter on the focused header did not unfold the section"));
+    if (!header->property("activeFocusOnTab").toBool()) return fail(QStringLiteral("the header cannot be reached with Tab"));
+
+    const QList<QQuickItem*> sections = window_->findChildren<QQuickItem*>(QRegularExpression(QStringLiteral("^section:")));
+    if (sections.size() < 5) return fail(QStringLiteral("only %1 sections were found").arg(sections.size()));
+    click(find(QStringLiteral("collapseAll")));
+    for (QQuickItem* s : sections)
+      if (!collapsed(s)) return fail(QStringLiteral("Collapse all left '%1' open").arg(s->objectName()));
+    if (!waitFor([&] { return content->height() < heightOpen / 2; })) return fail(QStringLiteral("folding every section left the inspector %1 px tall (was %2)").arg(content->height()).arg(heightOpen));
+    click(find(QStringLiteral("expandAll")));
+    for (QQuickItem* s : sections)
+      if (collapsed(s)) return fail(QStringLiteral("Expand all left '%1' folded").arg(s->objectName()));
+    renderNow();
+#endif
+  }
   void planeDragEventsSequence() { whenViewportSettled([this] { planeDragEventsBody(); }); }
   void planeDragEventsBody() {
 #ifndef CRAFT_SMOKE_REAL_EVENTS
@@ -484,6 +552,7 @@ class Smoke : public QObject {
     if (hintEvents_) return hintEventsSequence();
     if (undoEvents_) return undoEventsSequence();
     if (eraserEvents_) return eraserEventsSequence();
+    if (sectionsEvents_) return sectionsEventsSequence();
     if (planeDragEvents_) return planeDragEventsSequence();
     if (spruePreview_ && sprueGizmoEvents_) return gizmoEventsSequence();
     if (spruePreview_ && sprueGizmo_) return gizmoSequence();
@@ -563,6 +632,7 @@ class Smoke : public QObject {
   void setEraser(bool value, bool events = false) { eraser_ = value; eraserEvents_ = events; }
   void setUndoEvents(bool value) { undoEvents_ = value; }
   void setPlaneDragEvents(bool value) { planeDragEvents_ = value; }
+  void setSectionsEvents(bool value) { sectionsEvents_ = value; }
   void setDropEvents(bool value) { dropEvents_ = value; }
   void setHintEvents(bool value, bool wheel) { hintEvents_ = value; hintWheel_ = wheel; }
   void setScreenshot(const QString& path) { screenshot_ = path; }
@@ -571,7 +641,7 @@ class Smoke : public QObject {
   AppController& app_;
   QQuickWindow* window_;
   QString importPath_, summary_, screenshot_;
-  bool selectPart_ = false, spruePreview_ = false, spruePreviewInvalid_ = false, sprueGizmo_ = false, sprueGizmoEvents_ = false, eraser_ = false, eraserEvents_ = false, planeDragEvents_ = false, dropEvents_ = false, undoEvents_ = false, hintEvents_ = false, hintWheel_ = false;
+  bool selectPart_ = false, spruePreview_ = false, spruePreviewInvalid_ = false, sprueGizmo_ = false, sprueGizmoEvents_ = false, eraser_ = false, eraserEvents_ = false, planeDragEvents_ = false, sectionsEvents_ = false, dropEvents_ = false, undoEvents_ = false, hintEvents_ = false, hintWheel_ = false;
   bool mold_, analyse_, moldability_;
   bool imported_ = false, moldDone_ = false, analysisDone_ = false, reportsDone_ = false, done_ = false;
 };
@@ -614,6 +684,7 @@ int main(int argc, char* argv[]) {
   parser.addOption({"hint-wheel", "The interaction hint through a real wheel event (smoke test)."});
   parser.addOption({"undo-events", "Undo/redo through real input: the toolbar buttons and Ctrl+Z / Ctrl+Y (smoke test)."});
   parser.addOption({"eraser-events", "The Eraser through real mouse events: hover a plane, click empty space, click the plane (smoke test)."});
+  parser.addOption({"sections-events", "The inspector's sections through real mouse and keyboard events (smoke test)."});
   parser.addOption({"drop-events", "Dropping files on the window through real platform drag-and-drop events (smoke test)."});
   parser.addOption({"plane-drag-events", "Dragging a cutting plane with the right mouse button through real mouse events (smoke test)."});
   parser.addOption({"sprue-gizmo-events", "With --sprue-preview: the same through real mouse events, plus a double click (smoke test)."});
@@ -678,6 +749,7 @@ int main(int argc, char* argv[]) {
     smoke->setUndoEvents(parser.isSet("undo-events"));
     smoke->setPlaneDragEvents(parser.isSet("plane-drag-events"));
     smoke->setDropEvents(parser.isSet("drop-events"));
+    smoke->setSectionsEvents(parser.isSet("sections-events"));
     smoke->setHintEvents(parser.isSet("hint-events") || parser.isSet("hint-wheel"), parser.isSet("hint-wheel"));
     smoke->setScreenshot(parser.value("screenshot"));
     QTimer::singleShot(0, smoke.get(), [&smoke] { smoke->start(); });

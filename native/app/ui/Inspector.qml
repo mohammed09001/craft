@@ -16,16 +16,38 @@ ScrollView {
 
     objectName: "inspector"
 
+    // Every CraftSection under the inspector's column, found by walking it (sections nest: the reports sit inside Engineering reports).
+    function collectSections(item, found) {
+        for (var i = 0; i < item.children.length; ++i) {
+            var child = item.children[i]
+            if (child.hasOwnProperty("collapsed") && child.hasOwnProperty("title") && child.hasOwnProperty("toggle")) found.push(child)
+            collectSections(child, found)
+        }
+        return found
+    }
+    function setAllCollapsed(value) {
+        var all = collectSections(inspectorColumn, [])
+        for (var i = 0; i < all.length; ++i) all[i].collapsed = value
+    }
+
     ColumnLayout {
+        id: inspectorColumn
         objectName: "inspectorContent"   // the UI tour grabs all of it, not only the part that fits the window
         width: root.availableWidth
         spacing: 10
 
-        GroupBox {
+        RowLayout {
+            Layout.fillWidth: true
+            Item { Layout.fillWidth: true }
+            Button { objectName: "collapseAll"; flat: true; text: qsTr("Collapse all"); onClicked: root.setAllCollapsed(true) }
+            Button { objectName: "expandAll"; flat: true; text: qsTr("Expand all"); onClicked: root.setAllCollapsed(false) }
+        }
+
+        CraftSection {
             Layout.fillWidth: true
             title: qsTr("Model")
             ColumnLayout {
-                anchors.fill: parent
+                Layout.fillWidth: true
                 Label { visible: app.modelPhase === "empty"; text: qsTr("No model loaded."); wrapMode: Text.Wrap; Layout.fillWidth: true }
                 Label { visible: app.modelPhase === "loading"; text: qsTr("Loading…") }
                 Label { visible: app.modelPhase === "error"; text: app.modelMessage; color: "#e5484d"; wrapMode: Text.Wrap; Layout.fillWidth: true }
@@ -39,12 +61,12 @@ ScrollView {
             }
         }
 
-        GroupBox {
+        CraftSection {
             Layout.fillWidth: true
             title: qsTr("Segmentation")
             enabled: app.modelPhase === "ready"
             ColumnLayout {
-                anchors.fill: parent
+                Layout.fillWidth: true
                 Label {
                     text: qsTr("Splits an oversized mold into pieces that fit the printer.")
                     wrapMode: Text.Wrap; Layout.fillWidth: true
@@ -140,12 +162,12 @@ ScrollView {
             }
         }
 
-        GroupBox {
+        CraftSection {
             Layout.fillWidth: true
             title: qsTr("Master Mold")
             visible: app.modelPhase === "ready"
             ColumnLayout {
-                anchors.fill: parent
+                Layout.fillWidth: true
                 Label {
                     text: qsTr("Plans printable master tooling straight from the part. No mold, cut or cavity is needed.")
                     wrapMode: Text.Wrap; Layout.fillWidth: true
@@ -283,12 +305,12 @@ ScrollView {
             }
         }
 
-        GroupBox {
+        CraftSection {
             Layout.fillWidth: true
             title: qsTr("Mold")
             enabled: app.modelPhase === "ready"
             ColumnLayout {
-                anchors.fill: parent
+                Layout.fillWidth: true
                 RowLayout {
                     Label { text: qsTr("Clearance (mm)") }
                     SpinBox {
@@ -350,12 +372,12 @@ ScrollView {
             }
         }
 
-        GroupBox {
+        CraftSection {
             Layout.fillWidth: true
             visible: app.moldPhase === "complete"
             title: qsTr("Mold result")
             ColumnLayout {
-                anchors.fill: parent
+                Layout.fillWidth: true
                 Label { text: qsTr("Kernel: ") + app.moldSummary.implementation }
                 Label {
                     text: qsTr("Offset: ") + app.moldSummary.offsetEngine
@@ -396,12 +418,12 @@ ScrollView {
             }
         }
 
-        GroupBox {
+        CraftSection {
             Layout.fillWidth: true
             visible: app.moldPhase === "complete"
             title: qsTr("Sprues")
             ColumnLayout {
-                anchors.fill: parent
+                Layout.fillWidth: true
                 Label {
                     visible: app.tool !== "sprue" && app.sprues.length === 0
                     text: qsTr("Choose the Sprue tool and click the top face over the cavity.")
@@ -463,12 +485,12 @@ ScrollView {
             }
         }
 
-        GroupBox {
+        CraftSection {
             Layout.fillWidth: true
             title: qsTr("Import analysis (Python)")
             enabled: app.modelPhase === "ready"
             ColumnLayout {
-                anchors.fill: parent
+                Layout.fillWidth: true
                 Label { text: qsTr("Runtime: ") + app.analysisRuntime; wrapMode: Text.Wrap; Layout.fillWidth: true }
                 Button {
                     text: app.analysisPhase === "running" ? qsTr("Cancel analysis") : qsTr("Run analysis")
@@ -486,14 +508,14 @@ ScrollView {
             }
         }
 
-        GroupBox {
+        CraftSection {
             id: reportsBox
             Layout.fillWidth: true
             title: qsTr("Engineering reports")
             readonly property var reports: app.engineeringReports
             readonly property var view: reports.report ? reports : null
             ColumnLayout {
-                anchors.fill: parent
+                Layout.fillWidth: true
                 Button {
                     text: reportsBox.reports.phase === "running" ? qsTr("Cancel analysis") : qsTr("Analyze part (Python)")
                     enabled: app.modelPhase === "ready" || reportsBox.reports.phase === "running"
@@ -535,12 +557,12 @@ ScrollView {
                     }
 
                     // --- Pull Direction card (ported PullDirectionCard) --------------------------------------
-                    GroupBox {
+                    CraftSection {
                         visible: !!reportsBox.view && reportsBox.view.pullDirection.available
                         Layout.fillWidth: true
                         title: qsTr("Pull Direction")
                         ColumnLayout {
-                            anchors.fill: parent
+                            Layout.fillWidth: true
                             Label {
                                 text: qsTr("Result: ") + (reportsBox.view && reportsBox.view.pullDirection.card ? reportsBox.view.pullDirection.card.result : "")
                                 font.bold: true
@@ -593,12 +615,12 @@ ScrollView {
                         }
                     }
                     // --- cavity analysis (Python engine) ---------------------------------------------------------
-                    GroupBox {
+                    CraftSection {
                         visible: !!reportsBox.view && !!reportsBox.view.cavity && reportsBox.view.cavity.available
                         Layout.fillWidth: true
                         title: qsTr("Cavity analysis")
                         ColumnLayout {
-                            anchors.fill: parent
+                            Layout.fillWidth: true
                             Label {
                                 text: reportsBox.view && reportsBox.view.cavity && reportsBox.view.cavity.available
                                       ? qsTr("Outcome: ") + root.words(reportsBox.view.cavity.assessmentOutcome) + " (" + root.words(reportsBox.view.cavity.status) + ")" : ""
@@ -622,12 +644,12 @@ ScrollView {
                     }
 
                     // --- generation readiness (Chapter 9 hand-off, ported adapter) ---------------------------------
-                    GroupBox {
+                    CraftSection {
                         visible: !!reportsBox.view && !!reportsBox.view.readiness && reportsBox.view.readiness.available
                         Layout.fillWidth: true
                         title: qsTr("Generation readiness")
                         ColumnLayout {
-                            anchors.fill: parent
+                            Layout.fillWidth: true
                             Label {
                                 text: reportsBox.view && reportsBox.view.readiness && reportsBox.view.readiness.available
                                       ? reportsBox.view.readiness.statusLabel + (reportsBox.view.readiness.canGenerate ? qsTr(" — can generate") : qsTr(" — cannot generate yet")) : ""
@@ -688,11 +710,11 @@ ScrollView {
                 }
             }
         }
-        GroupBox {
+        CraftSection {
             Layout.fillWidth: true
             title: app.tool === "measure" ? qsTr("Measurement") : qsTr("Selection")
             ColumnLayout {
-                anchors.fill: parent
+                Layout.fillWidth: true
                 Label {
                     visible: app.tool === "select" && !app.selection.name
                     text: qsTr("Click the model to select a face."); wrapMode: Text.Wrap; Layout.fillWidth: true

@@ -5,7 +5,7 @@
 //
 // Run as `craft --ui-tour out-dir --import part.stl [--tour-bad-stl broken.stl]`: it drives the real controller through the
 // application's states (empty, model loaded, part selected, cut faces, Eraser, mold generated, sprue, moldability report, Master Mold,
-// segmentation, an import error) and in each one writes, for the dark and the light theme, the whole window and the whole
+// segmentation, every inspector section folded, an import error) and in each one writes, for the dark and the light theme, the whole window and the whole
 // content of the inspector (all of it, not only the part that fits the window), plus the window at its minimum size in the dark
 // theme. It also lints the item tree of every capture (text that is truncated, items cut off at the edge of the panel they sit in,
 // controls narrower than their content) and writes everything it found to tour.json.

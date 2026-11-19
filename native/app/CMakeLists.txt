@@ -48,7 +48,7 @@ if(CRAFT_BUILD_TESTS)
 endif()
 craft_target_defaults(craft)
 
-foreach(_q Main ViewportView Inspector CraftCheckBox)
+foreach(_q Main ViewportView Inspector CraftCheckBox CraftSection)
   set_source_files_properties(ui/${_q}.qml PROPERTIES QT_RESOURCE_ALIAS ${_q}.qml)
 endforeach()
 
@@ -60,6 +60,7 @@ qt_add_qml_module(craft
     ui/ViewportView.qml
     ui/Inspector.qml
     ui/CraftCheckBox.qml
+    ui/CraftSection.qml
 )
 
 set_target_properties(craft PROPERTIES

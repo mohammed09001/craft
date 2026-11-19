@@ -4,7 +4,7 @@
 #   .\scripts\native\ui\native-tour.ps1                      Release build, bracket fixture, output next to the other builds
 #   .\scripts\native\ui\native-tour.ps1 -Stl part.stl -OutDir D:\somewhere
 #
-# The tour drives the real application through eleven states and writes, for the dark and the light theme, the whole window and the whole
+# The tour drives the real application through twelve states and writes, for the dark and the light theme, the whole window and the whole
 # content of the inspector, plus the window at its minimum size, and lints every capture (truncated text, items cut off at the edge of
 # their panel, controls narrower than their content). Autosave and cache go to a temporary folder: an earlier run that exited without
 # closing left an autosave behind and the next run opened with the "Recover unsaved work?" dialog in its pictures.

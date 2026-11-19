@@ -480,3 +480,9 @@ Found and fixed (ten items, nine fixed): a garbled hint badge, a light theme tha
 Also found, the expensive way: the tour's unclean exit left autosaves, and the next full ctest failed six real-mouse smoke tests together because the recovery dialog covered the window. A bisect that restored files by copying them kept their old modification times and the build skipped them, which cost two wrong turns. The smoke tests now use autosave and cache folders of their own (R-Smoke-1).
 
 Not done: the Molds browser (per-body and model visibility), status indicators, a shorter inspector, HiDPI, keyboard and accessibility, translations, the operating system's dialogs (R-UI-1, R-UI-3, R-UI-4).
+
+### Session 37: a sectioned inspector
+
+The walk-through's biggest remaining usability finding was the inspector: one 3,400 px column. `CraftSection` replaces the twelve group boxes (and the three nested ones): a header that folds and unfolds the section on a click, Space or Enter, takes keyboard focus with Tab, shows a focus ring and names itself and its state to a screen reader (the first accessibility name in the native UI), and "Collapse all" / "Expand all" at the top of the inspector. The tour gained a twelfth state (every section folded; lint 0 findings in all 36 captures). `app_smoke_sections` drives it through real input: a click folds and unfolds and the inspector's height follows, the header has the focus after the click, Space and Enter toggle it, Collapse all and Expand all reach every section including the nested ones; 9 mutations caught. The first version of that test read the layout height at once and failed: the layout follows on the next frame, so it polls.
+
+Not done: the fold state is not remembered between runs or saved with a project; no section index; the reports section's content is still long (UI_WALKTHROUGH.md).

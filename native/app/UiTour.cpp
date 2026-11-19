@@ -9,6 +9,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMetaObject>
+#include <QVariant>
 #include <QPoint>
 #include <QQuickItem>
 #include <QQuickItemGrabResult>
@@ -246,11 +247,22 @@ struct UiTour::Impl {
     pump(600);
     captureState(QStringLiteral("10-segmentation-planned"));
 
+    // Every section of the inspector folded: only the titles remain (the inspector's own "Collapse all"), then unfolded again.
+    if (QQuickItem* inspector = window->findChild<QQuickItem*>(QStringLiteral("inspector"))) {
+      QMetaObject::invokeMethod(inspector, "setAllCollapsed", Q_ARG(QVariant, true));
+      pump(500);
+      captureState(QStringLiteral("11-sections-collapsed"));
+      QMetaObject::invokeMethod(inspector, "setAllCollapsed", Q_ARG(QVariant, false));
+      pump(400);
+    } else {
+      problem("11-sections-collapsed", "the inspector was not found");
+    }
+
     if (!options.badStlPath.isEmpty()) {
       app.importStlFile(options.badStlPath);
       waitFor([&] { return app.modelPhase() == QLatin1String("error"); }, 30000);
       pump(600);
-      captureState(QStringLiteral("11-import-error"));
+      captureState(QStringLiteral("12-import-error"));
     }
 
     QJsonObject summary{{"states", states}, {"problems", problems}, {"windowSize", QJsonArray{1280, 800}},

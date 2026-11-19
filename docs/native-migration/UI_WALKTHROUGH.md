@@ -24,11 +24,12 @@ fixed, and what it did not look at. The tools are `scripts/native/ui/` (`native-
 
 ## Method
 
-**Native.** `craft --ui-tour <dir>` drives the real controller through eleven states: empty, model loaded, part selected, cut faces chosen,
-Eraser over a plane, mold generated, sprue placed, moldability report, Master Mold generated, segmentation planned, import error. In each it
+**Native.** `craft --ui-tour <dir>` drives the real controller through twelve states: empty, model loaded, part selected, cut faces chosen,
+Eraser over a plane, mold generated, sprue placed, moldability report, Master Mold generated, segmentation planned, every inspector section
+folded, import error. In each it
 captures, for the dark and the light theme at 1280 x 800, the whole window and the whole content of the inspector (about 3,400 px tall in the
-report state: the inspector scrolls, so a window capture shows a third of it), and the window in the dark theme at its minimum size: 33
-window captures and 22 inspector captures. Every capture is linted from the live item tree: text that is truncated, items cut off at the right
+report state: the inspector scrolls, so a window capture shows a third of it), and the window in the dark theme at its minimum size: 36
+window captures and 24 inspector captures. Every capture is linted from the live item tree: text that is truncated, items cut off at the right
 edge of the panel they sit in, items outside the window, controls narrower than their content. `native-tour.ps1` runs it with an autosave
 and cache folder of its own and exits non-zero on any finding.
 
@@ -86,6 +87,7 @@ repeated.
 | 8 | **Drag and drop of an STL onto the window did nothing** (the reference tells the user to) | the reference's text inventory | `DropArea` with the reference's validation and messages (exactly one file, `.stl` in any case, not empty), checked before the unsaved-changes prompt; an outline while a drag is over the window | `droppedFilesAreValidatedLikeTheReference`, `app_smoke_drop` through real platform drag events; 8 mutations caught |
 | 9 | The recovery dialog covered the window in every capture after a run that had not closed cleanly | the second tour's pictures | `native-tour.ps1` isolates autosave and cache; see the next section | the wrapper |
 | 10 | (Not fixed) The Windows title bar stays in the system theme | the light capture | not fixable from QML | R-UI-2 |
+| 11 | The inspector was one 3,400 px column of fixed group boxes | the full-height capture | `CraftSection`: every section folds from its header (click, Space or Enter), the header takes focus with Tab, shows a focus ring and names itself and its state to a screen reader; "Collapse all" and "Expand all" at the top; nested sections too. Fold state lasts for the session, it is not saved with the project or between runs | `app_smoke_sections` through real clicks and keys, 9 mutations caught; a tour state with every section folded |
 
 ## The stale autosave, and what it says about R-Smoke-1
 
@@ -109,8 +111,8 @@ or timed-out run of the application leaves an autosave), and it is now closed.
 
 - **Molds browser** (per-body and model visibility): not in the native window; the body list is text only.
 - **Status indicators and the instruction text** of the reference have no equivalent; the status line carries the last message only.
-- **The inspector is one long column** (3,400 px with a report): no collapsible sections, no way to jump to one, the reports section is long and dense.
-  It scrolls and nothing is cut off, but it is hard to read; a section index or collapsible group boxes would help.
+- **The inspector's sections fold now** (item 11), but the content of an expanded reports section is still long and dense, there is no index to jump to a
+  section, and the fold state is not remembered between runs.
 - **Long engine identifiers** stay long: mold ids like `reference-mold:1:bracket.stl:1084:mold:5` and the registration warning that quotes two of
   them (technical text from the engine, wrapped but not shortened).
 - **Part selection is yellow in the dark theme** (the reference's selection colour by background, D-060): not a defect, noted because it surprises.
