@@ -42,6 +42,7 @@
 #include "Held.h"
 #include "SprueHandleModel.h"
 #include "CutPlaneModel.h"
+#include "mold/CuttingPlaneDrag.h"
 #include "mold/CuttingPlaneSlabs.h"
 #include "mold/Segmentation.h"
 #include "mold/SprueGeneration.h"
@@ -292,6 +293,17 @@ class AppController : public QObject {
   /// Removes a plane (the face stops being cut): refused while the mold is generating or when the face is not cut.
   /// The mold built with it is dropped; sprue intents are kept.
   Q_INVOKABLE bool removeCutFace(const QString& face);
+  /// Dragging a plane with the right button (reference: cuttingPlane3dRuntime.ts). A press on a plane starts it (false: not on
+  /// a plane, or the Eraser is the tool, so the press pans as usual); the plane follows the pointer along its own axis once the
+  /// pointer is 4 px from the press; releasing commits the position as one undo step, or cancels when it never moved.
+  Q_INVOKABLE bool cutPlaneDragBegin(qreal x, qreal y, qreal viewportWidth, qreal viewportHeight);
+  Q_INVOKABLE void cutPlaneDragTo(qreal x, qreal y, qreal viewportWidth, qreal viewportHeight);
+  /// True when the release committed a new position.
+  Q_INVOKABLE bool cutPlaneDragEnd();
+  Q_INVOKABLE void cutPlaneDragCancel();
+  /// Hover outside the Eraser: the plane under the pointer brightens and the cursor becomes a hand. True when over a plane.
+  Q_INVOKABLE bool cutPlaneHoverAt(qreal x, qreal y, qreal viewportWidth, qreal viewportHeight);
+  Q_INVOKABLE void cutPlaneLeave();
 
   // --- sprue resize gizmo (rings at the sprue openings; reference: sprueResizeRuntime.ts) -----------------------------
   SprueHandleModel* sprueHandles() { return &sprueHandles_; }
@@ -595,6 +607,10 @@ class AppController : public QObject {
   std::vector<PlaneSlab> cutSlabs_;
   std::string cutSlabSignature_;
   std::optional<FaceId> eraserHover_;
+  std::optional<CutPlaneDrag> cutPlaneDrag_;  // a plane being dragged (right button)
+  std::optional<FaceId> planeHover_;          // the plane under the pointer outside the Eraser
+  void setPlaneHover(std::optional<FaceId> face);
+  void abortCutPlaneDrag();
 
   // sprue resize gizmo
   struct GizmoDrag {

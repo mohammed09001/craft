@@ -319,6 +319,8 @@ void AppController::applyViewportCursor(QObject* object, const QString& name) {
   else if (name == QLatin1String("eraser")) item->setCursor(eraserCursor());
   else if (name == QLatin1String("resize")) item->setCursor(QCursor(Qt::SizeHorCursor));
   else if (name == QLatin1String("hand")) item->setCursor(QCursor(Qt::PointingHandCursor));
+  else if (name == QLatin1String("grab")) item->setCursor(QCursor(Qt::OpenHandCursor));
+  else if (name == QLatin1String("grabbing")) item->setCursor(QCursor(Qt::ClosedHandCursor));
   else if (name == QLatin1String("cross")) item->setCursor(QCursor(Qt::CrossCursor));
   else item->unsetCursor();
 }

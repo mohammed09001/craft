@@ -139,6 +139,8 @@ add_library(craft_mold STATIC
   core/mold/SegmentationIdentity.cpp
   core/mold/SegmentationIdentity.h
   core/mold/SprueGeneration.cpp
+  core/mold/CuttingPlaneDrag.cpp
+  core/mold/CuttingPlaneDrag.h
   core/mold/CuttingPlaneSlabs.cpp
   core/mold/CuttingPlaneSlabs.h
   core/mold/SprueGizmo.cpp

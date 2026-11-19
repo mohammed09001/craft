@@ -50,6 +50,11 @@ craft_add_test(tst_cutplane_equivalence
   LIBS craft_mold Qt6::Core)
 target_compile_definitions(tst_cutplane_equivalence PRIVATE
   CRAFT_REFERENCE_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/reference")
+craft_add_test(tst_cutplane_drag_equivalence
+  SOURCES tst_cutplane_drag_equivalence.cpp
+  LIBS craft_mold Qt6::Core)
+target_compile_definitions(tst_cutplane_drag_equivalence PRIVATE
+  CRAFT_REFERENCE_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/reference")
 craft_add_test(tst_master_store SOURCES tst_master_store.cpp LIBS craft_mold craft_mesh_manifold)
 craft_add_test(tst_master_export SOURCES tst_master_export.cpp LIBS craft_export Qt6::Core)
 craft_add_test(tst_master_equivalence
@@ -159,6 +164,16 @@ if(CRAFT_BUILD_APP)
             --eraser-events
             --summary "${CMAKE_CURRENT_BINARY_DIR}/app_smoke_eraser_summary.json")
   set_tests_properties(app_smoke_eraser PROPERTIES
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${CRAFT_QT_BIN_DIR}"
+    TIMEOUT 120
+    PASS_REGULAR_EXPRESSION "CRAFT_SMOKE_OK")
+  # Dragging a cutting plane with the right mouse button through REAL mouse events delivered to the window.
+  add_test(NAME app_smoke_plane_drag
+    COMMAND craft --smoke-test
+            --import "${CRAFT_REPO_ROOT}/native/tests/fixtures/models/bracket.stl"
+            --plane-drag-events
+            --summary "${CMAKE_CURRENT_BINARY_DIR}/app_smoke_plane_drag_summary.json")
+  set_tests_properties(app_smoke_plane_drag PROPERTIES
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${CRAFT_QT_BIN_DIR}"
     TIMEOUT 120
     PASS_REGULAR_EXPRESSION "CRAFT_SMOKE_OK")

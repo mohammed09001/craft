@@ -50,6 +50,7 @@ if ($Only -in 'all', 'sprueresize') {
 }
 if ($Only -in 'all', 'cutplane') {
   Copy-Item (Join-Path $referenceDir 'craftCutPlaneReference.test.ts') $stage -Force
+  Copy-Item (Join-Path $referenceDir 'craftCutPlaneDragReference.test.ts') $stage -Force
 }
 if ($Only -in 'all', 'undo') {
   Copy-Item (Join-Path $referenceDir 'craftUndoReference.test.ts') $stage -Force
@@ -64,6 +65,7 @@ $env:CRAFT_RULER_OUTPUT = Join-Path $repoRoot 'native\tests\fixtures\reference\r
 $env:CRAFT_LOOK_OUTPUT = Join-Path $repoRoot 'native\tests\fixtures\reference\look-reference.json'
 $env:CRAFT_UNDO_OUTPUT = Join-Path $repoRoot 'native\tests\fixtures\reference\undo-reference.json'
 $env:CRAFT_CUTPLANE_OUTPUT = Join-Path $repoRoot 'native\tests\fixtures\reference\cutplane-reference.json'
+$env:CRAFT_CUTPLANE_DRAG_OUTPUT = Join-Path $repoRoot 'native\tests\fixtures\reference\cutplane-drag-reference.json'
 $env:CRAFT_SPRUE_PREVIEW_OUTPUT = Join-Path $repoRoot 'native\tests\fixtures\reference\sprue-preview-reference.json'
 $env:CRAFT_SPRUE_RESIZE_OUTPUT = Join-Path $repoRoot 'native\tests\fixtures\reference\sprue-resize-reference.json'
 $env:CRAFT_SELECTION_OUTPUT = Join-Path $repoRoot 'native\tests\fixtures\reference\selection-reference.json'
@@ -105,6 +107,7 @@ try {
   Remove-Item Env:\CRAFT_SPRUE_PREVIEW_OUTPUT -ErrorAction SilentlyContinue
   Remove-Item Env:\CRAFT_SPRUE_RESIZE_OUTPUT -ErrorAction SilentlyContinue
   Remove-Item Env:\CRAFT_CUTPLANE_OUTPUT -ErrorAction SilentlyContinue
+  Remove-Item Env:\CRAFT_CUTPLANE_DRAG_OUTPUT -ErrorAction SilentlyContinue
   Remove-Item Env:\CRAFT_UNDO_OUTPUT -ErrorAction SilentlyContinue
   Remove-Item Env:\CRAFT_LOOK_OUTPUT -ErrorAction SilentlyContinue
   Remove-Item Env:\CRAFT_RULER_OUTPUT -ErrorAction SilentlyContinue

@@ -226,6 +226,82 @@ class Smoke : public QObject {
     };
     QTimer::singleShot(50, this, *poll);
   }
+  // Dragging a cutting plane with the right mouse button through REAL mouse events delivered to the window: hover brightens the
+  // plane, a right press on it drags it instead of panning, the release commits one undo step; a right drag elsewhere still pans.
+  void planeDragEventsSequence() { whenViewportSettled([this] { planeDragEventsBody(); }); }
+  void planeDragEventsBody() {
+#ifndef CRAFT_SMOKE_REAL_EVENTS
+    return fail(QStringLiteral("--plane-drag-events needs a build with CRAFT_BUILD_TESTS"));
+#else
+    QWindowSystemInterface::setSynchronousWindowSystemEvents(true);
+    auto* item = window_->findChild<QQuickItem*>(QStringLiteral("viewport"));
+    if (!item) return fail(QStringLiteral("the viewport item was not found"));
+    const int w = static_cast<int>(item->width()), h = static_cast<int>(item->height());
+    app_.camera()->setViewportSize(w, h);
+    app_.setCutFaceEnabled(QStringLiteral("top"), true);
+    app_.setCutFacePosition(QStringLiteral("top"), 0.5);
+    app_.setCutFaceEnabled(QStringLiteral("left"), true);
+    app_.setCutFacePosition(QStringLiteral("left"), 0.7);
+    const auto send = [this, item](QEvent::Type type, QPoint local, Qt::MouseButton button, Qt::MouseButtons buttons) {
+      const QPointF scene = item->mapToScene(QPointF(local));
+      QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), buttons, button, type);
+    };
+    const auto topPosition = [this] {
+      for (const QVariant& f : app_.cutFaces())
+        if (f.toMap().value("face").toString() == QLatin1String("top")) return f.toMap().value("position").toDouble();
+      return -1.0;
+    };
+    const auto undoDepth = [this] { return app_.history().value("undoDepth").toInt(); };
+    const auto target = [this] { return app_.camera()->pose().target(); };
+    QPoint onPlane(-1, -1);
+    for (int y = h / 6; y < h * 5 / 6 && onPlane.x() < 0; y += 3)
+      for (int x = w / 8; x < w * 7 / 8 && onPlane.x() < 0; x += 3)
+        if (app_.cutPlaneHoverAt(x, y, w, h) && app_.cutPlanes().value("planeHoverFace").toString() == QLatin1String("top")) onPlane = QPoint(x, y);
+    app_.cutPlaneLeave();
+    if (onPlane.x() < 0) return fail(QStringLiteral("no pixel on the top cutting plane"));
+
+    // Hover (no timer: the planes are few): the plane brightens and the cursor becomes an open hand.
+    send(QEvent::MouseMove, onPlane, Qt::NoButton, Qt::NoButton);
+    if (app_.cutPlanes().value("planeHoverFace").toString() != QLatin1String("top") || app_.cutPlanes().value("cursor").toString() != QLatin1String("grab"))
+      return fail(QStringLiteral("hovering a plane with the mouse did not highlight it (hover '%1', cursor '%2')")
+                      .arg(app_.cutPlanes().value("planeHoverFace").toString(), app_.cutPlanes().value("cursor").toString()));
+
+    // The left button on a plane still orbits: no drag.
+    const double before = topPosition();
+    const int depth = undoDepth();
+    send(QEvent::MouseButtonPress, onPlane, Qt::LeftButton, Qt::LeftButton);
+    if (app_.cutPlanes().value("dragging").toBool()) return fail(QStringLiteral("the left button started a plane drag"));
+    send(QEvent::MouseButtonRelease, onPlane, Qt::LeftButton, Qt::NoButton);
+
+    // A right press on the plane starts the drag; moving drags the plane and does not pan; releasing commits one undo step.
+    const craft::Vec3 targetBefore = target();
+    send(QEvent::MouseButtonPress, onPlane, Qt::RightButton, Qt::RightButton);
+    if (!app_.cutPlanes().value("dragging").toBool()) return fail(QStringLiteral("a right press on a plane did not start dragging it"));
+    if (app_.cutPlanes().value("cursor").toString() != QLatin1String("grabbing")) return fail(QStringLiteral("the cursor is not a closed hand while dragging"));
+    send(QEvent::MouseMove, QPoint(onPlane.x() + 20, onPlane.y() - 60), Qt::NoButton, Qt::RightButton);
+    send(QEvent::MouseMove, QPoint(onPlane.x() + 30, onPlane.y() - 90), Qt::NoButton, Qt::RightButton);
+    const craft::Vec3 targetDuring = target();
+    if (std::fabs(targetDuring.x - targetBefore.x) + std::fabs(targetDuring.y - targetBefore.y) + std::fabs(targetDuring.z - targetBefore.z) > 1e-12)
+      return fail(QStringLiteral("the camera panned while a plane was dragged"));
+    if (topPosition() != before) return fail(QStringLiteral("the plane's position was committed before the button was released"));
+    send(QEvent::MouseButtonRelease, QPoint(onPlane.x() + 30, onPlane.y() - 90), Qt::RightButton, Qt::NoButton);
+    if (app_.cutPlanes().value("dragging").toBool()) return fail(QStringLiteral("the drag did not end on release"));
+    if (std::fabs(topPosition() - before) < 0.01) return fail(QStringLiteral("releasing the drag did not move the plane (position %1, was %2)").arg(topPosition()).arg(before));
+    if (undoDepth() != depth + 1) return fail(QStringLiteral("the drag was not one undo step (depth %1, was %2)").arg(undoDepth()).arg(depth));
+
+    // A right drag that starts away from every plane still pans.
+    const QPoint empty(3, 3);
+    const craft::Vec3 panBefore = target();
+    send(QEvent::MouseButtonPress, empty, Qt::RightButton, Qt::RightButton);
+    if (app_.cutPlanes().value("dragging").toBool()) return fail(QStringLiteral("a right press on empty space started a plane drag"));
+    send(QEvent::MouseMove, QPoint(empty.x() + 40, empty.y() + 30), Qt::NoButton, Qt::RightButton);
+    send(QEvent::MouseButtonRelease, QPoint(empty.x() + 40, empty.y() + 30), Qt::RightButton, Qt::NoButton);
+    const craft::Vec3 panAfter = target();
+    if (std::fabs(panAfter.x - panBefore.x) + std::fabs(panAfter.y - panBefore.y) + std::fabs(panAfter.z - panBefore.z) < 1e-6)
+      return fail(QStringLiteral("a right drag away from the planes did not pan the camera"));
+    renderNow();
+#endif
+  }
   void eraserEventsSequence() { whenViewportSettled([this] { eraserEventsBody(); }); }
   void eraserEventsBody() {
 #ifndef CRAFT_SMOKE_REAL_EVENTS
@@ -358,6 +434,7 @@ class Smoke : public QObject {
     if (hintEvents_) return hintEventsSequence();
     if (undoEvents_) return undoEventsSequence();
     if (eraserEvents_) return eraserEventsSequence();
+    if (planeDragEvents_) return planeDragEventsSequence();
     if (spruePreview_ && sprueGizmoEvents_) return gizmoEventsSequence();
     if (spruePreview_ && sprueGizmo_) return gizmoSequence();
     renderNow();
@@ -435,6 +512,7 @@ class Smoke : public QObject {
   void setSprueGizmo(bool value, bool events = false) { sprueGizmo_ = value; sprueGizmoEvents_ = events; }
   void setEraser(bool value, bool events = false) { eraser_ = value; eraserEvents_ = events; }
   void setUndoEvents(bool value) { undoEvents_ = value; }
+  void setPlaneDragEvents(bool value) { planeDragEvents_ = value; }
   void setHintEvents(bool value, bool wheel) { hintEvents_ = value; hintWheel_ = wheel; }
   void setScreenshot(const QString& path) { screenshot_ = path; }
 
@@ -442,7 +520,7 @@ class Smoke : public QObject {
   AppController& app_;
   QQuickWindow* window_;
   QString importPath_, summary_, screenshot_;
-  bool selectPart_ = false, spruePreview_ = false, spruePreviewInvalid_ = false, sprueGizmo_ = false, sprueGizmoEvents_ = false, eraser_ = false, eraserEvents_ = false, undoEvents_ = false, hintEvents_ = false, hintWheel_ = false;
+  bool selectPart_ = false, spruePreview_ = false, spruePreviewInvalid_ = false, sprueGizmo_ = false, sprueGizmoEvents_ = false, eraser_ = false, eraserEvents_ = false, planeDragEvents_ = false, undoEvents_ = false, hintEvents_ = false, hintWheel_ = false;
   bool mold_, analyse_, moldability_;
   bool imported_ = false, moldDone_ = false, analysisDone_ = false, reportsDone_ = false, done_ = false;
 };
@@ -483,6 +561,7 @@ int main(int argc, char* argv[]) {
   parser.addOption({"hint-wheel", "The interaction hint through a real wheel event (smoke test)."});
   parser.addOption({"undo-events", "Undo/redo through real input: the toolbar buttons and Ctrl+Z / Ctrl+Y (smoke test)."});
   parser.addOption({"eraser-events", "The Eraser through real mouse events: hover a plane, click empty space, click the plane (smoke test)."});
+  parser.addOption({"plane-drag-events", "Dragging a cutting plane with the right mouse button through real mouse events (smoke test)."});
   parser.addOption({"sprue-gizmo-events", "With --sprue-preview: the same through real mouse events, plus a double click (smoke test)."});
   parser.process(application);
 
@@ -535,6 +614,7 @@ int main(int argc, char* argv[]) {
     smoke->setSprueGizmo(parser.isSet("sprue-gizmo"), parser.isSet("sprue-gizmo-events"));
     smoke->setEraser(parser.isSet("eraser"), parser.isSet("eraser-events"));
     smoke->setUndoEvents(parser.isSet("undo-events"));
+    smoke->setPlaneDragEvents(parser.isSet("plane-drag-events"));
     smoke->setHintEvents(parser.isSet("hint-events") || parser.isSet("hint-wheel"), parser.isSet("hint-wheel"));
     smoke->setScreenshot(parser.value("screenshot"));
     QTimer::singleShot(0, smoke.get(), [&smoke] { smoke->start(); });

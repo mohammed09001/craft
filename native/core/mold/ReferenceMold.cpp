@@ -204,6 +204,12 @@ double normalizedToWorldCoordinate(const Bounds3& bounds, Axis axis, double norm
   return bounds.min[a] + (bounds.max[a] - bounds.min[a]) * safe;
 }
 
+double worldToNormalizedPosition(const Bounds3& bounds, Axis axis, double coordinate) {
+  if (!std::isfinite(coordinate)) throw std::invalid_argument("Cutting-plane coordinate must be finite.");
+  const int a = static_cast<int>(axis);
+  return clampNormalizedPosition((coordinate - bounds.min[a]) / (bounds.max[a] - bounds.min[a]), bounds, axis);
+}
+
 CuttingPlane createCuttingPlane(FaceId face, std::optional<double> normalizedPosition) {
   const FaceData& data = faceData(face);
   CuttingPlane plane;

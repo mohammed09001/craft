@@ -492,6 +492,182 @@ class WorkflowTest : public QObject {
     QVERIFY(topPosition > 0.99);
   }
 
+  // --- dragging a plane with the right button (reference: cuttingPlane3dRuntime.ts, split-face commitPlaneDrag) ---------------
+
+  void aCuttingPlaneFollowsARightButtonDragAndCommitsOneUndoStep() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->camera()->setViewportSize(800, 600);
+    app->setCutFaceEnabled("top", true);
+    app->setCutFacePosition("top", 0.5);
+    app->setCutFaceEnabled("left", true);
+    app->setCutFacePosition("left", 0.7);
+    QCOMPARE(app->cutPlaneSlabs()->rowCount(), 2);
+    const auto row = [&](const QString& face) {
+      for (int r = 0; r < app->cutPlaneSlabs()->rowCount(); ++r)
+        if (app->cutPlaneSlabs()->data(app->cutPlaneSlabs()->index(r), CutPlaneModel::FaceRole).toString() == face) return r;
+      return -1;
+    };
+    const auto at = [&](const QString& face, int role) { return app->cutPlaneSlabs()->data(app->cutPlaneSlabs()->index(row(face)), role); };
+    const auto centre = [&](const QString& face) { return at(face, CutPlaneModel::CenterRole).value<QVector3D>(); };
+    const auto position = [&](const QString& face) {
+      for (const QVariant& f : app->cutFaces())
+        if (f.toMap().value("face").toString() == face) return f.toMap().value("position").toDouble();
+      return -1.0;
+    };
+    const auto undoDepth = [&] { return app->history().value("undoDepth").toInt(); };
+    // A pixel on the named plane (the nearest plane wins, so look for one where the hover is that plane).
+    const auto pixelOn = [&](const QString& face) {
+      for (int y = 80; y < 520; y += 3)
+        for (int x = 100; x < 700; x += 3)
+          if (app->cutPlaneHoverAt(x, y, 800, 600) && app->cutPlanes().value("planeHoverFace").toString() == face) {
+            app->cutPlaneLeave();
+            return QPoint(x, y);
+          }
+      app->cutPlaneLeave();
+      return QPoint(-1, -1);
+    };
+    const QPoint start = pixelOn("top");
+    QVERIFY2(start.x() >= 0, "no pixel on the top plane");
+
+    // Hover outside the Eraser: the plane brightens and the cursor becomes an open hand; away from it, nothing.
+    QVERIFY(app->cutPlaneHoverAt(start.x(), start.y(), 800, 600));
+    QCOMPARE(at("top", CutPlaneModel::ColorRole).value<QColor>(), QColor("#ffb52e"));
+    QCOMPARE(at("top", CutPlaneModel::SurfaceOpacityRole).toDouble(), 0.32);
+    QCOMPARE(at("top", CutPlaneModel::EdgeOpacityRole).toDouble(), 1.0);
+    QCOMPARE(app->cutPlanes().value("cursor").toString(), QStringLiteral("grab"));
+    QVERIFY(!app->cutPlaneHoverAt(3, 3, 800, 600));
+    QCOMPARE(at("top", CutPlaneModel::ColorRole).value<QColor>(), QColor("#f59e0b"));
+    QVERIFY(app->cutPlanes().value("cursor").toString().isEmpty());
+
+    // A press away from every plane is not a drag: the right button pans as before.
+    QVERIFY(!app->cutPlaneDragBegin(3, 3, 800, 600));
+    QVERIFY(!app->cutPlanes().value("dragging").toBool());
+
+    // Press, move less than 4 px, release: nothing changed, no undo step.
+    const int depth = undoDepth();
+    const double before = position("top");
+    const QVector3D centreBefore = centre("top");
+    QVERIFY(app->cutPlaneDragBegin(start.x(), start.y(), 800, 600));
+    QVERIFY(app->cutPlanes().value("dragging").toBool());
+    QCOMPARE(app->cutPlanes().value("dragFace").toString(), QStringLiteral("top"));
+    QCOMPARE(app->cutPlanes().value("cursor").toString(), QStringLiteral("grabbing"));
+    QCOMPARE(at("top", CutPlaneModel::ColorRole).value<QColor>(), QColor("#ef3038"));
+    QCOMPARE(at("top", CutPlaneModel::SurfaceOpacityRole).toDouble(), 0.38);
+    QVERIFY(!app->cutPlaneDragBegin(start.x(), start.y(), 800, 600));  // one drag at a time
+    app->cutPlaneDragTo(start.x() + 3, start.y(), 800, 600);
+    QCOMPARE(centre("top"), centreBefore);
+    QVERIFY(!app->cutPlaneDragEnd());
+    QVERIFY(!app->cutPlanes().value("dragging").toBool());
+    QCOMPARE(position("top"), before);
+    QCOMPARE(undoDepth(), depth);
+    QCOMPARE(at("top", CutPlaneModel::ColorRole).value<QColor>(), QColor("#f59e0b"));  // idle again (the hover look waits for the next move)
+    QCOMPARE(app->cutPlanes().value("cursor").toString(), QStringLiteral("grab"));     // and the pointer is still over it
+
+    // A real drag: the plane follows the pointer along its own axis only, the position is not committed until release.
+    QVERIFY(app->cutPlaneDragBegin(start.x(), start.y(), 800, 600));
+    app->cutPlaneDragTo(start.x() + 20, start.y() - 60, 800, 600);
+    const QVector3D moved = centre("top");
+    QVERIFY(std::fabs(moved.z() - centreBefore.z()) > 0.5f);
+    QCOMPARE(moved.x(), centreBefore.x());
+    QCOMPARE(moved.y(), centreBefore.y());
+    QCOMPARE(position("top"), before);  // not yet
+    QCOMPARE(undoDepth(), depth);
+    QVERIFY(app->cutPlaneDragEnd());
+    const double after = position("top");
+    QVERIFY(std::fabs(after - before) > 0.01);
+    QVERIFY(after > 0.0 && after < 1.0);
+    QCOMPARE(undoDepth(), depth + 1);  // one undo step for the whole drag
+    QVERIFY(std::fabs(centre("top").z() - moved.z()) < 1e-3f);  // the slab was rebuilt where it was dropped
+    QCOMPARE(position("left"), 0.7);   // the other plane is untouched
+
+    // Undo restores the position and the slab; redo puts it back.
+    app->undo();
+    QCOMPARE(position("top"), before);
+    QVERIFY(std::fabs(centre("top").z() - centreBefore.z()) < 1e-3f);
+    app->redo();
+    QCOMPARE(position("top"), after);
+
+    // A drag far beyond the part box stops at the box limits (the safe interval of K1), never outside them.
+    const QPoint left = pixelOn("left");
+    QVERIFY2(left.x() >= 0, "no pixel on the left plane");
+    QVERIFY(app->cutPlaneDragBegin(left.x(), left.y(), 800, 600));
+    app->cutPlaneDragTo(left.x() + 2000, left.y() - 700, 800, 600);
+    QVERIFY(app->cutPlaneDragEnd());
+    QVERIFY(position("left") >= 1e-6 && position("left") <= 1 - 1e-6);
+    QVERIFY(position("left") < 0.01 || position("left") > 0.99);
+  }
+
+  void aPlaneDragEndsWithoutACommitWhenCancelledOrWhenTheEraserTakesOver() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->camera()->setViewportSize(800, 600);
+    app->setCutFaceEnabled("top", true);
+    app->setCutFacePosition("top", 0.5);
+    const auto centreZ = [&] { return app->cutPlaneSlabs()->data(app->cutPlaneSlabs()->index(0), CutPlaneModel::CenterRole).value<QVector3D>().z(); };
+    const auto position = [&] { return app->cutFaces().at(static_cast<int>(FaceId::Top)).toMap().value("position").toDouble(); };
+    QPoint start(-1, -1);
+    for (int y = 80; y < 520 && start.x() < 0; y += 3)
+      for (int x = 100; x < 700 && start.x() < 0; x += 3)
+        if (app->cutPlaneHoverAt(x, y, 800, 600)) start = QPoint(x, y);
+    QVERIFY(start.x() >= 0);
+    const float z0 = centreZ();
+    const int depth = app->history().value("undoDepth").toInt();
+
+    // Cancel (the press is lost, as with pointercancel): the plane goes back.
+    QVERIFY(app->cutPlaneDragBegin(start.x(), start.y(), 800, 600));
+    app->cutPlaneDragTo(start.x() + 20, start.y() - 60, 800, 600);
+    QVERIFY(std::fabs(centreZ() - z0) > 0.5f);
+    app->cutPlaneDragCancel();
+    QVERIFY(!app->cutPlanes().value("dragging").toBool());
+    QCOMPARE(centreZ(), z0);
+    QCOMPARE(position(), 0.5);
+    QCOMPARE(app->history().value("undoDepth").toInt(), depth);
+    QVERIFY(!app->cutPlaneDragEnd());  // nothing left to release
+
+    // Dragged away and brought back to the press: the plane is where it was, so nothing is recorded and no undo step is made.
+    QVERIFY(app->cutPlaneDragBegin(start.x(), start.y(), 800, 600));
+    app->cutPlaneDragTo(start.x() + 20, start.y() - 60, 800, 600);
+    QVERIFY(std::fabs(centreZ() - z0) > 0.5f);
+    app->cutPlaneDragTo(start.x(), start.y(), 800, 600);
+    QVERIFY(!app->cutPlaneDragEnd());
+    QCOMPARE(position(), 0.5);
+    QCOMPARE(app->history().value("undoDepth").toInt(), depth);
+
+    // The Eraser coming on mid-drag cancels it, and under the Eraser a right-button press does not start one.
+    QVERIFY(app->cutPlaneDragBegin(start.x(), start.y(), 800, 600));
+    app->cutPlaneDragTo(start.x() + 20, start.y() - 60, 800, 600);
+    app->setTool("eraser");
+    QVERIFY(!app->cutPlanes().value("dragging").toBool());
+    QCOMPARE(centreZ(), z0);
+    QCOMPARE(position(), 0.5);
+    QVERIFY(!app->cutPlaneDragBegin(start.x(), start.y(), 800, 600));
+    QVERIFY(!app->cutPlaneHoverAt(start.x(), start.y(), 800, 600));   // the Eraser has its own hover
+    QVERIFY(app->cutPlanes().value("planeHoverFace").toString().isEmpty());
+    QCOMPARE(app->history().value("undoDepth").toInt(), depth);
+
+    // Back to Select: a drag works again.
+    app->setTool("select");
+    QVERIFY(app->cutPlaneDragBegin(start.x(), start.y(), 800, 600));
+    app->cutPlaneDragTo(start.x() + 20, start.y() - 60, 800, 600);
+    QVERIFY(app->cutPlaneDragEnd());
+    QVERIFY(std::fabs(position() - 0.5) > 0.01);
+
+    // Taking the plane away (unchecking its face) while it is being dragged cancels the drag.
+    QPoint again(-1, -1);
+    for (int y = 80; y < 520 && again.x() < 0; y += 3)
+      for (int x = 100; x < 700 && again.x() < 0; x += 3)
+        if (app->cutPlaneHoverAt(x, y, 800, 600)) again = QPoint(x, y);
+    QVERIFY(again.x() >= 0);
+    QVERIFY(app->cutPlaneDragBegin(again.x(), again.y(), 800, 600));
+    app->setCutFaceEnabled("top", false);
+    QVERIFY(!app->cutPlanes().value("dragging").toBool());
+    QCOMPARE(app->cutPlaneSlabs()->rowCount(), 0);
+    QVERIFY(!app->cutPlaneDragBegin(start.x(), start.y(), 800, 600));  // no planes: the right button pans
+  }
+
   void theEraserRemovesAPlaneFromACompleteMoldAndKeepsTheSprues() {
     auto app = makeApp();
     app->importStlFile(bracket());

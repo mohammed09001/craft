@@ -79,6 +79,9 @@ struct NormalizedInterval {
 NormalizedInterval safeNormalizedInterval(const Bounds3& bounds, Axis axis);
 double clampNormalizedPosition(double value, const Bounds3& bounds, Axis axis);
 double normalizedToWorldCoordinate(const Bounds3& bounds, Axis axis, double normalized);
+/// The reference's worldToNormalizedPosition: the clamped fraction of K1's span that `coordinate` is at. Throws
+/// std::invalid_argument for a non-finite coordinate (and for a K1 too thin for a plane, like the others).
+double worldToNormalizedPosition(const Bounds3& bounds, Axis axis, double coordinate);
 
 /// Default plane sits on the chosen K1 face (inset by the epsilon); pass a
 /// normalized position to place it elsewhere along the face's axis.

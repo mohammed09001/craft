@@ -16,6 +16,7 @@ Item {
     property bool overPart: false               // the pointer is over the part or its selection box (pointer cursor)
     property bool gizmoPress: false             // a press that landed on a sprue ring: this gesture belongs to the gizmo
     property bool swallowRelease: false         // the release that ends a double click the gizmo handled is not a click
+    property bool planeDrag: false              // a right-button press that landed on a cutting plane: the gesture drags that plane
     clip: true
 
     // The background is a plain rectangle under a transparent 3D view: Qt tone maps the clear colour, which would turn the
@@ -333,8 +334,13 @@ Item {
             lastX = pressX = e.x; lastY = pressY = e.y; moved = false
             // A press on a sprue ring starts resizing it instead of orbiting (and is never a click that places a sprue).
             root.gizmoPress = e.button === Qt.LeftButton && app.tool === "sprue" && app.sprueGizmoPressAt(e.x, e.y, width, height)
+            // A right-button press on a cutting plane drags the plane instead of panning (not under the Eraser).
+            root.planeDrag = e.button === Qt.RightButton && !root.gizmoPress && app.cutPlaneDragBegin(e.x, e.y, width, height)
         }
-        onCanceled: { if (root.gizmoPress) { root.gizmoPress = false; app.sprueGizmoCancel() } }
+        onCanceled: {
+            if (root.gizmoPress) { root.gizmoPress = false; app.sprueGizmoCancel() }
+            if (root.planeDrag) { root.planeDrag = false; app.cutPlaneDragCancel() }
+        }
         onDoubleClicked: (e) => {
             if (app.tool !== "sprue" || e.button !== Qt.LeftButton) return
             // The press that belongs to this double click already started a resize (no movement yet): drop it.
@@ -350,7 +356,8 @@ Item {
         property real hoverY: 0
         // The Sprue tool shows the reference's funnel cursor (a horizontal-resize cursor over a ring); the Select tool a
         // pointing hand over the part.
-        property string cursorName: app.tool === "sprue" ? (app.sprueGizmo.active ? app.sprueGizmo.cursor : "cross")
+        property string cursorName: app.cutPlanes.cursor ? app.cutPlanes.cursor   // over a cutting plane: an open hand, a closed one while dragging it
+                                  : app.tool === "sprue" ? (app.sprueGizmo.active ? app.sprueGizmo.cursor : "cross")
                                   : app.tool === "eraser" ? "eraser"
                                   : (app.tool === "select" && root.overPart ? "hand" : "arrow")
         onCursorNameChanged: app.applyViewportCursor(mouse, cursorName)
@@ -371,8 +378,13 @@ Item {
             // Over a ring the pointer belongs to the gizmo and there is no placement preview.
             onTriggered: { if (!app.sprueGizmoHoverAt(mouse.hoverX, mouse.hoverY, mouse.width, mouse.height)) app.previewSprueAt(mouse.hoverX, mouse.hoverY, mouse.width, mouse.height) }
         }
-        onExited: { hoverTimer.stop(); sprueTimer.stop(); app.clearHover(); app.clearSprueCandidate(); app.sprueGizmoLeave(); app.eraserLeave(); root.overPart = false }
+        onExited: { hoverTimer.stop(); sprueTimer.stop(); app.clearHover(); app.clearSprueCandidate(); app.sprueGizmoLeave(); app.eraserLeave(); app.cutPlaneLeave(); root.overPart = false }
         onPositionChanged: (e) => {
+            if (root.planeDrag) {   // dragging a cutting plane: the pointer drives the plane, not the camera
+                app.cutPlaneDragTo(e.x, e.y, width, height)
+                return
+            }
+            app.cutPlaneHoverAt(e.x, e.y, width, height)   // a plane under the pointer brightens (not under the Eraser)
             if (root.gizmoPress) {   // resizing a ring: the pointer drives the diameter, not the camera
                 if (app.sprueGizmo.dragging) {
                     app.sprueGizmoDragTo(e.x, e.y, (e.modifiers & Qt.ShiftModifier) !== 0)
@@ -402,6 +414,7 @@ Item {
         onReleased: (e) => {
             const swallow = root.swallowRelease
             root.swallowRelease = false
+            if (root.planeDrag && e.button === Qt.RightButton) { root.planeDrag = false; app.cutPlaneDragEnd(); return }   // commits when it moved
             if (root.gizmoPress) { root.gizmoPress = false; app.sprueGizmoRelease(); return }   // commits when the diameter changed
             if (swallow) return
             if (!moved && e.button === Qt.LeftButton) app.pickAt(e.x, e.y, width, height)

@@ -27,6 +27,8 @@ class CutPlaneModel : public QAbstractListModel {
 
   /// Replaces every row (idle look).
   void setSlabs(const std::vector<PlaneSlab>& slabs);
+  /// Moves one row along an axis (0 x, 1 y, 2 z) to `coordinate`: the plane follows the pointer while it is dragged.
+  void setCoordinate(int row, int axisIndex, double coordinate);
   /// Look of one row; -1 or an unknown row does nothing.
   void setVisual(int row, CutPlaneVisual visual);
   /// The row of a face, or -1.

@@ -40,6 +40,17 @@ void CutPlaneModel::setVisual(int row, CutPlaneVisual visual) {
   emit dataChanged(index(row), index(row), {ColorRole, SurfaceOpacityRole, EdgeOpacityRole});
 }
 
+void CutPlaneModel::setCoordinate(int row, int axisIndex, double coordinate) {
+  if (row < 0 || row >= rowCount() || axisIndex < 0 || axisIndex > 2) return;
+  Row& r = rows_[static_cast<std::size_t>(row)];
+  const float value = static_cast<float>(coordinate);
+  if ((axisIndex == 0 ? r.center.x() : axisIndex == 1 ? r.center.y() : r.center.z()) == value) return;
+  if (axisIndex == 0) r.center.setX(value);
+  else if (axisIndex == 1) r.center.setY(value);
+  else r.center.setZ(value);
+  emit dataChanged(index(row), index(row), {CenterRole});
+}
+
 int CutPlaneModel::rowOf(FaceId face) const {
   for (int row = 0; row < rowCount(); ++row) {
     if (rows_[static_cast<std::size_t>(row)].face == face) return row;
