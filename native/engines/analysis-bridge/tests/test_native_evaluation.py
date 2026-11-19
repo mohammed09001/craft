@@ -281,6 +281,37 @@ def test_loading_refuses_what_it_should(tmp_path, monkeypatch) -> None:
     assert kernels is None and "interface version" in status
 
 
+@pytest.mark.skipif(os.name != "nt", reason="the loader's Bad Image dialog is Windows's")
+def test_loading_a_file_that_is_not_a_library_never_waits_for_a_dialog_to_be_dismissed(tmp_path, monkeypatch) -> None:
+    """Windows answers a file that is not a usable library with a modal "Bad Image" box unless the loading thread asks it not to;
+    a worker nobody is watching would wait for it forever. During the load the thread's error mode must have the box suppressed,
+    and afterwards it must be what it was."""
+    import ctypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.GetThreadErrorMode.restype = ctypes.c_uint
+
+    def thread_error_mode() -> int:
+        return kernel32.GetThreadErrorMode()
+
+    before = thread_error_mode()
+    seen: list[int] = []
+    real_cdll = ctypes.CDLL
+
+    def spying_cdll(path, *args, **kwargs):
+        seen.append(thread_error_mode())
+        return real_cdll(path, *args, **kwargs)
+
+    monkeypatch.setattr(native.ctypes, "CDLL", spying_cdll)
+    junk = tmp_path / "craft_analysis_kernels.dll"
+    junk.write_bytes(b"this is not a library")
+    kernels, status = native.load_kernels(str(junk))
+    assert kernels is None and "could not be loaded" in status
+    assert seen and seen[0] & 0x0001, "SEM_FAILCRITICALERRORS was not set while the file was loaded"
+    assert seen[0] & 0x8000
+    assert thread_error_mode() == before, "the thread's error mode was not restored"
+
+
 def test_the_reference_arithmetic_of_the_check_is_the_engines(kernels) -> None:
     """The check's oracle must itself equal the engine's loop, or passing the check would prove nothing."""
     from mold_generator_engine.geometry import Vector3D

@@ -22,6 +22,7 @@ runs); every other configuration is the engine's code unchanged.
 
 from __future__ import annotations
 
+import contextlib
 import ctypes
 import math
 import os
@@ -94,6 +95,28 @@ class NativeKernels:
         return results
 
 
+_SEM_FAILCRITICALERRORS = 0x0001
+_SEM_NOOPENFILEERRORBOX = 0x8000
+
+
+@contextlib.contextmanager
+def _no_loader_dialogs():
+    """Windows shows a modal "Bad Image" box when it is asked to load a file that is not a usable library (not a PE file, the wrong
+    architecture, a damaged one) and waits for someone to press OK, which would hang a worker nobody is watching. For the load only,
+    this thread asks the loader to fail quietly instead, so the refusal comes back as an OSError and is reported like any other."""
+    if os.name != "nt":
+        yield
+        return
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    previous = ctypes.c_uint(0)
+    changed = bool(kernel32.SetThreadErrorMode(_SEM_FAILCRITICALERRORS | _SEM_NOOPENFILEERRORBOX, ctypes.byref(previous)))
+    try:
+        yield
+    finally:
+        if changed:
+            kernel32.SetThreadErrorMode(previous.value, None)
+
+
 def load_kernels(path: str | None) -> tuple[NativeKernels | None, str]:
     """Load and check the library at ``path``; return it (or None) and one line saying what happened."""
     if not path:
@@ -101,7 +124,8 @@ def load_kernels(path: str | None) -> tuple[NativeKernels | None, str]:
     if not os.path.isfile(path):
         return None, f"native kernels not found at {path}"
     try:
-        library = ctypes.CDLL(path)
+        with _no_loader_dialogs():
+            library = ctypes.CDLL(path)
         library.craft_kernels_abi_version.restype = ctypes.c_int
         version = library.craft_kernels_abi_version()
         if version != ABI_VERSION:

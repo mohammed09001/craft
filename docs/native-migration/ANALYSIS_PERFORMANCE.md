@@ -122,6 +122,7 @@ threads split the candidates, never the faces of one candidate, so the result do
   and opposite to a face, whose dot product rounds to 1 or just past it), four settings including ones taken from the data so that a pair
   lands exactly on the tolerance or the recommended draft, with one thread and with four. One differing bit rejects the library.
   The check costs about 0.7 s once per worker start (most of it importing the engine).
+- The load itself cannot raise a dialog: a file that is not a usable library would make Windows show a modal "Bad Image" box that an unwatched worker would wait on, so the load runs with the thread's error dialogs suppressed (R-Analysis-9).
 - If the library is missing, cannot be loaded, fails the check, or reports an error during a run, the engine's own Python
   evaluation runs and the reason is logged and reported next to the report (`diagnostics.pullDirectionEvaluation`, `diagnostics.kernels`
   in the result envelope, not in the report).
