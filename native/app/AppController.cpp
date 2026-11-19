@@ -76,6 +76,9 @@ AppController::AppController(std::shared_ptr<IMeshGeometryEngine> engine,
     connect(this, signal, this, &AppController::refreshCutPlanes);
   }
   connect(&scene_, &SceneModel::sceneChanged, this, &AppController::refreshCutPlanes);
+  // Master Mold's availability (`canGenerate`) is a model and not-busy state: its panel and its toolbar button must be told when either changes.
+  connect(this, &AppController::modelChanged, this, &AppController::masterMoldChanged);
+  connect(this, &AppController::busyChanged, this, &AppController::masterMoldChanged);
   // The Molds browser follows the scene and the states that decide whether it is shown.
   for (auto signal : {&AppController::moldChanged, &AppController::masterMoldChanged, &AppController::segmentationChanged}) {
     connect(this, signal, this, &AppController::moldBrowserChanged);

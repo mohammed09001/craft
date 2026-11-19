@@ -185,6 +185,22 @@ ApplicationWindow {
     Action { id: fitAction; text: qsTr("&Fit view"); shortcut: "F"; onTriggered: app.fitView() }
     Action { id: resetAction; text: qsTr("&Reset view"); shortcut: "Home"; onTriggered: app.resetView() }
     Action { id: generateAction; text: qsTr("&Generate mold"); shortcut: "Ctrl+G"; onTriggered: app.generateMold() }
+    // Master Mold's own entry, a peer of Generate mold (MasterMoldAction.tsx): it needs only a valid model, never a mold, planes or a cavity, and
+    // is unavailable while it runs (Cancel is in the inspector).
+    Action {
+        id: masterMoldAction
+        text: qsTr("Master Mold")
+        enabled: app.masterMold.canGenerate === true && app.masterMold.generating !== true
+        onTriggered: app.generateMasterMold()
+    }
+    // The button's tooltip is its state, as in the reference: progress, the failure, "needs regeneration", or just the name.
+    readonly property string masterMoldTip: {
+        const m = app.masterMold
+        if (m.generating) return m.progressLabel !== "" ? m.progressLabel : qsTr("Generating Master Mold…")
+        if (m.bannerIsError) return qsTr("Master Mold: ") + m.banner
+        if (m.uiKind === "stale") return qsTr("Master Mold: needs regeneration (the part or printer context changed)")
+        return qsTr("Master Mold")
+    }
     Action { id: undoAction; text: qsTr("&Undo"); shortcut: StandardKey.Undo; enabled: app.history.canUndo; onTriggered: app.undo() }
     Action { id: redoAction; text: qsTr("&Redo"); shortcut: StandardKey.Redo; enabled: app.history.canRedo; onTriggered: app.redo() }
     Action { id: quitAction; text: qsTr("&Quit"); shortcut: StandardKey.Quit; onTriggered: window.close() }
@@ -226,6 +242,7 @@ ApplicationWindow {
         Menu {
             title: qsTr("&Mold")
             MenuItem { action: generateAction; enabled: app.modelPhase === "ready" }
+            MenuItem { action: masterMoldAction }
         }
         Menu {
             title: qsTr("&Help")
@@ -237,7 +254,7 @@ ApplicationWindow {
     header: ToolBar {
         RowLayout {
             anchors.fill: parent
-            spacing: 4
+            spacing: 2   // the buttons carry their own padding; the whole toolbar must fit the minimum window width
             ToolButton { action: openAction }
             ToolButton { action: openProjectAction }
             ToolButton { action: saveAction }
@@ -260,6 +277,15 @@ ApplicationWindow {
             ToolButton { action: resetAction }
             ToolSeparator {}
             ToolButton { action: generateAction; enabled: app.modelPhase === "ready" && !app.busy }
+            ToolButton {
+                objectName: "masterMoldButton"
+                action: masterMoldAction
+                text: qsTr("Master")   // short: the full toolbar must fit the minimum window width (the name, tooltip and menu entry say "Master Mold")
+                Accessible.name: qsTr("Master Mold")
+                highlighted: app.masterMold.uiKind === "success"   // the reference's pressed look once the tooling is complete
+                ToolTip.visible: hovered; ToolTip.text: window.masterMoldTip
+                Accessible.description: window.masterMoldTip
+            }
             ToolSeparator {}
             ToolButton { objectName: "undoButton"; action: undoAction }
             ToolButton { objectName: "redoButton"; action: redoAction }

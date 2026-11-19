@@ -273,6 +273,68 @@ class Smoke : public QObject {
   // the header has the focus (it shows a focus ring and names itself to a screen reader), and Collapse all / Expand all fold every section.
   // The Molds browser through REAL clicks: with the mold generated, a click on a body's checkbox hides that body on the scene and a second one shows it
   // again; the click on "Original" hides the model. (Everything else is folded first so the section sits at the top of the inspector, in view.)
+  // The Master Mold toolbar entry through a REAL click: it needs only an imported model (no mold, planes or cavity), is unavailable while the
+  // tooling is generated, ends highlighted with the plain name as its tooltip, and says "needs regeneration" when a printer change makes it stale.
+  void masterEventsSequence() { whenViewportSettled([this] { masterEventsBody(); }); }
+  void masterEventsBody() {
+#ifndef CRAFT_SMOKE_REAL_EVENTS
+    return fail(QStringLiteral("--master-events needs a build with CRAFT_BUILD_TESTS"));
+#else
+    QWindowSystemInterface::setSynchronousWindowSystemEvents(true);
+    window_->requestActivate();
+    const auto settle = [](int ms) { QEventLoop loop; QTimer::singleShot(ms, &loop, &QEventLoop::quit); loop.exec(); };
+    const auto waitFor = [&settle](const std::function<bool()>& condition, int ms) {
+      QElapsedTimer timer;
+      timer.start();
+      while (!condition() && timer.elapsed() < ms) settle(25);
+      return condition();
+    };
+    std::function<QQuickItem*(QQuickItem*, const QString&)> findItem = [&findItem](QQuickItem* from, const QString& name) -> QQuickItem* {
+      if (from->objectName() == name) return from;
+      for (QQuickItem* child : from->childItems())
+        if (QQuickItem* found = findItem(child, name)) return found;
+      return nullptr;
+    };
+    QQuickItem* button = findItem(window_->contentItem(), QStringLiteral("masterMoldButton"));
+    if (!button) return fail(QStringLiteral("the Master Mold toolbar button was not found"));
+    const auto tip = [&] { return window_->property("masterMoldTip").toString(); };   // what the button's tooltip shows
+    const auto bodyCount = [&] {
+      int n = 0;
+      for (int r = 0; r < app_.scene()->rowCount(); ++r)
+        if (app_.scene()->data(app_.scene()->index(r), SceneModel::KindRole).toString() == QLatin1String("mold-body")) ++n;
+      return n;
+    };
+
+    if (!button->property("enabled").toBool()) return fail(QStringLiteral("the Master Mold button is disabled with a valid model and no mold"));
+    if (button->property("highlighted").toBool()) return fail(QStringLiteral("the Master Mold button is highlighted before anything was generated"));
+    if (tip() != QLatin1String("Master Mold")) return fail(QStringLiteral("the idle tooltip is not the plain name: ") + tip());
+    if (bodyCount() != 0) return fail(QStringLiteral("there are mold bodies before anything was generated"));
+
+    const QPointF scene = button->mapToScene(QPointF(button->width() / 2, button->height() / 2));
+    QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::NoButton, Qt::NoButton, QEvent::MouseMove);
+    QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonPress);
+    QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::NoButton, Qt::LeftButton, QEvent::MouseButtonRelease);
+    // The click started the job (synchronously, with the worker still running): the button is unavailable and its tooltip is the progress.
+    if (!app_.masterMold().value("generating").toBool()) return fail(QStringLiteral("a click on the Master Mold button did not start generating"));
+    if (button->property("enabled").toBool()) return fail(QStringLiteral("the Master Mold button stayed enabled while generating"));
+    if (tip() == QLatin1String("Master Mold")) return fail(QStringLiteral("the tooltip did not show progress while generating"));
+    if (!waitFor([&] { return !app_.masterMold().value("generating").toBool() && app_.masterMold().value("status").toString() != "unavailable"; }, 120000))
+      return fail(QStringLiteral("the Master Mold did not finish"));
+    if (app_.masterMold().value("uiKind").toString() != QLatin1String("success"))
+      return fail(QStringLiteral("the Master Mold did not succeed: ") + app_.masterMold().value("uiKind").toString() + QLatin1String(" ") + app_.masterMold().value("banner").toString());
+    settle(150);
+    if (bodyCount() < 1) return fail(QStringLiteral("a finished Master Mold put no pieces on the scene"));
+    if (!button->property("highlighted").toBool()) return fail(QStringLiteral("the Master Mold button is not highlighted when complete"));
+    if (!button->property("enabled").toBool()) return fail(QStringLiteral("the Master Mold button stayed disabled after finishing"));
+    if (tip() != QLatin1String("Master Mold")) return fail(QStringLiteral("the tooltip after success is not the plain name: ") + tip());
+
+    app_.setPrinterVolume(500, 500, 500);   // a Master input: the result stays, flagged stale
+    settle(150);
+    if (!tip().contains(QLatin1String("needs regeneration"))) return fail(QStringLiteral("a stale result's tooltip does not say so: ") + tip());
+    if (button->property("highlighted").toBool()) return fail(QStringLiteral("a stale Master Mold button is still highlighted"));
+    renderNow();
+#endif
+  }
   void moldsEventsSequence() { whenViewportSettled([this] { moldsEventsBody(); }); }
   void moldsEventsBody() {
 #ifndef CRAFT_SMOKE_REAL_EVENTS
@@ -638,6 +700,7 @@ class Smoke : public QObject {
     if (eraserEvents_) return eraserEventsSequence();
     if (sectionsEvents_) return sectionsEventsSequence();
     if (moldsEvents_) return moldsEventsSequence();
+    if (masterEvents_) return masterEventsSequence();
     if (planeDragEvents_) return planeDragEventsSequence();
     if (spruePreview_ && sprueGizmoEvents_) return gizmoEventsSequence();
     if (spruePreview_ && sprueGizmo_) return gizmoSequence();
@@ -719,6 +782,7 @@ class Smoke : public QObject {
   void setPlaneDragEvents(bool value) { planeDragEvents_ = value; }
   void setSectionsEvents(bool value) { sectionsEvents_ = value; }
   void setMoldsEvents(bool value) { moldsEvents_ = value; }
+  void setMasterEvents(bool value) { masterEvents_ = value; }
   void setDropEvents(bool value) { dropEvents_ = value; }
   void setHintEvents(bool value, bool wheel) { hintEvents_ = value; hintWheel_ = wheel; }
   void setScreenshot(const QString& path) { screenshot_ = path; }
@@ -727,7 +791,7 @@ class Smoke : public QObject {
   AppController& app_;
   QQuickWindow* window_;
   QString importPath_, summary_, screenshot_;
-  bool selectPart_ = false, spruePreview_ = false, spruePreviewInvalid_ = false, sprueGizmo_ = false, sprueGizmoEvents_ = false, eraser_ = false, eraserEvents_ = false, planeDragEvents_ = false, sectionsEvents_ = false, moldsEvents_ = false, dropEvents_ = false, undoEvents_ = false, hintEvents_ = false, hintWheel_ = false;
+  bool selectPart_ = false, spruePreview_ = false, spruePreviewInvalid_ = false, sprueGizmo_ = false, sprueGizmoEvents_ = false, eraser_ = false, eraserEvents_ = false, planeDragEvents_ = false, sectionsEvents_ = false, moldsEvents_ = false, masterEvents_ = false, dropEvents_ = false, undoEvents_ = false, hintEvents_ = false, hintWheel_ = false;
   bool mold_, analyse_, moldability_;
   bool imported_ = false, moldDone_ = false, analysisDone_ = false, reportsDone_ = false, done_ = false;
 };
@@ -770,6 +834,7 @@ int main(int argc, char* argv[]) {
   parser.addOption({"hint-wheel", "The interaction hint through a real wheel event (smoke test)."});
   parser.addOption({"undo-events", "Undo/redo through real input: the toolbar buttons and Ctrl+Z / Ctrl+Y (smoke test)."});
   parser.addOption({"eraser-events", "The Eraser through real mouse events: hover a plane, click empty space, click the plane (smoke test)."});
+  parser.addOption({"master-events", "The Master Mold toolbar button through a real click (smoke test)."});
   parser.addOption({"molds-events", "The Molds browser through real clicks, with a mold generated (smoke test)."});
   parser.addOption({"sections-events", "The inspector's sections through real mouse and keyboard events (smoke test)."});
   parser.addOption({"drop-events", "Dropping files on the window through real platform drag-and-drop events (smoke test)."});
@@ -838,6 +903,7 @@ int main(int argc, char* argv[]) {
     smoke->setDropEvents(parser.isSet("drop-events"));
     smoke->setSectionsEvents(parser.isSet("sections-events"));
     smoke->setMoldsEvents(parser.isSet("molds-events"));
+    smoke->setMasterEvents(parser.isSet("master-events"));
     smoke->setHintEvents(parser.isSet("hint-events") || parser.isSet("hint-wheel"), parser.isSet("hint-wheel"));
     smoke->setScreenshot(parser.value("screenshot"));
     QTimer::singleShot(0, smoke.get(), [&smoke] { smoke->start(); });

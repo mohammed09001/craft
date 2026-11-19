@@ -1909,6 +1909,24 @@ class WorkflowTest : public QObject {
     QCOMPARE(app->cavityQuality(), QStringLiteral("high"));
   }
 
+  // `canGenerate` depends on the model and on the busy state, so the panel's property must notify when either changes (it did not: the toolbar button
+  // and the inspector's button stayed disabled after an import, until some Master event happened to refresh them).
+  void masterMoldAvailabilityNotifiesWhenTheModelOrBusyStateChanges() {
+    auto app = makeApp();
+    QCOMPARE(app->masterMold().value("canGenerate").toBool(), false);
+    QSignalSpy spy(app.get(), &AppController::masterMoldChanged);
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    QTRY_VERIFY(!app->busy());
+    QVERIFY(spy.count() > 0);
+    QCOMPARE(app->masterMold().value("canGenerate").toBool(), true);
+    spy.clear();
+    app->setBodyVisible(QString(), true);   // not a Master input: no notification from this alone
+    app->generateMold();                    // the busy state toggles while it runs
+    QVERIFY(waitFor([&] { return app->moldPhase() == "complete" || app->moldPhase() == "error"; }));
+    QVERIFY2(spy.count() >= 2, "busy turning on and off did not notify the Master Mold panel");
+  }
+
   void theMoldsBrowserShowsAndHidesBodiesAndTheModel() {
     auto app = makeApp();
     app->importStlFile(bracket());
