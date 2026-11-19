@@ -145,6 +145,40 @@ class StlTest : public QObject {
     QVERIFY(!std::filesystem::exists(target.string() + ".craft-tmp"));
   }
 
+  // readFileBytes: the bytes readFile parses, read in chunks that report progress and can be stopped (a 512 MiB file is the limit).
+  void aFileIsReadInChunksWithProgressAndCanBeStopped() {
+    QTemporaryDir directory;
+    const std::filesystem::path target = std::filesystem::path(directory.path().toStdString()) / "sphere.stl";
+    const MeshPayload sphere = test::sphereMesh({0, 0, 50}, 50, 60, 30);   // a few thousand facets: several chunks at 16 KiB
+    stl::writeBinary(target, sphere);
+    const std::uintmax_t size = std::filesystem::file_size(target);
+
+    std::vector<double> seen;
+    const std::vector<std::uint8_t> bytes = stl::readFileBytes(target, stl::kNativeMaxFileBytes, {}, [&](double f) { seen.push_back(f); }, 16 * 1024);
+    QCOMPARE(static_cast<std::uintmax_t>(bytes.size()), size);
+    QVERIFY(seen.size() > 4);
+    for (std::size_t i = 1; i < seen.size(); ++i) QVERIFY2(seen[i] > seen[i - 1], "progress must increase with every chunk");
+    QCOMPARE(seen.back(), 1.0);
+    QCOMPARE(stl::parse(bytes).soup.positions, stl::readFile(target).soup.positions);   // readFile is this followed by parse
+
+    for (int stopAfter : {0, 1, 3}) {
+      int polls = 0;
+      try {
+        stl::readFileBytes(target, stl::kNativeMaxFileBytes, [&] { return polls++ >= stopAfter; }, {}, 16 * 1024);
+        QFAIL("the read was not stopped");
+      } catch (const CodedError& error) {
+        QCOMPARE(error.code(), std::string("stl_cancelled"));
+      }
+    }
+    // The checks readFile makes are still made, with or without a control.
+    try {
+      stl::readFileBytes(directory.path().toStdString() + "/nothing.txt", stl::kNativeMaxFileBytes, [] { return false; });
+      QFAIL("a wrong extension was accepted");
+    } catch (const CodedError& error) {
+      QCOMPARE(error.code(), std::string("stl_invalid_selection"));
+    }
+  }
+
   void exportWritesOutwardUnitNormals() {
     QTemporaryDir directory;
     const std::filesystem::path target =

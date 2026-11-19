@@ -27,6 +27,8 @@
 #include <QString>
 #include <functional>
 #include <optional>
+#include <cstddef>
+#include <functional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -40,7 +42,8 @@ namespace craft::project {
 /// Error codes (ProjectIoError::code()):
 ///   project_not_found, project_unreadable, project_not_a_craft_file, project_truncated, project_corrupt,
 ///   project_asset_corrupt, project_unsupported_version, project_invalid, project_migration_failed,
-///   project_write_failed, project_asset_missing (linked model), project_asset_changed (linked model).
+///   project_write_failed, project_asset_missing (linked model), project_asset_changed (linked model),
+///   project_cancelled (the caller's IoControl asked to stop).
 class ProjectIoError : public std::runtime_error {
  public:
   ProjectIoError(std::string code, const std::string& message) : std::runtime_error(message), code_(std::move(code)) {}
@@ -59,8 +62,18 @@ struct MigrationStep {
 /// The migrations shipped with this build, ordered by fromMajor. Empty while the format is at its first major.
 const std::vector<MigrationStep>& builtinMigrations();
 
+/// Cooperative cancellation and progress for a long read or write; both parts are optional. `cancelled` is polled between chunks of about `chunkBytes` and
+/// at the stage boundaries; `progress` receives 0..1 for the whole operation (never decreasing). A cancelled write leaves the target exactly as it was (the
+/// temporary file is discarded), a cancelled read returns nothing; both throw ProjectIoError("project_cancelled"). Calls come from the calling thread.
+struct IoControl {
+  std::function<bool()> cancelled;
+  std::function<void(double)> progress;
+  std::size_t chunkBytes = 1u << 20;
+};
+
 struct WriteOptions {
   bool keepBackup = true;
+  IoControl control;
   /// Test hooks (also how files for older readers could be produced): write another format version.
   std::optional<int> overrideFormatMajor, overrideFormatMinor;
 };
@@ -72,6 +85,7 @@ void writeProject(const QString& path, const Document& document, const QByteArra
 struct ReadOptions {
   /// Replaces builtinMigrations() (tests inject a chain; production passes nothing).
   const std::vector<MigrationStep>* migrations = nullptr;
+  IoControl control;
 };
 
 struct ProjectBundle {
@@ -96,7 +110,7 @@ bool isIntactProject(const QString& path);
 
 /// Loads the bytes of a linked model and verifies size and SHA-256. `pathOverride` relinks to another location.
 /// Throws project_asset_missing (no such file) or project_asset_changed (size/hash differ from the project's record).
-QByteArray loadLinkedModel(const ModelReference& model, const QString& pathOverride = {});
+QByteArray loadLinkedModel(const ModelReference& model, const QString& pathOverride = {}, const IoControl& control = {});
 
 /// Lowercase hex SHA-256.
 std::string sha256Hex(const QByteArray& bytes);

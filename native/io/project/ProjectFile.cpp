@@ -47,6 +47,44 @@ QByteArray encodeHeader(int major, int minor, quint64 manifestOffset, quint64 ma
 
 QByteArray sha256Raw(const QByteArray& bytes) { return QCryptographicHash::hash(bytes, QCryptographicHash::Sha256); }
 
+void checkCancelled(const IoControl& control) {
+  if (control.cancelled && control.cancelled()) fail("project_cancelled", "The operation was cancelled.");
+}
+void report(const IoControl& control, double fraction) {
+  if (control.progress) control.progress(std::clamp(fraction, 0.0, 1.0));
+}
+qint64 chunkOf(const IoControl& control) { return static_cast<qint64>(std::max<std::size_t>(control.chunkBytes, 1)); }
+
+/// SHA-256 of `bytes`, in chunks so that a long hash can report progress (spanning `from`..`to`) and be cancelled.
+QByteArray sha256Chunked(const QByteArray& bytes, const IoControl& control, double from, double to) {
+  QCryptographicHash hash(QCryptographicHash::Sha256);
+  const qint64 chunk = chunkOf(control);
+  for (qint64 at = 0; at < bytes.size(); at += chunk) {
+    checkCancelled(control);
+    const qint64 n = std::min(chunk, bytes.size() - at);
+    hash.addData(QByteArrayView(bytes.constData() + at, n));
+    report(control, from + (to - from) * static_cast<double>(at + n) / static_cast<double>(bytes.size()));
+  }
+  return hash.result();
+}
+
+/// Reads `size` bytes from the current position of `file` in chunks, hashing as it goes. `hash` receives the SHA-256 of what was read.
+QByteArray readChunked(QFile& file, qint64 size, const IoControl& control, double from, double to, QByteArray& hash, const char* failure) {
+  QByteArray data(size, Qt::Uninitialized);
+  QCryptographicHash digest(QCryptographicHash::Sha256);
+  const qint64 chunk = chunkOf(control);
+  for (qint64 at = 0; at < size;) {
+    checkCancelled(control);
+    const qint64 n = file.read(data.data() + at, std::min(chunk, size - at));
+    if (n <= 0) fail("project_unreadable", failure);
+    digest.addData(QByteArrayView(data.constData() + at, n));
+    at += n;
+    report(control, from + (to - from) * static_cast<double>(at) / static_cast<double>(size));
+  }
+  hash = digest.result();
+  return data;
+}
+
 struct Opened {
   QFile file;
   qint64 size = 0;
@@ -134,9 +172,11 @@ void writeProject(const QString& path, const Document& document, const QByteArra
   const bool embedded = document.model && document.model->storage == "embedded";
   if (embedded) {
     if (modelBytes.isEmpty()) fail("project_invalid", "The project cannot be saved: the embedded model has no data.");
-    if (sha256Hex(modelBytes) != document.model->sha256 || static_cast<std::uint64_t>(modelBytes.size()) != document.model->sizeBytes)
+    if (sha256Chunked(modelBytes, options.control, 0.0, 0.2).toHex().toStdString() != document.model->sha256 ||
+        static_cast<std::uint64_t>(modelBytes.size()) != document.model->sizeBytes)
       fail("project_invalid", "The project cannot be saved: the embedded model data does not match its recorded size and hash.");
   }
+  checkCancelled(options.control);
   const int major = options.overrideFormatMajor.value_or(kFormatMajor), minor = options.overrideFormatMinor.value_or(kFormatMinor);
 
   // Keep the previous good file as "<name>.bak" before replacing it (only when it verifies, so a bad file never
@@ -151,9 +191,21 @@ void writeProject(const QString& path, const Document& document, const QByteArra
   file.setDirectWriteFallback(false);  // never write straight into the real file
   QDir().mkpath(QFileInfo(path).absolutePath());
   if (!file.open(QIODevice::WriteOnly)) fail("project_write_failed", "The project file could not be created: " + file.errorString().toStdString());
+  try {
 
   const auto write = [&](const QByteArray& bytes) {
     if (file.write(bytes) != bytes.size()) fail("project_write_failed", "Writing the project failed: " + file.errorString().toStdString());
+  };
+  // The model is the bulk of the file: written in chunks (spanning 0.2..0.95 of the progress) so that it can report and be cancelled.
+  const auto writeChunked = [&](const QByteArray& bytes) {
+    const qint64 chunk = chunkOf(options.control);
+    for (qint64 at = 0; at < bytes.size();) {
+      checkCancelled(options.control);
+      const qint64 n = std::min(chunk, bytes.size() - at);
+      if (file.write(bytes.constData() + at, n) != n) fail("project_write_failed", "Writing the project failed: " + file.errorString().toStdString());
+      at += n;
+      report(options.control, 0.2 + 0.75 * static_cast<double>(at) / static_cast<double>(bytes.size()));
+    }
   };
   write(encodeHeader(major, minor, 0, 0));  // patched once the manifest position is known
 
@@ -167,7 +219,7 @@ void writeProject(const QString& path, const Document& document, const QByteArra
     entry.offset = static_cast<std::uint64_t>(file.pos());
     entry.size = static_cast<std::uint64_t>(modelBytes.size());
     entry.sha256 = document.model->sha256;
-    write(modelBytes);
+    writeChunked(modelBytes);
     assets.push_back(entry);
   }
 
@@ -186,12 +238,21 @@ void writeProject(const QString& path, const Document& document, const QByteArra
 
   if (!file.seek(0)) fail("project_write_failed", "Writing the project failed: " + file.errorString().toStdString());
   write(encodeHeader(major, minor, manifestOffset, static_cast<quint64>(manifest.size())));
+  checkCancelled(options.control);  // the last point at which stopping leaves the target as it was: after the commit the new file is the file
   if (!file.commit()) fail("project_write_failed", "The project could not be saved: " + file.errorString().toStdString());
+  report(options.control, 1.0);
+
+  } catch (...) {
+    file.cancelWriting();  // a failed or cancelled write never replaces the file and leaves no temporary file behind
+    throw;
+  }
 }
 
 ProjectBundle readProject(const QString& path, const ReadOptions& options) {
+  checkCancelled(options.control);
   Opened opened;
   openAndVerify(path, opened);
+  report(options.control, 0.02);
   ProjectBundle bundle;
   bundle.fileMajor = opened.header.major;
   bundle.fileMinor = opened.header.minor;
@@ -238,23 +299,25 @@ ProjectBundle readProject(const QString& path, const ReadOptions& options) {
     if (asset->offset < static_cast<quint64>(kHeaderBytes) || asset->offset + asset->size > opened.header.manifestOffset)
       fail("project_asset_corrupt", "The model data's position inside the project is invalid.");
     opened.file.seek(static_cast<qint64>(asset->offset));
-    bundle.embeddedModelBytes = opened.file.read(static_cast<qint64>(asset->size));
-    if (static_cast<quint64>(bundle.embeddedModelBytes.size()) != asset->size) fail("project_unreadable", "The model data could not be read from the project.");
-    if (sha256Hex(bundle.embeddedModelBytes) != asset->sha256 || asset->sha256 != parsed.document.model->sha256)
+    QByteArray digest;
+    bundle.embeddedModelBytes = readChunked(opened.file, static_cast<qint64>(asset->size), options.control, 0.05, 1.0, digest, "The model data could not be read from the project.");
+    if (digest.toHex().toStdString() != asset->sha256 || asset->sha256 != parsed.document.model->sha256)
       fail("project_asset_corrupt", "The model data failed its integrity check (SHA-256 mismatch); the project is damaged. If a backup (.bak) exists next to it, open that.");
   }
   bundle.document = std::move(parsed.document);
+  report(options.control, 1.0);
   return bundle;
 }
 
-QByteArray loadLinkedModel(const ModelReference& model, const QString& pathOverride) {
+QByteArray loadLinkedModel(const ModelReference& model, const QString& pathOverride, const IoControl& control) {
   const QString path = pathOverride.isEmpty() ? QString::fromStdString(model.linkedPath) : pathOverride;
   QFile file(path);
   if (!QFileInfo::exists(path) || !file.open(QIODevice::ReadOnly)) fail("project_asset_missing", "The linked model file was not found: " + path.toStdString());
   if (static_cast<std::uint64_t>(file.size()) != model.sizeBytes)
     fail("project_asset_changed", "The linked model file has changed since the project was saved (size " + std::to_string(file.size()) + ", expected " + std::to_string(model.sizeBytes) + "): " + path.toStdString());
-  const QByteArray bytes = file.readAll();
-  if (sha256Hex(bytes) != model.sha256) fail("project_asset_changed", "The linked model file has changed since the project was saved (its content differs): " + path.toStdString());
+  QByteArray digest;
+  const QByteArray bytes = readChunked(file, file.size(), control, 0.0, 1.0, digest, "The linked model file could not be read.");
+  if (digest.toHex().toStdString() != model.sha256) fail("project_asset_changed", "The linked model file has changed since the project was saved (its content differs): " + path.toStdString());
   return bytes;
 }
 

@@ -15,7 +15,10 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QRegularExpression>
+#include <QSemaphore>
 #include <QSignalSpy>
+#include <QThreadPool>
+#include <QtConcurrent>
 #include <QTemporaryDir>
 
 #include <set>
@@ -48,6 +51,27 @@ bool waitFor(const std::function<bool()>& done, int ms = 60000) {
   while (!done() && t.elapsed() < ms) QTest::qWait(20);
   return done();
 }
+// Holds the only worker thread, so that a job started afterwards cannot begin until it is released: "cancel before the work starts" without any hook.
+struct HeldWorker {
+  QSemaphore release;
+  int previousMax;
+  HeldWorker() : previousMax(QThreadPool::globalInstance()->maxThreadCount()) {
+    QThreadPool::globalInstance()->setMaxThreadCount(1);
+    QtConcurrent::run([this] { release.acquire(); });
+    QTest::qWait(50);   // let the blocker take the thread
+  }
+  void let() { release.release(); }
+  ~HeldWorker() {
+    release.release();
+    QThreadPool::globalInstance()->setMaxThreadCount(previousMax);
+  }
+};
+
+QByteArray fileBytes(const QString& path) {
+  QFile f(path);
+  return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
+}
+
 }  // namespace
 
 class WorkflowTest : public QObject {
@@ -1758,6 +1782,161 @@ class WorkflowTest : public QObject {
 
   static bool waitForProject(AppController& app, const QString& what) {
     return waitFor([&] { return !app.project().value(what).toBool(); }, 60000);
+  }
+
+  // A save or an open reports its stage and progress (the footer shows them) and can be cancelled (the footer's Cancel button).
+  void aSaveReportsItsProgressAndTheProjectFileEndsComplete() {
+    QTemporaryDir dir;
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    QStringList stages;
+    QList<double> fractions;
+    QObject::connect(app.get(), &AppController::projectChanged, app.get(), [&] {
+      if (!app->project().value("saving").toBool()) return;
+      stages << app->project().value("stage").toString();
+      fractions << app->project().value("progress").toDouble();
+    });
+    app->saveProjectToFile(dir.filePath("p.craft"));
+    QVERIFY(app->project().value("saving").toBool());
+    QVERIFY(waitForProject(*app, "saving"));
+    QVERIFY2(stages.contains("saving"), qPrintable("stages seen: " + stages.join(",")));
+    for (int i = 1; i < fractions.size(); ++i) QVERIFY2(fractions[i] >= fractions[i - 1], "progress went backwards");
+    QVERIFY(QFileInfo::exists(dir.filePath("p.craft")));
+  }
+
+  void aSaveCancelledBeforeItWritesLeavesTheFileAndTheUnsavedStateAlone() {
+    QTemporaryDir dir;
+    const QString file = dir.filePath("p.craft");
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->saveProjectToFile(file);
+    QVERIFY(waitForProject(*app, "saving"));
+    const QByteArray saved = fileBytes(file);
+    QVERIFY(!saved.isEmpty());
+
+    app->setCavityClearanceMm(1.5);   // an unsaved change
+    QTRY_VERIFY(app->project().value("dirty").toBool());
+    QSignalSpy errors(app.get(), &AppController::errorOccurred);
+    {
+      HeldWorker held;
+      app->saveProjectToFile(file);
+      QVERIFY(app->project().value("saving").toBool());
+      app->cancelProjectOperation();
+      held.let();
+      QVERIFY(waitForProject(*app, "saving"));
+    }
+    QVERIFY2(fileBytes(file) == saved, "a cancelled save must leave the project file exactly as it was");
+    QVERIFY(app->project().value("dirty").toBool());   // still unsaved: nothing was lost and nothing was claimed saved
+    QVERIFY(app->statusText().contains("cancelled"));
+    QCOMPARE(errors.count(), 0);                      // a cancel is not an error
+    for (const QString& name : QDir(dir.path()).entryList(QDir::Files | QDir::NoDotAndDotDot)) QVERIFY2(name == "p.craft" || name == "p.craft.bak", qPrintable("left behind: " + name));
+
+    // The next save works as usual.
+    app->saveProjectToFile(file);
+    QVERIFY(waitForProject(*app, "saving"));
+    QVERIFY(fileBytes(file) != saved);
+    QTRY_VERIFY(!app->project().value("dirty").toBool());
+  }
+
+  void anOpenCancelledBeforeItReadsLeavesTheOpenDocumentAsItIs() {
+    QTemporaryDir dir;
+    const QString file = dir.filePath("p.craft");
+    {
+      auto source = makeApp();
+      source->importStlFile(bracket());
+      QVERIFY(waitFor([&] { return source->modelPhase() == "ready"; }));
+      source->saveProjectToFile(file);
+      QVERIFY(waitForProject(*source, "saving"));
+    }
+    auto app = makeApp();
+    app->importStlFile(fixtureStl("closed_tetrahedron_ascii.stl"));
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    QSignalSpy errors(app.get(), &AppController::errorOccurred);
+    {
+      HeldWorker held;
+      app->openProjectFile(file);
+      QVERIFY(app->project().value("opening").toBool());
+      app->cancelProjectOperation();
+      held.let();
+      QVERIFY(waitForProject(*app, "opening"));
+    }
+    QCOMPARE(app->model()->fileName, QStringLiteral("closed_tetrahedron_ascii.stl"));   // the document that was open is still open
+    QVERIFY(app->statusText().contains("cancelled"));
+    QCOMPARE(errors.count(), 0);
+
+    // And the same project opens normally afterwards.
+    app->openProjectFile(file);
+    QVERIFY(waitForProject(*app, "opening"));
+    QTRY_COMPARE(app->model()->fileName, QStringLiteral("bracket.stl"));
+  }
+
+  void anImportReportsItsProgress() {
+    auto app = makeApp();
+    QStringList stages;
+    QObject::connect(app.get(), &AppController::projectChanged, app.get(), [&] {
+      if (app->project().value("loading").toBool()) stages << app->project().value("stage").toString();
+    });
+    app->importStlFile(bracket());
+    QVERIFY(app->project().value("loading").toBool());   // the footer shows a progress bar and Cancel while this is true
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    QVERIFY2(stages.contains("reading"), qPrintable("stages seen: " + stages.join(",")));
+    QVERIFY(!app->project().value("loading").toBool());
+  }
+
+  void anImportCancelledBeforeItReadsKeepsThePreviousModelOrNone() {
+    // With a model already open: it stays open, as it was.
+    {
+      auto app = makeApp();
+      app->importStlFile(fixtureStl("closed_tetrahedron_ascii.stl"));
+      QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+      QSignalSpy errors(app.get(), &AppController::errorOccurred);
+      {
+        HeldWorker held;
+        app->importStlFile(bracket());
+        QCOMPARE(app->modelPhase(), QStringLiteral("loading"));
+        app->cancelProjectOperation();
+        held.let();
+        QVERIFY(waitFor([&] { return app->modelPhase() != "loading"; }));
+      }
+      QCOMPARE(app->modelPhase(), QStringLiteral("ready"));
+      QCOMPARE(app->model()->fileName, QStringLiteral("closed_tetrahedron_ascii.stl"));
+      QVERIFY(app->statusText().contains("cancelled"));
+      QCOMPARE(errors.count(), 0);
+      QVERIFY(!app->project().value("loading").toBool());
+    }
+    // With nothing open: back to the empty state, not an error.
+    {
+      auto app = makeApp();
+      QSignalSpy errors(app.get(), &AppController::errorOccurred);
+      {
+        HeldWorker held;
+        app->importStlFile(bracket());
+        app->cancelProjectOperation();
+        held.let();
+        QVERIFY(waitFor([&] { return app->modelPhase() != "loading"; }));
+      }
+      QCOMPARE(app->modelPhase(), QStringLiteral("empty"));
+      QVERIFY(!app->model().has_value());
+      QCOMPARE(errors.count(), 0);
+      // and the next import is not poisoned by the cancelled one
+      app->importStlFile(bracket());
+      QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+      QCOMPARE(app->model()->fileName, QStringLiteral("bracket.stl"));
+    }
+  }
+
+  void cancellingWhenNothingRunsDoesNothing() {
+    QTemporaryDir dir;
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->cancelProjectOperation();   // nothing is saving or opening: must not poison the next operation
+    app->saveProjectToFile(dir.filePath("p.craft"));
+    QVERIFY(waitForProject(*app, "saving"));
+    QVERIFY(QFileInfo::exists(dir.filePath("p.craft")));
+    QVERIFY(!app->statusText().contains("cancelled"));
   }
 
   void projectRoundTripRestoresInputsAndRebuildsTheSameMold() {

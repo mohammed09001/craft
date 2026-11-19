@@ -150,7 +150,10 @@ ReadResult parse(std::span<const std::uint8_t> bytes) {
   return isBinary(bytes) ? parseBinary(bytes) : parseAscii(bytes);
 }
 
-ReadResult readFile(const std::filesystem::path& path, std::uintmax_t maxFileBytes) {
+ReadResult readFile(const std::filesystem::path& path, std::uintmax_t maxFileBytes) { return parse(readFileBytes(path, maxFileBytes)); }
+
+std::vector<std::uint8_t> readFileBytes(const std::filesystem::path& path, std::uintmax_t maxFileBytes, const std::function<bool()>& cancelled,
+                                        const std::function<void(double)>& progress, std::size_t chunkBytes) {
   if (lowerExtension(path) != ".stl") {
     throw CodedError("stl_invalid_selection", "Only .stl files are supported.");
   }
@@ -164,11 +167,16 @@ ReadResult readFile(const std::filesystem::path& path, std::uintmax_t maxFileByt
 
   std::ifstream stream(path, std::ios::binary);
   std::vector<std::uint8_t> bytes(static_cast<std::size_t>(size));
-  if (!stream || !stream.read(reinterpret_cast<char*>(bytes.data()),
-                              static_cast<std::streamsize>(bytes.size()))) {
-    throw CodedError("stl_unreadable", "The STL file could not be read.");
+  if (!stream) throw CodedError("stl_unreadable", "The STL file could not be read.");
+  const std::size_t chunk = std::max<std::size_t>(chunkBytes, 1);
+  for (std::size_t at = 0; at < bytes.size();) {
+    if (cancelled && cancelled()) throw CodedError("stl_cancelled", "Loading the STL file was cancelled.");
+    const std::size_t n = std::min(chunk, bytes.size() - at);
+    if (!stream.read(reinterpret_cast<char*>(bytes.data() + at), static_cast<std::streamsize>(n))) throw CodedError("stl_unreadable", "The STL file could not be read.");
+    at += n;
+    if (progress) progress(static_cast<double>(at) / static_cast<double>(bytes.size()));
   }
-  return parse(bytes);
+  return bytes;
 }
 
 Bounds3 validateDisplayable(const TriangleSoup& soup) {

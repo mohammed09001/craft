@@ -238,6 +238,8 @@ class AppController : public QObject {
   /// Opens an autosave file as an unsaved project (its original location is remembered for the Save As suggestion).
   Q_INVOKABLE void recoverProject(const QString& autosavePath);
   Q_INVOKABLE void discardRecovery();
+  /// Stops the save, open or import that is running (nothing happens when none is): the file stays as it was, or the document stays as it is.
+  Q_INVOKABLE void cancelProjectOperation();
   /// Writes the autosave now (only when there are unsaved changes). The timer calls this every autosaveIntervalMs.
   void autosaveNow();
   void setAutosaveIntervalMs(int ms);
@@ -664,6 +666,10 @@ class AppController : public QObject {
   std::string baselineFingerprint_;
   bool projectDirty_ = false;
   bool projectSaving_ = false, projectOpening_ = false;
+  // The running save or open: its cancellation, and what it reports (stage and 0..1) for the progress bar.
+  CancellationToken projectCancel_, importCancel_;
+  QString projectStage_;
+  double projectProgress_ = 0;
   QString projectLastSavedAt_, projectRecoveredFrom_, lastAutosaveAt_;
   QTimer dirtyTimer_, autosaveTimer_;
   QVariantMap recovery_;

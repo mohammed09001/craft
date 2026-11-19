@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <span>
 #include <string>
 #include <vector>
@@ -40,9 +41,17 @@ struct ReadResult {
 ///   stl_unreadable         the file could not be opened or read
 ///   stl_parse_failed       malformed ASCII or truncated binary data
 ///   stl_invalid_geometry   no vertices, non-finite values, or no size
+///   stl_cancelled          readFileBytes was asked to stop
 ReadResult parse(std::span<const std::uint8_t> bytes);
 ReadResult readFile(const std::filesystem::path& path,
                     std::uintmax_t maxFileBytes = kNativeMaxFileBytes);
+
+/// The file's bytes with readFile's checks (extension, empty, too large, unreadable), read in chunks of `chunkBytes` so that a long read can report
+/// progress (0..1) and be stopped: `cancelled` (optional) is polled between chunks and throws CodedError("stl_cancelled") when it returns true.
+/// readFile is this followed by parse().
+std::vector<std::uint8_t> readFileBytes(const std::filesystem::path& path, std::uintmax_t maxFileBytes = kNativeMaxFileBytes,
+                                        const std::function<bool()>& cancelled = {}, const std::function<void(double)>& progress = {},
+                                        std::size_t chunkBytes = std::size_t{1} << 20);
 
 /// Port of validateGeometry(): throws stl_invalid_geometry with the reference
 /// message when the soup is not displayable; returns its bounds otherwise.

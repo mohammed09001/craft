@@ -554,6 +554,158 @@ class ProjectTest : public QObject {
     QCOMPARE(s.modelFileName, d.model->fileName);
     QCOMPARE(s.formatMajor, kFormatMajor);
   }
+
+  // --- cancellation and progress (IoControl) ---------------------------------------------------------------------------------------------------
+  // A long save or open reports progress and can be stopped between chunks. A stopped save leaves the file exactly as it was, and no temporary file;
+  // a stopped open returns nothing; progress never goes backwards and ends at 1 on success.
+  void aCancelledSaveLeavesTheExistingFileAndNoTemporaryFile() {
+    QTemporaryDir dir;
+    const QByteArray stl = fakeStl(60000);   // 3 MB: several chunks at 256 KiB
+    const Document doc = fullDocument(stl);
+    const QString path = dir.filePath("p.craft");
+    WriteOptions first;
+    writeProject(path, doc, stl, first);
+    QFile before(path);
+    QVERIFY(before.open(QIODevice::ReadOnly));
+    const QByteArray original = before.readAll();
+    before.close();
+
+    Document changed = doc;
+    changed.mold.cavityClearanceMm = 4.5;
+    for (int stopAfter : {0, 1, 4, 9}) {   // before anything, early, mid-model, late: every poll is a place where stopping is possible
+      int polls = 0;
+      WriteOptions options;
+      options.control.chunkBytes = 256 * 1024;
+      options.control.cancelled = [&] { return polls++ >= stopAfter; };
+      try {
+        writeProject(path, changed, stl, options);
+        QFAIL(qPrintable(QStringLiteral("stopping after %1 polls did not stop the save").arg(stopAfter)));
+      } catch (const ProjectIoError& error) {
+        QCOMPARE(error.code(), std::string("project_cancelled"));
+      }
+      QFile now(path);
+      QVERIFY(now.open(QIODevice::ReadOnly));
+      QVERIFY2(now.readAll() == original, "a cancelled save must leave the file exactly as it was");
+      for (const QString& name : QDir(dir.path()).entryList(QDir::Files | QDir::NoDotAndDotDot))   // the file, and its backup if the stop came after that step: no temporary file
+        QVERIFY2(name == "p.craft" || name == "p.craft.bak", qPrintable("a cancelled save left " + name));
+    }
+  }
+
+  // Each place where a save can stop is checked by itself: the stop is requested when the progress reaches a stage (while hashing, in the middle of the model, and
+  // after its last chunk, where only the check before the commit is left), and the save must stop within a chunk or two, leaving the file as it was.
+  void aSaveStopsPromptlyInEveryStage() {
+    QTemporaryDir dir;
+    const QByteArray stl = fakeStl(60000);
+    const Document doc = fullDocument(stl);
+    const QString path = dir.filePath("p.craft");
+    writeProject(path, doc, stl);
+    QFile original(path);
+    QVERIFY(original.open(QIODevice::ReadOnly));
+    const QByteArray before = original.readAll();
+    original.close();
+    Document changed = doc;
+    changed.mold.cavityClearanceMm = 4.5;
+
+    struct Stage { const char* name; double at; double slack; };
+    for (const Stage& stage : {Stage{"while hashing the model", 0.05, 0.04}, Stage{"in the middle of writing", 0.5, 0.07}, Stage{"after the last chunk, before the commit", 0.95, 0.001}}) {
+      bool stopRequested = false;
+      double highest = 0;
+      WriteOptions options;
+      options.control.chunkBytes = 256 * 1024;
+      options.control.progress = [&](double f) {
+        highest = std::max(highest, f);
+        if (f >= stage.at) stopRequested = true;
+      };
+      options.control.cancelled = [&] { return stopRequested; };
+      try {
+        writeProject(path, changed, stl, options);
+        QFAIL(stage.name);   // it finished: the stop was never honoured
+      } catch (const ProjectIoError& error) {
+        QCOMPARE(error.code(), std::string("project_cancelled"));
+      }
+      QVERIFY2(highest <= stage.at + stage.slack, qPrintable(QStringLiteral("%1: the save went on to %2 after the stop at %3").arg(stage.name).arg(highest).arg(stage.at)));
+      QFile now(path);
+      QVERIFY(now.open(QIODevice::ReadOnly));
+      QVERIFY2(now.readAll() == before, stage.name);
+    }
+  }
+
+  void aSaveReportsProgressThatNeverGoesBackwardsAndEndsAtOne() {
+    QTemporaryDir dir;
+    const QByteArray stl = fakeStl(60000);
+    std::vector<double> seen;
+    WriteOptions options;
+    options.control.chunkBytes = 256 * 1024;
+    options.control.progress = [&](double f) { seen.push_back(f); };
+    writeProject(dir.filePath("p.craft"), fullDocument(stl), stl, options);
+    QVERIFY(seen.size() > 10);   // hashing and writing both report in chunks
+    for (std::size_t i = 1; i < seen.size(); ++i) QVERIFY2(seen[i] >= seen[i - 1], "progress went backwards");
+    QVERIFY(seen.front() > 0 && seen.front() < 0.5);
+    QCOMPARE(seen.back(), 1.0);
+    QVERIFY(readProject(dir.filePath("p.craft")).embeddedModelBytes == stl);   // and the result is the same file as without a control
+  }
+
+  void aCancelledOpenReturnsNothingAndAnOpenReportsProgress() {
+    QTemporaryDir dir;
+    const QByteArray stl = fakeStl(60000);
+    writeProject(dir.filePath("p.craft"), fullDocument(stl), stl);
+
+    std::vector<double> seen;
+    ReadOptions watch;
+    watch.control.chunkBytes = 256 * 1024;
+    watch.control.progress = [&](double f) { seen.push_back(f); };
+    const ProjectBundle bundle = readProject(dir.filePath("p.craft"), watch);
+    QVERIFY(bundle.embeddedModelBytes == stl);
+    QVERIFY(seen.size() > 8);
+    for (std::size_t i = 1; i < seen.size(); ++i) QVERIFY2(seen[i] >= seen[i - 1], "progress went backwards");
+    QCOMPARE(seen.back(), 1.0);
+
+    for (int stopAfter : {0, 1, 5, 10}) {
+      int polls = 0;
+      ReadOptions options;
+      options.control.chunkBytes = 256 * 1024;
+      options.control.cancelled = [&] { return polls++ >= stopAfter; };
+      try {
+        readProject(dir.filePath("p.craft"), options);
+        QFAIL(qPrintable(QStringLiteral("stopping after %1 polls did not stop the open").arg(stopAfter)));
+      } catch (const ProjectIoError& error) {
+        QCOMPARE(error.code(), std::string("project_cancelled"));
+      }
+    }
+  }
+
+  void aLinkedModelLoadsInChunksAndCanBeCancelled() {
+    QTemporaryDir dir;
+    const QByteArray stl = fakeStl(60000);
+    QFile model(dir.filePath("linked.stl"));
+    QVERIFY(model.open(QIODevice::WriteOnly));
+    model.write(stl);
+    model.close();
+    ModelReference ref;
+    ref.fileName = "linked.stl";
+    ref.storage = "linked";
+    ref.linkedPath = dir.filePath("linked.stl").toStdString();
+    ref.sizeBytes = static_cast<std::uint64_t>(stl.size());
+    ref.sha256 = sha256Hex(stl);
+    IoControl control;
+    control.chunkBytes = 256 * 1024;
+    QVERIFY(loadLinkedModel(ref, {}, control) == stl);
+    int polls = 0;
+    control.cancelled = [&] { return polls++ >= 3; };
+    try {
+      loadLinkedModel(ref, {}, control);
+      QFAIL("the load was not stopped");
+    } catch (const ProjectIoError& error) {
+      QCOMPARE(error.code(), std::string("project_cancelled"));
+    }
+    ref.sha256 = std::string(64, '0');   // a changed file is still reported as changed, with a control in place
+    try {
+      loadLinkedModel(ref, {}, IoControl{});
+      QFAIL("a changed linked model was accepted");
+    } catch (const ProjectIoError& error) {
+      QCOMPARE(error.code(), std::string("project_asset_changed"));
+    }
+  }
 };
 
 QTEST_APPLESS_MAIN(ProjectTest)

@@ -201,13 +201,29 @@ void AppController::importStlFile(const QString& path) {
   struct Loaded {
     LoadedModel model;
   };
-  CancellationToken cancel;
+  importCancel_ = CancellationToken();
+  projectStage_ = QStringLiteral("reading");
+  projectProgress_ = 0;
   runJob<Loaded>(
-      this, cancel,
-      [path, requestId](const CancellationToken&, const ProgressCallback&) {
+      this, importCancel_,
+      [path, requestId](const CancellationToken& cancel, const ProgressCallback& progress) {
         QElapsedTimer timer;
         timer.start();
-        auto read = stl::readFile(std::filesystem::path(path.toStdWString()));
+        // Reading the file is the bulk (a 512 MiB file is the limit) and reports as it goes; parsing and building the model are single calls and
+        // are only checked for a stop in between.
+        const auto stopIfCancelled = [&cancel] {
+          if (cancel.isCancelled()) throw CodedError("stl_cancelled", "Loading the STL file was cancelled.");
+        };
+        const std::vector<std::uint8_t> bytes = stl::readFileBytes(
+            std::filesystem::path(path.toStdWString()), stl::kNativeMaxFileBytes, [&cancel] { return cancel.isCancelled(); },
+            [&progress](double f) {
+              if (progress) progress("reading", 0.7 * f);
+            });
+        stopIfCancelled();
+        if (progress) progress("parsing", 0.7);
+        auto read = stl::parse(bytes);
+        stopIfCancelled();
+        if (progress) progress("preparing", 0.9);
         const QFileInfo info(path);
         LoadedModel m = buildLoadedModel(std::move(read.soup), read.encoding, requestId, info.fileName(), path, info.size());
         m.loadMs = timer.elapsed();
@@ -215,7 +231,16 @@ void AppController::importStlFile(const QString& path) {
       },
       [this, generation, path](JobOutcome<Loaded> outcome) {
         if (generation != importGeneration_) return;  // a newer import superseded this one
-        if (outcome.state == JobState::Succeeded && outcome.result) {
+        // Stopped before the model was loaded: whatever was open stays open, exactly as it was. (A stop that came when the work had already
+        // finished is no stop: there is a result, and it is loaded.)
+        if (outcome.state == JobState::Cancelled && !outcome.result) {
+          modelPhase_ = model_ ? QStringLiteral("ready") : QStringLiteral("empty");
+          modelMessage_ = model_ ? model_->fileName : QString();
+          emit modelChanged();
+          setStatus(QStringLiteral("Loading %1 was cancelled.").arg(QFileInfo(path).fileName()));
+          return;
+        }
+        if ((outcome.state == JobState::Succeeded || outcome.state == JobState::Cancelled) && outcome.result) {
           applyModel(std::move(outcome.result->model));
           startNewProject();  // importing a model starts a new, unsaved project
           refreshDirty();
@@ -229,6 +254,12 @@ void AppController::importStlFile(const QString& path) {
         setStatus(outcome.errorMessage);
         emit errorOccurred(QStringLiteral("Import failed"), outcome.errorMessage, outcome.errorCode);
         qCWarning(lcApp) << "STL import failed:" << path << outcome.errorCode << outcome.errorMessage;
+      },
+      [this](QString stage, double fraction) {
+        if (modelPhase_ != QLatin1String("loading")) return;  // a report that arrives after the job has ended
+        projectStage_ = stage;
+        projectProgress_ = fraction;
+        emit projectChanged();
       });
 }
 

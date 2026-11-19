@@ -325,8 +325,11 @@ ApplicationWindow {
         RowLayout {
             anchors.fill: parent
             Label { text: app.statusText; elide: Text.ElideRight; Layout.fillWidth: true; leftPadding: 8 }
-            ProgressBar { visible: app.busy; value: app.busyProgress; implicitWidth: 140 }
-            Label { text: app.busyStage; visible: app.busy }
+            // The footer shows whichever long job runs: a save or an open (with its own stage and a Cancel) or the engine's busy state.
+            readonly property bool projectJob: app.project.saving || app.project.opening || app.project.loading
+            ProgressBar { objectName: "footerProgress"; visible: app.busy || parent.projectJob; value: parent.projectJob ? app.project.progress : app.busyProgress; implicitWidth: 140 }
+            Label { text: parent.projectJob ? app.project.stage : app.busyStage; visible: app.busy || parent.projectJob }
+            ToolButton { objectName: "cancelProjectButton"; text: qsTr("Cancel"); visible: parent.projectJob; onClicked: app.cancelProjectOperation() }
             Label { text: "mm · Z-up"; rightPadding: 8 }
         }
     }

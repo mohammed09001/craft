@@ -90,8 +90,9 @@ SprueOperationDefinition fromRecord(const project::SprueRecord& r) {
 }
 
 /// Encodes the source triangles as the project's canonical binary STL and fills the model record's size and hash.
-QByteArray embedModel(project::Document& document, const TriangleSoup& soup) {
+QByteArray embedModel(project::Document& document, const TriangleSoup& soup, const CancellationToken* cancel = nullptr) {
   const std::vector<std::uint8_t> encoded = stl::encodeBinary(soup);
+  if (cancel && cancel->isCancelled()) throw CodedError("project_cancelled", "The operation was cancelled.");
   QByteArray bytes(reinterpret_cast<const char*>(encoded.data()), static_cast<qsizetype>(encoded.size()));
   document.model->storage = "embedded";
   document.model->assetId = "model";
@@ -168,6 +169,9 @@ QVariantMap AppController::project() const {
           {"dirty", projectDirty_},
           {"saving", projectSaving_},
           {"opening", projectOpening_},
+          {"loading", modelPhase_ == QLatin1String("loading")},   // an STL import: it shares the progress and the Cancel of the footer
+          {"progress", projectProgress_},
+          {"stage", projectStage_},
           {"title", name + (projectDirty_ ? QStringLiteral(" *") : QString())},
           {"recoveredFrom", projectRecoveredFrom_},
           {"lastSavedAt", projectLastSavedAt_},
@@ -268,6 +272,9 @@ void AppController::saveProjectToFile(const QString& path) {
     return;
   }
   projectSaving_ = true;
+  projectCancel_ = CancellationToken();
+  projectStage_ = QStringLiteral("preparing");
+  projectProgress_ = 0;
   emit projectChanged();
   setStatus(QStringLiteral("Saving %1…").arg(QFileInfo(path).fileName()));
 
@@ -281,11 +288,17 @@ void AppController::saveProjectToFile(const QString& path) {
     QString savedAt;
   };
   runJob<Saved>(
-      this, CancellationToken(),
-      [path, document, fingerprint, soup](const CancellationToken&, const ProgressCallback&) mutable {
-        const QByteArray bytes = embedModel(document, *soup);
+      this, projectCancel_,
+      [path, document, fingerprint, soup](const CancellationToken& cancel, const ProgressCallback& progress) mutable {
+        if (progress) progress("preparing", 0.0);
+        const QByteArray bytes = embedModel(document, *soup, &cancel);
+        project::WriteOptions options;
+        options.control.cancelled = [&cancel] { return cancel.isCancelled(); };
+        options.control.progress = [&progress](double f) {
+          if (progress) progress("saving", 0.1 + 0.9 * f);
+        };
         try {
-          project::writeProject(path, document, bytes);
+          project::writeProject(path, document, bytes, options);
         } catch (const project::ProjectIoError& error) {
           throw CodedError(error.code(), error.what());
         }
@@ -293,7 +306,13 @@ void AppController::saveProjectToFile(const QString& path) {
       },
       [this, projectId](JobOutcome<Saved> outcome) {
         projectSaving_ = false;
-        if (outcome.state == JobState::Succeeded && outcome.result) {
+        // A stop that arrived after the file was committed is no stop: the work returned a result, so the file is the new one.
+        if (outcome.state == JobState::Cancelled && !outcome.result) {
+          emit projectChanged();
+          setStatus(QStringLiteral("Saving was cancelled; the project file is unchanged."));
+          return;
+        }
+        if ((outcome.state == JobState::Succeeded || outcome.state == JobState::Cancelled) && outcome.result) {
           if (projectId == projectId_) {  // the document may have been replaced while the save ran
             projectPath_ = outcome.result->path;
             baselineFingerprint_ = outcome.result->fingerprint;
@@ -309,7 +328,18 @@ void AppController::saveProjectToFile(const QString& path) {
         emit projectChanged();
         setStatus(QStringLiteral("Saving the project failed: %1").arg(outcome.errorMessage));
         emit errorOccurred(QStringLiteral("Save failed"), outcome.errorMessage, outcome.errorCode);
+      },
+      [this](QString stage, double fraction) {
+        if (!projectSaving_) return;  // a report that arrives after the job has ended
+        projectStage_ = stage;
+        projectProgress_ = fraction;
+        emit projectChanged();
       });
+}
+
+void AppController::cancelProjectOperation() {
+  if (projectSaving_ || projectOpening_) projectCancel_.cancel();
+  if (modelPhase_ == QLatin1String("loading")) importCancel_.cancel();
 }
 
 // --- autosave and recovery ------------------------------------------------------------------------------------------------
@@ -415,6 +445,9 @@ void AppController::openProjectFile(const QString& path, const QString& relinked
   const quint64 generation = ++importGeneration_;
   const quint64 requestId = ++nextImportRequestId_;
   projectOpening_ = true;
+  projectCancel_ = CancellationToken();
+  projectStage_ = QStringLiteral("reading");
+  projectProgress_ = 0;
   emit projectChanged();
   setStatus(QStringLiteral("Opening %1…").arg(QFileInfo(path).fileName()));
 
@@ -424,11 +457,23 @@ void AppController::openProjectFile(const QString& path, const QString& relinked
     std::vector<std::string> warnings;
   };
   runJob<Opened>(
-      this, CancellationToken(),
-      [path, relinkedModelPath, requestId](const CancellationToken&, const ProgressCallback&) {
+      this, projectCancel_,
+      [path, relinkedModelPath, requestId](const CancellationToken& cancel, const ProgressCallback& progress) {
         Opened opened;
+        // Reading the project (and the linked model, if any) is the bulk and reports as it goes; the steps after it are single calls and
+        // are only checked for a stop in between.
+        project::IoControl control;
+        control.cancelled = [&cancel] { return cancel.isCancelled(); };
+        control.progress = [&progress](double f) {
+          if (progress) progress("reading", 0.6 * f);
+        };
+        const auto stopIfCancelled = [&cancel] {
+          if (cancel.isCancelled()) throw CodedError("project_cancelled", "The operation was cancelled.");
+        };
         try {
-          opened.bundle = project::readProject(path);
+          project::ReadOptions readOptions;
+          readOptions.control = control;
+          opened.bundle = project::readProject(path, readOptions);
           const project::Document& doc = opened.bundle.document;
           if (!doc.model) throw CodedError("project_has_no_model", "The project contains no model, so there is nothing to open.");
           QByteArray bytes;
@@ -438,9 +483,13 @@ void AppController::openProjectFile(const QString& path, const QString& relinked
             sourcePath = materializeModel(bytes, doc.model->sha256);
           } else {
             sourcePath = relinkedModelPath.isEmpty() ? QString::fromStdString(doc.model->linkedPath) : relinkedModelPath;
-            bytes = project::loadLinkedModel(*doc.model, relinkedModelPath);
+            bytes = project::loadLinkedModel(*doc.model, relinkedModelPath, control);
           }
+          stopIfCancelled();
+          if (progress) progress("parsing", 0.6);
           const auto read = stl::parse({reinterpret_cast<const std::uint8_t*>(bytes.constData()), static_cast<std::size_t>(bytes.size())});
+          stopIfCancelled();
+          if (progress) progress("preparing", 0.85);
           LoadedModel model = buildLoadedModel(read.soup, read.encoding, requestId, QString::fromStdString(doc.model->fileName), sourcePath,
                                               doc.model->sourceSizeBytes ? static_cast<qint64>(doc.model->sourceSizeBytes) : bytes.size());
           if (!doc.model->sourceEncoding.empty()) model.encoding = QString::fromStdString(doc.model->sourceEncoding);
@@ -459,7 +508,14 @@ void AppController::openProjectFile(const QString& path, const QString& relinked
           emit projectChanged();
           return;
         }
-        if (outcome.state != JobState::Succeeded || !outcome.result || !outcome.result->model) {
+        // Stopped before the project was opened: the document that was open stays exactly as it is. (A stop that came when the work had
+        // already finished is no stop: there is a result, and it is opened.)
+        if (outcome.state == JobState::Cancelled && !outcome.result) {
+          emit projectChanged();
+          setStatus(QStringLiteral("Opening %1 was cancelled.").arg(QFileInfo(path).fileName()));
+          return;
+        }
+        if ((outcome.state != JobState::Succeeded && outcome.state != JobState::Cancelled) || !outcome.result || !outcome.result->model) {
           emit projectChanged();
           setStatus(QStringLiteral("Opening the project failed: %1").arg(outcome.errorMessage));
           if (outcome.errorCode == QLatin1String("project_asset_missing") || outcome.errorCode == QLatin1String("project_asset_changed"))
@@ -481,6 +537,12 @@ void AppController::openProjectFile(const QString& path, const QString& relinked
         refreshRecovery();
         if (!opened.warnings.empty()) setStatus(QString::fromStdString(opened.warnings.front()));
         else setStatus(QStringLiteral("Opened %1").arg(QFileInfo(path).fileName()));
+      },
+      [this](QString stage, double fraction) {
+        if (!projectOpening_) return;  // a report that arrives after the job has ended
+        projectStage_ = stage;
+        projectProgress_ = fraction;
+        emit projectChanged();
       });
 }
 
