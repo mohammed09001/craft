@@ -7,7 +7,9 @@ ApplicationWindow {
     id: window
     width: 1280
     height: 800
-    minimumWidth: 800
+    // The tool bar needs about 840 px (it ended at 835 px, past the 800 px minimum: Redo was cut off). The mold opacity slider that used to sit at
+    // its right end is in the inspector's Mold section.
+    minimumWidth: 880
     minimumHeight: 520
     visible: true
     title: (app.modelInfo.fileName ? app.project.title + " — " : "") + "Craft"
@@ -37,6 +39,21 @@ ApplicationWindow {
         close.accepted = false
         pendingAction = function() { closeConfirmed = true; window.close() }
         unsavedDialog.open()
+    }
+
+    // Dropping one STL file anywhere on the window imports it, as in the reference ("Drag and drop one STL file to import it"); anything else is
+    // refused with the reference's message in the status line. The drop area lies under the panels (above them it swallowed every mouse press:
+    // drops still reach it, as a drag is delivered to the drop areas under the pointer whatever is drawn over them), and the outline that shows
+    // a drag is over the window is a separate item on top that takes no input.
+    DropArea {
+        id: dropArea
+        anchors.fill: parent
+        onEntered: function(drag) { drag.accepted = drag.hasUrls }
+        onDropped: function(drop) {
+            if (!drop.hasUrls) return
+            const urls = drop.urls
+            if (app.acceptDroppedStl(urls)) { const file = urls[0]; window.guarded(function() { app.importStl(file) }) }
+        }
     }
 
     FileDialog {
@@ -247,8 +264,6 @@ ApplicationWindow {
             ToolButton { objectName: "undoButton"; action: undoAction }
             ToolButton { objectName: "redoButton"; action: redoAction }
             Item { Layout.fillWidth: true }
-            Label { text: qsTr("Mold opacity") }
-            Slider { from: 0.1; to: 1; value: app.moldOpacity; onMoved: app.moldOpacity = value; implicitWidth: 120 }
         }
     }
 
@@ -259,6 +274,24 @@ ApplicationWindow {
             SplitView.preferredWidth: 340
             SplitView.minimumWidth: 260
             padding: 10
+        }
+    }
+
+    // The outline shown while a drag is over the window: above everything, and it takes no mouse or hover input.
+    Rectangle {
+        objectName: "dropOverlay"
+        anchors.fill: parent
+        visible: dropArea.containsDrag
+        enabled: false
+        color: "transparent"
+        border.width: 3
+        border.color: "#22b8cf"
+        Label {
+            anchors.centerIn: parent
+            text: qsTr("Drop an STL file to import it")
+            font.pixelSize: 18
+            padding: 12
+            background: Rectangle { radius: 6; color: palette.window; opacity: 0.9 }
         }
     }
 

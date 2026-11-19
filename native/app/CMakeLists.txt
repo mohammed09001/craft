@@ -44,11 +44,11 @@ if(CRAFT_BUILD_TESTS)
   # platform event interface, so packaged (tests-off) builds neither link it nor contain the code.
   target_link_libraries(craft PRIVATE Qt6::GuiPrivate)
   target_compile_definitions(craft PRIVATE CRAFT_SMOKE_REAL_EVENTS=1)
-  target_sources(craft PRIVATE ViewportBench.cpp ViewportBench.h)
+  target_sources(craft PRIVATE ViewportBench.cpp ViewportBench.h UiTour.cpp UiTour.h)
 endif()
 craft_target_defaults(craft)
 
-foreach(_q Main ViewportView Inspector)
+foreach(_q Main ViewportView Inspector CraftCheckBox)
   set_source_files_properties(ui/${_q}.qml PROPERTIES QT_RESOURCE_ALIAS ${_q}.qml)
 endforeach()
 
@@ -59,6 +59,7 @@ qt_add_qml_module(craft
     ui/Main.qml
     ui/ViewportView.qml
     ui/Inspector.qml
+    ui/CraftCheckBox.qml
 )
 
 set_target_properties(craft PROPERTIES

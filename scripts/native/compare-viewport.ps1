@@ -39,6 +39,9 @@ $imgcompare = (Get-ChildItem $buildDir -Recurse -Filter 'craft_imgcompare.exe' |
 if (-not $craft -or -not $imgcompare) { throw "Build craft and craft_imgcompare in $buildDir first." }
 $env:PATH = "$env:CRAFT_QT_DIR\bin;$env:PATH"
 $env:QT_ENABLE_HIGHDPI_SCALING = '0'
+# An autosave left in the real folder by some earlier run would open every bench window with the "Recover unsaved work?" dialog in the frames:
+# the bench works in an autosave folder of its own.
+$env:CRAFT_AUTOSAVE_DIR = Join-Path ([IO.Path]::GetTempPath()) ('craft-compare-autosave-' + [guid]::NewGuid().ToString('N'))
 
 # Generated models (large binary meshes with correct normals).
 $models = Join-Path $env:CRAFT_BUILD_ROOT 'viewport-compare\models'

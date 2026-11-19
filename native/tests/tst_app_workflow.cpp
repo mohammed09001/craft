@@ -1808,6 +1808,37 @@ class WorkflowTest : public QObject {
   // Reset View command goes to the fixed (1, -1, 0.78) direction. Found by the viewport comparison: native used to reset.
   // The menus, toolbars and panels follow the theme too, not only the viewport: they take their colours from the application's colour
   // scheme, which the theme sets (it used to stay the operating system's: a light viewport inside dark chrome and the reverse).
+  // Files dropped on the window follow the reference's validation (Viewport.tsx handleDrop -> modelImportValidation.ts) and its messages.
+  void droppedFilesAreValidatedLikeTheReference() {
+    auto app = makeApp();
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const auto make = [&](const QString& name, const QByteArray& content) {
+      QFile file(dir.filePath(name));
+      Q_ASSERT(file.open(QIODevice::WriteOnly));
+      file.write(content);
+      return QUrl::fromLocalFile(dir.filePath(name));
+    };
+    const QUrl good = QUrl::fromLocalFile(bracket());
+    const QUrl txt = make(QStringLiteral("notes.txt"), "hello");
+    const QUrl empty = make(QStringLiteral("empty.stl"), "");
+    const QUrl upper = make(QStringLiteral("PART.STL"), "solid x\nendsolid x\n");
+
+    QVERIFY(!app->acceptDroppedStl({}));
+    QCOMPARE(app->statusText(), QStringLiteral("Choose exactly one STL file."));
+    QVERIFY(!app->acceptDroppedStl({good, good}));
+    QCOMPARE(app->statusText(), QStringLiteral("Choose exactly one STL file."));
+    QVERIFY(!app->acceptDroppedStl({QUrl(QStringLiteral("https://example.com/part.stl"))}));   // not a local file
+    QCOMPARE(app->statusText(), QStringLiteral("Choose exactly one STL file."));
+    QVERIFY(!app->acceptDroppedStl({txt}));
+    QCOMPARE(app->statusText(), QStringLiteral("Only .stl files are supported."));
+    QVERIFY(!app->acceptDroppedStl({empty}));
+    QCOMPARE(app->statusText(), QStringLiteral("The STL file is empty."));
+    QVERIFY(app->acceptDroppedStl({good}));
+    QVERIFY(app->acceptDroppedStl({upper}));   // the extension is not case sensitive
+    QCOMPARE(app->modelPhase(), QStringLiteral("empty"));   // validating imports nothing: the caller does, after the unsaved-changes prompt
+  }
+
   void theThemeSetsTheColourSchemeOfTheWholeWindow() {
     auto app = makeApp();
     QCOMPARE(app->theme(), QStringLiteral("dark"));

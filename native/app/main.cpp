@@ -4,6 +4,7 @@
 #include <QGuiApplication>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMimeData>
 #include <QMouseEvent>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -17,6 +18,7 @@
 
 #ifdef CRAFT_SMOKE_REAL_EVENTS
 #include <qpa/qwindowsysteminterface.h>
+#include <qpa/qplatformdrag.h>
 #endif
 #include <QTimer>
 
@@ -26,6 +28,7 @@
 #include "ManifoldMeshEngine.h"
 #ifdef CRAFT_SMOKE_REAL_EVENTS
 #include "ViewportBench.h"
+#include "UiTour.h"
 #endif
 
 using namespace craft::app;
@@ -41,6 +44,8 @@ class Smoke : public QObject {
         summary_(std::move(summary)) {}
 
   void start() {
+    // Only when the autosave folder is isolated (CRAFT_AUTOSAVE_DIR, as the tests set it): never delete the user's own autosaves.
+    if (!qEnvironmentVariable("CRAFT_AUTOSAVE_DIR").isEmpty()) app_.discardRecovery();
     QObject::connect(&app_, &AppController::errorOccurred, this,
                      [this](const QString& title, const QString& message, const QString& code) {
                        fail(QStringLiteral("%1: %2 (%3)").arg(title, message, code));
@@ -63,6 +68,7 @@ class Smoke : public QObject {
       else if (phase == "error") fail(QStringLiteral("moldability analysis failed: %1").arg(app_.engineeringReports().value("error").toString()));
     });
     QTimer::singleShot(120000, this, [this] { fail(QStringLiteral("smoke test timed out")); });
+    if (dropEvents_) return dropEventsSequence();   // the part arrives by being dropped on the window
     app_.importStlFile(importPath_);
   }
 
@@ -228,6 +234,38 @@ class Smoke : public QObject {
   }
   // Dragging a cutting plane with the right mouse button through REAL mouse events delivered to the window: hover brightens the
   // plane, a right press on it drags it instead of panning, the release commits one undo step; a right drag elsewhere still pans.
+  // Dropping files on the window through REAL platform drag-and-drop events: two files and a file that is not an STL are refused with the
+  // reference's messages and import nothing; one STL imports (the drop target is outlined while the drag is over the window).
+  void dropEventsSequence() { whenViewportSettled([this] { dropEventsBody(); }); }
+  void dropEventsBody() {
+#ifndef CRAFT_SMOKE_REAL_EVENTS
+    return fail(QStringLiteral("--drop-events needs a build with CRAFT_BUILD_TESTS"));
+#else
+    QWindowSystemInterface::setSynchronousWindowSystemEvents(true);
+    auto* viewport = window_->findChild<QQuickItem*>(QStringLiteral("viewport"));
+    auto* overlay = window_->findChild<QQuickItem*>(QStringLiteral("dropOverlay"));
+    if (!viewport || !overlay) return fail(QStringLiteral("the viewport or the drop overlay was not found"));
+    const QPoint where = window_->mapFromGlobal(window_->mapToGlobal(viewport->mapToScene(QPointF(viewport->width() / 2, viewport->height() / 2)).toPoint()));
+    const auto drop = [&](const QList<QUrl>& urls, bool* overlayShown) {
+      QMimeData mime;
+      mime.setUrls(urls);
+      const auto over = QWindowSystemInterface::handleDrag(window_, &mime, where, Qt::CopyAction, Qt::LeftButton, Qt::NoModifier);
+      if (overlayShown) *overlayShown = over.isAccepted() && overlay->isVisible();
+      QWindowSystemInterface::handleDrop(window_, &mime, where, Qt::CopyAction, Qt::LeftButton, Qt::NoModifier);
+      return over.isAccepted();
+    };
+    bool shown = false;
+    if (!drop({QUrl::fromLocalFile(importPath_), QUrl::fromLocalFile(importPath_)}, &shown)) return fail(QStringLiteral("the window did not accept a drag of files"));
+    if (!shown) return fail(QStringLiteral("the drop target was not outlined while a drag was over the window"));
+    if (app_.statusText() != QLatin1String("Choose exactly one STL file.") || app_.modelPhase() == "ready")
+      return fail(QStringLiteral("two dropped files were not refused (status '%1', model %2)").arg(app_.statusText(), app_.modelPhase()));
+    drop({QUrl::fromLocalFile(QFileInfo(importPath_).absolutePath() + QStringLiteral("/not-a-model.txt"))}, nullptr);
+    if (app_.statusText() != QLatin1String("Only .stl files are supported.") || app_.modelPhase() == "ready")
+      return fail(QStringLiteral("a dropped file that is not an STL was not refused (status '%1')").arg(app_.statusText()));
+    if (overlay->isVisible()) return fail(QStringLiteral("the drop target stayed outlined after the drop"));
+    drop({QUrl::fromLocalFile(importPath_)}, nullptr);   // the model arriving continues the usual smoke flow (a mold, a frame, the summary)
+#endif
+  }
   void planeDragEventsSequence() { whenViewportSettled([this] { planeDragEventsBody(); }); }
   void planeDragEventsBody() {
 #ifndef CRAFT_SMOKE_REAL_EVENTS
@@ -525,6 +563,7 @@ class Smoke : public QObject {
   void setEraser(bool value, bool events = false) { eraser_ = value; eraserEvents_ = events; }
   void setUndoEvents(bool value) { undoEvents_ = value; }
   void setPlaneDragEvents(bool value) { planeDragEvents_ = value; }
+  void setDropEvents(bool value) { dropEvents_ = value; }
   void setHintEvents(bool value, bool wheel) { hintEvents_ = value; hintWheel_ = wheel; }
   void setScreenshot(const QString& path) { screenshot_ = path; }
 
@@ -532,7 +571,7 @@ class Smoke : public QObject {
   AppController& app_;
   QQuickWindow* window_;
   QString importPath_, summary_, screenshot_;
-  bool selectPart_ = false, spruePreview_ = false, spruePreviewInvalid_ = false, sprueGizmo_ = false, sprueGizmoEvents_ = false, eraser_ = false, eraserEvents_ = false, planeDragEvents_ = false, undoEvents_ = false, hintEvents_ = false, hintWheel_ = false;
+  bool selectPart_ = false, spruePreview_ = false, spruePreviewInvalid_ = false, sprueGizmo_ = false, sprueGizmoEvents_ = false, eraser_ = false, eraserEvents_ = false, planeDragEvents_ = false, dropEvents_ = false, undoEvents_ = false, hintEvents_ = false, hintWheel_ = false;
   bool mold_, analyse_, moldability_;
   bool imported_ = false, moldDone_ = false, analysisDone_ = false, reportsDone_ = false, done_ = false;
 };
@@ -569,10 +608,13 @@ int main(int argc, char* argv[]) {
   parser.addOption({"bench-hold-ms", "With --viewport-bench: stay alive this long after measuring.", "ms"});
   parser.addOption({"bench-no-vsync", "With --viewport-bench: present without waiting for the display refresh, to see the rendering cost."});
   parser.addOption({"bench-label", "With --viewport-bench: a label stored in the result.", "text"});
+  parser.addOption({"ui-tour", "Walk through the UI states and write screenshots, inspector captures and a layout lint here (development builds).", "dir"});
+  parser.addOption({"tour-bad-stl", "With --ui-tour: a file the importer rejects, for the error state.", "path"});
   parser.addOption({"hint-events", "The interaction hint through a real mouse press (smoke test)."});
   parser.addOption({"hint-wheel", "The interaction hint through a real wheel event (smoke test)."});
   parser.addOption({"undo-events", "Undo/redo through real input: the toolbar buttons and Ctrl+Z / Ctrl+Y (smoke test)."});
   parser.addOption({"eraser-events", "The Eraser through real mouse events: hover a plane, click empty space, click the plane (smoke test)."});
+  parser.addOption({"drop-events", "Dropping files on the window through real platform drag-and-drop events (smoke test)."});
   parser.addOption({"plane-drag-events", "Dragging a cutting plane with the right mouse button through real mouse events (smoke test)."});
   parser.addOption({"sprue-gizmo-events", "With --sprue-preview: the same through real mouse events, plus a double click (smoke test)."});
   parser.process(application);
@@ -598,6 +640,7 @@ int main(int argc, char* argv[]) {
   std::unique_ptr<Smoke> smoke;
 #ifdef CRAFT_SMOKE_REAL_EVENTS
   std::unique_ptr<craft::app::ViewportBench> bench;
+  std::unique_ptr<craft::app::UiTour> tour;
   if (parser.isSet("viewport-bench")) {
     craft::app::ViewportBenchOptions options;
     options.importPath = parser.value("import");
@@ -615,6 +658,13 @@ int main(int argc, char* argv[]) {
     if (parser.isSet("bench-hold-ms")) options.holdMilliseconds = parser.value("bench-hold-ms").toInt();
     bench = std::make_unique<craft::app::ViewportBench>(controller, window, options);
     QTimer::singleShot(0, bench.get(), [&bench] { bench->start(); });
+  } else if (parser.isSet("ui-tour")) {
+    craft::app::UiTourOptions options;
+    options.importPath = parser.value("import");
+    options.badStlPath = parser.value("tour-bad-stl");
+    options.outputDirectory = parser.value("ui-tour");
+    tour = std::make_unique<craft::app::UiTour>(controller, window, options);
+    QTimer::singleShot(500, tour.get(), [&tour] { tour->start(); });
   } else
 #endif
   if (parser.isSet("smoke-test")) {
@@ -627,6 +677,7 @@ int main(int argc, char* argv[]) {
     smoke->setEraser(parser.isSet("eraser"), parser.isSet("eraser-events"));
     smoke->setUndoEvents(parser.isSet("undo-events"));
     smoke->setPlaneDragEvents(parser.isSet("plane-drag-events"));
+    smoke->setDropEvents(parser.isSet("drop-events"));
     smoke->setHintEvents(parser.isSet("hint-events") || parser.isSet("hint-wheel"), parser.isSet("hint-wheel"));
     smoke->setScreenshot(parser.value("screenshot"));
     QTimer::singleShot(0, smoke.get(), [&smoke] { smoke->start(); });

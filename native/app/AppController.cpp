@@ -163,6 +163,23 @@ LoadedModel buildLoadedModel(TriangleSoup soup, stl::Encoding encoding, quint64 
 
 void AppController::importStl(const QUrl& fileUrl) { importStlFile(fileUrl.toLocalFile()); }
 
+bool AppController::acceptDroppedStl(const QList<QUrl>& urls) {
+  if (urls.size() != 1 || !urls.front().isLocalFile()) {
+    setStatus(QStringLiteral("Choose exactly one STL file."));
+    return false;
+  }
+  const QFileInfo info(urls.front().toLocalFile());
+  if (!info.fileName().endsWith(QLatin1String(".stl"), Qt::CaseInsensitive)) {
+    setStatus(QStringLiteral("Only .stl files are supported."));
+    return false;
+  }
+  if (info.exists() && info.size() == 0) {
+    setStatus(QStringLiteral("The STL file is empty."));
+    return false;
+  }
+  return true;
+}
+
 void AppController::importStlFile(const QString& path) {
   const quint64 generation = ++importGeneration_;
   const quint64 requestId = ++nextImportRequestId_;

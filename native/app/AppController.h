@@ -172,6 +172,10 @@ class AppController : public QObject {
   QVariantMap modelInfo() const;
   const std::optional<LoadedModel>& model() const { return model_; }
   Q_INVOKABLE void importStl(const QUrl& fileUrl);
+  /// Drag and drop of files onto the window (the reference: Viewport.tsx handleDrop -> validateLocalStlFiles). True when exactly one non-empty
+  /// .stl file was dropped (the caller then imports it, after the unsaved-changes prompt); otherwise the status line says why and nothing is
+  /// imported. The reference's messages are kept; the 25 MiB limit is not (native's is the importer's own, 512 MiB).
+  Q_INVOKABLE bool acceptDroppedStl(const QList<QUrl>& urls);
   void importStlFile(const QString& path);
 
   // --- jobs ----------------------------------------------------------------
