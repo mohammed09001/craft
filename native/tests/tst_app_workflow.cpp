@@ -2460,8 +2460,10 @@ class WorkflowTest : public QObject {
     QVERIFY(dir.isValid());
     const auto make = [&](const QString& name, const QByteArray& content) {
       QFile file(dir.filePath(name));
-      Q_ASSERT(file.open(QIODevice::WriteOnly));
+      // Not Q_ASSERT(file.open(...)): that is compiled out of Release builds, where the files were then never created.
+      if (!file.open(QIODevice::WriteOnly)) qFatal("cannot create %s", qPrintable(file.fileName()));
       file.write(content);
+      file.close();
       return QUrl::fromLocalFile(dir.filePath(name));
     };
     const QUrl good = QUrl::fromLocalFile(bracket());

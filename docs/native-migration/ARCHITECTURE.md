@@ -25,4 +25,4 @@ JSON Lines over the worker's stdin/stdout; no sockets. Worker -> host: `hello`, 
 `import_analysis {sourcePath, modelId, geometryVersion}`, `shutdown`. Results echo `modelId` and
 `geometryVersion`; the host rejects results for a replaced model. Cancel and timeout kill the
 worker; it restarts on the next job. Runtime resolution: `CRAFT_PYTHON`, bundled
-`python/` + `analysis/`, then the development interpreter. Packaging of a bundled runtime is NOT done.
+`python/` + `analysis/`, then the development interpreter. The bundled runtime is packaged and verified on Windows (PACKAGING.md); on macOS it is not.

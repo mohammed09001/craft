@@ -62,6 +62,9 @@ craft_add_test(tst_master_equivalence
   LIBS craft_mold craft_mesh_manifold Qt6::Core)
 target_compile_definitions(tst_master_equivalence PRIVATE
   CRAFT_REFERENCE_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/reference")
+# In a Release build its fallback-construction rows run (one multi-label voxel stage per row, about ten minutes in all: Debug skips them), which the
+# default of 300 s can never cover; before this a plain `ctest --preset windows-release` always timed out here.
+set_tests_properties(tst_master_equivalence PROPERTIES TIMEOUT 1800)
 craft_add_test(tst_project SOURCES tst_project.cpp LIBS craft_project Qt6::Core)
 craft_add_test(tst_reports_equivalence
   SOURCES tst_reports_equivalence.cpp
