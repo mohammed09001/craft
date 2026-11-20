@@ -14,7 +14,7 @@ craft_target_defaults(craft_viewport)
 add_library(craft_app_lib STATIC
   AppController.cpp AppControllerMaster.cpp AppControllerReports.cpp AppControllerProject.cpp AppControllerSelection.cpp AppControllerSprueGizmo.cpp AppControllerHistory.cpp AppControllerRuler.cpp RulerLabelImage.cpp RulerLabelImage.h
   SprueHandleModel.cpp SprueHandleModel.h AppControllerCutPlanes.cpp CutPlaneModel.cpp CutPlaneModel.h AppController.h
-  AppPaths.cpp AppPaths.h
+  AppPaths.cpp AppPaths.h SystemMemory.cpp SystemMemory.h
   JobRunner.h
   Logging.cpp Logging.h
   SceneModel.cpp SceneModel.h

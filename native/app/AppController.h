@@ -243,6 +243,8 @@ class AppController : public QObject {
   /// Writes the autosave now (only when there are unsaved changes). The timer calls this every autosaveIntervalMs.
   void autosaveNow();
   void setAutosaveIntervalMs(int ms);
+  /// Where the controller asks how much memory is free (default: the operating system). Tests inject their own; 0 means unknown.
+  void setMemoryProbe(std::function<std::uint64_t()> probe) { memoryProbe_ = std::move(probe); }
   bool isDirty() const { return projectDirty_; }
   /// Current inputs as a project document (the model bytes are added by the save job).
   project::Document captureDocument(bool forFingerprint = false) const;
@@ -668,6 +670,7 @@ class AppController : public QObject {
   bool projectSaving_ = false, projectOpening_ = false;
   // The running save or open: its cancellation, and what it reports (stage and 0..1) for the progress bar.
   CancellationToken projectCancel_, importCancel_;
+  std::function<std::uint64_t()> memoryProbe_;
   QString projectStage_;
   double projectProgress_ = 0;
   QString projectLastSavedAt_, projectRecoveredFrom_, lastAutosaveAt_;

@@ -16,6 +16,10 @@
 #include <QJsonObject>
 #include <QRegularExpression>
 #include <QSemaphore>
+#ifdef _WIN32
+#include <windows.h>
+#include <psapi.h>
+#endif
 #include <QSignalSpy>
 #include <QThreadPool>
 #include <QtConcurrent>
@@ -1925,6 +1929,59 @@ class WorkflowTest : public QObject {
       QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
       QCOMPARE(app->model()->fileName, QStringLiteral("bracket.stl"));
     }
+  }
+
+  // A part too large for the memory that is free is refused before the mold starts, with the numbers (measured: about 1.3 KB of peak memory per triangle, so the
+  // 10.7M-triangle file limit needs about 13 GiB). The refusal changes nothing; unknown memory (0) refuses nothing.
+  void aMoldThatCannotFitInFreeMemoryIsRefusedBeforeItStarts() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    const std::uint64_t needed = estimateMoldPeakBytes(app->model()->sourceSoup->triangleCount());
+    QCOMPARE(needed, kMoldFixedPeakBytes + kMoldPeakBytesPerTriangle * 20);
+
+    const QString phaseBefore = app->moldPhase();
+    app->setMemoryProbe([needed] { return needed - 1; });   // one byte short
+    QSignalSpy errors(app.get(), &AppController::errorOccurred);
+    app->generateMold();
+    QCOMPARE(errors.count(), 1);
+    QCOMPARE(errors.at(0).at(2).toString(), QStringLiteral("mold_memory_insufficient"));
+    const QString message = errors.at(0).at(1).toString();
+    QVERIFY2(message.contains("20 triangles") && message.contains("GiB"), qPrintable(message));
+    QVERIFY(!app->busy());
+    QCOMPARE(app->moldPhase(), phaseBefore);   // nothing started, nothing changed
+    QCOMPARE(app->scene()->count(), 1);
+
+    app->setMemoryProbe([needed] { return needed; });       // exactly enough
+    app->generateMold();
+    QVERIFY(waitFor([&] { return app->moldPhase() == "complete" || app->moldPhase() == "error"; }));
+    QCOMPARE(app->moldPhase(), QStringLiteral("complete"));
+    QCOMPARE(errors.count(), 1);
+
+    auto unknown = makeApp();
+    unknown->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return unknown->modelPhase() == "ready"; }));
+    unknown->setMemoryProbe([] { return std::uint64_t{0}; });   // unknown: never a reason to refuse
+    QSignalSpy unknownErrors(unknown.get(), &AppController::errorOccurred);
+    unknown->generateMold();
+    QVERIFY(waitFor([&] { return unknown->moldPhase() == "complete" || unknown->moldPhase() == "error"; }));
+    QCOMPARE(unknown->moldPhase(), QStringLiteral("complete"));
+    QCOMPARE(unknownErrors.count(), 0);
+  }
+
+  void aRefusedMoldLeavesAPlannedSegmentationAlone() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->setPrinterVolume(150, 300, 300);
+    app->planSegmentation();
+    QCOMPARE(app->segmentation().value("phase").toString(), QStringLiteral("planned"));
+    app->setMemoryProbe([] { return std::uint64_t{1}; });
+    QSignalSpy errors(app.get(), &AppController::errorOccurred);
+    app->generateMold();
+    QCOMPARE(errors.count(), 1);
+    QCOMPARE(app->segmentation().value("phase").toString(), QStringLiteral("planned"));   // a refusal is not "a mold was generated directly"
+    QCOMPARE(app->scene()->count(), 3);
   }
 
   void cancellingWhenNothingRunsDoesNothing() {

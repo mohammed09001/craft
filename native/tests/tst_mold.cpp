@@ -114,6 +114,22 @@ class MoldTest : public QObject {
 
  private slots:
   // referenceMoldBlock.geometry.ts ------------------------------------------
+  // The memory estimate that refuses a mold which cannot fit (D-105) must never fall below what was measured (peak working set of the whole process,
+  // Release, spheres), and must not be wildly above it either, or it would refuse models that run fine.
+  void theMoldMemoryEstimateCoversEveryMeasuredPeak() {
+    constexpr double kGiB = 1024.0 * 1024.0 * 1024.0;
+    struct Measured { std::uint64_t triangles; double peakGiB; };
+    const Measured measured[] = {{1'310'720, 1.583}, {2'637'000, 3.014}, {5'203'800, 6.120}};   // 1621, 3086 and 6267 MiB
+    for (const Measured& m : measured) {
+      const double estimate = static_cast<double>(estimateMoldPeakBytes(m.triangles)) / kGiB;
+      QVERIFY2(estimate >= m.peakGiB, qPrintable(QStringLiteral("%1 triangles: estimate %2 GiB is below the measured %3 GiB").arg(m.triangles).arg(estimate).arg(m.peakGiB)));
+      QVERIFY2(estimate <= m.peakGiB * 1.35, qPrintable(QStringLiteral("%1 triangles: estimate %2 GiB is far above the measured %3 GiB").arg(m.triangles).arg(estimate).arg(m.peakGiB)));
+    }
+    // The file limit (512 MiB of binary STL) admits 10,737,418 triangles: its mold needs more than the 9.2 GiB the process had passed when it was stopped.
+    QVERIFY(static_cast<double>(estimateMoldPeakBytes(10'737'418)) / kGiB > 9.2);
+    QCOMPARE(estimateMoldPeakBytes(0), kMoldFixedPeakBytes);
+  }
+
   void referenceFrameLiftsPartAndRestsBlockOnZero() {
     const auto frame = createReferenceMoldFrameBounds(groundedCube_, 10);
     QVERIFY(frame.has_value());

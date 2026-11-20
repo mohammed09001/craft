@@ -133,6 +133,14 @@ CavityGenerationResult generateCavityBodies(IMeshGeometryEngine& engine,
 // --- end-to-end mold operation -------------------------------------------
 
 /// Everything a worker needs, captured by value so the UI can keep editing.
+/// How much memory generating a mold needs, for refusing it before it starts when it cannot fit. Measured (Release, spheres, `Craft --smoke-test
+/// --generate-mold`, peak working set of the whole process): 1.31M triangles 1.6 GiB, 2.64M 3.1 GiB, 5.20M 6.3 GiB; at 10.73M (the 512 MiB file limit)
+/// the process passed 9.2 GiB after 116 s and was stopped. That is 1.23 to 1.30 KB per triangle, linear; the estimate takes 1.5 KB (about 15 % over
+/// the worst measurement) plus 64 MiB for what does not scale with the part.
+inline constexpr std::uint64_t kMoldPeakBytesPerTriangle = 1500;
+inline constexpr std::uint64_t kMoldFixedPeakBytes = 64ull * 1024 * 1024;
+inline std::uint64_t estimateMoldPeakBytes(std::uint64_t triangleCount) { return kMoldFixedPeakBytes + kMoldPeakBytesPerTriangle * triangleCount; }
+
 struct MoldGenerationRequest {
   std::string modelId;
   std::string partGeometryVersion;

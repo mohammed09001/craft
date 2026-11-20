@@ -1,4 +1,7 @@
 #include "AppController.h"
+#include "SystemMemory.h"
+
+#include <QLocale>
 
 #include <QCoreApplication>
 #include <QDir>
@@ -51,7 +54,8 @@ AppController::AppController(std::shared_ptr<IMeshGeometryEngine> engine,
     : QObject(parent),
       engine_(std::move(engine)),
       analysis_(analysisConfig),
-      analysisConfig_(std::move(analysisConfig)) {
+      analysisConfig_(std::move(analysisConfig)),
+      memoryProbe_(&availablePhysicalMemoryBytes) {
   camera_.setSceneBounds(std::nullopt);
   // The ruler follows the camera and the viewport size (the label step is chosen from the on-screen scale).
   connect(&camera_, &viewport::ViewportCamera::poseChanged, this, &AppController::refreshRuler);
@@ -443,6 +447,19 @@ void AppController::generateMold() {
     return;
   }
   if (busy_) return;
+  // A part so large that the mold cannot fit in the memory that is free is refused before any work starts, with the numbers: the alternative is a
+  // process that grows until the machine stalls or the process dies (a 10.7M-triangle part, the file limit, passed 9 GiB; estimateMoldPeakBytes).
+  const std::uint64_t available = memoryProbe_ ? memoryProbe_() : 0;
+  const std::uint64_t needed = estimateMoldPeakBytes(model_->sourceSoup->triangleCount());
+  if (available != 0 && needed > available) {
+    const auto gib = [](std::uint64_t bytes) { return QLocale().toString(static_cast<double>(bytes) / (1024.0 * 1024.0 * 1024.0), 'f', 1); };
+    emit errorOccurred(QStringLiteral("Generate mold"),
+                       QStringLiteral("This model has %1 triangles. Generating its mold needs about %2 GiB of memory and about %3 GiB is free. "
+                                      "Close other applications, or use a model with fewer triangles, and try again.")
+                           .arg(QLocale().toString(static_cast<qulonglong>(model_->sourceSoup->triangleCount())), gib(needed), gib(available)),
+                       QStringLiteral("mold_memory_insufficient"));
+    return;
+  }
   // A pending (not executed) segmentation plan is superseded by generating a mold directly.
   if (!segmentation_.adopted && segmentation_.phase != QStringLiteral("idle")) invalidateSegmentation(QString());
   const bool recordHistory = !suppressGenerationHistory_;
