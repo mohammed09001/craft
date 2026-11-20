@@ -118,11 +118,21 @@ class BvhRayMeshQuery:
             data.append(
                 (
                     triangle.face_index,
-                    a.x, a.y, a.z,
-                    edge_a.x, edge_a.y, edge_a.z,
-                    edge_b.x, edge_b.y, edge_b.z,
-                    triangle.minimum.x, triangle.minimum.y, triangle.minimum.z,
-                    triangle.maximum.x, triangle.maximum.y, triangle.maximum.z,
+                    a.x,
+                    a.y,
+                    a.z,
+                    edge_a.x,
+                    edge_a.y,
+                    edge_a.z,
+                    edge_b.x,
+                    edge_b.y,
+                    edge_b.z,
+                    triangle.minimum.x,
+                    triangle.minimum.y,
+                    triangle.minimum.z,
+                    triangle.maximum.x,
+                    triangle.maximum.y,
+                    triangle.maximum.z,
                 )
             )
         self._triangle_data = tuple(data)
@@ -130,7 +140,9 @@ class BvhRayMeshQuery:
         # Build the hierarchy over triangle positions in the data tuple.
         order = list(range(len(data)))
         bounds: list[tuple[float, float, float, float, float, float]] = []
-        children: list[tuple[int, int]] = []   # (left, right) for an inner node, (-1, -1) for a leaf
+        children: list[
+            tuple[int, int]
+        ] = []  # (left, right) for an inner node, (-1, -1) for a leaf
         leaf_ranges: list[tuple[int, int]] = []  # [start, end) in ``order`` for a leaf
 
         def build(start: int, end: int) -> int:
@@ -149,7 +161,10 @@ class BvhRayMeshQuery:
             # Split at the median centre along the axis the centres spread over most.
             extents = []
             for axis in range(3):
-                centres = [(data[i][10 + axis] + data[i][13 + axis]) * 0.5 for i in order[start:end]]
+                centres = [
+                    (data[i][10 + axis] + data[i][13 + axis]) * 0.5
+                    for i in order[start:end]
+                ]
                 extents.append(max(centres) - min(centres))
             axis = extents.index(max(extents))
             order[start:end] = sorted(
@@ -231,15 +246,27 @@ class BvhRayMeshQuery:
             for position in range(start, end):
                 (
                     face_index,
-                    ax, ay, az,
-                    e1x, e1y, e1z,
-                    e2x, e2y, e2z,
-                    bx0, by0, bz0,
-                    bx1, by1, bz1,
+                    ax,
+                    ay,
+                    az,
+                    e1x,
+                    e1y,
+                    e1z,
+                    e2x,
+                    e2y,
+                    e2z,
+                    bx0,
+                    by0,
+                    bz0,
+                    bx1,
+                    by1,
+                    bz1,
                 ) = data[order[position]]
                 if face_index == ignored_face_index:
                     continue
-                if not box_accepts(ox, oy, oz, ix, iy, iz, floor, bx0, by0, bz0, bx1, by1, bz1):
+                if not box_accepts(
+                    ox, oy, oz, ix, iy, iz, floor, bx0, by0, bz0, bx1, by1, bz1
+                ):
                     continue
 
                 # Moller-Trumbore, in the brute-force backend's operation order.
@@ -269,7 +296,9 @@ class BvhRayMeshQuery:
                     continue
                 if distance <= floor:
                     continue
-                if distance < best_distance or (distance == best_distance and face_index < best_face):
+                if distance < best_distance or (
+                    distance == best_distance and face_index < best_face
+                ):
                     best_distance = distance
                     best_face = face_index
 

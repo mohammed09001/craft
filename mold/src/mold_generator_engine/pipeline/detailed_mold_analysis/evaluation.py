@@ -131,13 +131,17 @@ class PullDirectionEvaluator:
         # operations (so every float comes out identical), without a call per face.
         append_face_evaluation = face_evaluations.append
         for face_index, area, normal_x, normal_y, normal_z, fixed in face_data:
-            if fixed is not None:  # not analyzable: the same immutable result for every candidate
+            if (
+                fixed is not None
+            ):  # not analyzable: the same immutable result for every candidate
                 if retain:
                     append_face_evaluation(fixed)
                 ignored_face_count += 1
                 continue
 
-            signed_alignment = (normal_x * pull_x) + (normal_y * pull_y) + (normal_z * pull_z)
+            signed_alignment = (
+                (normal_x * pull_x) + (normal_y * pull_y) + (normal_z * pull_z)
+            )
             if signed_alignment <= -1.0:
                 signed_alignment = -1.0
             elif signed_alignment >= 1.0:
@@ -212,6 +216,7 @@ class PullDirectionEvaluator:
             weighted_quality_sum=weighted_quality_sum,
             kept_face_evaluations=tuple(face_evaluations) if retain else None,
         )
+
     def finish_candidate_evaluation(
         self,
         candidate_direction: PullDirectionCandidate,
@@ -309,7 +314,10 @@ class PullDirectionEvaluator:
             else:
                 engineering_score = max(
                     0.0,
-                    min(100.0, 100.0 * (weighted_quality_sum / total_analyzed_area_sq_mm)),
+                    min(
+                        100.0,
+                        100.0 * (weighted_quality_sum / total_analyzed_area_sq_mm),
+                    ),
                 )
 
         return CandidatePullDirectionEvaluation(
@@ -350,12 +358,16 @@ def _face_invariants(face_analysis: FaceGeometryAnalysis) -> list[_FaceInvariant
             is_analyzable=False,
         )
         if not _is_positive_finite_area(face.area) or face.unit_normal is None:
-            invariants.append((face.face_index, face.area, 0.0, 0.0, 0.0, not_analyzable))
+            invariants.append(
+                (face.face_index, face.area, 0.0, 0.0, 0.0, not_analyzable)
+            )
             continue
         try:
             unit_face_normal = face.unit_normal.normalized(minimum_magnitude=0.0)
         except InvalidVectorError:
-            invariants.append((face.face_index, face.area, 0.0, 0.0, 0.0, not_analyzable))
+            invariants.append(
+                (face.face_index, face.area, 0.0, 0.0, 0.0, not_analyzable)
+            )
             continue
         invariants.append(
             (
