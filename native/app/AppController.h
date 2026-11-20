@@ -245,6 +245,8 @@ class AppController : public QObject {
   void setAutosaveIntervalMs(int ms);
   /// Where the controller asks how much memory is free (default: the operating system). Tests inject their own; 0 means unknown.
   void setMemoryProbe(std::function<std::uint64_t()> probe) { memoryProbe_ = std::move(probe); }
+  /// How long a Master Mold run may take before the UI gives up on it (tests shorten it).
+  void setMasterMoldTimeoutMs(int ms) { masterTimeoutMs_ = ms; }
   bool isDirty() const { return projectDirty_; }
   /// Current inputs as a project document (the model bytes are added by the save job).
   project::Document captureDocument(bool forFingerprint = false) const;
@@ -493,6 +495,7 @@ class AppController : public QObject {
   void refreshMasterStaleness();
   void showMasterBodies();
   void clearMasterRun(bool resetStore);
+  void abandonMasterRun(const QString& message, bool failTheStore);
   void connectReports();
   void initProject();
   void refreshDirty();
@@ -610,6 +613,13 @@ class AppController : public QObject {
   MasterMoldStore masterStore_;
   bool masterShown_ = false;
   bool masterTimedOut_ = false;
+  // A Master Mold run that timed out, was cancelled or was reset is released from the UI at once, but its worker thread cannot be interrupted inside a
+  // Boolean and runs on until it returns; its result is then discarded. `masterAbandon_` belongs to the run in progress, `masterOrphans_` counts the
+  // threads still ending.
+  std::shared_ptr<bool> masterAbandon_;
+  int masterOrphans_ = 0;
+  int masterRunGeneration_ = 0;
+  int masterTimeoutMs_ = 180000;  // DEFAULT_MASTER_MOLD_WORKER_TIMEOUT_MS
   bool masterRunning_ = false;
   std::vector<std::string> masterUnportedPaths_;
   QString masterTimeoutMessage_;

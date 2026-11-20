@@ -1984,6 +1984,152 @@ class WorkflowTest : public QObject {
     QCOMPARE(app->scene()->count(), 3);
   }
 
+  // --- a Master Mold run that cannot be interrupted ---------------------------------------------------------------------------------------------
+  // The engine cannot be stopped inside a Boolean, which for a large part runs for minutes. A timeout, a cancel or a reset therefore releases the UI at once
+  // and lets the worker thread end on its own, its result discarded; until it has, a new run is refused (it would double the load).
+  static bool masterWindingDown(AppController& app) { return app.masterMold().value("windingDown").toBool(); }
+
+  void cancellingAMasterMoldReleasesTheApplicationAtOnce() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->generateMasterMold();
+    QVERIFY(app->masterMold().value("generating").toBool());
+    QVERIFY(app->busy());
+
+    app->cancelCurrentJob();   // no waiting for the thread: this is synchronous
+    QVERIFY2(!app->masterMold().value("generating").toBool(), "the panel must not stay in 'generating'");
+    QVERIFY2(!app->busy(), "the whole application must not stay busy");
+    QVERIFY(app->statusText().contains("cancelled"));
+    QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("error"));
+    QVERIFY(masterWindingDown(*app));
+    QVERIFY(!app->masterMold().value("canGenerate").toBool());   // not yet: the thread is still ending
+
+    // A new run is refused while it ends, with a reason; nothing starts.
+    app->generateMasterMold();
+    QVERIFY(app->statusText().contains("still ending"));
+    QVERIFY(!app->masterMold().value("generating").toBool());
+    QVERIFY(!app->busy());
+
+    // The late result is discarded: no tooling appears, and the application's busy state is not touched.
+    QVERIFY(waitFor([&] { return !masterWindingDown(*app); }, 120000));
+    QVERIFY(!app->busy());
+    QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("error"));
+    QCOMPARE(app->scene()->count(), 1);
+
+    // And then a new run works as usual.
+    app->generateMasterMold();
+    QVERIFY(waitFor([&] { return !app->masterMold().value("generating").toBool(); }, 120000));
+    QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("current"));
+    QVERIFY(app->scene()->count() > 1);
+  }
+
+  // The queued progress reports of a run that was given up arrive after the UI has moved on: they must not change the footer's stage and progress.
+  void anAbandonedMasterMoldRunReportsNoMoreProgress() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    QSignalSpy busyChanges(app.get(), &AppController::busyChanged);
+    {
+      HeldWorker held;
+      app->generateMasterMold();
+      app->cancelCurrentJob();   // given up before the thread has started
+      busyChanges.clear();
+      held.let();                // now it starts, reports its first stage, and finds the cancellation
+      QVERIFY(waitFor([&] { return !masterWindingDown(*app); }, 120000));
+    }
+    QTest::qWait(100);           // reports are queued: let any that are left arrive
+    QCOMPARE(busyChanges.count(), 0);
+    QVERIFY(!app->busy());
+  }
+
+  void aMasterMoldThatTimesOutReleasesTheApplicationAndItsLateResultNeverTouchesNewWork() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->setMasterMoldTimeoutMs(1);
+    QStringList whenItEnded;   // what the application's busy state and mold phase were at the moment the discarded run ended
+    bool wasWindingDown = false;
+    QObject::connect(app.get(), &AppController::masterMoldChanged, app.get(), [&] {
+      const bool now = masterWindingDown(*app);
+      if (wasWindingDown && !now) whenItEnded << QStringLiteral("%1|%2").arg(app->busy()).arg(app->moldPhase());
+      wasWindingDown = now;
+    });
+    {
+      HeldWorker held;   // the only worker thread is taken: the Master job queues, the timeout fires while it waits, and the work started next queues behind it
+      app->generateMasterMold();
+      QVERIFY(app->masterMold().value("generating").toBool());
+      QVERIFY(waitFor([&] { return !app->masterMold().value("generating").toBool(); }, 20000));   // the timeout, not the engine, ended it
+      QVERIFY(app->statusText().contains("exceeded 1 ms"));
+      QVERIFY(!app->busy());
+      QVERIFY(masterWindingDown(*app));
+      app->generateMold();   // other work can start while the abandoned thread has not even begun
+      QVERIFY(app->busy());
+      held.let();
+      QVERIFY(waitFor([&] { return !masterWindingDown(*app) && app->moldPhase() != "generating"; }, 120000));
+    }
+    QCOMPARE(app->moldPhase(), QStringLiteral("complete"));
+    QVERIFY2(!whenItEnded.isEmpty(), "the end of the discarded run was never seen");
+    for (const QString& moment : whenItEnded) {
+      const QStringList parts = moment.split('|');
+      // The Master job ran first and the mold job behind it, so the mold was still generating when the discarded run ended: its busy state must have survived.
+      QVERIFY2(parts[1] == "generating" && parts[0] == "1", qPrintable("the ended Master thread disturbed the mold that was running: " + moment));
+    }
+    QVERIFY(!app->busy());
+    QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("error"));   // the discarded result did not turn it into "current"
+    QCOMPARE(app->scene()->count(), 2);   // the part and the one mold body, no Master pieces
+  }
+
+  void resettingARunningMasterMoldReleasesTheApplicationToo() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->generateMasterMold();
+    QVERIFY(app->busy());
+    app->resetMasterMold();
+    QVERIFY(!app->busy());
+    QVERIFY(!app->masterMold().value("generating").toBool());
+    QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("unavailable"));
+    QVERIFY(waitFor([&] { return !masterWindingDown(*app); }, 120000));
+    QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("unavailable"));   // the late result did not come back
+    QCOMPARE(app->scene()->count(), 1);
+  }
+
+  // Master Mold needs about 7 to 8 KB of memory per triangle (observed), so it is refused before it starts when that cannot fit (estimateMasterMoldPeakBytes).
+  void aMasterMoldThatCannotFitInFreeMemoryIsRefusedBeforeItStarts() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    const std::uint64_t needed = estimateMasterMoldPeakBytes(app->model()->sourceSoup->triangleCount());
+    QCOMPARE(needed, kMasterFixedPeakBytes + kMasterPeakBytesPerTriangle * 20);
+
+    app->setMemoryProbe([needed] { return needed - 1; });
+    QSignalSpy errors(app.get(), &AppController::errorOccurred);
+    app->generateMasterMold();
+    QCOMPARE(errors.count(), 1);
+    QCOMPARE(errors.at(0).at(2).toString(), QStringLiteral("master_memory_insufficient"));
+    QVERIFY2(errors.at(0).at(1).toString().contains("20 triangles"), qPrintable(errors.at(0).at(1).toString()));
+    QVERIFY(!app->busy());
+    QVERIFY(!app->masterMold().value("generating").toBool());
+    QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("unavailable"));
+
+    app->setMemoryProbe([needed] { return needed; });
+    app->generateMasterMold();
+    QVERIFY(app->masterMold().value("generating").toBool());
+    QVERIFY(waitFor([&] { return !app->masterMold().value("generating").toBool(); }, 120000));
+    QCOMPARE(errors.count(), 1);
+
+    auto unknown = makeApp();
+    unknown->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return unknown->modelPhase() == "ready"; }));
+    unknown->setMemoryProbe([] { return std::uint64_t{0}; });   // unknown: never a reason to refuse
+    QSignalSpy unknownErrors(unknown.get(), &AppController::errorOccurred);
+    unknown->generateMasterMold();
+    QVERIFY(unknown->masterMold().value("generating").toBool());
+    QVERIFY(waitFor([&] { return !unknown->masterMold().value("generating").toBool(); }, 120000));
+    QCOMPARE(unknownErrors.count(), 0);
+  }
+
   void cancellingWhenNothingRunsDoesNothing() {
     QTemporaryDir dir;
     auto app = makeApp();

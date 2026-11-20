@@ -204,6 +204,13 @@ ScrollView {
                     onClicked: app.masterMold.generating ? app.cancelCurrentJob() : app.generateMasterMold()
                 }
                 Label {
+                    objectName: "masterWindingDownHint"
+                    visible: app.masterMold.windingDown === true
+                    text: qsTr("The previous run is still ending its last step; it cannot be interrupted. You can generate again when it has.")
+                    font.italic: true
+                    wrapMode: Text.Wrap; Layout.fillWidth: true
+                }
+                Label {
                     visible: app.masterMold.generating && !!app.masterMold.progressLabel
                     text: app.masterMold.progressLabel
                     Layout.fillWidth: true

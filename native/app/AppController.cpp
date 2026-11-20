@@ -129,6 +129,11 @@ void AppController::setStatus(const QString& text) {
 }
 
 void AppController::cancelCurrentJob() {
+  // A Master Mold run cannot be interrupted inside a Boolean, so cancelling it releases the UI at once and lets the thread end on its own.
+  if (masterRunning_) {
+    abandonMasterRun(QStringLiteral("Master Mold generation was cancelled."), true);
+    return;
+  }
   if (activeCancel_) activeCancel_->cancel();
 }
 

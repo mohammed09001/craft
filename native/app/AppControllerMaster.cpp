@@ -6,6 +6,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
+#include <QLocale>
 #include <QLoggingCategory>
 #include <QTimer>
 
@@ -21,7 +22,6 @@ namespace craft::app {
 
 namespace {
 
-constexpr int kMasterMoldTimeoutMs = 180000;  // DEFAULT_MASTER_MOLD_WORKER_TIMEOUT_MS
 
 /// User-facing progress labels (internal stage names stay in the engine contract).
 QString progressLabel(const std::string& stage) {
@@ -66,6 +66,26 @@ void AppController::generateMasterMold() {
     return;
   }
   if (busy_) return;
+  if (masterOrphans_ > 0) {
+    setStatus(QStringLiteral("The previous Master Mold run is still ending its last step (it cannot be interrupted). Try again in a moment."));
+    emit masterMoldChanged();
+    return;
+  }
+  // Like the mold: refused before any work when the part's tooling cannot fit in the memory that is free (estimateMasterMoldPeakBytes).
+  {
+    const std::uint64_t available = memoryProbe_ ? memoryProbe_() : 0;
+    const std::uint64_t triangles = model_->sourceSoup->triangleCount();
+    const std::uint64_t needed = estimateMasterMoldPeakBytes(triangles);
+    if (available != 0 && needed > available) {
+      const auto gib = [](std::uint64_t bytes) { return QLocale().toString(static_cast<double>(bytes) / (1024.0 * 1024.0 * 1024.0), 'f', 1); };
+      emit errorOccurred(QStringLiteral("Master Mold"),
+                         QStringLiteral("This model has %1 triangles. Planning its Master Mold needs about %2 GiB of memory and about %3 GiB is free. "
+                                        "Close other applications, or use a model with fewer triangles, and try again.")
+                             .arg(QLocale().toString(static_cast<qulonglong>(triangles)), gib(needed), gib(available)),
+                         QStringLiteral("master_memory_insufficient"));
+      return;
+    }
+  }
 
   MasterSeedSnapshot seed;
   try {
@@ -106,10 +126,16 @@ void AppController::generateMasterMold() {
 
   CancellationToken cancel;
   activeCancel_ = cancel;
-  QTimer::singleShot(kMasterMoldTimeoutMs, this, [this, cancel, generation] {
-    if (masterRunning_ && masterStore_.generationVersion() == generation) {
+  masterRunGeneration_ = generation;
+  const auto abandoned = std::make_shared<bool>(false);
+  masterAbandon_ = abandoned;
+  // The timeout (and a cancel, and a reset) release the UI at once: the engine cannot be interrupted inside a Boolean, which for a large part can run
+  // for minutes, and until it returned the whole application stayed busy. The thread finishes in the background and its result is discarded.
+  const int timeoutMs = masterTimeoutMs_;
+  QTimer::singleShot(timeoutMs, this, [this, generation, abandoned, timeoutMs] {
+    if (masterRunning_ && !*abandoned && masterStore_.generationVersion() == generation) {
       masterTimedOut_ = true;
-      cancel.cancel();
+      abandonMasterRun(QStringLiteral("Master Mold generation exceeded %1 ms.").arg(timeoutMs), true);
     }
   });
 
@@ -125,8 +151,14 @@ void AppController::generateMasterMold() {
         };
         return evaluateMasterMoldGeneration(*engine, request, hooks);
       },
-      [this, generation](JobOutcome<MasterMoldResult> outcome) {
+      [this, generation, abandoned, timeoutMs](JobOutcome<MasterMoldResult> outcome) {
+        if (*abandoned) {  // the run was given up (timeout, cancel, reset): the UI has moved on, nothing here may touch it
+          --masterOrphans_;
+          emit masterMoldChanged();
+          return;
+        }
         activeCancel_.reset();
+        masterAbandon_.reset();
         setBusy(false);
         const bool wasRunning = masterRunning_;
         masterRunning_ = false;
@@ -143,7 +175,7 @@ void AppController::generateMasterMold() {
           return;
         }
         QString message = outcome.errorMessage;
-        if (masterTimedOut_) message = QStringLiteral("Master Mold generation exceeded %1 ms.").arg(kMasterMoldTimeoutMs);
+        if (masterTimedOut_) message = QStringLiteral("Master Mold generation exceeded %1 ms.").arg(timeoutMs);
         else if (outcome.state == JobState::Cancelled) message = QStringLiteral("Master Mold generation was cancelled.");
         if (message.isEmpty()) message = QStringLiteral("Master Mold generation failed.");
         if (!masterStore_.failGeneration(generation, message.toStdString())) return;  // reset or superseded: stay quiet
@@ -155,7 +187,8 @@ void AppController::generateMasterMold() {
           qCWarning(lcApp) << "Master Mold failed:" << outcome.errorCode << message;
         }
       },
-      [this, generation](QString stage, double) {
+      [this, generation, abandoned](QString stage, double) {
+        if (*abandoned) return;  // an abandoned run's last reports must not touch the footer while other work runs
         const std::string name = stage.toStdString();
         MasterMoldProgressStage s;
         s.stage = name;
@@ -169,8 +202,28 @@ void AppController::generateMasterMold() {
       });
 }
 
+// Gives up the Master Mold run in progress: the UI is released now, the worker thread is left to end on its own (cancelled, so it stops at its next check
+// and otherwise at the end of the Boolean it is in) and its result will be ignored.
+void AppController::abandonMasterRun(const QString& message, bool failTheStore) {
+  if (!masterRunning_ || !masterAbandon_) return;
+  *masterAbandon_ = true;
+  masterAbandon_.reset();
+  ++masterOrphans_;
+  if (activeCancel_) {
+    activeCancel_->cancel();
+    activeCancel_.reset();
+  }
+  masterRunning_ = false;
+  setBusy(false);
+  if (failTheStore) {
+    masterStore_.failGeneration(masterRunGeneration_, message.toStdString());
+    setStatus(message);
+  }
+  emit masterMoldChanged();
+}
+
 void AppController::clearMasterRun(bool resetStore) {
-  if (masterRunning_ && activeCancel_) activeCancel_->cancel();
+  abandonMasterRun(QString(), false);
   masterRunning_ = false;
   if (resetStore) masterStore_.reset();
   masterUnportedPaths_.clear();
@@ -348,7 +401,8 @@ QVariantMap AppController::masterMold() const {
   QVariantMap m{{"status", QString::fromStdString(store.status())},
                 {"uiKind", QString::fromStdString(ui.kind)},
                 {"generating", store.status() == "generating"},
-                {"canGenerate", model_.has_value() && !busy_}};
+                {"canGenerate", model_.has_value() && !busy_ && masterOrphans_ == 0},
+                {"windingDown", masterOrphans_ > 0}};
 
   QString progress;
   if (store.progressStage()) progress = progressLabel(store.progressStage()->stage);

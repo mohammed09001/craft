@@ -11,6 +11,7 @@
 #include "TestMeshes.h"
 #include "geometry/MeshAnalysis.h"
 #include "geometry/SignedDistance.h"
+#include "master/MasterMoldStore.h"
 #include "mold/CavityGeneration.h"
 #include "mold/PartSolid.h"
 #include "mold/ReferenceMold.h"
@@ -128,6 +129,20 @@ class MoldTest : public QObject {
     // The file limit (512 MiB of binary STL) admits 10,737,418 triangles: its mold needs more than the 9.2 GiB the process had passed when it was stopped.
     QVERIFY(static_cast<double>(estimateMoldPeakBytes(10'737'418)) / kGiB > 9.2);
     QCOMPARE(estimateMoldPeakBytes(0), kMoldFixedPeakBytes);
+  }
+
+  // Master Mold's memory estimate (D-105): never below the observed peaks, not wildly above them, and above where the 1.3M-triangle run was stopped.
+  void theMasterMoldMemoryEstimateCoversEveryObservedPeak() {
+    constexpr double kGiB = 1024.0 * 1024.0 * 1024.0;
+    struct Observed { std::uint64_t triangles; double peakGiB; };
+    const Observed observed[] = {{81'920, 0.629}, {160'000, 1.140}, {405'000, 2.829}};   // 644, 1167 and 2897 MiB of the test process
+    for (const Observed& o : observed) {
+      const double estimate = static_cast<double>(estimateMasterMoldPeakBytes(o.triangles)) / kGiB;
+      QVERIFY2(estimate >= o.peakGiB, qPrintable(QStringLiteral("%1 triangles: estimate %2 GiB is below the observed %3 GiB").arg(o.triangles).arg(estimate).arg(o.peakGiB)));
+      QVERIFY2(estimate <= o.peakGiB * 1.4, qPrintable(QStringLiteral("%1 triangles: estimate %2 GiB is far above the observed %3 GiB").arg(o.triangles).arg(estimate).arg(o.peakGiB)));
+    }
+    QVERIFY(static_cast<double>(estimateMasterMoldPeakBytes(1'310'720)) / kGiB > 9.2);   // the run that was stopped at 9.2 GiB without finishing
+    QCOMPARE(estimateMasterMoldPeakBytes(0), kMasterFixedPeakBytes);
   }
 
   void referenceFrameLiftsPartAndRestsBlockOnZero() {

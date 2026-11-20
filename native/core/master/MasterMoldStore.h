@@ -101,6 +101,14 @@ std::vector<MasterMoldRenderableBody> selectRenderableMasterMoldBodies(const std
                                                                        const std::map<std::string, bool>& pieceVisibility);
 
 /// What the worker does: world transform -> engine -> store-level state shape. Throws CodedError("cancelled").
+/// How much memory generating Master Mold tooling needs, for refusing it before it starts when it cannot fit. Peak working set of the test process
+/// (Release, spheres and a torus, `TEMPmasterOnBigPart` style runs, 2026-11-20): 82k triangles 0.63 GiB, 160k 1.14 GiB (neither finished within 250 s),
+/// 405k (a torus, finished in 87 s) 2.83 GiB, 1.31M past 9.2 GiB without finishing. That is 7 to 8 KB per triangle and unlike the mold it depends on the
+/// geometry (a 20k-triangle sphere needed 0.19 GiB and 93 s), so the estimate takes 9 KB (about 15 % over the worst measurement) plus 64 MiB.
+inline constexpr std::uint64_t kMasterPeakBytesPerTriangle = 9000;
+inline constexpr std::uint64_t kMasterFixedPeakBytes = 64ull * 1024 * 1024;
+inline std::uint64_t estimateMasterMoldPeakBytes(std::uint64_t triangleCount) { return kMasterFixedPeakBytes + kMasterPeakBytesPerTriangle * triangleCount; }
+
 MasterMoldResult evaluateMasterMoldGeneration(IMeshGeometryEngine& engine, const MasterMoldRequest& request, const MasterMoldEngineHooks& hooks = {});
 /// The pure mapping step of the above (engine result -> store-level states), exposed for tests.
 MasterMoldResult mapEngineResult(const MasterMoldRequest& request, const MasterMoldEngineResult& engineResult);
