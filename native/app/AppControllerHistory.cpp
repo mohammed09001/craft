@@ -110,6 +110,7 @@ void AppController::restoreHistory(const HistoryEntry& entry) {
   ++moldGeneration_;
   ++sprueGeneration_;
   ++moldInputsRevision_;
+  if (moldPhase_ == QStringLiteral("generating")) abandonMoldRun();
   if (activeCancel_) {
     activeCancel_->cancel();
     activeCancel_.reset();

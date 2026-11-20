@@ -128,10 +128,34 @@ void AppController::setStatus(const QString& text) {
   emit statusTextChanged();
 }
 
+// Gives up the mold generation in progress: the UI is released now, the worker thread is left to end on its own (cancelled, so it stops at its next check and
+// otherwise at the end of the Boolean it is in) and its result will be ignored. The caller sets the phase and the state that follows.
+void AppController::abandonMoldRun() {
+  if (moldPhase_ != QStringLiteral("generating") || !moldAbandon_) return;
+  *moldAbandon_ = true;
+  moldAbandon_.reset();
+  ++moldOrphans_;
+  if (activeCancel_) {
+    activeCancel_->cancel();
+    activeCancel_.reset();
+  }
+  setBusy(false);
+}
+
 void AppController::cancelCurrentJob() {
   // A Master Mold run cannot be interrupted inside a Boolean, so cancelling it releases the UI at once and lets the thread end on its own.
   if (masterRunning_) {
     abandonMasterRun(QStringLiteral("Master Mold generation was cancelled."), true);
+    return;
+  }
+  if (moldPhase_ == QStringLiteral("generating") && moldAbandon_) {
+    ++moldGeneration_;
+    abandonMoldRun();
+    moldResult_.reset();
+    scene_.clearMoldBodies();
+    moldPhase_ = QStringLiteral("ready");
+    setStatus(QStringLiteral("Mold generation cancelled."));
+    emit moldChanged();
     return;
   }
   if (activeCancel_) activeCancel_->cancel();
@@ -418,7 +442,8 @@ void AppController::invalidateMoldInputs() {
   // than show geometry that no longer matches the settings.
   if (moldResult_ || moldPhase_ == QStringLiteral("generating")) {
     ++moldGeneration_;
-    if (activeCancel_) activeCancel_->cancel();
+    if (moldPhase_ == QStringLiteral("generating")) abandonMoldRun();
+    else if (activeCancel_) activeCancel_->cancel();
     clearMold(model_ ? QStringLiteral("ready") : QStringLiteral("unavailable"));
   }
   emit moldInputsChanged();
@@ -452,6 +477,11 @@ void AppController::generateMold() {
     return;
   }
   if (busy_) return;
+  if (moldOrphans_ > 0) {
+    setStatus(QStringLiteral("The previous mold generation is still ending its last step (it cannot be interrupted). Try again in a moment."));
+    emit moldChanged();
+    return;
+  }
   // A part so large that the mold cannot fit in the memory that is free is refused before any work starts, with the numbers: the alternative is a
   // process that grows until the machine stalls or the process dies (a 10.7M-triangle part, the file limit, passed 9 GiB; estimateMoldPeakBytes).
   const std::uint64_t available = memoryProbe_ ? memoryProbe_() : 0;
@@ -494,6 +524,8 @@ void AppController::generateMold() {
 
   CancellationToken cancel;
   activeCancel_ = cancel;
+  const auto abandoned = std::make_shared<bool>(false);
+  moldAbandon_ = abandoned;
   auto engine = engine_;
   struct MoldJobResult {
     MoldGenerationResult mold;
@@ -507,8 +539,14 @@ void AppController::generateMold() {
         job.derived = evaluateDerivedMold(*engine, job.mold, intents, progress, cache.get());
         return job;
       },
-      [this, generation, inputs, recordHistory, before = captureHistory()](JobOutcome<MoldJobResult> outcome) {
+      [this, generation, inputs, recordHistory, abandoned, before = captureHistory()](JobOutcome<MoldJobResult> outcome) {
+        if (*abandoned) {  // given up (cancel, a change of inputs, undo): the UI has moved on, nothing here may touch it
+          --moldOrphans_;
+          emit moldChanged();
+          return;
+        }
         activeCancel_.reset();
+        moldAbandon_.reset();
         setBusy(false);
         if (generation != moldGeneration_ || inputs != moldInputsRevision_) return;  // stale
         if (outcome.state == JobState::Succeeded && outcome.result) {
@@ -530,7 +568,8 @@ void AppController::generateMold() {
         }
         emit moldChanged();
       },
-      [this](QString stage, double fraction) {
+      [this, abandoned](QString stage, double fraction) {
+        if (*abandoned) return;  // an abandoned run's last reports must not touch the footer while other work runs
         busyStage_ = stage;
         busyProgress_ = fraction;
         emit busyChanged();

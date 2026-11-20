@@ -93,6 +93,8 @@ class AppController : public QObject {
   Q_PROPERTY(double maxMoldClearanceMm READ maxMoldClearanceMm CONSTANT)
   Q_PROPERTY(QVariantList cutFaces READ cutFaces NOTIFY moldInputsChanged)
   Q_PROPERTY(QString moldPhase READ moldPhase NOTIFY moldChanged)
+  /// A mold generation that was cancelled (or superseded) is still ending its last step in the background: a new one has to wait.
+  Q_PROPERTY(bool moldWindingDown READ moldWindingDown NOTIFY moldChanged)
   Q_PROPERTY(QString moldError READ moldError NOTIFY moldChanged)
   Q_PROPERTY(QVariantMap moldSummary READ moldSummary NOTIFY moldChanged)
   Q_PROPERTY(QVariantList moldIssues READ moldIssues NOTIFY moldChanged)
@@ -208,6 +210,7 @@ class AppController : public QObject {
   Q_INVOKABLE void setCutFacePosition(const QString& face, double normalizedPosition);
   Q_INVOKABLE void resetCutFacePosition(const QString& face);
   QString moldPhase() const { return moldPhase_; }
+  bool moldWindingDown() const { return moldOrphans_ > 0; }
   QString moldError() const { return moldError_; }
   QVariantMap moldSummary() const;
   QVariantList moldIssues() const;
@@ -496,6 +499,7 @@ class AppController : public QObject {
   void showMasterBodies();
   void clearMasterRun(bool resetStore);
   void abandonMasterRun(const QString& message, bool failTheStore);
+  void abandonMoldRun();
   void connectReports();
   void initProject();
   void refreshDirty();
@@ -617,6 +621,10 @@ class AppController : public QObject {
   // Boolean and runs on until it returns; its result is then discarded. `masterAbandon_` belongs to the run in progress, `masterOrphans_` counts the
   // threads still ending.
   std::shared_ptr<bool> masterAbandon_;
+  // The same for the mold: a generation that is cancelled, superseded by a change of inputs or undone is released from the UI at once and its thread
+  // (which cannot be interrupted inside a Boolean) ends on its own with its result ignored.
+  std::shared_ptr<bool> moldAbandon_;
+  int moldOrphans_ = 0;
   int masterOrphans_ = 0;
   int masterRunGeneration_ = 0;
   int masterTimeoutMs_ = 180000;  // DEFAULT_MASTER_MOLD_WORKER_TIMEOUT_MS

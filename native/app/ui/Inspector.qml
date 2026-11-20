@@ -404,7 +404,15 @@ ScrollView {
                     text: app.busy && app.moldPhase === "generating" ? qsTr("Cancel") : qsTr("Generate mold")
                     highlighted: true
                     Layout.fillWidth: true
+                    enabled: app.moldPhase === "generating" || !app.moldWindingDown
                     onClicked: app.moldPhase === "generating" ? app.cancelCurrentJob() : app.generateMold()
+                }
+                Label {
+                    objectName: "moldWindingDownHint"
+                    visible: app.moldWindingDown
+                    text: qsTr("The previous mold generation is still ending its last step; it cannot be interrupted. You can generate again when it has.")
+                    font.italic: true
+                    wrapMode: Text.Wrap; Layout.fillWidth: true
                 }
                 ProgressBar {
                     visible: app.moldPhase === "generating"

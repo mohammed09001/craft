@@ -975,12 +975,93 @@ class WorkflowTest : public QObject {
     app->undo();
     QCOMPARE(app->moldPhase(), QStringLiteral("ready"));
     QVERIFY(!app->busy());
+    QVERIFY(app->moldWindingDown());   // the generation's thread is still ending (and the next one waits for it)
     for (const QVariant& f : app->cutFaces()) QVERIFY(!f.toMap().value("enabled").toBool());
     // The cancelled generation's late result must not appear.
     QTest::qWait(800);
     QVERIFY(waitFor([&] { return !app->busy(); }));
     QCOMPARE(app->moldPhase(), QStringLiteral("ready"));
     QVERIFY(!app->moldResult().has_value());
+  }
+
+  // --- a mold generation that cannot be interrupted -----------------------------------------------------------------------------------------------
+  // The same as for Master Mold: cancelling, changing an input or undoing while the mold generates releases the application at once (it used to stay busy
+  // until the Boolean the engine was in returned) and lets the thread end on its own with its result ignored; a new generation waits for it.
+  void cancellingAMoldGenerationReleasesTheApplicationAtOnce() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->generateMold();
+    QCOMPARE(app->moldPhase(), QStringLiteral("generating"));
+    QVERIFY(app->busy());
+
+    app->cancelCurrentJob();   // synchronous: nothing waits for the thread
+    QCOMPARE(app->moldPhase(), QStringLiteral("ready"));
+    QVERIFY(!app->busy());
+    QVERIFY(app->statusText().contains("cancelled"));
+    QVERIFY(app->moldWindingDown());
+
+    app->generateMold();       // refused while the thread ends, with a reason; nothing starts
+    QVERIFY(app->statusText().contains("still ending"));
+    QCOMPARE(app->moldPhase(), QStringLiteral("ready"));
+    QVERIFY(!app->busy());
+
+    QVERIFY(waitFor([&] { return !app->moldWindingDown(); }, 120000));
+    QCOMPARE(app->moldPhase(), QStringLiteral("ready"));   // the late result was discarded
+    QVERIFY(!app->moldResult().has_value());
+    QCOMPARE(app->scene()->count(), 1);
+    QVERIFY(!app->busy());
+
+    app->generateMold();       // and then it works as usual
+    QVERIFY(waitFor([&] { return app->moldPhase() != "generating"; }, 120000));
+    QCOMPARE(app->moldPhase(), QStringLiteral("complete"));
+  }
+
+  void changingAnInputWhileTheMoldGeneratesReleasesTheApplicationAtOnce() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->generateMold();
+    QVERIFY(app->busy());
+    app->setMoldClearanceMm(20);   // an input: the generation under way no longer matches it
+    QVERIFY2(!app->busy(), "changing an input used to leave the application busy until the engine's Boolean returned");
+    QCOMPARE(app->moldPhase(), QStringLiteral("ready"));
+    QVERIFY(app->moldWindingDown());
+    QVERIFY(waitFor([&] { return !app->moldWindingDown(); }, 120000));
+    QCOMPARE(app->moldPhase(), QStringLiteral("ready"));
+    QVERIFY(!app->moldResult().has_value());
+    QCOMPARE(app->moldClearanceMm(), 20.0);
+  }
+
+  void anAbandonedMoldRunNeverDisturbsWorkStartedBehindIt() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    QStringList whenItEnded;   // what the application looked like at the moment the discarded run ended
+    bool wasWindingDown = false;
+    QObject::connect(app.get(), &AppController::moldChanged, app.get(), [&] {
+      const bool now = app->moldWindingDown();
+      if (wasWindingDown && !now) whenItEnded << QStringLiteral("%1|%2").arg(app->busy()).arg(app->masterMold().value("generating").toBool());
+      wasWindingDown = now;
+    });
+    {
+      HeldWorker held;               // the only worker thread is taken, so the order is fixed: the mold's job first, Master Mold's behind it
+      app->generateMold();
+      app->cancelCurrentJob();       // given up before its thread has started
+      QVERIFY(!app->busy());
+      app->generateMasterMold();     // other work starts at once
+      QVERIFY(app->busy());
+      QVERIFY(app->masterMold().value("generating").toBool());
+      held.let();
+      QVERIFY(waitFor([&] { return !app->moldWindingDown() && !app->masterMold().value("generating").toBool(); }, 120000));
+    }
+    QVERIFY2(!whenItEnded.isEmpty(), "the end of the discarded run was never seen");
+    for (const QString& moment : whenItEnded)
+      QVERIFY2(moment == "1|1", qPrintable("the ended mold thread disturbed the Master Mold run that was in progress: " + moment));
+    QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("current"));   // that run finished normally
+    QCOMPARE(app->moldPhase(), QStringLiteral("ready"));                                  // and the discarded mold did not appear
+    QVERIFY(!app->moldResult().has_value());
+    QVERIFY(!app->busy());
   }
 
   void aSliderDragIsOneStepAndAFreshModelStartsAFreshHistory() {
