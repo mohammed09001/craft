@@ -601,6 +601,133 @@ std::vector<SegmentationProtectedRegion> protectedRegionsOf(const CommittedMoldF
   return regions;
 }
 
+namespace {
+
+bool sameBounds(const Bounds3& a, const Bounds3& b) {
+  for (int i = 0; i < 3; ++i) {
+    if (std::fabs(a.min[i] - b.min[i]) > 1e-9 || std::fabs(a.max[i] - b.max[i]) > 1e-9) return false;
+  }
+  return true;
+}
+
+constexpr const char* kCommittedEvidenceReason =
+    "The current snapshot provides bounds-level feature evidence only; thin walls, sealing regions, and production split-clearance policy are not yet authoritative.";
+
+Json jsonRegions(const std::vector<SegmentationProtectedRegion>& regions, const ProtectedRegionEvidence& evidence) {
+  std::vector<Json> items;
+  for (const SegmentationProtectedRegion& r : regions) items.push_back(toJson(r));
+  return Json::object({{"regions", Json::array(std::move(items))},
+                       {"evidence", Json::object({{"status", jStr(evidence.status)}, {"reason", jStr(evidence.reason)}})}});
+}
+
+// captureSegmentationSourceSnapshot: the committed result as a snapshot, or why it cannot be one.
+SegmentationSourceResult captureCommittedSnapshot(const CommittedMoldSource& committed) {
+  SegmentationSourceResult out;
+  const std::vector<MoldBody>& bodies = committed.facts.bodies;
+  if (!committed.current) {
+    out.status = "stale";
+    out.reasonCode = "stale_source_revision";
+    out.issues = {issue(true, "stale_source_revision", "The committed mold geometry does not match the current mold document.")};
+    return out;
+  }
+  bool boundsOk = !bodies.empty();
+  Bounds3 aggregate;
+  if (boundsOk) {
+    aggregate = bodies.front().bounds;
+    for (const MoldBody& b : bodies) {
+      for (int i = 0; i < 3; ++i) {
+        if (!std::isfinite(b.bounds.min[i]) || !std::isfinite(b.bounds.max[i])) boundsOk = false;
+        aggregate.min[i] = std::min(aggregate.min[i], b.bounds.min[i]);
+        aggregate.max[i] = std::max(aggregate.max[i], b.bounds.max[i]);
+      }
+    }
+    for (int i = 0; i < 3 && boundsOk; ++i) boundsOk = aggregate.max[i] > aggregate.min[i];
+  }
+  bool bodiesOk = boundsOk;
+  for (const MoldBody& b : bodies) {
+    if (!b.watertight || b.mesh.positions.empty() || b.mesh.indices.empty() || b.mesh.positions.size() % 3 != 0 || b.mesh.indices.size() % 3 != 0) bodiesOk = false;
+  }
+  if (!bodiesOk) {
+    out.status = "failed";
+    out.reasonCode = "invalid_authoritative_geometry";
+    out.issues = {issue(true, "invalid_authoritative_geometry", "Committed mold bodies are empty or structurally invalid.")};
+    return out;
+  }
+
+  std::vector<const MoldBody*> ordered;
+  for (const MoldBody& b : bodies) ordered.push_back(&b);
+  std::stable_sort(ordered.begin(), ordered.end(), [](const MoldBody* l, const MoldBody* r) { return localeKeyLess(l->id, r->id); });
+  std::vector<Json> identity;
+  for (const MoldBody* b : ordered) {
+    identity.push_back(Json::object({{"id", jStr(b->id)},
+                                     {"geometryVersion", b->geometryVersion.empty() ? Json() : jStr(b->geometryVersion)},
+                                     {"bounds", jsonBounds(b->bounds)},
+                                     {"triangleCount", jNum(static_cast<double>(b->triangleCount))},
+                                     {"volumeMm3", jNum(b->volumeMm3)}}));
+  }
+  const std::string bodySignature = deterministicSegmentationId("mold-bodies", Json::array(std::move(identity)));
+  const std::vector<SegmentationProtectedRegion> regions = protectedRegionsOf(committed.facts);
+  const ProtectedRegionEvidence evidence{"incomplete", kCommittedEvidenceReason};
+
+  PreliminarySource source;
+  source.definition = committed.definition;
+  SegmentationSourceSnapshot& snapshot = source.snapshot;
+  snapshot.identity.documentRevision = committed.sourceRevision;
+  snapshot.identity.documentFingerprint = committed.sourceFingerprint;
+  snapshot.identity.resultRequestId = committed.resultRequestId;
+  snapshot.identity.definitionId = committed.definition.definitionId;
+  snapshot.identity.modelId = committed.definition.modelId;
+  snapshot.identity.frameId = "mold-frame:" + committed.definition.definitionId;
+  snapshot.identity.bodySignature = bodySignature;
+  snapshot.identity.protectedRegionSignature = deterministicSegmentationId("protected-regions", jsonRegions(regions, evidence));
+  snapshot.bodies = bodies;
+  snapshot.aggregateBounds = aggregate;
+  snapshot.protectedRegions = regions;
+  snapshot.protectedRegionEvidence = evidence;
+  snapshot.warnings = {issue(false, "protected_region_evidence_incomplete", evidence.reason)};
+  out.status = "ready";
+  out.source = std::move(source);
+  return out;
+}
+
+}  // namespace
+
+SegmentationSourceResult readSegmentationSource(const std::optional<PreliminarySource>& preliminary,
+                                                const std::optional<CommittedMoldSource>& committed) {
+  SegmentationSourceResult primary;
+  if (committed) {
+    primary = captureCommittedSnapshot(*committed);
+    // Once an authoritative result exists, a stale or structurally invalid one stays blocking: replacing it with the automatic source
+    // would hide the failure and attach a newer plan to older committed state.
+    if (primary.status == "stale" || (primary.status == "failed" && primary.reasonCode == "invalid_authoritative_geometry")) return primary;
+  } else {
+    primary.status = "failed";
+    primary.reasonCode = "missing_authoritative_geometry";
+    primary.issues = {issue(true, "missing_authoritative_geometry", "A committed final mold result is required before segmentation planning.")};
+  }
+
+  if (preliminary) {
+    SegmentationSourceResult out;
+    out.status = "ready";
+    out.source = *preliminary;
+    if (primary.status != "ready") return out;
+    const SegmentationSourceSnapshot& committedSnapshot = primary.source->snapshot;
+    // A committed mold with nothing to protect would only change identity metadata (and stale the plan it produced): keep the automatic source.
+    if (committedSnapshot.protectedRegions.empty()) return out;
+    // Regions from another block or selection box cannot be projected onto the automatic envelope: keep it and its own evidence warning.
+    if (!sameBounds(primary.source->definition.referenceMoldBlockBounds, preliminary->definition.referenceMoldBlockBounds) ||
+        !sameBounds(primary.source->definition.selectionBoxBounds, preliminary->definition.selectionBoxBounds))
+      return out;
+    SegmentationSourceSnapshot& merged = out.source->snapshot;
+    merged.protectedRegions = committedSnapshot.protectedRegions;
+    merged.protectedRegionEvidence = committedSnapshot.protectedRegionEvidence;
+    merged.identity.protectedRegionSignature =
+        deterministicSegmentationId("protected-regions", jsonRegions(merged.protectedRegions, merged.protectedRegionEvidence));
+    merged.warnings.insert(merged.warnings.end(), committedSnapshot.warnings.begin(), committedSnapshot.warnings.end());
+    return out;
+  }
+  return primary;
+}
 // --- execution policy and preflight -----------------------------------------------------------------
 
 SegmentationExecutionPolicy createSegmentationExecutionPolicy(const Bounds3& bounds, double sourceVolumeMm3) {

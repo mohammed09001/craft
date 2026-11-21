@@ -392,6 +392,9 @@ class AppController : public QObject {
   const Held<DerivedRegistrationState>& registrationState() const { return registration_; }
   /// Mold bodies as displayed/exported: cavity bodies with sprues applied.
   std::vector<MoldBody> finalBodies() const;
+  /// The committed mold as the reference's last committed final result (D-111): its final bodies, cavity, resolved sprues and generated
+  /// registration features. nullopt without a mold; not current while it is being generated.
+  std::optional<CommittedMoldSource> committedMoldSource() const;
 
   // --- analysis ------------------------------------------------------------
   QString analysisPhase() const { return analysisPhase_; }

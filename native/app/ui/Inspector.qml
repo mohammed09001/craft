@@ -145,6 +145,14 @@ ScrollView {
                     wrapMode: Text.Wrap; Layout.fillWidth: true
                 }
                 Label {
+                    objectName: "protectedRegionsNote"
+                    visible: (app.segmentation.protectedRegions || []).length > 0
+                    text: qsTr("The mold you had built is taken into account: %1 protected region(s) (cavity, sprues, keys), advisory.")
+                              .arg((app.segmentation.protectedRegions || []).length)
+                    font.italic: true
+                    wrapMode: Text.Wrap; Layout.fillWidth: true
+                }
+                Label {
                     objectName: "previewKeysHint"
                     visible: app.segmentation.previewState === "running"
                     text: qsTr("Previewing the alignment keys…")

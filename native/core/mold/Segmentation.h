@@ -202,6 +202,32 @@ struct CommittedMoldFacts {
 };
 std::vector<SegmentationProtectedRegion> protectedRegionsOf(const CommittedMoldFacts& facts);
 
+/// What the reference reads from the split-face store's last committed final mold result (segmentationSourceSnapshot.ts): the facts
+/// above, the definition the mold was built on (its block and selection box decide whether its regions can be projected onto the
+/// automatic block) and the identity of the committed document. `current` is false when that result no longer matches the mold document
+/// or the mold is being evaluated again (the reference's stale_source_revision).
+struct CommittedMoldSource {
+  CommittedMoldFacts facts;
+  ReferenceMoldDefinition definition;
+  double sourceRevision = 0;
+  std::string sourceFingerprint, resultRequestId;
+  bool current = true;
+};
+
+struct SegmentationSourceResult {
+  std::string status;  // ready | failed | stale
+  std::string reasonCode;
+  std::vector<SegmentationIssue> issues;  // the blockers, when not ready
+  std::optional<PreliminarySource> source;
+};
+
+/// readCurrentSegmentationSourceSnapshot. The automatic whole-block source stays the printable subject; a committed mold only contributes
+/// its protected regions (advisory: cavity, sprues, generated registration features), and only when it has some and was built on the
+/// same block and selection box. A committed result that is stale or structurally invalid blocks planning instead of being replaced by
+/// the automatic source. Without an automatic source the committed one is used as it is.
+SegmentationSourceResult readSegmentationSource(const std::optional<PreliminarySource>& preliminary,
+                                                const std::optional<CommittedMoldSource>& committed);
+
 // --- execution -----------------------------------------------------------------------
 
 struct SegmentationExecutionPolicy {

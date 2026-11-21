@@ -936,6 +936,67 @@ class WorkflowTest : public QObject {
     QCOMPARE(undoDepth(), depthNow);
   }
 
+  // --- protected regions of a committed mold (D-111) ----------------------------------------------------------------------------------
+
+  void aCommittedMoldBecomesProtectedRegionsOfTheSegmentationPlan() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->setPrinterVolume(150, 300, 300);
+
+    // Without a mold the plan has nothing to protect.
+    app->planSegmentation();
+    QCOMPARE(app->segmentation().value("phase").toString(), QStringLiteral("planned"));
+    QVERIFY(app->segmentation().value("protectedRegions").toList().isEmpty());
+
+    // A Cut by Face mold built on the same 100 mm block (the automatic block is 100 mm at least, the default mold clearance is 10 mm, so the
+    // clearance is raised to match): its cavity and generated keys are advisory regions of the plan.
+    app->setMoldClearanceMm(100);
+    app->setCutFaceEnabled("left", true);
+    app->generateMold();
+    QVERIFY(waitFor([&] { return app->moldPhase() == "complete" || app->moldPhase() == "error"; }, 120000));
+    QVERIFY2(app->moldPhase() == "complete", qPrintable(app->moldError()));
+    int generatedKeys = 0;
+    if (app->registrationState() && app->registrationState()->report)
+      for (const RegistrationFeature& f : app->registrationState()->report->features) generatedKeys += f.status == "generated" ? 1 : 0;
+    const int sprues = app->sprueEvaluation() ? static_cast<int>(app->sprueEvaluation()->resolvedSprues.size()) : 0;
+
+    app->planSegmentation();
+    QCOMPARE(app->segmentation().value("phase").toString(), QStringLiteral("planned"));
+    QCOMPARE(app->segmentation().value("sectionCount").toULongLong(), qulonglong{2});
+    const QVariantList regions = app->segmentation().value("protectedRegions").toList();
+    QCOMPARE(regions.size(), 1 + sprues + generatedKeys);
+    QStringList ids;
+    for (const QVariant& r : regions) {
+      QCOMPARE(r.toMap().value("hardness").toString(), QStringLiteral("advisory"));
+      ids << r.toMap().value("id").toString();
+    }
+    QVERIFY(ids.contains(QStringLiteral("committed-cavity")));
+    QVERIFY(std::is_sorted(ids.begin(), ids.end()));   // the reference orders them by id
+    QCOMPARE(app->moldPhase(), QStringLiteral("ready"));   // the plan replaces the mold, as before
+
+    // The plan is still a normal plan: an extension, an execution gate.
+    app->addSegmentationExtension("y");
+    QCOMPARE(app->segmentation().value("sectionCount").toULongLong(), qulonglong{4});
+    QCOMPARE(app->segmentation().value("protectedRegions").toList().size(), regions.size());
+  }
+
+  void aMoldOnAnotherBlockContributesNoRegions() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->setPrinterVolume(150, 300, 300);
+    app->setMoldClearanceMm(40);   // a 40 mm block: the automatic one is 100 mm, so its regions cannot be projected onto it
+    app->setCutFaceEnabled("left", true);
+    app->generateMold();
+    QVERIFY(waitFor([&] { return app->moldPhase() == "complete" || app->moldPhase() == "error"; }, 120000));
+    QVERIFY2(app->moldPhase() == "complete", qPrintable(app->moldError()));
+    app->planSegmentation();
+    QCOMPARE(app->segmentation().value("phase").toString(), QStringLiteral("planned"));
+    QVERIFY(app->segmentation().value("protectedRegions").toList().isEmpty());
+    QCOMPARE(app->segmentation().value("moldClearanceMm").toDouble(), 100.0);
+  }
+
   // --- dragging a plane with the right button (reference: cuttingPlane3dRuntime.ts, split-face commitPlaneDrag) ---------------
 
   void aCuttingPlaneFollowsARightButtonDragAndCommitsOneUndoStep() {

@@ -1381,6 +1381,24 @@ void AppController::startSegmentationPreviewRegistration() {
       });
 }
 
+std::optional<CommittedMoldSource> AppController::committedMoldSource() const {
+  if (!moldResult_) return std::nullopt;
+  CommittedMoldSource source;
+  source.definition = moldResult_->definition;
+  source.facts.bodies = finalBodies();
+  source.facts.hasCavity = true;
+  source.facts.cavityBounds = moldResult_->cavity.cavityTool.solid.bounds;
+  source.facts.cavityClearanceMm = moldResult_->cavity.cavityTool.clearanceMm;
+  source.facts.cavitySourceSignature = moldResult_->cavity.sourceSignature;
+  if (sprueEvaluation_) source.facts.sprues = sprueEvaluation_->resolvedSprues;
+  if (registration_ && registration_->report) source.facts.generatedFeatures = registration_->report->features;
+  source.sourceRevision = static_cast<double>(moldInputsRevision_);
+  source.sourceFingerprint = moldResult_->cavity.sourceSignature;
+  source.resultRequestId = moldResult_->cavity.operationId;
+  source.current = moldPhase_ == QLatin1String("complete");   // a mold that is being generated again is not what the plan would be built on
+  return source;
+}
+
 void AppController::planSegmentation() {
   if (!model_) {
     emit errorOccurred(QStringLiteral("Segmentation"), QStringLiteral("Import an STL model first."), QStringLiteral("no_model"));
@@ -1391,17 +1409,29 @@ void AppController::planSegmentation() {
     return;
   }
   if (busy_) return;
+  // The committed mold is read before anything is dropped: its cavity, sprues and registration keys become protected regions of the plan
+  // when it was built on the same block (D-111). The plan then replaces the mold, as before.
+  const std::optional<CommittedMoldSource> committed = committedMoldSource();
   invalidateSegmentation(QString());
-  if (moldResult_) clearMold(QStringLiteral("ready"));
 
   auto preliminary = capturePreliminaryWholeBlockSnapshot(model_->groundedBounds, moldClearanceMm_, model_->modelId);
-  if (!preliminary) {
+  if (!preliminary && !committed) {
     segmentation_.phase = QStringLiteral("failed");
     segmentation_.message = QStringLiteral("The imported model's bounds cannot produce a valid reference mold envelope.");
     emit segmentationChanged();
     return;
   }
-  segmentation_.source = std::move(*preliminary);
+  SegmentationSourceResult read = readSegmentationSource(preliminary, committed);
+  if (read.status != "ready" || !read.source) {
+    // A committed mold that is stale or structurally invalid blocks planning, and stays: it is not replaced by the automatic source.
+    segmentation_.phase = QStringLiteral("failed");
+    segmentation_.message = read.issues.empty() ? QStringLiteral("Segmentation planning failed.") : QString::fromStdString(read.issues.front().message);
+    emit segmentationChanged();
+    setStatus(segmentation_.message);
+    return;
+  }
+  if (moldResult_) clearMold(QStringLiteral("ready"));
+  segmentation_.source = std::move(*read.source);
   const SegmentationRequest request = createSegmentationRequest(segmentation_.source->snapshot, *printerVolume_);
   const SegmentationPlanningResult result = craft::planSegmentation(request, segmentation_.source->snapshot);
   if (result.status == "planned") {
@@ -1582,6 +1612,11 @@ QVariantMap AppController::segmentation() const {
                 {"previewKeyTriangles", static_cast<qulonglong>(segmentation_.previewKeyCount)}};
   if (!segmentation_.source) return m;
   m.insert("moldClearanceMm", segmentation_.source->definition.clearanceMm);
+  QVariantList protectedRegions;
+  for (const SegmentationProtectedRegion& region : segmentation_.source->snapshot.protectedRegions) {
+    protectedRegions << QVariantMap{{"id", QString::fromStdString(region.id)}, {"kind", QString::fromStdString(region.kind)}, {"hardness", QString::fromStdString(region.hardness)}};
+  }
+  m.insert("protectedRegions", protectedRegions);
   m.insert("blockSize", QVariantMap{{"x", segmentation_.source->snapshot.aggregateBounds.size().x},
                                     {"y", segmentation_.source->snapshot.aggregateBounds.size().y},
                                     {"z", segmentation_.source->snapshot.aggregateBounds.size().z}});
