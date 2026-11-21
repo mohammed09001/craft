@@ -997,6 +997,52 @@ class WorkflowTest : public QObject {
     QCOMPARE(app->segmentation().value("moldClearanceMm").toDouble(), 100.0);
   }
 
+  // --- the faces of a mold body are coloured by their role, and the glass appearance (D-112) -----------------------------------------------
+
+  void moldBodiesCarryTheirRoleColoursAndThePartDoesNot() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->setCutFaceEnabled("left", true);
+    app->generateMold();
+    QVERIFY(waitFor([&] { return app->moldPhase() == "complete" || app->moldPhase() == "error"; }, 120000));
+    QVERIFY2(app->moldPhase() == "complete", qPrintable(app->moldError()));
+
+    int bodies = 0, coloured = 0;
+    for (const SceneItem& item : app->scene()->items()) {
+      if (item.kind == QLatin1String("part")) {
+        QVERIFY(!item.roleColors);   // the part is one colour
+        continue;
+      }
+      ++bodies;
+      // A body that has a face run of another role than the outer mold (the cavity's inner surface at least) is built with role colours.
+      const bool hasRole = item.mesh && viewport::hasRoleRuns(*item.mesh);
+      QCOMPARE(item.roleColors, hasRole);
+      coloured += item.roleColors ? 1 : 0;
+    }
+    QVERIFY(bodies >= 2);
+    QVERIFY(coloured >= 1);   // the cavity is cut into at least one of them
+  }
+
+  void theGlassAppearanceIsAViewOptionThatStartsOff() {
+    auto app = makeApp();
+    QSignalSpy options(app.get(), &AppController::viewOptionsChanged);
+    QVERIFY(!app->moldGlass());
+    app->setMoldGlass(true);
+    QVERIFY(app->moldGlass());
+    QCOMPARE(options.count(), 1);
+    app->setMoldGlass(true);   // no change, no signal
+    QCOMPARE(options.count(), 1);
+    app->setMoldGlass(false);
+    QVERIFY(!app->moldGlass());
+    QCOMPARE(options.count(), 2);
+    // The look the QML reads carries the reference's glass values.
+    const QVariantMap glass = app->viewLook().value("glass").toMap();
+    QCOMPARE(glass.value("opacity").toDouble(), 0.3);
+    QCOMPARE(glass.value("roughness").toDouble(), 0.18);
+    QCOMPARE(glass.value("metalness").toDouble(), 0.02);
+  }
+
   // --- dragging a plane with the right button (reference: cuttingPlane3dRuntime.ts, split-face commitPlaneDrag) ---------------
 
   void aCuttingPlaneFollowsARightButtonDragAndCommitsOneUndoStep() {

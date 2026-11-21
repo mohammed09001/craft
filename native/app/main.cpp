@@ -58,6 +58,7 @@ class Smoke : public QObject {
     QObject::connect(&app_, &AppController::modelChanged, this, [this] {
       if (app_.modelPhase() == "ready" && !imported_) {
         imported_ = true;
+        for (const QString& face : cutFaces_) app_.setCutFaceEnabled(face, true);   // --cut-face: planes before the mold is generated
         if (mold_) app_.generateMold(); else afterMold();
       }
     });
@@ -905,6 +906,7 @@ class Smoke : public QObject {
 
  public:
   void setSelectPart(bool value) { selectPart_ = value; }
+  void setCutFaces(const QStringList& faces) { cutFaces_ = faces; }
   void setSpruePreview(bool value, bool invalid = false) { spruePreview_ = value; spruePreviewInvalid_ = invalid; }
   void setSprueGizmo(bool value, bool events = false) { sprueGizmo_ = value; sprueGizmoEvents_ = events; }
   void setEraser(bool value, bool events = false) { eraser_ = value; eraserEvents_ = events; }
@@ -923,6 +925,7 @@ class Smoke : public QObject {
   AppController& app_;
   QQuickWindow* window_;
   QString importPath_, summary_, screenshot_;
+  QStringList cutFaces_;
   bool selectPart_ = false, spruePreview_ = false, spruePreviewInvalid_ = false, sprueGizmo_ = false, sprueGizmoEvents_ = false, eraser_ = false, eraserEvents_ = false, planeDragEvents_ = false, sectionsEvents_ = false, moldsEvents_ = false, masterEvents_ = false, dropEvents_ = false, undoEvents_ = false, flipEvents_ = false, extensionDragEvents_ = false, hintEvents_ = false, hintWheel_ = false;
   bool mold_, analyse_, moldability_;
   bool imported_ = false, moldDone_ = false, analysisDone_ = false, reportsDone_ = false, done_ = false;
@@ -949,6 +952,9 @@ int main(int argc, char* argv[]) {
   parser.addOption({"select-part", "Select the part, toggle a box face and hover another before the frame is taken (smoke test)."});
   parser.addOption({"screenshot", "Save the rendered frame as a PNG (smoke test).", "path"});
   parser.addOption({"theme", "Start with this theme, dark or light (smoke test).", "name"});
+  parser.addOption({"cut-face", "Choose a Cut by Face plane before the mold is generated; repeatable (smoke test).", "face"});
+  parser.addOption({"glass", "Draw the mold with the glass appearance (smoke test)."});
+  parser.addOption({"mold-opacity", "Mold opacity, 0.05 to 1 (smoke test).", "value"});
   parser.addOption({"sprue-preview", "Select the Sprue tool and preview the funnel on the generated mold (smoke test; use with --generate-mold)."});
   parser.addOption({"sprue-invalid", "With --sprue-preview: preview where the axis misses the cavity (the red case)."});
   parser.addOption({"sprue-gizmo", "With --sprue-preview: place a sprue, then drag one of its resize rings (smoke test)."});
@@ -982,6 +988,8 @@ int main(int argc, char* argv[]) {
                            AppPaths::analysisWorkerConfig());
 
   if (parser.isSet("theme")) controller.setTheme(parser.value("theme"));
+  if (parser.isSet("glass")) controller.setMoldGlass(true);
+  if (parser.isSet("mold-opacity")) controller.setMoldOpacity(parser.value("mold-opacity").toDouble());
 
 #ifdef CRAFT_SMOKE_REAL_EVENTS
   if (parser.isSet("bench-no-vsync")) {
@@ -1039,6 +1047,7 @@ int main(int argc, char* argv[]) {
                                     parser.isSet("generate-mold"), parser.isSet("analyze"), parser.isSet("moldability"),
                                     parser.value("summary"));
     smoke->setSelectPart(parser.isSet("select-part"));
+    smoke->setCutFaces(parser.values("cut-face"));
     smoke->setSpruePreview(parser.isSet("sprue-preview"), parser.isSet("sprue-invalid"));
     smoke->setSprueGizmo(parser.isSet("sprue-gizmo"), parser.isSet("sprue-gizmo-events"));
     smoke->setEraser(parser.isSet("eraser"), parser.isSet("eraser-events"));

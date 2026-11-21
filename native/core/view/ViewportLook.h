@@ -16,6 +16,7 @@
 // (docs/native-migration/VIEWPORT_COMPARISON.md, D-081). Native follows what the application shows, so only the
 // background, the grid and the overlay text change with the theme.
 
+#include <array>
 #include <cstdint>
 
 #include "view/ViewPose.h"
@@ -33,6 +34,23 @@ struct LookGridLine {
   double opacity;
 };
 
+/// One geometry role's surface (MeshStandardMaterial): the outer mold's is ViewportLook::moldRgb / roughness / metalness.
+struct LookRole {
+  std::uint32_t rgb;
+  double roughness;
+  double metalness;
+};
+
+/// The glass mold appearance (cadMaterialFactory.ts, mode "glass"): one MeshPhysicalMaterial for every role, in the outer mold's colour.
+struct LookGlass {
+  double opacity;
+  double roughness;
+  double metalness;
+  double transmission;
+  double thickness;
+  double ior;
+};
+
 struct ViewportLook {
   std::uint32_t backgroundRgb;
 
@@ -41,6 +59,11 @@ struct ViewportLook {
   std::uint32_t moldRgb;
   double roughness;
   double metalness;
+
+  // The faces of a mold body are coloured by what they are (a face run's role, moldBodyMesh3d.ts): the cavity's inner surface, a
+  // registration key, a sprue funnel. Everything else is the outer mold.
+  LookRole cavitySurface, registrationKey, sprueFunnel;
+  LookGlass glass;
 
   // Feature edges, drawn on mold bodies only (the reference does not outline the imported part).
   std::uint32_t edgeRgb;
@@ -69,5 +92,10 @@ struct ViewportLook {
 
 /// The reference look for a theme. Only the background and the grid depend on it.
 ViewportLook referenceLook(bool dark);
+
+/// The linear-light factor that turns the outer mold's colour into `roleRgb` when it multiplies the material's base colour (Qt converts a
+/// colour property from sRGB to linear, then multiplies a vertex colour into it): linear(role) / linear(outer) per channel. It can
+/// exceed 1 (a yellow key on a red body), which a float vertex colour carries.
+std::array<float, 3> roleTint(std::uint32_t roleRgb, std::uint32_t outerRgb);
 
 }  // namespace craft

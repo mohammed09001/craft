@@ -1,6 +1,23 @@
 #include "view/ViewportLook.h"
 
+#include <cmath>
+
 namespace craft {
+
+namespace {
+double srgbToLinear(double c) { return c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4); }
+}  // namespace
+
+std::array<float, 3> roleTint(std::uint32_t roleRgb, std::uint32_t outerRgb) {
+  std::array<float, 3> tint{};
+  for (int channel = 0; channel < 3; ++channel) {
+    const int shift = 16 - 8 * channel;
+    const double role = srgbToLinear(((roleRgb >> shift) & 0xffu) / 255.0);
+    const double outer = srgbToLinear(((outerRgb >> shift) & 0xffu) / 255.0);
+    tint[static_cast<std::size_t>(channel)] = outer > 0 ? static_cast<float>(role / outer) : 1.0f;
+  }
+  return tint;
+}
 
 ViewportLook referenceLook(bool dark) {
   ViewportLook look{};
@@ -12,6 +29,13 @@ ViewportLook referenceLook(bool dark) {
   look.moldRgb = 0xba4a44;
   look.roughness = 0.38;
   look.metalness = 0.06;
+
+  // CAD_DARK_THEME cavitySurface / registrationKey / sprueFunnel colours with their roughness and metalness (look-reference.json,
+  // materials.roles), and the glass appearance (materials.glass).
+  look.cavitySurface = {0x9b3934, 0.32, 0.08};
+  look.registrationKey = {0xd4a338, 0.35, 0.06};
+  look.sprueFunnel = {0xdfad3c, 0.32, 0.08};
+  look.glass = {0.3, 0.18, 0.02, 0.68, 0.8, 1.45};
 
   // featureEdgeOverlay.ts
   look.edgeRgb = 0x380f0e;

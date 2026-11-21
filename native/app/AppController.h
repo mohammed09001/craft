@@ -139,6 +139,9 @@ class AppController : public QObject {
   Q_PROPERTY(bool showAxes READ showAxes WRITE setShowAxes NOTIFY viewOptionsChanged)
   Q_PROPERTY(bool showEdges READ showEdges WRITE setShowEdges NOTIFY viewOptionsChanged)
   Q_PROPERTY(double moldOpacity READ moldOpacity WRITE setMoldOpacity NOTIFY viewOptionsChanged)
+  /// The glass mold appearance (the reference's MoldAppearanceToggle, mode "glass"): every mold body is drawn as translucent glass in the outer
+  /// mold's colour instead of in its role colours. Runtime only, like the reference's store (D-112).
+  Q_PROPERTY(bool moldGlass READ moldGlass WRITE setMoldGlass NOTIFY viewOptionsChanged)
   Q_PROPERTY(QVariantMap gridInfo READ gridInfo NOTIFY gridChanged)
 
   Q_PROPERTY(QString tool READ tool WRITE setTool NOTIFY toolChanged)
@@ -417,7 +420,9 @@ class AppController : public QObject {
   bool showEdges() const { return showEdges_; }
   void setShowEdges(bool value);
   double moldOpacity() const { return moldOpacity_; }
+  bool moldGlass() const { return moldGlass_; }
   void setMoldOpacity(double value);
+  void setMoldGlass(bool value);
   QVariantMap gridInfo() const;
   AdaptiveGridConfig gridConfig() const { return grid_; }
   Q_INVOKABLE void fitView();
@@ -757,6 +762,7 @@ class AppController : public QObject {
   bool showAxes_ = true;
   bool showEdges_ = true;
   double moldOpacity_ = 0.55;
+  bool moldGlass_ = false;
   QString tool_ = QStringLiteral("select");
   QVariantMap selection_;
   QVariantMap measurement_;

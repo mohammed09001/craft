@@ -77,6 +77,16 @@ function edgeAppears(bendDegrees: number): boolean {
   return count > 4;
 }
 
+type Probe = { color: { getHex(): number }; roughness: number; metalness: number; side: number; opacity: number; transparent: boolean; depthWrite: boolean; transmission?: number; thickness?: number; ior?: number };
+const probe = (role: Parameters<typeof createCadMaterial>[0], mode: Parameters<typeof createCadMaterial>[1]) => {
+  const m = createCadMaterial(role, mode, CAD_DARK_THEME) as unknown as Probe;
+  return {
+    colorHex: m.color.getHex(), roughness: m.roughness, metalness: m.metalness, doubleSided: m.side === 2,
+    opacity: m.opacity, transparent: m.transparent, depthWrite: m.depthWrite,
+    transmission: m.transmission ?? null, thickness: m.thickness ?? null, ior: m.ior ?? null,
+  };
+};
+
 it("records the viewport look of the reference", () => {
   const overlay = createFeatureEdgeOverlay();
   const sample = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
@@ -96,6 +106,11 @@ it("records the viewport look of the reference", () => {
     materials: {
       importedPartDark: { colorHex: darkPart.color.getHex(), roughness: darkPart.roughness, metalness: darkPart.metalness, doubleSided: darkPart.side === 2 },
       outerMoldDark: { colorHex: outerMold.color.getHex(), roughness: outerMold.roughness, metalness: outerMold.metalness, doubleSided: outerMold.side === 2 },
+      // The material of every geometry role (a mold body is drawn with one material per face run: moldBodyMesh3d.ts), and the glass
+      // appearance, which is the same material for every role (cadMaterialFactory.ts).
+      roles: Object.fromEntries((["outer-mold", "cavity-surface", "registration-key", "sprue-funnel", "imported-part"] as const).map((role) => [role, probe(role, "solid")])),
+      glass: probe("outer-mold", "glass"),
+      glassIsTheSameForEveryRole: (["cavity-surface", "registration-key", "sprue-funnel"] as const).every((role) => JSON.stringify(probe(role, "glass")) === JSON.stringify(probe("outer-mold", "glass"))),
     },
     grid: {
       minorOpacity: (grid.userData.minorMaterial as { opacity: number }).opacity,

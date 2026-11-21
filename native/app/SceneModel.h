@@ -36,6 +36,7 @@ struct SceneItem {
   bool selected = false;  // the part, highlighted while selected (the reference highlights the model, not bodies)
   bool ghost = false;         // a stale Master Mold piece: drawn as a ghosted holdover in its own colour (masterMoldBody3dRuntime.ts)
   bool gizmoHidden = false;  // hidden while a sprue ring is hovered, so the ring behind the body shows
+  bool roleColors = false;   // the mesh has face runs of other roles than the outer mold: its vertices carry the role's colour (D-112)
 
   // Exactly one of the two is set.
   std::shared_ptr<const TriangleSoup> soup;
@@ -71,6 +72,7 @@ class SceneModel : public QAbstractListModel {
     GlassEdgeGeometryRole,
     GizmoHiddenRole,
     GhostRole,
+    RoleColorsRole,
   };
 
   explicit SceneModel(QObject* parent = nullptr);

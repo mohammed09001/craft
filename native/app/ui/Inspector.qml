@@ -391,6 +391,17 @@ ScrollView {
                     Label { text: qsTr("Mold opacity") }
                     Slider { Layout.fillWidth: true; from: 0.1; to: 1; value: app.moldOpacity; onMoved: app.moldOpacity = value }
                 }
+                // The reference's MoldAppearanceToggle: shown once the mold is complete.
+                Button {
+                    objectName: "moldGlassButton"
+                    visible: app.moldPhase === "complete"
+                    text: qsTr("Glass appearance")
+                    checkable: true
+                    checked: app.moldGlass
+                    onClicked: app.moldGlass = !app.moldGlass
+                    Accessible.name: app.moldGlass ? qsTr("Disable glass mold appearance") : qsTr("Enable glass mold appearance")
+                    ToolTip.visible: hovered; ToolTip.text: Accessible.name
+                }
                 RowLayout {
                     Label { text: qsTr("Cavity clearance: ") + root.fmt(app.cavityClearanceMm, 1) + " mm" }
                     Slider {

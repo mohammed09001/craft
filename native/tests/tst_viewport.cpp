@@ -25,6 +25,52 @@ class ViewportTest : public QObject {
     QCOMPARE(buffers.boundsMax, QVector3D(5, 2, 10));
   }
 
+  void roleBuffersColourEachTriangleByItsFaceRun() {
+    // A cube's twelve triangles: the first four are the cavity's surface, the next two a registration key, the next one a sprue funnel,
+    // the rest (and anything no run covers) the outer mold.
+    MeshPayload mesh = test::cubeMesh(test::box(0, 0, 0, 2, 2, 2));
+    QVERIFY(!hasRoleRuns(mesh));
+    mesh.faceRuns = {{0, 4, FaceRole::CavitySurface}, {4, 2, FaceRole::RegistrationKey}, {6, 1, FaceRole::SprueFunnel}, {7, 2, FaceRole::OuterMold}};
+    QVERIFY(hasRoleRuns(mesh));
+    const RoleTints tints{{{1, 1, 1}, {0.5f, 0.6f, 0.7f}, {2.0f, 3.0f, 4.0f}, {0.1f, 0.2f, 0.3f}}};
+
+    const TriangleBuffers plain = buildTriangleBuffers(mesh);
+    const TriangleBuffers coloured = buildRoleTriangleBuffers(mesh, tints);
+    QVERIFY(coloured.hasColor);
+    QCOMPARE(coloured.stride(), TriangleBuffers::kColoredStride);
+    QCOMPARE(coloured.vertexCount, plain.vertexCount);
+    QCOMPARE(coloured.vertexData.size(), qsizetype(coloured.vertexCount * TriangleBuffers::kColoredStride));
+    QCOMPARE(coloured.boundsMin, plain.boundsMin);
+    QCOMPARE(coloured.boundsMax, plain.boundsMax);
+
+    const auto role = [](int triangle) { return triangle < 4 ? 1 : triangle < 6 ? 2 : triangle < 7 ? 3 : 0; };
+    for (int v = 0; v < coloured.vertexCount; ++v) {
+      float pos[6], col[4];
+      std::memcpy(pos, coloured.vertexData.constData() + v * TriangleBuffers::kColoredStride, 24);
+      std::memcpy(col, coloured.vertexData.constData() + v * TriangleBuffers::kColoredStride + TriangleBuffers::kColorOffset, 16);
+      float expected[6];
+      std::memcpy(expected, plain.vertexData.constData() + v * TriangleBuffers::kStride, 24);
+      for (int k = 0; k < 6; ++k) QCOMPARE(pos[k], expected[k]);   // position and normal are untouched
+      const auto& tint = tints[static_cast<std::size_t>(role(v / 3))];
+      QCOMPARE(col[0], tint[0]);
+      QCOMPARE(col[1], tint[1]);
+      QCOMPARE(col[2], tint[2]);
+      QCOMPARE(col[3], 1.0f);
+    }
+  }
+
+  void aRunThatOverrunsTheMeshIsClipped() {
+    MeshPayload mesh = test::cubeMesh(test::box(0, 0, 0, 1, 1, 1));
+    mesh.faceRuns = {{10, 50, FaceRole::CavitySurface}};   // two triangles exist from 10; the rest of the run does not
+    const RoleTints tints{{{1, 1, 1}, {9, 9, 9}, {1, 1, 1}, {1, 1, 1}}};
+    const TriangleBuffers b = buildRoleTriangleBuffers(mesh, tints);
+    float first[4], last[4];
+    std::memcpy(first, b.vertexData.constData() + TriangleBuffers::kColorOffset, 16);
+    std::memcpy(last, b.vertexData.constData() + (b.vertexCount - 1) * TriangleBuffers::kColoredStride + TriangleBuffers::kColorOffset, 16);
+    QCOMPARE(first[0], 1.0f);   // triangle 0: outside the run
+    QCOMPARE(last[0], 9.0f);    // triangle 11: inside it
+  }
+
   void normalsAreUnitAndOutward() {
     const TriangleBuffers buffers = buildTriangleBuffers(test::cubeMesh(test::box(0, 0, 0, 2, 2, 2)));
     const auto* f = reinterpret_cast<const float*>(buffers.vertexData.constData());

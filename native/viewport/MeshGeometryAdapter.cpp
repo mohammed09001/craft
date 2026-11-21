@@ -157,6 +157,37 @@ TriangleBuffers buildTriangleBuffers(const MeshPayload& mesh) {
   });
 }
 
+bool hasRoleRuns(const MeshPayload& mesh) {
+  for (const MeshFaceRun& run : mesh.faceRuns)
+    if (run.triangleCount > 0 && run.role != FaceRole::OuterMold) return true;
+  return false;
+}
+
+TriangleBuffers buildRoleTriangleBuffers(const MeshPayload& mesh, const RoleTints& tints) {
+  const TriangleBuffers base = buildTriangleBuffers(mesh);
+  const std::size_t triangles = mesh.triangleCount();
+  std::vector<std::uint8_t> role(triangles, static_cast<std::uint8_t>(FaceRole::OuterMold));
+  for (const MeshFaceRun& run : mesh.faceRuns) {
+    const std::size_t end = std::min<std::size_t>(triangles, static_cast<std::size_t>(run.startTriangle) + run.triangleCount);
+    for (std::size_t t = run.startTriangle; t < end; ++t) role[t] = static_cast<std::uint8_t>(run.role);
+  }
+  TriangleBuffers out;
+  out.hasColor = true;
+  out.vertexCount = base.vertexCount;
+  out.boundsMin = base.boundsMin;
+  out.boundsMax = base.boundsMax;
+  out.vertexData.resize(static_cast<qsizetype>(base.vertexCount) * TriangleBuffers::kColoredStride);
+  const char* from = base.vertexData.constData();
+  char* to = out.vertexData.data();
+  for (int v = 0; v < base.vertexCount; ++v) {
+    std::memcpy(to + static_cast<std::size_t>(v) * TriangleBuffers::kColoredStride, from + static_cast<std::size_t>(v) * TriangleBuffers::kStride, TriangleBuffers::kStride);
+    const std::array<float, 3>& tint = tints[role[static_cast<std::size_t>(v) / 3]];
+    const float colour[4] = {tint[0], tint[1], tint[2], 1.0f};
+    std::memcpy(to + static_cast<std::size_t>(v) * TriangleBuffers::kColoredStride + TriangleBuffers::kColorOffset, colour, sizeof colour);
+  }
+  return out;
+}
+
 LineBuffers buildFeatureEdgeBuffers(const TriangleSoup& soup, double angleDegrees) {
   return featureEdges(weldExact(soup), angleDegrees);
 }

@@ -94,6 +94,61 @@ class ViewportLookTest : public QObject {
     QVERIFY(part.value("doubleSided").toBool());
   }
 
+  void everyRoleAndTheGlassAppearanceMatchTheReferencesMaterials() {
+    const QJsonObject materials = fixture().value("materials").toObject();
+    const QJsonObject roles = materials.value("roles").toObject();
+    const ViewportLook look = referenceLook(true);
+    const auto check = [&](const char* role, std::uint32_t rgb, double roughness, double metalness) {
+      const QJsonObject m = roles.value(QLatin1String(role)).toObject();
+      QVERIFY2(!m.isEmpty(), role);
+      QCOMPARE(static_cast<int>(rgb), m.value("colorHex").toInt());
+      QCOMPARE(roughness, m.value("roughness").toDouble());
+      QCOMPARE(metalness, m.value("metalness").toDouble());
+      QVERIFY(m.value("doubleSided").toBool());
+      QVERIFY(!m.value("transparent").toBool());
+      QCOMPARE(m.value("opacity").toDouble(), 1.0);
+    };
+    check("outer-mold", look.moldRgb, look.roughness, look.metalness);
+    check("cavity-surface", look.cavitySurface.rgb, look.cavitySurface.roughness, look.cavitySurface.metalness);
+    check("registration-key", look.registrationKey.rgb, look.registrationKey.roughness, look.registrationKey.metalness);
+    check("sprue-funnel", look.sprueFunnel.rgb, look.sprueFunnel.roughness, look.sprueFunnel.metalness);
+
+    // Glass: the outer mold's colour, translucent, for every role.
+    const QJsonObject glass = materials.value("glass").toObject();
+    QCOMPARE(static_cast<int>(look.moldRgb), glass.value("colorHex").toInt());
+    QCOMPARE(look.glass.opacity, glass.value("opacity").toDouble());
+    QCOMPARE(look.glass.roughness, glass.value("roughness").toDouble());
+    QCOMPARE(look.glass.metalness, glass.value("metalness").toDouble());
+    QCOMPARE(look.glass.transmission, glass.value("transmission").toDouble());
+    QCOMPARE(look.glass.thickness, glass.value("thickness").toDouble());
+    QCOMPARE(look.glass.ior, glass.value("ior").toDouble());
+    QVERIFY(glass.value("transparent").toBool());
+    QVERIFY(!glass.value("depthWrite").toBool());
+    QVERIFY(materials.value("glassIsTheSameForEveryRole").toBool());
+  }
+
+  void aRoleTintTurnsTheOuterMoldColourIntoTheRoleColour() {
+    const ViewportLook look = referenceLook(true);
+    const auto linear = [](std::uint32_t rgb, int shift) {
+      const double c = ((rgb >> shift) & 0xffu) / 255.0;
+      return c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4);
+    };
+    for (const LookRole& role : {look.cavitySurface, look.registrationKey, look.sprueFunnel}) {
+      const std::array<float, 3> tint = roleTint(role.rgb, look.moldRgb);
+      for (int channel = 0; channel < 3; ++channel) {
+        const int shift = 16 - 8 * channel;
+        QVERIFY(std::fabs(tint[static_cast<std::size_t>(channel)] * linear(look.moldRgb, shift) - linear(role.rgb, shift)) < 1e-6);
+      }
+    }
+    const std::array<float, 3> same = roleTint(look.moldRgb, look.moldRgb);
+    QCOMPARE(same[0], 1.0f);
+    QCOMPARE(same[1], 1.0f);
+    QCOMPARE(same[2], 1.0f);
+    // A yellow key on the red mold needs more green than the red body has: the factor exceeds 1, which a float vertex colour carries.
+    QVERIFY(roleTint(look.registrationKey.rgb, look.moldRgb)[1] > 1.0f);
+    QVERIFY(roleTint(look.cavitySurface.rgb, look.moldRgb)[0] < 1.0f);   // the cavity is a deeper red
+  }
+
   void gridAndEdgeStyle() {
     const QJsonObject f = fixture();
     const ViewportLook look = referenceLook(true);

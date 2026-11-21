@@ -9,12 +9,14 @@ void MeshGeometry::setBuffers(const TriangleBuffers& buffers) {
   triangleCount_ = buffers.vertexCount / 3;
   if (buffers.vertexCount > 0) {
     setVertexData(buffers.vertexData);
-    setStride(TriangleBuffers::kStride);
+    setStride(buffers.stride());
     setPrimitiveType(QQuick3DGeometry::PrimitiveType::Triangles);
     addAttribute(QQuick3DGeometry::Attribute::PositionSemantic, TriangleBuffers::kPositionOffset,
                  QQuick3DGeometry::Attribute::F32Type);
     addAttribute(QQuick3DGeometry::Attribute::NormalSemantic, TriangleBuffers::kNormalOffset,
                  QQuick3DGeometry::Attribute::F32Type);
+    if (buffers.hasColor)
+      addAttribute(QQuick3DGeometry::Attribute::ColorSemantic, TriangleBuffers::kColorOffset, QQuick3DGeometry::Attribute::F32Type);
     setBounds(buffers.boundsMin, buffers.boundsMax);
   }
   update();

@@ -40,6 +40,7 @@ QVariant SceneModel::data(const QModelIndex& index, int role) const {
     case GlassEdgeGeometryRole: return QVariant::fromValue<QQuick3DGeometry*>(item.glassEdges);
     case GizmoHiddenRole: return item.gizmoHidden;
     case GhostRole: return item.ghost;
+    case RoleColorsRole: return item.roleColors;
   }
   return {};
 }
@@ -58,7 +59,8 @@ QHash<int, QByteArray> SceneModel::roleNames() const {
           {SelectedRole, "itemSelected"},
           {GlassEdgeGeometryRole, "itemGlassEdgeGeometry"},
           {GizmoHiddenRole, "itemGizmoHidden"},
-          {GhostRole, "itemGhost"}};
+          {GhostRole, "itemGhost"},
+          {RoleColorsRole, "itemRoleColors"}};
 }
 
 void SceneModel::destroyGeometry(SceneItem& item) {
@@ -221,7 +223,18 @@ void SceneModel::setMoldBodies(const std::vector<BodyInput>& bodies) {
     item.mesh = body.mesh;
     item.geometry = new viewport::MeshGeometry;
     item.geometry->setParent(this);
-    item.geometry->setBuffers(viewport::buildTriangleBuffers(*body.mesh));
+    if (viewport::hasRoleRuns(*body.mesh)) {
+      // The faces of a cavity, a registration key or a sprue funnel are drawn in their own colours (moldBodyMesh3d.ts).
+      const ViewportLook look = referenceLook(true);
+      const viewport::RoleTints tints{{{1.0f, 1.0f, 1.0f},
+                                       roleTint(look.cavitySurface.rgb, look.moldRgb),
+                                       roleTint(look.registrationKey.rgb, look.moldRgb),
+                                       roleTint(look.sprueFunnel.rgb, look.moldRgb)}};
+      item.geometry->setBuffers(viewport::buildRoleTriangleBuffers(*body.mesh, tints));
+      item.roleColors = true;
+    } else {
+      item.geometry->setBuffers(viewport::buildTriangleBuffers(*body.mesh));
+    }
     item.edges = new viewport::LineGeometry;
     item.edges->setParent(this);
     item.edges->setBuffers(viewport::buildFeatureEdgeBuffers(*body.mesh, referenceLook(true).edgeAngleDegrees));

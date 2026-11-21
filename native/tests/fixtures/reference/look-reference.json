@@ -157,7 +157,82 @@
       "roughness": 0.38,
       "metalness": 0.06,
       "doubleSided": true
-    }
+    },
+    "roles": {
+      "outer-mold": {
+        "colorHex": 12208708,
+        "roughness": 0.38,
+        "metalness": 0.06,
+        "doubleSided": true,
+        "opacity": 1,
+        "transparent": false,
+        "depthWrite": true,
+        "transmission": null,
+        "thickness": null,
+        "ior": null
+      },
+      "cavity-surface": {
+        "colorHex": 10172724,
+        "roughness": 0.32,
+        "metalness": 0.08,
+        "doubleSided": true,
+        "opacity": 1,
+        "transparent": false,
+        "depthWrite": true,
+        "transmission": null,
+        "thickness": null,
+        "ior": null
+      },
+      "registration-key": {
+        "colorHex": 13935416,
+        "roughness": 0.35,
+        "metalness": 0.06,
+        "doubleSided": true,
+        "opacity": 1,
+        "transparent": false,
+        "depthWrite": true,
+        "transmission": null,
+        "thickness": null,
+        "ior": null
+      },
+      "sprue-funnel": {
+        "colorHex": 14658876,
+        "roughness": 0.32,
+        "metalness": 0.08,
+        "doubleSided": true,
+        "opacity": 1,
+        "transparent": false,
+        "depthWrite": true,
+        "transmission": null,
+        "thickness": null,
+        "ior": null
+      },
+      "imported-part": {
+        "colorHex": 12116972,
+        "roughness": 0.38,
+        "metalness": 0.06,
+        "doubleSided": true,
+        "opacity": 1,
+        "transparent": false,
+        "depthWrite": true,
+        "transmission": null,
+        "thickness": null,
+        "ior": null
+      }
+    },
+    "glass": {
+      "colorHex": 12208708,
+      "roughness": 0.18,
+      "metalness": 0.02,
+      "doubleSided": true,
+      "opacity": 0.3,
+      "transparent": true,
+      "depthWrite": false,
+      "transmission": 0.68,
+      "thickness": 0.8,
+      "ior": 1.45
+    },
+    "glassIsTheSameForEveryRole": true
   },
   "grid": {
     "minorOpacity": 0.32,

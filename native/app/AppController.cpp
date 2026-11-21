@@ -955,6 +955,7 @@ QVariantMap AppController::viewLook() const {
           {"staleMasterOpacity", look.staleMasterOpacity},
           {"roughness", look.roughness},
           {"metalness", look.metalness},
+          {"glass", QVariantMap{{"opacity", look.glass.opacity}, {"roughness", look.glass.roughness}, {"metalness", look.glass.metalness}}},
           {"lights", lights},
           {"ambientColor", channelsToColor(a, a, a)}};
 }
@@ -962,6 +963,7 @@ QVariantMap AppController::viewLook() const {
 void AppController::setShowGrid(bool v) { if (v != showGrid_) { showGrid_ = v; emit viewOptionsChanged(); } }
 void AppController::setShowAxes(bool v) { if (v != showAxes_) { showAxes_ = v; emit viewOptionsChanged(); emit rulerChanged(); } }
 void AppController::setShowEdges(bool v) { if (v != showEdges_) { showEdges_ = v; emit viewOptionsChanged(); } }
+void AppController::setMoldGlass(bool v) { if (v != moldGlass_) { moldGlass_ = v; emit viewOptionsChanged(); } }
 void AppController::setMoldOpacity(double v) {
   v = std::clamp(v, 0.05, 1.0);
   if (v != moldOpacity_) { moldOpacity_ = v; emit viewOptionsChanged(); }

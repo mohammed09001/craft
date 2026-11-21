@@ -34,6 +34,12 @@ struct TriangleBuffers {
   static constexpr int kStride = 24;
   static constexpr int kPositionOffset = 0;
   static constexpr int kNormalOffset = 12;
+
+  /// With role colours the vertex is 40 bytes: position, normal, then an RGBA float colour (the face's role tint).
+  bool hasColor = false;
+  static constexpr int kColoredStride = 40;
+  static constexpr int kColorOffset = 24;
+  int stride() const { return hasColor ? kColoredStride : kStride; }
 };
 
 /// Float32 xyz pairs, 12 bytes per vertex, line-list topology.
@@ -48,6 +54,17 @@ struct LineBuffers {
 
 TriangleBuffers buildTriangleBuffers(const TriangleSoup& soup);
 TriangleBuffers buildTriangleBuffers(const MeshPayload& mesh);
+
+/// Linear-light tint per face role, indexed by FaceRole (outer mold, cavity surface, registration key, sprue funnel).
+using RoleTints = std::array<std::array<float, 3>, 4>;
+
+/// True when some triangle of the mesh belongs to a face run that is not the outer mold: only such a body needs role colours.
+bool hasRoleRuns(const MeshPayload& mesh);
+
+/// The same triangles with a colour per vertex: the tint of the role of the face run the triangle is in (the outer mold's where no run
+/// covers it). The reference draws each face run with its own material (moldBodyMesh3d.ts); a vertex colour multiplying one material is
+/// how it is done here.
+TriangleBuffers buildRoleTriangleBuffers(const MeshPayload& mesh, const RoleTints& tints);
 
 /// Feature edges: boundary edges plus edges whose adjacent faces meet at more
 /// than `angleDegrees` (the reference featureEdgeOverlay.ts idea). Vertices
