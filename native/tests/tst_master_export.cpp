@@ -18,6 +18,7 @@
 
 #include "TestMeshes.h"
 #include "stl/Stl.h"
+#include "threemf/ThreeMf.h"
 #include "tooling/MasterToolingExport.h"
 
 using namespace craft;
@@ -231,6 +232,94 @@ class MasterExportTest : public QObject {
     QCOMPARE(pieces.at(1).toObject().value("bounds").toObject().value("max").toArray().at(0).toDouble(), 20.0);
     QCOMPARE(pieces.at(1).toObject().value("volumeMm3").toDouble(), 2000.0);
     QCOMPARE(static_cast<std::uintmax_t>(result.totalBytes), fs::file_size(result.files[0]) + fs::file_size(result.files[1]) + fs::file_size(result.manifest));
+  }
+
+  void writesOneVerified3mfWithEveryPieceWhenAsked() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    std::vector<MasterToolingSetState> sets{makeSet("p1", "Upper", "current", {makePiece("a", "Case A", box(10, 10, 10)), makePiece("b", "Case B", box(20, 10, 10))}),
+                                            makeSet("p2", "Lower", "current", {makePiece("c", "Case C", box(5, 5, 5))})};
+    const MasterExportPlan plan = planMasterToolingExport(sets, "bracket.stl");
+    MasterExportOptions options = optionsFor("bracket.stl");
+    options.write3mf = true;
+    const MasterExportResult result = writeMasterToolingExport(plan, fs::path(dir.path().toStdWString()) / "out", options);
+
+    QCOMPARE(result.files.size(), std::size_t{3});  // the STL files are unchanged: one per piece
+    QCOMPARE(result.threeMf.filename().string(), std::string("bracket_master_tooling.3mf"));
+    QCOMPARE(entries(result.folder),
+             (std::vector<std::string>{"bracket_master_Lower_Case_C.stl", "bracket_master_Upper_Case_A.stl", "bracket_master_Upper_Case_B.stl", "bracket_master_tooling.3mf", "manifest.json"}));
+
+    // The package is sound on its own: one named millimetre object per piece, each the piece's triangles, closed and positive volume.
+    const threemf::Report report = threemf::validateFile(result.threeMf);
+    QVERIFY2(report.ok, report.problem.c_str());
+    QCOMPARE(report.unit, std::string("millimeter"));
+    QCOMPARE(report.objects.size(), std::size_t{3});
+    QCOMPARE(report.buildItems, std::size_t{3});
+    QCOMPARE(report.objects[0].name, std::string("Upper / Case A"));
+    QCOMPARE(report.objects[1].name, std::string("Upper / Case B"));
+    QCOMPARE(report.objects[2].name, std::string("Lower / Case C"));
+    for (const threemf::ObjectReport& o : report.objects) {
+      QCOMPARE(o.triangles, std::size_t{12});
+      QVERIFY(o.closedTwoManifold);
+    }
+    QCOMPARE(report.objects[1].bounds[3], 20.0);  // max x of Case B: the 3MF carries the same millimetre frame as its STL
+    QCOMPARE(report.objects[1].volume, 2000.0);
+
+    // The manifest describes the package, and what it says is what is on disk.
+    const QJsonObject manifest = readManifest(result.manifest);
+    QCOMPARE(manifest.value("formatVersion").toInt(), 1);  // additive: the format version does not change
+    const QJsonObject threeMf = manifest.value("threeMf").toObject();
+    QCOMPARE(threeMf.value("file").toString(), QStringLiteral("bracket_master_tooling.3mf"));
+    QCOMPARE(threeMf.value("unit").toString(), QStringLiteral("millimeter"));
+    QCOMPARE(QString::fromStdString(sha256OfFile(result.threeMf)), threeMf.value("sha256").toString());
+    QCOMPARE(static_cast<qint64>(fs::file_size(result.threeMf)), static_cast<qint64>(threeMf.value("bytes").toDouble()));
+    QCOMPARE(threeMf.value("objects").toArray().size(), 3);
+    QCOMPARE(threeMf.value("objects").toArray().at(2).toString(), QStringLiteral("Lower / Case C"));
+    std::uintmax_t stlBytes = 0;
+    for (const fs::path& f : result.files) stlBytes += fs::file_size(f);
+    QCOMPARE(static_cast<std::uintmax_t>(result.totalBytes), stlBytes + fs::file_size(result.threeMf) + fs::file_size(result.manifest));
+  }
+
+  void noThreeMfIsWrittenUnlessAskedFor() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    std::vector<MasterToolingSetState> sets{makeSet("p1", "Upper", "current", {makePiece("a", "Case A", box(10, 10, 10))})};
+    const MasterExportResult result = writeMasterToolingExport(planMasterToolingExport(sets, "bracket.stl"), fs::path(dir.path().toStdWString()), optionsFor("bracket.stl"));
+    QVERIFY(result.threeMf.empty());
+    QCOMPARE(entries(result.folder), (std::vector<std::string>{"bracket_master_Upper_Case_A.stl", "manifest.json"}));
+    QVERIFY(!readManifest(result.manifest).contains("threeMf"));
+  }
+
+  void anOpenPieceIsStillExportedAndAnUnreportedOneIsWarnedAbout() {
+    // Case B is open (a triangle missing) and the engine says so: exported with the engine's own warning, no extra one.
+    // Case C is open although the engine called it clean: the 3MF check disagrees, and that is reported rather than hidden.
+    MasterToolingPiece flagged = makePiece("b", "Case B", box(20, 10, 10));
+    flagged.mesh.indices.resize(flagged.mesh.indices.size() - 3);
+    flagged.watertight = false;
+    MasterToolingPiece unreported = makePiece("c", "Case C", box(5, 5, 5));
+    unreported.mesh.indices.resize(unreported.mesh.indices.size() - 3);
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    std::vector<MasterToolingSetState> sets{makeSet("p1", "Upper", "current", {makePiece("a", "Case A", box(10, 10, 10)), flagged, unreported})};
+    const MasterExportPlan plan = planMasterToolingExport(sets, "bracket.stl");
+    MasterExportOptions options = optionsFor("bracket.stl");
+    options.write3mf = true;
+    const MasterExportResult result = writeMasterToolingExport(plan, fs::path(dir.path().toStdWString()), options);
+
+    const threemf::Report report = threemf::validateFile(result.threeMf);
+    QCOMPARE(report.objects.size(), std::size_t{3});
+    QVERIFY(report.objects[0].closedTwoManifold);
+    QVERIFY(!report.objects[1].closedTwoManifold);
+    QCOMPARE(report.objects[1].triangles, std::size_t{11});
+    const auto mentions = [&](const char* text) {
+      return std::count_if(result.warnings.begin(), result.warnings.end(), [&](const std::string& w) { return w.find(text) != std::string::npos; });
+    };
+    QCOMPARE(mentions("Case B: not watertight"), 1);
+    QCOMPARE(mentions("Case B: the 3MF check"), 0);
+    QCOMPARE(mentions("Case C: the 3MF check"), 1);
+    QCOMPARE(mentions("Case A"), 0);
+    const QJsonArray warned = readManifest(result.manifest).value("warnings").toArray();
+    QCOMPARE(warned.size(), static_cast<int>(result.warnings.size()));  // the manifest carries the same warnings as the result
   }
 
   void neverOverwritesAnEarlierExport() {

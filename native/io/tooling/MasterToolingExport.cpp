@@ -9,10 +9,12 @@
 #include <algorithm>
 #include <cctype>
 #include <fstream>
+#include <optional>
 #include <set>
 #include <system_error>
 
 #include "stl/Stl.h"
+#include "threemf/ThreeMf.h"
 
 namespace craft::toolingexport {
 
@@ -162,8 +164,14 @@ QJsonObject pieceObject(const WrittenFile& written) {
   return o;
 }
 
+struct WrittenThreeMf {
+  std::string fileName, sha256;
+  std::uintmax_t bytes = 0;
+  std::vector<std::string> objectNames;
+};
+
 QByteArray buildManifest(const MasterExportPlan& plan, const std::vector<WrittenFile>& written, const MasterExportOptions& options,
-                         const std::vector<std::string>& warnings) {
+                         const std::vector<std::string>& warnings, const WrittenThreeMf* threeMf) {
   // Group the written files by tooling set, keeping the plan's order.
   QJsonArray sets;
   std::vector<const MasterToolingSetState*> order;
@@ -221,7 +229,16 @@ QByteArray buildManifest(const MasterExportPlan& plan, const std::vector<Written
                          {"toolingSets", sets},
                          {"excluded", excluded},
                          {"warnings", stringArray(warnings)}};
-  return QJsonDocument(root).toJson(QJsonDocument::Indented);
+  QJsonObject withThreeMf = root;
+  if (threeMf) {
+    // Additive (formatVersion stays 1): readers that do not know the member ignore it.
+    withThreeMf.insert("threeMf", QJsonObject{{"file", q(threeMf->fileName)},
+                                              {"bytes", static_cast<double>(threeMf->bytes)},
+                                              {"sha256", q(threeMf->sha256)},
+                                              {"unit", QStringLiteral("millimeter")},
+                                              {"objects", stringArray(threeMf->objectNames)}});
+  }
+  return QJsonDocument(withThreeMf).toJson(QJsonDocument::Indented);
 }
 
 void writeBytes(const fs::path& path, const char* data, std::size_t size) {
@@ -315,8 +332,45 @@ MasterExportResult writeMasterToolingExport(const MasterExportPlan& plan, const 
     totalBytes += bytes.size();
   }
 
+  std::vector<std::string> warnings = plan.warnings;
+  std::optional<WrittenThreeMf> threeMf;
+  if (options.write3mf) {
+    if (cancel.isCancelled()) throw CodedError("cancelled", "The export was cancelled.");
+    std::vector<threemf::Object> objects;
+    std::vector<std::string> names;
+    for (const WrittenFile& w : written) names.push_back(w.planned->moldPartName + " / " + w.planned->pieceName);
+    for (std::size_t i = 0; i < written.size(); ++i) objects.push_back({names[i], &written[i].planned->piece->mesh});
+    const std::vector<std::uint8_t> bytes = threemf::encode(objects, plan.stem + " master tooling");
+    const std::string fileName = plan.stem + "_master_tooling.3mf";
+    const fs::path target = tempFolder / pathFromUtf8(fileName);
+    writeBytes(target, reinterpret_cast<const char*>(bytes.data()), bytes.size());
+
+    // Read it back and check it independently of the writer: the same bytes, a sound package, and one object per piece with the
+    // piece's triangle count. A piece the engine itself flagged (not watertight / not manifold) is allowed to fail the closed-mesh
+    // check; a piece it called clean that the independent check finds open is reported as a warning, never hidden.
+    const std::vector<std::uint8_t> back = readBytes(target);
+    if (back != bytes) writeFailed("Verification failed for '" + fileName + "': the file on disk differs from what was written.");
+    const threemf::Report report = threemf::validate(back);
+    if (report.objects.size() != written.size() || report.buildItems != written.size() || report.unit != "millimeter") {
+      writeFailed("Verification failed for '" + fileName + "': " + (report.problem.empty() ? std::string("the package does not hold one object per piece in millimetres.") : report.problem));
+    }
+    for (std::size_t i = 0; i < written.size(); ++i) {
+      const threemf::ObjectReport& o = report.objects[i];
+      const MasterToolingPiece& piece = *written[i].planned->piece;
+      if (o.name != names[i] || o.triangles != piece.mesh.triangleCount() || !o.indicesInRange || !o.noDegenerateTriangles) {
+        writeFailed("Verification failed for '" + fileName + "': object '" + names[i] + "' does not match its piece (" + std::to_string(o.triangles) + " triangles, expected " +
+                    std::to_string(piece.mesh.triangleCount()) + ").");
+      }
+      if (!o.closedTwoManifold && piece.watertight && piece.manifold) {
+        warnings.push_back(names[i] + ": the 3MF check found the mesh not closed although the engine reported it clean.");
+      }
+    }
+    totalBytes += bytes.size();
+    threeMf = WrittenThreeMf{fileName, sha256Of(bytes.data(), bytes.size()), bytes.size(), names};
+  }
+
   if (cancel.isCancelled()) throw CodedError("cancelled", "The export was cancelled.");
-  const QByteArray manifest = buildManifest(plan, written, options, plan.warnings);
+  const QByteArray manifest = buildManifest(plan, written, options, warnings, threeMf ? &*threeMf : nullptr);
   writeBytes(tempFolder / "manifest.json", manifest.constData(), static_cast<std::size_t>(manifest.size()));
   totalBytes += static_cast<std::uintmax_t>(manifest.size());
 
@@ -328,7 +382,8 @@ MasterExportResult writeMasterToolingExport(const MasterExportPlan& plan, const 
   result.folder = finalFolder;
   result.manifest = finalFolder / "manifest.json";
   for (const WrittenFile& w : written) result.files.push_back(finalFolder / pathFromUtf8(w.planned->fileName));
-  result.warnings = plan.warnings;
+  if (threeMf) result.threeMf = finalFolder / pathFromUtf8(threeMf->fileName);
+  result.warnings = warnings;
   result.excluded = plan.excluded;
   result.totalBytes = totalBytes;
   return result;

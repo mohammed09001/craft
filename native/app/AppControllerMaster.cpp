@@ -338,11 +338,12 @@ void AppController::exportMasterToolingTo(const QString& folderPath) {
   options.appVersion = applicationVersion().toStdString();
   options.exportedAtUtc = QDateTime::currentDateTimeUtc().toString(Qt::ISODate).toStdString();
   options.generationVersion = masterStore_.generationVersion();
+  options.write3mf = true;   // one 3MF with every piece beside the per-piece STLs (D-109)
   options.unportedPathsReached = !masterUnportedPaths_.empty();
   options.unportedPaths = masterUnportedPaths_;
 
   struct Exported {
-    QString folder;
+    QString folder, threeMf;
     QStringList files;
     QStringList warnings;
     QStringList excluded;
@@ -367,6 +368,7 @@ void AppController::exportMasterToolingTo(const QString& folderPath) {
                                    item.pieceId.empty() ? QString() : QStringLiteral(" / ") + QString::fromStdString(item.pieceId),
                                    QString::fromStdString(item.reason));
         }
+        if (!written.threeMf.empty()) out.threeMf = QString::fromStdWString(written.threeMf.wstring());
         out.bytes = written.totalBytes;
         return out;
       },
@@ -375,12 +377,14 @@ void AppController::exportMasterToolingTo(const QString& folderPath) {
         if (outcome.state == JobState::Succeeded && outcome.result) {
           const Exported& r = *outcome.result;
           lastMasterExport_ = QVariantMap{{"folder", r.folder},
-                                          {"fileCount", static_cast<int>(r.files.size())},
+                                          {"fileCount", static_cast<int>(r.files.size())},   // the per-piece STL files
+                                          {"threeMf", r.threeMf},                              // the combined 3MF package; empty when none was written
                                           {"totalBytes", r.bytes},
                                           {"warnings", r.warnings},
                                           {"excluded", r.excluded}};
           emit masterMoldChanged();
-          const QString message = QStringLiteral("Exported %1 Master tooling piece(s) to %2").arg(r.files.size()).arg(r.folder);
+          const QString message = r.threeMf.isEmpty() ? QStringLiteral("Exported %1 Master tooling piece(s) to %2").arg(r.files.size()).arg(r.folder)
+                                                      : QStringLiteral("Exported %1 Master tooling piece(s) as STL files and one 3MF to %2").arg(r.files.size()).arg(r.folder);
           setStatus(message);
           emit exportFinished(true, message, r.files);
           return;

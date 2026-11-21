@@ -7,6 +7,8 @@
 //
 //   <folder>/<model>_master_tooling[_N]/
 //       <model>_master_<set>_<piece>.stl   binary STL, millimeters, Z-up, the same world frame as the viewport
+//       <model>_master_tooling.3mf         optional (MasterExportOptions::write3mf): every piece as one named object of one 3MF package, the same
+//                                          millimetre Z-up world frame as the STLs (see io/threemf)
 //       manifest.json                      what each file is, with SHA-256, bounds, volume, release directions,
 //                                          registration pins, the release sequence, what was left out and why
 //
@@ -55,6 +57,7 @@ struct MasterExportOptions {
   std::string appVersion;
   std::string exportedAtUtc;   // ISO-8601, supplied by the caller so the writer is deterministic
   int generationVersion = 0;
+  bool write3mf = false;       // also write one 3MF holding every exported piece as a named object (verified by reading it back)
   bool unportedPathsReached = false;  // the engine may have skipped strategies the reference has (honest scope flag)
   std::vector<std::string> unportedPaths;
 };
@@ -62,6 +65,7 @@ struct MasterExportOptions {
 struct MasterExportResult {
   std::filesystem::path folder;    // the final sub-folder
   std::filesystem::path manifest;
+  std::filesystem::path threeMf;             // the 3MF package in the final folder; empty unless MasterExportOptions::write3mf
   std::vector<std::filesystem::path> files;  // the STL files, in the final folder
   std::vector<std::string> warnings;
   std::vector<ExcludedItem> excluded;

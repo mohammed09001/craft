@@ -551,8 +551,16 @@ Fresh evidence for `EXECUTION_REPORT.md` instead of memory of earlier runs. Pack
 
 
 ## Session 52 (2026-11-21): Windows-only completion, increment 1
-- Verified worktree D:CraftNativeworktrees
-ative-desktop-migration, branch feature/native-desktop-migration, head 018c7cc.
+- Verified worktree D:\CraftNative\worktrees\native-desktop-migration, branch feature/native-desktop-migration, head 018c7cc.
 - Full Release build + single-run ctest on 018c7cc: 38/38 passed, 1123.91 s (closes R-Test-1 for that commit).
 - Added 3MF export with read-back validation (tst_threemf 11 tests; tst_app_workflow 3MF test passes in Debug), WINDOWS_COMPLETION_MATRIX.md, and .github/workflows/windows-native.yml (written, not executed on a runner). Commits 5c05b07, bcb6e81.
 - Mistake fixed: forcing QT_QPA_PLATFORM=offscreen produced a Qt platform-plugin assert dialog; removed from CI. The Dell SupportAssist driver popup is unrelated to Craft.
+
+## Session 53 (2026-11-21): Flip / part orientation finished, Master tooling 3MF
+
+- Part orientation committed in two steps (core port 3cd01be, app integration 18b379e). Full Release ctest on 00e3615: 41/41 passed, 990.34 s.
+- UI tour on Release: the lint found Redo cut off at the minimum window width (885 px against 880) because of the Flip button; the minimum width is now 910 and the tour is clean (13 states, 39 captures, 0 findings).
+- New app_smoke_flip drives the real window: mouse click on the Flip button and the four arrow keys as platform key events, including a held key. Mutation-checked (auto-repeat on the Left shortcut fails it). Mistake fixed: the first runs failed because the test was not in the list that gives each smoke test its own autosave folder, so a recovery dialog swallowed the clicks.
+- Two background waiters on UTF-16 logs never returned (grep could not match through NUL bytes); stopped.
+- Mistake fixed: `git add native` committed Python bytecode; removed from the index and ignored.
+- Master tooling 3MF (D-109): one 3MF with every current piece beside the STLs and manifest, read back and validated; Debug tst_master_export 18/18, tst_app_workflow and tst_threemf pass; the unreported-open-piece warning is mutation-checked. Release not yet re-run.

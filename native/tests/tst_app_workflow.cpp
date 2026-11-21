@@ -1964,7 +1964,23 @@ class WorkflowTest : public QObject {
     }
     QCOMPARE(manifestPieces, expected);
     QVERIFY(fileTriangles == storeTriangles);
-    QCOMPARE(QDir(folder).entryList(QDir::Files).size(), expected + 1);  // the STLs and manifest.json
+    QCOMPARE(QDir(folder).entryList(QDir::Files).size(), expected + 2);  // the STLs, the 3MF and manifest.json
+
+    // The 3MF holds every piece the STLs hold, as one package a reader can open on its own, and the manifest describes it.
+    const QString threeMfPath = last.value("threeMf").toString();
+    QVERIFY(!threeMfPath.isEmpty());
+    QCOMPARE(QFileInfo(threeMfPath).fileName(), QStringLiteral("bracket_master_tooling.3mf"));
+    const threemf::Report package = threemf::validateFile(std::filesystem::path(threeMfPath.toStdWString()));
+    QVERIFY2(package.ok, package.problem.c_str());
+    QCOMPARE(static_cast<int>(package.objects.size()), expected);
+    std::multiset<std::size_t> packageTriangles;
+    for (const threemf::ObjectReport& object : package.objects) packageTriangles.insert(object.triangles);
+    QVERIFY(packageTriangles == storeTriangles);
+    QCOMPARE(manifest.value("threeMf").toObject().value("file").toString(), QStringLiteral("bracket_master_tooling.3mf"));
+    QCOMPARE(manifest.value("threeMf").toObject().value("objects").toArray().size(), expected);
+    QFile packageFile(threeMfPath);
+    QVERIFY(packageFile.open(QIODevice::ReadOnly));
+    QCOMPARE(QString::fromLatin1(QCryptographicHash::hash(packageFile.readAll(), QCryptographicHash::Sha256).toHex()), manifest.value("threeMf").toObject().value("sha256").toString());
 
     // Once the part's context changes, the tooling is stale: it is not exported, and the reason says what to do.
     app->setPrinterVolume(500, 500, 500);

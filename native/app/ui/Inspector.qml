@@ -322,7 +322,7 @@ ScrollView {
                 }
                 Label {
                     visible: app.masterMold.showPieces === true && app.masterMold.canExport === true && !app.masterMold.lastExport.folder
-                    text: qsTr("Exports %1 STL file(s) and a manifest into a new folder; nothing is overwritten. Stale or blocked parts are skipped.")
+                    text: qsTr("Exports %1 STL file(s), one 3MF with every piece, and a manifest into a new folder; nothing is overwritten. Stale or blocked parts are skipped.")
                               .arg(app.masterMold.exportablePieceCount)
                     wrapMode: Text.Wrap; Layout.fillWidth: true
                     color: "#8a8f98"
@@ -331,7 +331,7 @@ ScrollView {
                     visible: !!app.masterMold.lastExport.folder
                     Layout.fillWidth: true
                     Label {
-                        text: qsTr("Exported %1 file(s) to:").arg(app.masterMold.lastExport.fileCount || 0)
+                        text: app.masterMold.lastExport.threeMf ? qsTr("Exported %1 STL file(s) and one 3MF to:").arg(app.masterMold.lastExport.fileCount || 0) : qsTr("Exported %1 file(s) to:").arg(app.masterMold.lastExport.fileCount || 0)
                         font.bold: true
                         wrapMode: Text.Wrap; Layout.fillWidth: true
                     }
