@@ -65,6 +65,10 @@ AppController::AppController(std::shared_ptr<IMeshGeometryEngine> engine,
   applySceneColors();
   connectAnalysis();
   connectReports();
+  // Flip / Auto orient availability follows the model, the mold, sprues, segmentation and running jobs.
+  for (auto signal : {&AppController::modelChanged, &AppController::moldChanged, &AppController::spruesChanged, &AppController::segmentationChanged,
+                      &AppController::busyChanged, &AppController::masterMoldChanged})
+    connect(this, signal, this, &AppController::refreshOrientation);
   initProject();
   applyChromeScheme();  // the chrome starts in the app's theme (dark), not the operating system's
   connect(&scene_, &SceneModel::sceneChanged, this, [this] { refreshSceneFrame(false); });
@@ -178,8 +182,40 @@ QVariantMap AppController::modelInfo() const {
           {"loadMs", m.loadMs}};
 }
 
-LoadedModel buildLoadedModel(TriangleSoup soup, stl::Encoding encoding, quint64 requestId, const QString& fileName, const QString& sourcePath, qint64 fileSizeBytes) {
+LoadedModel buildLoadedModel(TriangleSoup soup, stl::Encoding encoding, quint64 requestId, const QString& fileName, const QString& sourcePath, qint64 fileSizeBytes,
+                             const Quaternion& orientation) {
   const Bounds3 bounds = stl::validateDisplayable(soup);
+  if (orientation != kIdentityOrientation) {
+    // Flip / Auto orient (applyPartOrientation): rotate the source triangles, then ground the rotated bounds. The grounding translation is applied
+    // in double precision and stored as float32, as the reference's geometry.translate does.
+    TriangleSoup rotated = rotateSoup(soup, orientation);
+    Bounds3 rb = emptyBounds();
+    for (std::size_t i = 0; i + 2 < rotated.positions.size(); i += 3) {
+      rb.min = {std::min(rb.min.x, double(rotated.positions[i])), std::min(rb.min.y, double(rotated.positions[i + 1])), std::min(rb.min.z, double(rotated.positions[i + 2]))};
+      rb.max = {std::max(rb.max.x, double(rotated.positions[i])), std::max(rb.max.y, double(rotated.positions[i + 1])), std::max(rb.max.z, double(rotated.positions[i + 2]))};
+    }
+    const auto g = calculateModelGroundingTransform(rb);
+    if (!g) throw CodedError("stl_invalid_geometry", "The STL file has an invalid bounding box.");
+    for (std::size_t i = 0; i + 2 < rotated.positions.size(); i += 3) {
+      rotated.positions[i] = static_cast<float>(double(rotated.positions[i]) + g->translation.x);
+      rotated.positions[i + 1] = static_cast<float>(double(rotated.positions[i + 1]) + g->translation.y);
+      rotated.positions[i + 2] = static_cast<float>(double(rotated.positions[i + 2]) + g->translation.z);
+    }
+    LoadedModel m;
+    m.modelId = QStringLiteral("%1:%2:%3").arg(requestId).arg(fileName).arg(fileSizeBytes).toStdString();
+    m.sourcePath = sourcePath;
+    m.fileName = fileName;
+    m.fileSizeBytes = fileSizeBytes;
+    m.encoding = encoding == stl::Encoding::Ascii ? "ASCII" : "Binary";
+    m.sourceBounds = bounds;
+    m.orientation = orientation;
+    m.groundingTranslation = g->translation;
+    m.groundedBounds = g->groundedBounds;
+    m.groundedSoup = std::make_shared<TriangleSoup>(std::move(rotated));
+    m.sourceSoup = std::make_shared<TriangleSoup>(std::move(soup));
+    m.geometryVersion = partGeometryVersion(*m.groundedSoup);
+    return m;
+  }
   const auto grounding = calculateModelGroundingTransform(bounds);
   if (!grounding) throw CodedError("stl_invalid_geometry", "The STL file has an invalid bounding box.");
 
@@ -297,7 +333,7 @@ void AppController::importStlFile(const QString& path) {
       });
 }
 
-void AppController::applyModel(LoadedModel model) {
+void AppController::applyModel(LoadedModel model, bool fitCamera, bool announce) {
   clearMasterRun(true);
   invalidateSegmentation(QString());
   clearEngineeringReports();
@@ -315,7 +351,7 @@ void AppController::applyModel(LoadedModel model) {
   model_ = std::move(model);
   modelPhase_ = QStringLiteral("ready");
   modelMessage_ = model_->fileName;
-  scene_.clearHidden();   // a new model: everything is shown again (the reference resets its model and body visibility on import)
+  if (announce) scene_.clearHidden();   // a new model: everything is shown again (the reference resets its model and body visibility on import)
   scene_.setPart(QString::fromStdString(model_->modelId), model_->fileName, model_->groundedSoup,
                  QColor::fromRgb(referenceLook(true).partRgb));
   scene_.setPartOffset({0, 0, 0});
@@ -326,9 +362,10 @@ void AppController::applyModel(LoadedModel model) {
   // Like the reference (localStlImport: fitCameraToModel), a new model is fitted from the current view direction; only the
   // Reset View command goes back to the fixed direction.
   refreshSceneFrame(false);
-  camera_.fit();
+  if (fitCamera) camera_.fit();
   emit modelChanged();
   emit moldInputsChanged();
+  if (!announce) return;  // a re-orientation of the same model: the caller sets its own status
   setStatus(QStringLiteral("Loaded %1: %2 triangles, %3 × %4 × %5 mm")
                 .arg(model_->fileName)
                 .arg(model_->sourceSoup->triangleCount())
@@ -959,6 +996,12 @@ void AppController::setTool(const QString& tool) {
   if (tool == QLatin1String("eraser") && !eraserAvailable()) {  // the Eraser needs cutting planes (and no evaluation running)
     setStatus(QStringLiteral("The Eraser needs a cutting plane: choose a face to cut by first."));
     return;
+  }
+  if (tool == QLatin1String("orientation")) {  // the Flip tool needs a model whose geometry has not been generated yet
+    if (const OrientationCapability c = orientationCapability(); !c.available) {
+      setStatus(c.reason);
+      return;
+    }
   }
   tool_ = tool;
   measurePoints_.clear();

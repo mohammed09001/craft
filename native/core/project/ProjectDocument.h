@@ -50,6 +50,9 @@ struct ModelReference {
   std::uint64_t triangleCount = 0;   // informational
   std::string sourceEncoding;        // "ASCII" | "Binary": how the user's original file was encoded (informational)
   std::string geometryVersion;       // the app's geometry fingerprint of the grounded part when saved (checked on load)
+  // The Flip / Auto orient quaternion (x, y, z, w) applied to the model as imported, then re-grounded. An older file without the member is the
+  // identity. An additive optional member, so the format stays 1.0 (D-108).
+  std::array<double, 4> orientation{0, 0, 0, 1};
   friend bool operator==(const ModelReference&, const ModelReference&) = default;
 };
 

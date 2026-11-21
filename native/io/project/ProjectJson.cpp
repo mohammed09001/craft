@@ -108,7 +108,8 @@ QJsonObject documentToManifest(const Document& d, const std::vector<AssetEntry>&
     m["model"] = QJsonObject{{"fileName", q(r.fileName)},       {"storage", q(r.storage)},          {"assetId", q(r.assetId)},
                              {"linkedPath", q(r.linkedPath)},   {"sizeBytes", static_cast<double>(r.sizeBytes)}, {"sourceSizeBytes", static_cast<double>(r.sourceSizeBytes)}, {"sha256", q(r.sha256)},
                              {"triangleCount", static_cast<double>(r.triangleCount)}, {"sourceEncoding", q(r.sourceEncoding)},
-                             {"geometryVersion", q(r.geometryVersion)}};
+                             {"geometryVersion", q(r.geometryVersion)},
+                             {"orientation", QJsonArray{r.orientation[0], r.orientation[1], r.orientation[2], r.orientation[3]}}};
   } else {
     m["model"] = QJsonValue(QJsonValue::Null);
   }
@@ -193,6 +194,15 @@ ManifestParse manifestToDocument(const QJsonObject& m) {
     ref.triangleCount = static_cast<std::uint64_t>(r.num(o, "triangleCount", "model", false));
     ref.sourceEncoding = r.str(o, "sourceEncoding", "model", false);
     ref.geometryVersion = r.str(o, "geometryVersion", "model", false);
+    if (o.contains("orientation")) {
+      const QJsonValue value = o.value("orientation");
+      if (!value.isArray() || value.toArray().size() != 4) r.fail("model.orientation must be an array of 4 numbers.");
+      const QJsonArray a = value.toArray();
+      for (int i = 0; i < 4; ++i) {
+        if (!a[i].isDouble()) r.fail("model.orientation must be an array of 4 numbers.");
+        ref.orientation[static_cast<std::size_t>(i)] = a[i].toDouble();
+      }
+    }
     d.model = ref;
   } else if (!modelValue.isNull() && !modelValue.isUndefined()) {
     r.fail("manifest.model must be an object or null.");

@@ -32,6 +32,9 @@ std::string validateDocument(const Document& d) {
     if (!isHexSha256(m.sha256)) return "model.sha256 is not a lowercase hex SHA-256.";
     if (m.storage == "embedded" && m.assetId.empty()) return "an embedded model needs an assetId.";
     if (m.storage == "linked" && m.linkedPath.empty()) return "a linked model needs a linkedPath.";
+    for (double c : m.orientation)
+      if (!finite(c)) return "model.orientation must be finite.";
+    if (m.orientation[0] == 0 && m.orientation[1] == 0 && m.orientation[2] == 0 && m.orientation[3] == 0) return "model.orientation must not be the zero quaternion.";
   }
   if (!finite(d.mold.moldClearanceMm) || d.mold.moldClearanceMm < 0) return "mold.moldClearanceMm must be finite and non-negative.";
   if (!finite(d.mold.cavityClearanceMm) || d.mold.cavityClearanceMm < 0) return "mold.cavityClearanceMm must be finite and non-negative.";
@@ -68,6 +71,10 @@ std::string inputsFingerprint(const Document& d) {
   out.precision(17);
   const auto vec = [&](const Vec3& v) { out << v.x << ',' << v.y << ',' << v.z << ';'; };
   if (d.model) out << "M:" << d.model->fileName << '|' << d.model->storage << '|' << d.model->sha256 << '|' << d.model->linkedPath << ';';
+  if (d.model && d.model->orientation != std::array<double, 4>{0, 0, 0, 1}) {
+    const auto& o = d.model->orientation;
+    out << "O:" << o[0] << ',' << o[1] << ',' << o[2] << ',' << o[3] << ';';  // only when set, so identity keeps the older fingerprint
+  }
   out << "C:" << d.mold.moldClearanceMm << ',' << d.mold.cavityClearanceMm << ';';
   for (const auto& f : d.mold.cutFaces) out << f.face << ':' << f.enabled << ':' << (f.position ? *f.position : -1.0) << ';';
   for (const auto& s : d.sprues) {

@@ -34,6 +34,7 @@
 #include "view/GroundPlaneRuler.h"
 #include "project/ProjectFile.h"
 #include "stl/Stl.h"
+#include "TestMeshes.h"
 #include "threemf/ThreeMf.h"
 
 using namespace craft;
@@ -171,6 +172,171 @@ class WorkflowTest : public QObject {
       for (std::size_t v = 0; v < soup.vertexCount(); ++v) maxX = std::max(maxX, static_cast<double>(soup.positions[3 * v]));
       QVERIFY(std::fabs(report.objects[static_cast<std::size_t>(i)].bounds[3] - maxX) < 1e-3);
     }
+  }
+
+  // --- Flip and Auto orient (partOrientation.store.ts, automaticModelOrientation.ts) --------------------------------------------------------
+
+  static int enabledCutFaces(const QVariantList& faces) {
+    int n = 0;
+    for (const QVariant& f : faces) n += f.toMap().value("enabled").toBool() ? 1 : 0;
+    return n;
+  }
+
+  void flipTurnsThePartAndFourQuarterTurnsAreTheIdentity() {
+    auto app = makeApp();
+    QVERIFY(!app->flipPart("left"));  // no model: refused, with the reference's reason
+    QCOMPARE(app->orientationState().value("available").toBool(), false);
+    QCOMPARE(app->orientationState().value("reason").toString(), QStringLiteral("Import a valid model before changing its orientation."));
+
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    QVERIFY(app->orientationState().value("available").toBool());
+    QVERIFY(app->orientationState().value("isIdentity").toBool());
+    const std::string version = app->model()->geometryVersion;
+    const Bounds3 before = app->model()->groundedBounds;  // 40 x 30 x 12
+
+    QVERIFY(!app->flipPart("sideways"));
+    QVERIFY(app->flipPart("left"));
+    {
+      const LoadedModel& m = *app->model();
+      QVERIFY(!app->orientationState().value("isIdentity").toBool());
+      QVERIFY(std::fabs(m.groundedBounds.size().x - 12) < 1e-4);  // a quarter turn about Y swaps X and Z
+      QVERIFY(std::fabs(m.groundedBounds.size().y - 30) < 1e-4);
+      QVERIFY(std::fabs(m.groundedBounds.size().z - 40) < 1e-4);
+      QCOMPARE(m.groundedBounds.min.z, 0.0);  // re-grounded: resting on the plane, centred on XY
+      QVERIFY(std::fabs(m.groundedBounds.min.x + m.groundedBounds.max.x) < 1e-4);
+      QVERIFY(m.geometryVersion != version);
+      QCOMPARE(m.sourceSoup->triangleCount(), std::size_t{20});  // the source triangles are never modified
+      QCOMPARE(m.groundedSoup->triangleCount(), std::size_t{20});
+    }
+    for (int i = 0; i < 3; ++i) QVERIFY(app->flipPart("left"));
+    QVERIFY(app->orientationState().value("isIdentity").toBool());
+    QCOMPARE(app->model()->geometryVersion, version);  // four turns give back exactly the imported part
+    QCOMPARE(app->model()->groundedBounds, before);
+
+    QVERIFY(app->flipPart("upside-down"));
+    QVERIFY(std::fabs(app->model()->groundedBounds.size().z - 12) < 1e-4);
+    QVERIFY(app->resetPartOrientation());
+    QCOMPARE(app->model()->geometryVersion, version);
+  }
+
+  void flippingStartsTheCutSessionOverButKeepsTheClearancesAndHistory() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->setMoldClearanceMm(14.5);
+    app->setCavityClearanceMm(0.4);
+    app->setCutFaceEnabled("front", true);
+    QVERIFY(enabledCutFaces(app->cutFaces()) == 1);
+    QVERIFY(app->history().value("canUndo").toBool());
+    QVERIFY(app->flipPart("backward"));
+    QCOMPARE(enabledCutFaces(app->cutFaces()), 0);  // clearForOrientationChange: faces and planes start over
+    QVERIFY(!app->history().value("canUndo").toBool());  // and so does the history
+    QCOMPARE(app->moldClearanceMm(), 14.5);         // the clearances stay
+    QCOMPARE(app->cavityClearanceMm(), 0.4);
+    // Flipping to the orientation it already has is not a change.
+    QSignalSpy changed(app.get(), &AppController::modelChanged);
+    QVERIFY(app->commitPartOrientation(app->model()->orientation, false));
+    QCOMPARE(changed.count(), 0);
+  }
+
+  void orientationIsLockedOnceTheMoldHasBeenGenerated() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    QVERIFY(app->flipPart("right"));
+    app->setCutFaceEnabled("top", true);
+    app->generateMold();
+    QVERIFY(waitFor([&] { return app->moldPhase() == "complete" || app->moldPhase() == "error"; }));
+    QVERIFY2(app->moldPhase() == "complete", qPrintable(app->moldError()));
+    const std::string version = app->model()->geometryVersion;
+    const QString locked = QStringLiteral("Model orientation is locked after mold generation. Return to the pre-mold stage to change the model orientation.");
+    QCOMPARE(app->orientationState().value("available").toBool(), false);
+    QCOMPARE(app->orientationState().value("reason").toString(), locked);
+    QVERIFY(!app->flipPart("left"));
+    QVERIFY(!app->autoOrientPart());
+    QVERIFY(!app->resetPartOrientation());
+    app->setTool("orientation");  // the Flip tool is not available either
+    QVERIFY(app->tool() != QLatin1String("orientation"));
+    QCOMPARE(app->model()->geometryVersion, version);
+    QCOMPARE(app->moldPhase(), QStringLiteral("complete"));  // a refused flip leaves the mold alone
+
+    // Changing a mold input drops the generated mold, which makes the part flippable again (the pre-mold stage).
+    app->setCavityClearanceMm(0.8);
+    QVERIFY(app->orientationState().value("available").toBool());
+    QVERIFY(app->flipPart("left"));
+  }
+
+  void theFlipToolFallsBackToSelectWhenItBecomesUnavailable() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->setTool("orientation");
+    QCOMPARE(app->tool(), QStringLiteral("orientation"));
+    app->setCutFaceEnabled("top", true);
+    app->generateMold();
+    QVERIFY(waitFor([&] { return app->moldPhase() == "complete" || app->moldPhase() == "error"; }));
+    QCOMPARE(app->tool(), QStringLiteral("select"));
+  }
+
+  void autoOrientLaysTheLargestFlatFaceOnTheGround() {
+    QTemporaryDir dir;
+    // A 10 x 20 x 30 box lying so that its 20 x 30 face is a side: the best candidate stands it on that face.
+    const MeshPayload cube = test::cubeMesh(test::box(0, 0, 0, 10, 20, 30));
+    const QString path = dir.filePath("box.stl");
+    {
+      const auto bytes = stl::encodeBinary(cube);
+      QFile f(path);
+      QVERIFY(f.open(QIODevice::WriteOnly));
+      f.write(reinterpret_cast<const char*>(bytes.data()), static_cast<qint64>(bytes.size()));
+    }
+    auto app = makeApp();
+    app->importStlFile(path);
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    QVERIFY(std::fabs(app->model()->groundedBounds.size().z - 30) < 1e-4);  // as imported it stands 30 tall
+    QVERIFY(app->autoOrientPart());
+    const LoadedModel& m = *app->model();
+    QVERIFY(std::fabs(m.groundedBounds.size().z - 10) < 1e-4);  // now it rests on its 20 x 30 face
+    QCOMPARE(m.groundedBounds.min.z, 0.0);
+    QVERIFY(!app->orientationState().value("isIdentity").toBool());
+    QVERIFY(app->statusText().contains(QStringLiteral("positive-x-down")));
+    // Auto orient scores the model as imported, so repeating it gives the same orientation (not another turn).
+    const Quaternion first = m.orientation;
+    QVERIFY(app->autoOrientPart());
+    QCOMPARE(app->model()->orientation, first);
+    QVERIFY(app->resetPartOrientation());
+    QVERIFY(std::fabs(app->model()->groundedBounds.size().z - 30) < 1e-4);
+  }
+
+  void theOrientationSurvivesSavingAndReopening() {
+    QTemporaryDir dir;
+    const QString file = dir.filePath("flipped.craft");
+    std::string version;
+    Quaternion orientation;
+    {
+      auto app = makeApp();
+      app->importStlFile(bracket());
+      QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+      app->saveProjectToFile(file);
+      QVERIFY(waitFor([&] { return !app->busy() && QFileInfo::exists(file); }));
+      QVERIFY(waitFor([&] { return !app->project().value("dirty").toBool(); }));
+      QVERIFY(app->flipPart("left"));
+      QVERIFY(app->flipPart("forward"));
+      QVERIFY(waitFor([&] { return app->project().value("dirty").toBool(); }, 5000));  // a flip is an edit
+      version = app->model()->geometryVersion;
+      orientation = app->model()->orientation;
+      app->saveProjectToFile(file);
+      QVERIFY(waitFor([&] { return !app->busy() && !app->project().value("dirty").toBool(); }));
+    }
+    auto reopened = makeApp();
+    reopened->openProjectFile(file);
+    QVERIFY(waitFor([&] { return reopened->modelPhase() == "ready" && !reopened->project().value("opening").toBool(); }));
+    QCOMPARE(reopened->model()->orientation, orientation);
+    QCOMPARE(reopened->model()->geometryVersion, version);  // the same oriented part, bit for bit; no fingerprint warning
+    QVERIFY(!reopened->statusText().contains(QStringLiteral("fingerprint")));
+    QVERIFY(waitFor([&] { return !reopened->project().value("dirty").toBool(); }, 5000));
+    QVERIFY(reopened->resetPartOrientation());
+    QVERIFY(waitFor([&] { return reopened->project().value("dirty").toBool(); }, 5000));
   }
 
   void positiveCavityClearanceRunsEndToEnd() {

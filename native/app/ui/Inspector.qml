@@ -79,6 +79,34 @@ ScrollView {
 
         CraftSection {
             Layout.fillWidth: true
+            title: qsTr("Orientation")
+            visible: app.modelPhase === "ready"
+            ColumnLayout {
+                Layout.fillWidth: true
+                objectName: "orientationSection"
+                Label {
+                    text: app.orientationState.available ? qsTr("Flip turns the part a quarter turn about a world axis; Auto orient lays its largest flat face on the ground.")
+                                                         : app.orientationState.reason
+                    wrapMode: Text.Wrap; Layout.fillWidth: true
+                    font.italic: !app.orientationState.available
+                }
+                GridLayout {
+                    columns: 2
+                    Layout.fillWidth: true
+                    enabled: app.orientationState.available
+                    Button { objectName: "flipLeftButton"; text: qsTr("Flip left"); Layout.fillWidth: true; onClicked: app.flipPart("left") }
+                    Button { objectName: "flipRightButton"; text: qsTr("Flip right"); Layout.fillWidth: true; onClicked: app.flipPart("right") }
+                    Button { objectName: "flipForwardButton"; text: qsTr("Flip forward"); Layout.fillWidth: true; onClicked: app.flipPart("forward") }
+                    Button { objectName: "flipBackwardButton"; text: qsTr("Flip back"); Layout.fillWidth: true; onClicked: app.flipPart("backward") }
+                    Button { objectName: "flipUpsideDownButton"; text: qsTr("Upside down"); Layout.fillWidth: true; Layout.columnSpan: 2; onClicked: app.flipPart("upside-down") }
+                    Button { objectName: "autoOrientButton"; text: qsTr("Auto orient"); Layout.fillWidth: true; onClicked: app.autoOrientPart() }
+                    Button { objectName: "resetOrientationButton"; text: qsTr("Reset"); Layout.fillWidth: true; enabled: !app.orientationState.isIdentity; onClicked: app.resetPartOrientation() }
+                }
+            }
+        }
+
+        CraftSection {
+            Layout.fillWidth: true
             title: qsTr("Segmentation")
             enabled: app.modelPhase === "ready"
             ColumnLayout {

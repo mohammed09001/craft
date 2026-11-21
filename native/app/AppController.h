@@ -29,6 +29,7 @@
 #include "SceneModel.h"
 #include "ViewportCamera.h"
 #include "model/ModelGrounding.h"
+#include "model/PartOrientation.h"
 #include "project/ProjectDocument.h"
 #include "stl/Stl.h"
 #include "mold/CavityGeneration.h"
@@ -61,6 +62,7 @@ struct LoadedModel {
   std::shared_ptr<const TriangleSoup> sourceSoup;
   std::shared_ptr<const TriangleSoup> groundedSoup;
   Bounds3 sourceBounds;
+  Quaternion orientation;  ///< Flip / Auto orient: applied to sourceSoup, then grounded (identity = as imported)
   Bounds3 groundedBounds;
   Point3 groundingTranslation;
   std::string geometryVersion;
@@ -69,8 +71,9 @@ struct LoadedModel {
 
 /// Builds the loaded model (grounding, grounded copy, geometry version) from parsed STL triangles. Throws CodedError.
 /// Shared by STL import and project open so both produce identical models.
+/// `orientation` (normalised by the caller) is applied to the soup before grounding; the identity gives exactly the model as imported.
 LoadedModel buildLoadedModel(TriangleSoup soup, stl::Encoding encoding, quint64 requestId, const QString& fileName, const QString& sourcePath,
-                             qint64 fileSizeBytes);
+                             qint64 fileSizeBytes, const Quaternion& orientation = kIdentityOrientation);
 
 class AppController : public QObject {
   Q_OBJECT
@@ -139,6 +142,8 @@ class AppController : public QObject {
   Q_PROPERTY(QVariantMap gridInfo READ gridInfo NOTIFY gridChanged)
 
   Q_PROPERTY(QString tool READ tool WRITE setTool NOTIFY toolChanged)
+  /// {x, y, z, w, isIdentity, available, reason}: the part orientation and whether Flip / Auto orient may change it now.
+  Q_PROPERTY(QVariantMap orientationState READ orientationState NOTIFY orientationChanged)
   Q_PROPERTY(QVariantMap selection READ selection NOTIFY selectionChanged)
   Q_PROPERTY(QVariantMap measurement READ measurement NOTIFY selectionChanged)
 
@@ -301,6 +306,24 @@ class AppController : public QObject {
 
   // --- undo / redo (reference: the split-face store's history, snap/undo/redo) ----------------------------------------
   QVariantMap history() const;
+
+  // --- part orientation (Flip, Auto orient) -------------------------------------------------------------------------------------------
+  QVariantMap orientationState() const;
+  /// The reference's getPartOrientationCapability: needs a ready model; refused once geometry has been generated from it (mold, sprues,
+  /// segmentation pieces, Master Mold pieces) and while any engineering operation runs. `reason` is the reference's wording.
+  struct OrientationCapability {
+    bool available = false;
+    QString reason;
+  };
+  OrientationCapability orientationCapability() const;
+  /// Flip about a world axis: "left", "right", "forward", "backward" or "upside-down". False when refused (the reason is shown).
+  Q_INVOKABLE bool flipPart(const QString& direction);
+  /// Commits the best of the six axis-aligned candidates (largest flat support, then footprint, then lowest height) and frames the part.
+  Q_INVOKABLE bool autoOrientPart();
+  Q_INVOKABLE bool resetPartOrientation();
+  /// Commits an orientation (normalised first). Rebuilds the grounded part, clears the Cut by Face session and history like a new model
+  /// does, and keeps the clearances. False when refused or degenerate.
+  bool commitPartOrientation(const Quaternion& orientation, bool frameCamera);
   /// Restores the state before the last edit (cut faces and positions, mold clearance, sprues, and the mold built from
   /// them, which comes back as it was, not recomputed). A running mold generation or sprue evaluation is cancelled.
   Q_INVOKABLE void undo();
@@ -455,6 +478,7 @@ class AppController : public QObject {
   void gridChanged();
   void rulerChanged();
   void toolChanged();
+  void orientationChanged();
   void selectionChanged();
   void selectionOverlayChanged();
   void sprueGlassChanged();
@@ -474,7 +498,10 @@ class AppController : public QObject {
 
   void setBusy(bool busy, const QString& stage = {}, double progress = 0);
   void setStatus(const QString& text);
-  void applyModel(LoadedModel model);
+  /// Installs a model: every derived result of the previous one is dropped. `replacement` is false for a re-orientation of the same
+  /// model (keeps the camera unless `fitCamera`, and does not report "Loaded ...").
+  void applyModel(LoadedModel model, bool fitCamera = true, bool announce = true);
+  void refreshOrientation();
   void clearMold(const QString& phase);
   void invalidateMoldInputs();
   void applyMoldResult(MoldGenerationResult result, DerivedMoldEvaluation derived);

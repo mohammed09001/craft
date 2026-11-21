@@ -16,6 +16,11 @@ ApplicationWindow {
 
     // Escape cancels a sprue-ring drag or its numeric editor first; otherwise it clears the selection (the reference
     // does the same). It only acts when there is something to cancel or clear.
+    // With the Flip tool active the arrow keys flip the part (the reference's keyboard mapping); a held key flips once.
+    Shortcut { sequence: "Left"; autoRepeat: false; enabled: app.tool === "orientation"; onActivated: app.flipPart("left") }
+    Shortcut { sequence: "Right"; autoRepeat: false; enabled: app.tool === "orientation"; onActivated: app.flipPart("right") }
+    Shortcut { sequence: "Up"; autoRepeat: false; enabled: app.tool === "orientation"; onActivated: app.flipPart("forward") }
+    Shortcut { sequence: "Down"; autoRepeat: false; enabled: app.tool === "orientation"; onActivated: app.flipPart("backward") }
     Shortcut {
         sequence: "Escape"
         enabled: app.sprueGizmo.cancellable || (app.tool === "select" && !!app.selection.kind)
@@ -271,6 +276,14 @@ ApplicationWindow {
             ToolSeparator {}
             ToolButton { text: qsTr("Select"); checkable: true; checked: app.tool === "select"; onClicked: app.tool = "select" }
             ToolButton { text: qsTr("Measure"); checkable: true; checked: app.tool === "measure"; onClicked: app.tool = "measure" }
+            ToolButton {
+                objectName: "flipToolButton"
+                text: qsTr("Flip"); checkable: true; checked: app.tool === "orientation"
+                enabled: app.orientationState.available || app.tool === "orientation"
+                ToolTip.visible: hovered
+                ToolTip.text: app.orientationState.available ? qsTr("Use the arrow keys to flip the part") : app.orientationState.reason
+                onClicked: app.tool = app.tool === "orientation" ? "select" : "orientation"
+            }
             ToolButton {
                 text: qsTr("Eraser"); checkable: true; checked: app.tool === "eraser"
                 enabled: app.eraserAvailable || app.tool === "eraser"

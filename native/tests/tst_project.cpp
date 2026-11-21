@@ -41,6 +41,7 @@ Document fullDocument(const QByteArray& stl) {
   m.triangleCount = 12;
   m.sourceEncoding = "ASCII";
   m.geometryVersion = "part_mesh:abc123";
+  m.orientation = {0, -0.7071067811865475, 0, 0.7071067811865475};  // a Flip left
   d.model = m;
   d.mold.moldClearanceMm = 12.5;
   d.mold.cavityClearanceMm = 0.3;
@@ -139,6 +140,26 @@ class ProjectTest : public QObject {
     QVERIFY(!bundle.migrated);
     QVERIFY(bundle.warnings.empty());
     QCOMPARE(inputsFingerprint(d), inputsFingerprint(bundle.document));
+  }
+
+  void theOrientationRoundTripsExactlyAndIsPartOfTheDirtyFingerprint() {
+    QTemporaryDir dir;
+    const QByteArray stl = fakeStl();
+    Document d = fullDocument(stl);
+    writeProject(dir.filePath("o.craft"), d, stl);
+    const auto read = readProject(dir.filePath("o.craft")).document.model->orientation;
+    QCOMPARE(read[1], -0.7071067811865475);  // exact: doubles are written with full precision
+    QCOMPARE(read[3], 0.7071067811865475);
+    QVERIFY(read == d.model->orientation);
+    // A different orientation is a different project state; the identity is written but leaves the older fingerprint unchanged.
+    Document other = d;
+    other.model->orientation = {0, 0.7071067811865475, 0, 0.7071067811865475};
+    QVERIFY(inputsFingerprint(other) != inputsFingerprint(d));
+    Document identity = d;
+    identity.model->orientation = {0, 0, 0, 1};
+    QVERIFY(inputsFingerprint(identity).find("O:") == std::string::npos);
+    writeProject(dir.filePath("i.craft"), identity, stl);
+    QVERIFY(readProject(dir.filePath("i.craft")).document.model->orientation == identity.model->orientation);
   }
 
   void theImportedFilesSizeSurvivesAndItsAbsenceReadsAsZero() {
@@ -514,6 +535,8 @@ class ProjectTest : public QObject {
     QVERIFY(problem([](Document& d) { d.projectId.clear(); }).contains("projectId"));
     QVERIFY(problem([](Document& d) { d.model->sha256 = "xyz"; }).contains("sha256"));
     QVERIFY(problem([](Document& d) { d.model->storage = "cloud"; }).contains("storage"));
+    QVERIFY(problem([](Document& d) { d.model->orientation = {0, 0, 0, 0}; }).contains("orientation"));
+    QVERIFY(problem([](Document& d) { d.model->orientation = {0, NAN, 0, 1}; }).contains("orientation"));
     QVERIFY(problem([](Document& d) { d.mold.moldClearanceMm = -1; }).contains("moldClearanceMm"));
     QVERIFY(problem([](Document& d) { d.mold.cutFaces[0].position = 1.5; }).contains("position"));
     QVERIFY(problem([](Document& d) { d.sprues[0].mainDiameterMm = 0; }).contains("profile"));
