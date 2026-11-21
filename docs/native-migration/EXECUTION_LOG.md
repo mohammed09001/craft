@@ -548,3 +548,11 @@ The same defect as Master Mold's, found by reading the mold's completion handler
 ### Session 51: final verification and the report
 
 Fresh evidence for `EXECUTION_REPORT.md` instead of memory of earlier runs. Package rebuilt and `verify-install.ps1` passed (133.1 MB installed, 71.2 MB ZIP). The existing checks of the repository: `pytest` 395 passed (357 at the baseline: the rest are the new engine tests), the frontend typecheck passed, `ruff check` and `ruff format --check` FAILED, and that was mine: the engine speedup files of earlier sessions had three B023 errors and four unformatted files, passing at the baseline (fixed, committed, pytest and the native-side equivalence tests re-run). The first complete Release ctest found two more problems (R-Test-1): a test that only passed in Debug and a timeout that could never be met; both fixed. Stale documentation corrected: the parity matrix (sprue caching, the sizing policy, "Other Python stages NOT WIRED", the Master Mold cancel note, two rows that had been joined on one line), ARCHITECTURE.md ("packaging is NOT done"), README.md ("the Python engine is untouched"), R-Reports-3 (the section was looked at on the tour capture). Not re-run: the frontend's own tests, lint, build and Playwright (no frontend file differs from the base: `git diff --name-only 98082a9..HEAD -- mold/frontend` is empty).
+
+
+## Session 52 (2026-11-21): Windows-only completion, increment 1
+- Verified worktree D:CraftNativeworktrees
+ative-desktop-migration, branch feature/native-desktop-migration, head 018c7cc.
+- Full Release build + single-run ctest on 018c7cc: 38/38 passed, 1123.91 s (closes R-Test-1 for that commit).
+- Added 3MF export with read-back validation (tst_threemf 11 tests; tst_app_workflow 3MF test passes in Debug), WINDOWS_COMPLETION_MATRIX.md, and .github/workflows/windows-native.yml (written, not executed on a runner). Commits 5c05b07, bcb6e81.
+- Mistake fixed: forcing QT_QPA_PLATFORM=offscreen produced a Qt platform-plugin assert dialog; removed from CI. The Dell SupportAssist driver popup is unrelated to Craft.
