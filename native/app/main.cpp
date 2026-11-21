@@ -15,6 +15,7 @@
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QSurfaceFormat>
+#include <QVector4D>
 
 #include <functional>
 #include <memory>
@@ -695,7 +696,68 @@ class Smoke : public QObject {
     });
 #endif
   }
+  // Flip through REAL input: the toolbar button clicked with the mouse, then the four arrow keys as key events (a held key flips once).
+  void flipEventsSequence() {
+#ifndef CRAFT_SMOKE_REAL_EVENTS
+    return fail(QStringLiteral("--flip-events needs a build with CRAFT_BUILD_TESTS"));
+#else
+    QWindowSystemInterface::setSynchronousWindowSystemEvents(true);
+    window_->requestActivate();
+    auto* flipButton = window_->findChild<QQuickItem*>(QStringLiteral("flipToolButton"));
+    if (!flipButton) return fail(QStringLiteral("the Flip toolbar button was not found"));
+    const auto clickItem = [this](QQuickItem* item) {
+      const QPointF scene = item->mapToScene(QPointF(item->width() / 2, item->height() / 2));
+      QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::NoButton, Qt::NoButton, QEvent::MouseMove);
+      QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonPress);
+      QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::NoButton, Qt::LeftButton, QEvent::MouseButtonRelease);
+    };
+    const auto key = [this](int code) {
+      QWindowSystemInterface::handleKeyEvent(window_, QEvent::KeyPress, code, Qt::NoModifier);
+      QWindowSystemInterface::handleKeyEvent(window_, QEvent::KeyRelease, code, Qt::NoModifier);
+    };
+    const auto quat = [this] {
+      const QVariantMap s = app_.orientationState();
+      return QVector4D(float(s.value("x").toDouble()), float(s.value("y").toDouble()), float(s.value("z").toDouble()), float(s.value("w").toDouble()));
+    };
+    const auto identity = [this] { return app_.orientationState().value("isIdentity").toBool(); };
+
+    QTimer::singleShot(150, this, [=, this] {   // let the window finish its first layout before real events are delivered
+    if (!flipButton->isEnabled()) return fail(QStringLiteral("the Flip button is disabled on a ready model"));
+    if (!identity()) return fail(QStringLiteral("a freshly imported model is not at the identity orientation"));
+    key(Qt::Key_Left);   // the Flip tool is not active yet: the arrow keys must not turn the part
+    if (!identity()) return fail(QStringLiteral("an arrow key flipped the part while the Flip tool was not active"));
+    clickItem(flipButton);
+    if (app_.tool() != QLatin1String("orientation")) return fail(QStringLiteral("clicking Flip did not select the Flip tool (tool: %1)").arg(app_.tool()));
+    key(Qt::Key_Left);
+    if (identity()) return fail(QStringLiteral("the Left arrow did not flip the part"));
+    const QVector4D afterLeft = quat();
+    key(Qt::Key_Right);
+    if (!identity()) return fail(QStringLiteral("Left then Right did not return to the identity orientation"));
+    key(Qt::Key_Up);
+    if (identity()) return fail(QStringLiteral("the Up arrow did not flip the part"));
+    if (quat() == afterLeft) return fail(QStringLiteral("Up and Left flipped about the same axis"));
+    key(Qt::Key_Down);
+    if (!identity()) return fail(QStringLiteral("Up then Down did not return to the identity orientation"));
+    for (int i = 0; i < 4; ++i) key(Qt::Key_Left);
+    if (!identity()) return fail(QStringLiteral("four Left arrows did not make a full turn"));
+    // A held key (auto-repeat press events) flips once, as in the reference.
+    QWindowSystemInterface::handleKeyEvent(window_, QEvent::KeyPress, Qt::Key_Left, Qt::NoModifier, QString(), false);
+    for (int i = 0; i < 5; ++i) QWindowSystemInterface::handleKeyEvent(window_, QEvent::KeyPress, Qt::Key_Left, Qt::NoModifier, QString(), true);
+    QWindowSystemInterface::handleKeyEvent(window_, QEvent::KeyRelease, Qt::Key_Left, Qt::NoModifier);
+    if (quat() != afterLeft) return fail(QStringLiteral("a held Left arrow did not flip exactly once"));
+    // Choosing Flip again leaves the tool, and the arrow keys stop turning the part.
+    clickItem(flipButton);
+    if (app_.tool() == QLatin1String("orientation")) return fail(QStringLiteral("clicking Flip again did not leave the Flip tool"));
+    key(Qt::Key_Right);
+    if (quat() != afterLeft) return fail(QStringLiteral("an arrow key flipped the part after the Flip tool was left"));
+    app_.resetPartOrientation();
+    if (!identity()) return fail(QStringLiteral("Reset did not restore the identity orientation"));
+    renderNow();
+    });
+#endif
+  }
   void render() {
+    if (flipEvents_) return flipEventsSequence();
     if (hintEvents_) return hintEventsSequence();
     if (undoEvents_) return undoEventsSequence();
     if (eraserEvents_) return eraserEventsSequence();
@@ -780,6 +842,7 @@ class Smoke : public QObject {
   void setSprueGizmo(bool value, bool events = false) { sprueGizmo_ = value; sprueGizmoEvents_ = events; }
   void setEraser(bool value, bool events = false) { eraser_ = value; eraserEvents_ = events; }
   void setUndoEvents(bool value) { undoEvents_ = value; }
+  void setFlipEvents(bool value) { flipEvents_ = value; }
   void setPlaneDragEvents(bool value) { planeDragEvents_ = value; }
   void setSectionsEvents(bool value) { sectionsEvents_ = value; }
   void setMoldsEvents(bool value) { moldsEvents_ = value; }
@@ -792,7 +855,7 @@ class Smoke : public QObject {
   AppController& app_;
   QQuickWindow* window_;
   QString importPath_, summary_, screenshot_;
-  bool selectPart_ = false, spruePreview_ = false, spruePreviewInvalid_ = false, sprueGizmo_ = false, sprueGizmoEvents_ = false, eraser_ = false, eraserEvents_ = false, planeDragEvents_ = false, sectionsEvents_ = false, moldsEvents_ = false, masterEvents_ = false, dropEvents_ = false, undoEvents_ = false, hintEvents_ = false, hintWheel_ = false;
+  bool selectPart_ = false, spruePreview_ = false, spruePreviewInvalid_ = false, sprueGizmo_ = false, sprueGizmoEvents_ = false, eraser_ = false, eraserEvents_ = false, planeDragEvents_ = false, sectionsEvents_ = false, moldsEvents_ = false, masterEvents_ = false, dropEvents_ = false, undoEvents_ = false, flipEvents_ = false, hintEvents_ = false, hintWheel_ = false;
   bool mold_, analyse_, moldability_;
   bool imported_ = false, moldDone_ = false, analysisDone_ = false, reportsDone_ = false, done_ = false;
 };
@@ -836,6 +899,7 @@ int main(int argc, char* argv[]) {
   parser.addOption({"hint-events", "The interaction hint through a real mouse press (smoke test)."});
   parser.addOption({"hint-wheel", "The interaction hint through a real wheel event (smoke test)."});
   parser.addOption({"undo-events", "Undo/redo through real input: the toolbar buttons and Ctrl+Z / Ctrl+Y (smoke test)."});
+  parser.addOption({"flip-events", "Flip through real input: the toolbar button and the four arrow keys (smoke test)."});
   parser.addOption({"eraser-events", "The Eraser through real mouse events: hover a plane, click empty space, click the plane (smoke test)."});
   parser.addOption({"master-events", "The Master Mold toolbar button through a real click (smoke test)."});
   parser.addOption({"molds-events", "The Molds browser through real clicks, with a mold generated (smoke test)."});
@@ -910,6 +974,7 @@ int main(int argc, char* argv[]) {
     smoke->setSprueGizmo(parser.isSet("sprue-gizmo"), parser.isSet("sprue-gizmo-events"));
     smoke->setEraser(parser.isSet("eraser"), parser.isSet("eraser-events"));
     smoke->setUndoEvents(parser.isSet("undo-events"));
+    smoke->setFlipEvents(parser.isSet("flip-events"));
     smoke->setPlaneDragEvents(parser.isSet("plane-drag-events"));
     smoke->setDropEvents(parser.isSet("drop-events"));
     smoke->setSectionsEvents(parser.isSet("sections-events"));
