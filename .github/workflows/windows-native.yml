@@ -105,8 +105,6 @@ jobs:
       - name: Test
         shell: pwsh
         working-directory: native
-        env:
-          QT_QPA_PLATFORM: offscreen
         run: ctest --preset windows-debug --output-on-failure
 
   release-ctest:
@@ -165,6 +163,4 @@ jobs:
       - name: Test (complete, including the Master Mold equivalence rows)
         shell: pwsh
         working-directory: native
-        env:
-          QT_QPA_PLATFORM: offscreen
         run: ctest --preset windows-release --output-on-failure
