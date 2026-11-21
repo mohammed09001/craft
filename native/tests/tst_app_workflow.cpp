@@ -33,6 +33,8 @@
 #include "geometry/MeshAnalysis.h"
 #include "view/GroundPlaneRuler.h"
 #include "project/ProjectFile.h"
+#include "stl/Stl.h"
+#include "threemf/ThreeMf.h"
 
 using namespace craft;
 using namespace craft::app;
@@ -128,6 +130,47 @@ class WorkflowTest : public QObject {
     QCOMPARE(done.count(), 1);
     QVERIFY(done.first().at(0).toBool());
     QCOMPARE(QDir(dir.path()).entryList({"*.stl"}).size(), 2);
+  }
+
+  // 3MF export: one file carrying every mold body, validated by reading it back; the geometry is the STL export's geometry.
+  void threeMfExportMatchesTheMoldAndIsValidated() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    QSignalSpy early(app.get(), &AppController::exportFinished);
+    app->exportMoldBodies3mfTo(QDir::temp().filePath("never.3mf"));  // no mold yet
+    QCOMPARE(early.count(), 1);
+    QVERIFY(!early.first().at(0).toBool());
+
+    app->setCutFacePosition("top", 0.5);
+    app->generateMold();
+    QVERIFY(waitFor([&] { return app->moldPhase() == "complete" || app->moldPhase() == "error"; }));
+    QVERIFY2(app->moldPhase() == "complete", qPrintable(app->moldError()));
+
+    QTemporaryDir dir;
+    QSignalSpy done(app.get(), &AppController::exportFinished);
+    app->exportMoldBodies3mfTo(QDir(dir.path()).filePath("bracket_mold"));  // the .3mf suffix is added
+    QCOMPARE(done.count(), 1);
+    QVERIFY2(done.first().at(0).toBool(), qPrintable(done.first().at(1).toString()));
+    const QString path = QDir(dir.path()).filePath("bracket_mold.3mf");
+    QVERIFY(QFileInfo::exists(path));
+    QVERIFY(QDir(dir.path()).entryList({"*.part"}).isEmpty());
+
+    const auto report = threemf::validateFile(std::filesystem::path(path.toStdWString()));
+    QVERIFY2(report.ok, report.problem.c_str());
+    // Same bodies as the STL export: same count, same triangle counts, same bounds.
+    app->exportMoldBodiesTo(dir.path());
+    const QStringList stls = QDir(dir.path()).entryList({"*.stl"}, QDir::Files, QDir::Name);
+    QCOMPARE(static_cast<std::size_t>(stls.size()), report.objects.size());
+    for (int i = 0; i < stls.size(); ++i) {
+      const auto soup = stl::readFile(std::filesystem::path(QDir(dir.path()).filePath(stls[i]).toStdWString())).soup;
+      QCOMPARE(report.objects[static_cast<std::size_t>(i)].triangles, soup.triangleCount());
+      QVERIFY(report.objects[static_cast<std::size_t>(i)].closedTwoManifold);
+      QVERIFY(report.objects[static_cast<std::size_t>(i)].volume > 0);
+      double maxX = -1e300;
+      for (std::size_t v = 0; v < soup.vertexCount(); ++v) maxX = std::max(maxX, static_cast<double>(soup.positions[3 * v]));
+      QVERIFY(std::fabs(report.objects[static_cast<std::size_t>(i)].bounds[3] - maxX) < 1e-3);
+    }
   }
 
   void positiveCavityClearanceRunsEndToEnd() {

@@ -21,6 +21,7 @@
 #include "geometry/MeshAnalysis.h"
 #include "mold/Segmentation.h"
 #include "stl/Stl.h"
+#include "threemf/ThreeMf.h"
 
 Q_LOGGING_CATEGORY(lcApp, "craft.app")
 
@@ -726,6 +727,39 @@ void AppController::exportMoldBodiesTo(const QString& folderPath) {
   }
   setStatus(QStringLiteral("Exported %1 STL file(s) to %2").arg(files.size()).arg(folderPath));
   emit exportFinished(true, QStringLiteral("Exported %1 file(s).").arg(files.size()), files);
+}
+
+void AppController::exportMoldBodies3mf(const QUrl& file) { exportMoldBodies3mfTo(file.toLocalFile()); }
+
+void AppController::exportMoldBodies3mfTo(const QString& requestedPath) {
+  if (!moldResult_) {
+    emit exportFinished(false, QStringLiteral("Generate a mold before exporting."), {});
+    return;
+  }
+  QString filePath = requestedPath;
+  if (QFileInfo(filePath).suffix().compare(QStringLiteral("3mf"), Qt::CaseInsensitive) != 0) filePath += QStringLiteral(".3mf");
+  const std::filesystem::path path(filePath.toStdWString());
+  try {
+    const std::vector<MoldBody> bodies = finalBodies();
+    std::vector<threemf::Object> objects;
+    objects.reserve(bodies.size());
+    for (const MoldBody& body : bodies) objects.push_back({body.name.empty() ? body.id : body.name, &body.mesh});
+    threemf::write(path, objects, QFileInfo(model_ ? model_->fileName : QStringLiteral("part")).completeBaseName().toStdString());
+    // Export validation: read the written file back and check it as a third party would.
+    const threemf::Report report = threemf::validateFile(path);
+    if (!report.ok || report.objects.size() != objects.size()) {
+      std::error_code ec;
+      std::filesystem::remove(path, ec);  // never leave a file we could not verify
+      throw CodedError("threemf_validation_failed",
+                       "The 3MF file did not pass read-back validation: " + (report.problem.empty() ? std::string("object count differs") : report.problem));
+    }
+  } catch (const CodedError& error) {
+    emit exportFinished(false, QString::fromUtf8(error.what()), {});
+    emit errorOccurred(QStringLiteral("Export failed"), QString::fromUtf8(error.what()), QString::fromStdString(error.code()));
+    return;
+  }
+  setStatus(QStringLiteral("Exported 3MF to %1").arg(filePath));
+  emit exportFinished(true, QStringLiteral("Exported 1 3MF file."), QStringList{filePath});
 }
 
 // --- analysis --------------------------------------------------------------

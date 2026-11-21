@@ -86,6 +86,8 @@ craft_target_defaults(craft_core)
 add_library(craft_io STATIC
   io/stl/Stl.cpp
   io/stl/Stl.h
+  io/threemf/ThreeMf.cpp
+  io/threemf/ThreeMf.h
 )
 target_include_directories(craft_io PUBLIC io)
 target_link_libraries(craft_io PUBLIC craft_core)

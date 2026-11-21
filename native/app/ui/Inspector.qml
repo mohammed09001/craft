@@ -467,6 +467,7 @@ ScrollView {
                     }
                 }
                 Button { text: qsTr("Export STL…"); Layout.fillWidth: true; onClicked: window.exportMold() }
+                Button { text: qsTr("Export 3MF…"); Layout.fillWidth: true; onClicked: window.exportMold3mf() }
             }
         }
 

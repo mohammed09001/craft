@@ -23,6 +23,7 @@ ApplicationWindow {
     }
 
     function exportMold() { exportDialog.open() }
+    function exportMold3mf() { export3mfDialog.open() }
     function exportMasterTooling() { masterExportDialog.open() }
 
     // Replacing the document discards unsaved changes: ask first. (Saving is asynchronous, so the dialog offers to
@@ -146,6 +147,14 @@ ApplicationWindow {
         title: qsTr("Export mold bodies to folder")
         onAccepted: app.exportMoldBodies(selectedFolder)
     }
+    FileDialog {
+        id: export3mfDialog
+        title: qsTr("Export mold bodies as 3MF")
+        fileMode: FileDialog.SaveFile
+        defaultSuffix: "3mf"
+        nameFilters: [qsTr("3MF models (*.3mf)")]
+        onAccepted: app.exportMoldBodies3mf(selectedFile)
+    }
     FolderDialog {
         id: masterExportDialog
         title: qsTr("Export Master tooling: choose where to create the export folder")
@@ -215,6 +224,7 @@ ApplicationWindow {
             MenuItem { action: saveAsAction }
             MenuSeparator {}
             MenuItem { text: qsTr("&Export mold STL…"); enabled: app.moldPhase === "complete"; onTriggered: window.exportMold() }
+            MenuItem { text: qsTr("Export mold &3MF…"); enabled: app.moldPhase === "complete"; onTriggered: window.exportMold3mf() }
             MenuItem { text: qsTr("Export &Master tooling…"); enabled: app.masterMold.canExport === true; onTriggered: window.exportMasterTooling() }
             MenuSeparator {}
             MenuItem { action: quitAction }

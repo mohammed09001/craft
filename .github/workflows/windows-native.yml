@@ -1,0 +1,170 @@
+name: Windows Native CI
+
+# Windows-only CI for the native Craft desktop application (native/).
+# There is deliberately no macOS job: macOS is a separate future phase.
+#
+# NOT YET EXECUTED: this workflow was written and statically reviewed on the
+# development machine but has never run on a GitHub runner, because nothing on
+# this branch has been pushed. Treat the first real run as the verification.
+#
+#  - debug-ctest: every push / pull request. Debug CTest (the Master Mold
+#    fallback-construction equivalence rows skip themselves in Debug).
+#  - release-ctest: nightly and on manual dispatch. The complete Release CTest,
+#    including the long Master Mold equivalence rows (about 17 minutes on an
+#    8-core machine), so it never slows a PR.
+
+on:
+  push:
+    branches:
+      - main
+      - feature/native-desktop-migration
+    paths:
+      - "native/**"
+      - "scripts/native/**"
+      - "mold/src/**"
+      - "mold/pyproject.toml"
+      - ".github/workflows/windows-native.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "native/**"
+      - "scripts/native/**"
+      - "mold/src/**"
+      - "mold/pyproject.toml"
+      - ".github/workflows/windows-native.yml"
+  schedule:
+    - cron: "41 2 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: windows-native-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  QT_VERSION: "6.8.3"
+  QT_ARCH: win64_msvc2022_64
+
+jobs:
+  debug-ctest:
+    name: Debug CTest (Windows x64)
+    if: github.event_name != 'schedule'
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.0.0
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Install Qt (aqtinstall, with Quick 3D)
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip aqtinstall
+          python -m aqt install-qt windows desktop $env:QT_VERSION $env:QT_ARCH `
+            -m qtquick3d qtquicktimeline --outputdir "$env:RUNNER_TEMP\Qt"
+          "CRAFT_QT_DIR=$env:RUNNER_TEMP\Qt\$env:QT_VERSION\msvc2022_64" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      - name: Install the Python engine (analysis worker + tests)
+        shell: pwsh
+        run: |
+          python -m venv "$env:RUNNER_TEMP\venv"
+          & "$env:RUNNER_TEMP\venv\Scripts\python.exe" -m pip install -e "mold[dev]"
+          "CRAFT_PYTHON=$env:RUNNER_TEMP\venv\Scripts\python.exe" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      - name: Set up MSVC (vcvars64, as scripts/native/windows-env.ps1 does)
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $root = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          cmd /c "`"$root\VC\Auxiliary\Build\vcvars64.bat`" >nul 2>&1 && set" | ForEach-Object {
+            if ($_ -match '^([^=]+)=(.*)$') { "$($Matches[1])=$($Matches[2])" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV }
+          }
+
+      - name: Configure
+        shell: pwsh
+        working-directory: native
+        run: |
+          "CRAFT_BUILD_ROOT=$env:RUNNER_TEMP\build" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          "CRAFT_DEPS_ROOT=$env:RUNNER_TEMP\deps" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          $env:CRAFT_BUILD_ROOT = "$env:RUNNER_TEMP\build"
+          $env:CRAFT_DEPS_ROOT = "$env:RUNNER_TEMP\deps"
+          cmake --preset windows-debug
+
+      - name: Build
+        shell: pwsh
+        working-directory: native
+        run: cmake --build --preset windows-debug
+
+      - name: Test
+        shell: pwsh
+        working-directory: native
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ctest --preset windows-debug --output-on-failure
+
+  release-ctest:
+    name: Release CTest, complete (Windows x64)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: windows-2022
+    timeout-minutes: 240
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.0.0
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Install Qt (aqtinstall, with Quick 3D)
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip aqtinstall
+          python -m aqt install-qt windows desktop $env:QT_VERSION $env:QT_ARCH `
+            -m qtquick3d qtquicktimeline --outputdir "$env:RUNNER_TEMP\Qt"
+          "CRAFT_QT_DIR=$env:RUNNER_TEMP\Qt\$env:QT_VERSION\msvc2022_64" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      - name: Install the Python engine (analysis worker + tests)
+        shell: pwsh
+        run: |
+          python -m venv "$env:RUNNER_TEMP\venv"
+          & "$env:RUNNER_TEMP\venv\Scripts\python.exe" -m pip install -e "mold[dev]"
+          "CRAFT_PYTHON=$env:RUNNER_TEMP\venv\Scripts\python.exe" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      - name: Set up MSVC (vcvars64, as scripts/native/windows-env.ps1 does)
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $root = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          cmd /c "`"$root\VC\Auxiliary\Build\vcvars64.bat`" >nul 2>&1 && set" | ForEach-Object {
+            if ($_ -match '^([^=]+)=(.*)$') { "$($Matches[1])=$($Matches[2])" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV }
+          }
+
+      - name: Configure
+        shell: pwsh
+        working-directory: native
+        run: |
+          "CRAFT_BUILD_ROOT=$env:RUNNER_TEMP\build" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          "CRAFT_DEPS_ROOT=$env:RUNNER_TEMP\deps" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          $env:CRAFT_BUILD_ROOT = "$env:RUNNER_TEMP\build"
+          $env:CRAFT_DEPS_ROOT = "$env:RUNNER_TEMP\deps"
+          cmake --preset windows-release
+
+      - name: Build
+        shell: pwsh
+        working-directory: native
+        run: cmake --build --preset windows-release
+
+      - name: Test (complete, including the Master Mold equivalence rows)
+        shell: pwsh
+        working-directory: native
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ctest --preset windows-release --output-on-failure

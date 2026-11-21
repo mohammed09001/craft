@@ -219,6 +219,10 @@ class AppController : public QObject {
   /// Writes one binary STL per mold body into `folder`.
   Q_INVOKABLE void exportMoldBodies(const QUrl& folder);
   void exportMoldBodiesTo(const QString& folderPath);
+  /// Writes every mold body into ONE 3MF file (millimetres, Z-up, the same frame as the STL export), then reads the file back
+  /// with the independent validator; the export only reports success when the read-back passes. Emits exportFinished.
+  Q_INVOKABLE void exportMoldBodies3mf(const QUrl& file);
+  void exportMoldBodies3mfTo(const QString& filePath);
 
   // --- master mold -----------------------------------------------------------------
   /// Everything the Master Mold panel shows: status, derived UI state, banner, summary, sets and pieces.
