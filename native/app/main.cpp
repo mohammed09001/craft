@@ -556,6 +556,72 @@ class Smoke : public QObject {
     renderNow();
 #endif
   }
+  // A segmentation extension plane dragged with the right mouse button through REAL mouse events, then undone with a real Ctrl+Z: the plan's
+  // boundary follows the slab (one undo step), the camera does not pan during the drag, and a left press on the plane starts no drag (D-110).
+  void extensionDragEventsSequence() { whenViewportSettled([this] { extensionDragEventsBody(); }); }
+  void extensionDragEventsBody() {
+#ifndef CRAFT_SMOKE_REAL_EVENTS
+    return fail(QStringLiteral("--extension-drag-events needs a build with CRAFT_BUILD_TESTS"));
+#else
+    QWindowSystemInterface::setSynchronousWindowSystemEvents(true);
+    window_->requestActivate();
+    auto* item = window_->findChild<QQuickItem*>(QStringLiteral("viewport"));
+    if (!item) return fail(QStringLiteral("the viewport item was not found"));
+    const int w = static_cast<int>(item->width()), h = static_cast<int>(item->height());
+    app_.camera()->setViewportSize(w, h);
+    app_.setPrinterVolume(150, 300, 300);
+    app_.planSegmentation();
+    app_.addSegmentationExtension(QStringLiteral("y"));
+    const auto coordinate = [this] {
+      for (const QVariant& e : app_.segmentation().value("extensions").toList())
+        if (e.toMap().value("axis").toString() == QLatin1String("y")) return e.toMap().value("coordinateMm").toDouble();
+      return std::nan("");
+    };
+    const auto send = [this, item](QEvent::Type type, QPoint local, Qt::MouseButton button, Qt::MouseButtons buttons) {
+      const QPointF scene = item->mapToScene(QPointF(local));
+      QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), buttons, button, type);
+    };
+    const auto undoDepth = [this] { return app_.history().value("undoDepth").toInt(); };
+    const auto target = [this] { return app_.camera()->pose().target(); };
+    const double before = coordinate();
+    if (!std::isfinite(before) || app_.cutPlaneSlabs()->rowCount() != 1) return fail(QStringLiteral("the extension plane is not drawn (coordinate %1, planes %2)").arg(before).arg(app_.cutPlaneSlabs()->rowCount()));
+    QPoint onPlane(-1, -1);
+    for (int y = h / 6; y < h * 5 / 6 && onPlane.x() < 0; y += 3)
+      for (int x = w / 8; x < w * 7 / 8 && onPlane.x() < 0; x += 3)
+        if (app_.cutPlaneHoverAt(x, y, w, h)) onPlane = QPoint(x, y);
+    app_.cutPlaneLeave();
+    if (onPlane.x() < 0) return fail(QStringLiteral("no pixel on the extension plane"));
+
+    send(QEvent::MouseMove, onPlane, Qt::NoButton, Qt::NoButton);
+    if (app_.cutPlanes().value("planeHoverFace").toString() != QLatin1String("back")) return fail(QStringLiteral("hovering the extension plane did not highlight it"));
+    const int depth = undoDepth();
+    send(QEvent::MouseButtonPress, onPlane, Qt::LeftButton, Qt::LeftButton);
+    if (app_.cutPlanes().value("dragging").toBool()) return fail(QStringLiteral("the left button started a plane drag"));
+    send(QEvent::MouseButtonRelease, onPlane, Qt::LeftButton, Qt::NoButton);
+
+    const craft::Vec3 targetBefore = target();
+    send(QEvent::MouseButtonPress, onPlane, Qt::RightButton, Qt::RightButton);
+    if (!app_.cutPlanes().value("dragging").toBool()) return fail(QStringLiteral("a right press on the extension plane did not start dragging it"));
+    send(QEvent::MouseMove, QPoint(onPlane.x() + 20, onPlane.y() - 60), Qt::NoButton, Qt::RightButton);
+    send(QEvent::MouseMove, QPoint(onPlane.x() + 30, onPlane.y() - 90), Qt::NoButton, Qt::RightButton);
+    const craft::Vec3 targetDuring = target();
+    if (std::fabs(targetDuring.x - targetBefore.x) + std::fabs(targetDuring.y - targetBefore.y) + std::fabs(targetDuring.z - targetBefore.z) > 1e-12)
+      return fail(QStringLiteral("the camera panned while the extension plane was dragged"));
+    if (coordinate() != before) return fail(QStringLiteral("the boundary moved before the button was released"));
+    send(QEvent::MouseButtonRelease, QPoint(onPlane.x() + 30, onPlane.y() - 90), Qt::RightButton, Qt::NoButton);
+    if (app_.cutPlanes().value("dragging").toBool()) return fail(QStringLiteral("the drag did not end on release"));
+    const double after = coordinate();
+    if (!std::isfinite(after) || std::fabs(after - before) < 0.01) return fail(QStringLiteral("releasing the drag did not move the boundary (%1, was %2)").arg(after).arg(before));
+    if (undoDepth() != depth + 1) return fail(QStringLiteral("the drag was not one undo step (depth %1, was %2)").arg(undoDepth()).arg(depth));
+    if (!app_.segmentation().value("valid").toBool()) return fail(QStringLiteral("the plan is not valid after the drag"));
+
+    // Ctrl+Z as real key events puts the boundary back.
+    QWindowSystemInterface::handleKeyEvent(window_, QEvent::KeyPress, Qt::Key_Z, Qt::ControlModifier);
+    QWindowSystemInterface::handleKeyEvent(window_, QEvent::KeyRelease, Qt::Key_Z, Qt::ControlModifier);
+    if (std::fabs(coordinate() - before) > 1e-9) return fail(QStringLiteral("Ctrl+Z did not put the boundary back (%1, was %2)").arg(coordinate()).arg(before));
+    renderNow();
+#endif
+  }
   void eraserEventsSequence() { whenViewportSettled([this] { eraserEventsBody(); }); }
   void eraserEventsBody() {
 #ifndef CRAFT_SMOKE_REAL_EVENTS
@@ -765,6 +831,7 @@ class Smoke : public QObject {
     if (moldsEvents_) return moldsEventsSequence();
     if (masterEvents_) return masterEventsSequence();
     if (planeDragEvents_) return planeDragEventsSequence();
+    if (extensionDragEvents_) return extensionDragEventsSequence();
     if (spruePreview_ && sprueGizmoEvents_) return gizmoEventsSequence();
     if (spruePreview_ && sprueGizmo_) return gizmoSequence();
     renderNow();
@@ -843,6 +910,7 @@ class Smoke : public QObject {
   void setEraser(bool value, bool events = false) { eraser_ = value; eraserEvents_ = events; }
   void setUndoEvents(bool value) { undoEvents_ = value; }
   void setFlipEvents(bool value) { flipEvents_ = value; }
+  void setExtensionDragEvents(bool value) { extensionDragEvents_ = value; }
   void setPlaneDragEvents(bool value) { planeDragEvents_ = value; }
   void setSectionsEvents(bool value) { sectionsEvents_ = value; }
   void setMoldsEvents(bool value) { moldsEvents_ = value; }
@@ -855,7 +923,7 @@ class Smoke : public QObject {
   AppController& app_;
   QQuickWindow* window_;
   QString importPath_, summary_, screenshot_;
-  bool selectPart_ = false, spruePreview_ = false, spruePreviewInvalid_ = false, sprueGizmo_ = false, sprueGizmoEvents_ = false, eraser_ = false, eraserEvents_ = false, planeDragEvents_ = false, sectionsEvents_ = false, moldsEvents_ = false, masterEvents_ = false, dropEvents_ = false, undoEvents_ = false, flipEvents_ = false, hintEvents_ = false, hintWheel_ = false;
+  bool selectPart_ = false, spruePreview_ = false, spruePreviewInvalid_ = false, sprueGizmo_ = false, sprueGizmoEvents_ = false, eraser_ = false, eraserEvents_ = false, planeDragEvents_ = false, sectionsEvents_ = false, moldsEvents_ = false, masterEvents_ = false, dropEvents_ = false, undoEvents_ = false, flipEvents_ = false, extensionDragEvents_ = false, hintEvents_ = false, hintWheel_ = false;
   bool mold_, analyse_, moldability_;
   bool imported_ = false, moldDone_ = false, analysisDone_ = false, reportsDone_ = false, done_ = false;
 };
@@ -899,6 +967,7 @@ int main(int argc, char* argv[]) {
   parser.addOption({"hint-events", "The interaction hint through a real mouse press (smoke test)."});
   parser.addOption({"hint-wheel", "The interaction hint through a real wheel event (smoke test)."});
   parser.addOption({"undo-events", "Undo/redo through real input: the toolbar buttons and Ctrl+Z / Ctrl+Y (smoke test)."});
+  parser.addOption({"extension-drag-events", "A segmentation extension plane dragged with the right mouse button, then undone with Ctrl+Z, through real input (smoke test)."});
   parser.addOption({"flip-events", "Flip through real input: the toolbar button and the four arrow keys (smoke test)."});
   parser.addOption({"eraser-events", "The Eraser through real mouse events: hover a plane, click empty space, click the plane (smoke test)."});
   parser.addOption({"master-events", "The Master Mold toolbar button through a real click (smoke test)."});
@@ -975,6 +1044,7 @@ int main(int argc, char* argv[]) {
     smoke->setEraser(parser.isSet("eraser"), parser.isSet("eraser-events"));
     smoke->setUndoEvents(parser.isSet("undo-events"));
     smoke->setFlipEvents(parser.isSet("flip-events"));
+    smoke->setExtensionDragEvents(parser.isSet("extension-drag-events"));
     smoke->setPlaneDragEvents(parser.isSet("plane-drag-events"));
     smoke->setDropEvents(parser.isSet("drop-events"));
     smoke->setSectionsEvents(parser.isSet("sections-events"));

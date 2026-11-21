@@ -16,8 +16,18 @@ namespace craft::app {
 
 // --- availability --------------------------------------------------------------------------------------------------
 
+namespace {
+// The reference's CANONICAL_FACE_FOR_AXIS: the face a segmentation extension plane is filed under (splitFace.geometry.ts).
+FaceId canonicalFaceForAxis(Axis axis) { return axis == Axis::X ? FaceId::Right : axis == Axis::Y ? FaceId::Back : FaceId::Top; }
+}  // namespace
+
+bool AppController::extensionPlanesShown() const {
+  return model_ && !segmentation_.adopted && segmentation_.basePlan && segmentation_.source && !segmentation_.extensions.empty();
+}
+
 bool AppController::hasCutPlanes() const {
   if (!model_ || segmentation_.adopted) return false;  // an adopted segmentation replaces Cut by Face
+  if (extensionPlanesShown()) return true;             // the segmentation's extension planes are the planes while a plan shows them
   return std::any_of(cutFaces_.begin(), cutFaces_.end(), [](const CutFaceState& s) { return s.enabled; });
 }
 
@@ -57,14 +67,39 @@ void AppController::refreshCutPlanes() {
     const auto k2 = k1 ? createReferenceMoldBlockBounds(*k1, moldClearanceMm_) : std::nullopt;
     if (k1 && k2) {
       std::vector<CuttingPlane> planes;
-      for (FaceId face : kFaceIds) {
-        const CutFaceState& s = cutFaces_[static_cast<std::size_t>(face)];
-        if (!s.enabled) continue;
-        CuttingPlane plane = createCuttingPlane(face, s.position);
-        plane.enabled = true;
-        planes.push_back(plane);
+      if (extensionPlanesShown()) {
+        // An extension boundary is a coordinate in the mold frame the segmentation plan works in (its block starts at 0), and the
+        // displayed part is shifted into that same frame, so the coordinate is already a displayed coordinate: the slab is filed at the
+        // part box's fraction that holds it and then drawn at the coordinate itself (D-110).
+        for (const auto& [axis, coordinate] : segmentation_.extensions) {
+          try {
+            CuttingPlane plane = createCuttingPlane(canonicalFaceForAxis(axis), worldToNormalizedPosition(*k1, axis, coordinate));
+            plane.enabled = true;
+            planes.push_back(plane);
+          } catch (const std::invalid_argument&) {
+          }
+        }
+      } else {
+        for (FaceId face : kFaceIds) {
+          const CutFaceState& s = cutFaces_[static_cast<std::size_t>(face)];
+          if (!s.enabled) continue;
+          CuttingPlane plane = createCuttingPlane(face, s.position);
+          plane.enabled = true;
+          planes.push_back(plane);
+        }
       }
       slabs = buildPlaneSlabs(*k1, *k2, planes);
+      if (extensionPlanesShown()) {
+        // A plane is clamped into the part box when it is filed; a boundary outside the box (a typed coordinate, a plan the validation
+        // rejects) is still drawn where it is, not on the nearest face of the box.
+        for (PlaneSlab& slab : slabs) {
+          for (const auto& [axis, coordinate] : segmentation_.extensions) {
+            if (axis != slab.axis || !std::isfinite(coordinate)) continue;
+            slab.coordinate = coordinate;
+            (axis == Axis::X ? slab.center.x : axis == Axis::Y ? slab.center.y : slab.center.z) = coordinate;
+          }
+        }
+      }
     }
   }
 
@@ -125,6 +160,19 @@ bool AppController::removeCutFace(const QString& faceName) {
   if (segmentation_.adopted) return false;
   const auto face = faceIdFromName(faceName.toStdString());
   if (!face) return false;
+  if (extensionPlanesShown()) {
+    // Erasing an extension plane removes the boundary from the plan as well as the slab. The reference's Eraser only removes the visual
+    // plane and leaves the engine's boundary behind (a plane that is gone but still cuts); native keeps the two together (D-110).
+    if (segmentation_.phase == QLatin1String("executing")) return false;
+    for (const auto& e : segmentation_.extensions) {
+      if (canonicalFaceForAxis(e.first) != *face) continue;
+      setEraserHover(std::nullopt);
+      removeSegmentationExtension(QString::fromLatin1(e.first == Axis::X ? "x" : e.first == Axis::Y ? "y" : "z"));
+      setStatus(QStringLiteral("Removed the %1 extension plane.").arg(faceName));
+      return true;
+    }
+    return false;
+  }
   CutFaceState& state = cutFaces_[static_cast<std::size_t>(*face)];
   if (!state.enabled) return false;
 
@@ -169,6 +217,7 @@ void AppController::cutPlaneLeave() {
 
 bool AppController::cutPlaneDragBegin(qreal x, qreal y, qreal w, qreal h) {
   if (cutPlaneDrag_ || tool_ == QLatin1String("eraser") || cutSlabs_.empty() || !cutPlanesVisible()) return false;
+  if (extensionPlanesShown() && segmentation_.phase == QLatin1String("executing")) return false;   // the plan is being cut: nothing to move
   if (!partBoxBounds()) return false;
   camera_.setViewportSize(w, h);
   const Ray ray = camera_.pose().rayThroughPixel(x, y, w, h);
@@ -218,6 +267,22 @@ bool AppController::cutPlaneDragEnd() {
   }
   cutPlaneDrag_.reset();
   cutPlaneSlabs_.setVisual(cutPlaneSlabs_.rowOf(drag.face), CutPlaneVisual::Idle);  // the hover stays: the pointer is still over it
+  if (extensionPlanesShown()) {
+    // moveSegmentationExtensionAxis: the clamped position becomes the boundary's coordinate (never rejected on validity; the plan's own
+    // validation reports a bad one). One undo step, nothing at all when it is where it was.
+    for (const auto& e : segmentation_.extensions) {
+      if (e.first != drag.axis) continue;
+      const double current = worldToNormalizedPosition(*k1, e.first, e.second);
+      const auto next = commitCutPlanePosition(*k1, e.first, current, end.normalized);
+      emit cutPlanesChanged();
+      if (!next) return false;
+      moveSegmentationExtension(QString::fromLatin1(e.first == Axis::X ? "x" : e.first == Axis::Y ? "y" : "z"),
+                                normalizedToWorldCoordinate(*k1, e.first, *next));
+      return true;
+    }
+    emit cutPlanesChanged();
+    return false;
+  }
   CutFaceState& state = cutFaces_[static_cast<std::size_t>(drag.face)];
   const double current = createCuttingPlane(drag.face, state.position).normalizedPosition;
   const auto next = state.enabled ? commitCutPlanePosition(*k1, drag.axis, current, end.normalized) : std::nullopt;

@@ -74,6 +74,44 @@ struct HeldWorker {
   }
 };
 
+// A bracket planned for a 150 x 300 x 300 mm printer (two sections along X), with a camera set up, ready for an extension on Y or Z.
+std::unique_ptr<AppController> bracketPlannedForSegmentation() {
+  auto app = makeApp();
+  app->importStlFile(bracket());
+  if (!waitFor([&] { return app->modelPhase() == "ready"; })) return nullptr;
+  app->camera()->setViewportSize(800, 600);
+  app->setPrinterVolume(150, 300, 300);
+  app->planSegmentation();
+  if (app->segmentation().value("phase").toString() != "planned") return nullptr;
+  return app;
+}
+
+// The row of a slab by its face name, the slab's centre, and the extension coordinate the plan holds for an axis.
+int slabRow(AppController& app, const QString& face) {
+  for (int r = 0; r < app.cutPlaneSlabs()->rowCount(); ++r)
+    if (app.cutPlaneSlabs()->data(app.cutPlaneSlabs()->index(r), CutPlaneModel::FaceRole).toString() == face) return r;
+  return -1;
+}
+QVector3D slabCentre(AppController& app, const QString& face) {
+  return app.cutPlaneSlabs()->data(app.cutPlaneSlabs()->index(slabRow(app, face)), CutPlaneModel::CenterRole).value<QVector3D>();
+}
+double extensionCoordinate(AppController& app, const QString& axis) {
+  for (const QVariant& e : app.segmentation().value("extensions").toList())
+    if (e.toMap().value("axis").toString() == axis) return e.toMap().value("coordinateMm").toDouble();
+  return std::nan("");
+}
+// A pixel on the named plane (the nearest plane wins, so look for one where the hover is that plane).
+QPoint pixelOnPlane(AppController& app, const QString& face) {
+  for (int y = 80; y < 520; y += 3)
+    for (int x = 100; x < 700; x += 3)
+      if (app.cutPlaneHoverAt(x, y, 800, 600) && app.cutPlanes().value("planeHoverFace").toString() == face) {
+        app.cutPlaneLeave();
+        return QPoint(x, y);
+      }
+  app.cutPlaneLeave();
+  return QPoint(-1, -1);
+}
+
 QByteArray fileBytes(const QString& path) {
   QFile f(path);
   return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
@@ -730,6 +768,172 @@ class WorkflowTest : public QObject {
     double topPosition = 0;
     for (const QVariant& f : app->cutFaces()) if (f.toMap().value("face").toString() == "top") topPosition = f.toMap().value("position").toDouble();
     QVERIFY(topPosition > 0.99);
+  }
+
+  // --- segmentation extension planes: drawn, dragged, erased, undone (D-110) --------------------------------------------------------
+
+  void anExtensionBoundaryIsASlabInTheFrameOfTheDisplacedPart() {
+    auto app = bracketPlannedForSegmentation();
+    QVERIFY(app);
+    app->setCutFaceEnabled("left", true);   // a Cut by Face plane exists before the extension
+    QCOMPARE(app->cutPlaneSlabs()->rowCount(), 1);
+    QVERIFY(slabRow(*app, "left") >= 0);
+
+    // The extension plane takes the planes over: it is filed under the axis's canonical face (Z: top), the Cut by Face plane is not drawn.
+    app->addSegmentationExtension("z");
+    QCOMPARE(app->cutPlaneSlabs()->rowCount(), 1);
+    QVERIFY(slabRow(*app, "left") < 0);
+    QVERIFY(slabRow(*app, "top") >= 0);
+    QVERIFY(app->eraserAvailable());
+    QCOMPARE(app->cutPlanes().value("planeCount").toInt(), 1);
+
+    // The boundary's coordinate is in the mold frame the plan works in, and the displayed part is shifted into that frame (here by the
+    // 100 mm clearance along Z), so the slab is drawn at the coordinate itself and crosses the displaced part: a slab placed with the part's
+    // unshifted box would sit on its top face instead.
+    float partOffsetZ = 0;
+    Bounds3 partBounds;
+    for (const SceneItem& item : app->scene()->items()) if (item.kind == QLatin1String("part")) { partOffsetZ = item.offset.z(); partBounds = item.bounds; }
+    QVERIFY(std::fabs(partOffsetZ) > 1.0f);
+    const double coordinate = extensionCoordinate(*app, "z");
+    QVERIFY(std::isfinite(coordinate));
+    QVERIFY(std::fabs(slabCentre(*app, "top").z() - coordinate) < 1e-3);
+    QVERIFY(coordinate > partBounds.min.z + partOffsetZ && coordinate < partBounds.max.z + partOffsetZ);   // through the displaced part
+
+    // Moving the coordinate moves the slab, also outside the part box (it is drawn where the plan has it); removing the extension gives
+    // the Cut by Face plane back.
+    app->moveSegmentationExtension("z", coordinate + 10);
+    QVERIFY(std::fabs(slabCentre(*app, "top").z() - (coordinate + 10)) < 1e-3);
+    app->removeSegmentationExtension("z");
+    QVERIFY(slabRow(*app, "top") < 0);
+    QVERIFY(slabRow(*app, "left") >= 0);
+  }
+  void anExtensionPlaneFollowsARightButtonDragAndMovesTheBoundaryInOneUndoStep() {
+    auto app = bracketPlannedForSegmentation();
+    QVERIFY(app);
+    app->addSegmentationExtension("y");
+    const auto undoDepth = [&] { return app->history().value("undoDepth").toInt(); };
+    const double before = extensionCoordinate(*app, "y");
+    const QVector3D centreBefore = slabCentre(*app, "back");
+    const int depth = undoDepth();
+    const QPoint start = pixelOnPlane(*app, "back");
+    QVERIFY2(start.x() >= 0, "no pixel on the extension plane");
+
+    // A press that does not move 4 px changes nothing and is no undo step.
+    QVERIFY(app->cutPlaneDragBegin(start.x(), start.y(), 800, 600));
+    app->cutPlaneDragTo(start.x() + 3, start.y(), 800, 600);
+    QVERIFY(!app->cutPlaneDragEnd());
+    QCOMPARE(extensionCoordinate(*app, "y"), before);
+    QCOMPARE(undoDepth(), depth);
+
+    // A real drag: the slab follows the pointer along Y only; the plan is not touched until the release.
+    QVERIFY(app->cutPlaneDragBegin(start.x(), start.y(), 800, 600));
+    app->cutPlaneDragTo(start.x() + 20, start.y() - 60, 800, 600);
+    const QVector3D moved = slabCentre(*app, "back");
+    QVERIFY(std::fabs(moved.y() - centreBefore.y()) > 0.5f);
+    QCOMPARE(moved.x(), centreBefore.x());
+    QCOMPARE(moved.z(), centreBefore.z());
+    QCOMPARE(extensionCoordinate(*app, "y"), before);
+    QVERIFY(app->cutPlaneDragEnd());
+    const double after = extensionCoordinate(*app, "y");
+    QVERIFY(std::fabs(after - before) > 0.01);
+    QCOMPARE(undoDepth(), depth + 1);   // one step for the whole drag
+    QVERIFY(std::fabs((after - before) - (moved.y() - centreBefore.y())) < 1e-2);   // the boundary is where the slab was dropped
+    QVERIFY(std::fabs(slabCentre(*app, "back").y() - moved.y()) < 1e-3);             // and the slab was rebuilt there
+
+    // The plan follows the boundary (it is still a four-section plan), and undo/redo move both together.
+    QCOMPARE(app->segmentation().value("sectionCount").toULongLong(), qulonglong{4});
+    app->undo();
+    QCOMPARE(extensionCoordinate(*app, "y"), before);
+    QVERIFY(std::fabs(slabCentre(*app, "back").y() - centreBefore.y()) < 1e-3);
+    app->redo();
+    QCOMPARE(extensionCoordinate(*app, "y"), after);
+    QVERIFY(std::fabs(slabCentre(*app, "back").y() - moved.y()) < 1e-3);
+
+    // A drag far past the part box, either way, stops at the box limits: the boundary never leaves the part box.
+    Bounds3 box;
+    float offsetY = 0;
+    for (const SceneItem& item : app->scene()->items()) if (item.kind == QLatin1String("part")) { box = item.bounds; offsetY = item.offset.y(); }
+    const auto dragFar = [&](int dy) {
+      const QPoint from = pixelOnPlane(*app, "back");
+      if (from.x() < 0) return std::nan("");
+      if (!app->cutPlaneDragBegin(from.x(), from.y(), 800, 600)) return std::nan("");
+      app->cutPlaneDragTo(from.x(), from.y() + dy, 800, 600);
+      app->cutPlaneDragEnd();
+      return extensionCoordinate(*app, "y");
+    };
+    const double one = dragFar(-4000);
+    const double other = dragFar(4000);
+    for (const double v : {one, other}) {
+      QVERIFY(std::isfinite(v));
+      QVERIFY(v >= box.min.y + offsetY - 1e-6 && v <= box.max.y + offsetY + 1e-6);
+    }
+    QVERIFY(std::fabs(one - other) > 1.0);   // the two ends of the box
+    QVERIFY(app->segmentation().value("valid").toBool());
+  }
+  void theEraserRemovesAnExtensionFromThePlanAndUndoBringsItBack() {
+    auto app = bracketPlannedForSegmentation();
+    QVERIFY(app);
+    app->addSegmentationExtension("y");
+    const double coordinate = extensionCoordinate(*app, "y");
+    QCOMPARE(app->segmentation().value("sectionCount").toULongLong(), qulonglong{4});
+    app->setTool("eraser");
+    QCOMPARE(app->tool(), QStringLiteral("eraser"));
+    QPoint on(-1, -1);
+    for (int y = 80; y < 520 && on.x() < 0; y += 3)
+      for (int x = 100; x < 700; x += 3)
+        if (app->eraserHoverAt(x, y, 800, 600)) { on = QPoint(x, y); break; }
+    QVERIFY2(on.x() >= 0, "no pixel on the extension plane");
+    QVERIFY(app->pickAt(on.x(), on.y(), 800, 600));
+
+    // The boundary is gone from the plan as well as the slab (the reference leaves the engine's boundary behind).
+    QVERIFY(std::isnan(extensionCoordinate(*app, "y")));
+    QCOMPARE(app->segmentation().value("sectionCount").toULongLong(), qulonglong{2});
+    QCOMPARE(app->cutPlaneSlabs()->rowCount(), 0);
+    QCOMPARE(app->tool(), QStringLiteral("select"));   // the Eraser needs planes
+    QVERIFY(app->statusText().contains("extension plane"));
+
+    app->undo();
+    QCOMPARE(extensionCoordinate(*app, "y"), coordinate);
+    QCOMPARE(app->segmentation().value("sectionCount").toULongLong(), qulonglong{4});
+    QVERIFY(slabRow(*app, "back") >= 0);
+    app->redo();
+    QVERIFY(std::isnan(extensionCoordinate(*app, "y")));
+  }
+
+  void addingEditingAndRemovingAnExtensionAreUndoableSteps() {
+    auto app = bracketPlannedForSegmentation();
+    QVERIFY(app);
+    const auto undoDepth = [&] { return app->history().value("undoDepth").toInt(); };
+    const int depth = undoDepth();
+    app->addSegmentationExtension("y");
+    QCOMPARE(undoDepth(), depth + 1);
+    const double suggested = extensionCoordinate(*app, "y");
+    app->moveSegmentationExtension("y", suggested);   // the same value is not an edit
+    QCOMPARE(undoDepth(), depth + 1);
+    app->moveSegmentationExtension("y", suggested + 5);
+    QCOMPARE(undoDepth(), depth + 2);
+    app->removeSegmentationExtension("y");
+    QCOMPARE(undoDepth(), depth + 3);
+
+    app->undo();   // the removal
+    QCOMPARE(extensionCoordinate(*app, "y"), suggested + 5);
+    app->undo();   // the edit
+    QCOMPARE(extensionCoordinate(*app, "y"), suggested);
+    app->undo();   // the addition
+    QVERIFY(std::isnan(extensionCoordinate(*app, "y")));
+    QCOMPARE(app->segmentation().value("sectionCount").toULongLong(), qulonglong{2});
+    QCOMPARE(app->segmentation().value("phase").toString(), QStringLiteral("planned"));
+    app->redo();
+    app->redo();
+    app->redo();
+    QVERIFY(std::isnan(extensionCoordinate(*app, "y")));
+    QCOMPARE(app->segmentation().value("sectionCount").toULongLong(), qulonglong{2});
+
+    // x is the plan's own axis: an extension on it is refused and is no undo step.
+    const int depthNow = undoDepth();
+    app->addSegmentationExtension("x");
+    QCOMPARE(app->segmentation().value("extensions").toList().size(), 0);
+    QCOMPARE(undoDepth(), depthNow);
   }
 
   // --- dragging a plane with the right button (reference: cuttingPlane3dRuntime.ts, split-face commitPlaneDrag) ---------------

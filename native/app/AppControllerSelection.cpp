@@ -56,7 +56,7 @@ bool AppController::selectionBoxVisible() const {
   return partSelected() && partBoxBounds() && moldPhase_ != QLatin1String("generating") && moldPhase_ != QLatin1String("complete");
 }
 
-bool AppController::cutFaceSelectionActive() const { return selectionBoxVisible() && tool_ == QLatin1String("select") && !segmentation_.adopted; }
+bool AppController::cutFaceSelectionActive() const { return selectionBoxVisible() && tool_ == QLatin1String("select") && !segmentation_.adopted && !extensionPlanesShown(); }
 
 // --- picking -------------------------------------------------------------------------------------------------------
 

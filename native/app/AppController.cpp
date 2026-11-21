@@ -1431,6 +1431,7 @@ void AppController::addSegmentationExtension(const QString& axisText) {
     setStatus(QStringLiteral("The %1 axis is already used by the plan.").arg(axisText.toUpper()));
     return;
   }
+  pushHistory();   // adding an extension boundary is one undoable step (D-110)
   segmentation_.extensions.emplace_back(axis, suggestExtensionAxisPosition(segmentation_.source->snapshot, axis));
   rebuildSegmentationPlan();
 }
@@ -1440,6 +1441,7 @@ void AppController::moveSegmentationExtension(const QString& axisText, double co
   const Axis axis = axisText == "x" ? Axis::X : axisText == "y" ? Axis::Y : Axis::Z;
   for (auto& e : segmentation_.extensions) {
     if (e.first == axis) {
+      if (e.second != coordinateMm) pushHistory();   // one undoable step; setting the same value is not an edit
       e.second = coordinateMm;  // an invalid position is kept and reported by the plan validation
       rebuildSegmentationPlan();
       return;
@@ -1453,7 +1455,24 @@ void AppController::removeSegmentationExtension(const QString& axisText) {
   auto& ext = segmentation_.extensions;
   const auto it = std::remove_if(ext.begin(), ext.end(), [&](const auto& e) { return e.first == axis; });
   if (it == ext.end()) return;
+  const auto before = captureHistory();   // the state the removal is about to change
   ext.erase(it, ext.end());
+  pushHistoryEntry(before);
+  rebuildSegmentationPlan();
+}
+
+void AppController::restoreSegmentationExtensions(const std::vector<std::pair<Axis, double>>& wanted) {
+  // Only while a plan exists to hold them, and never under a running execution (the controller's own edit guards).
+  if (!segmentation_.basePlan || segmentation_.adopted || segmentation_.phase == QStringLiteral("executing")) return;
+  std::vector<std::pair<Axis, double>> next;
+  for (const auto& [axis, coordinate] : wanted) {
+    std::vector<Axis> userAxes;
+    for (const auto& e : next) userAxes.push_back(e.first);
+    const AxisOwnership ownership = deriveAxisOwnership(segmentation_.basePlan->requiredAxes, userAxes);
+    if (std::find(ownership.availableAxes.begin(), ownership.availableAxes.end(), axis) != ownership.availableAxes.end()) next.emplace_back(axis, coordinate);
+  }
+  if (next == segmentation_.extensions) return;
+  segmentation_.extensions = std::move(next);
   rebuildSegmentationPlan();
 }
 

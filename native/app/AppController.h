@@ -559,6 +559,7 @@ class AppController : public QObject {
     Held<MoldGenerationResult> moldResult;
     Held<SprueEvaluation> sprueEvaluation;
     Held<DerivedRegistrationState> registration;
+    std::vector<std::pair<Axis, double>> segmentationExtensions;   // the extension boundaries of the segmentation plan (D-110)
   };
   HistoryEntry captureHistory() const;
   /// Records `before` (the state an edit is about to change) as an undo step, unless a gesture already did.
@@ -569,6 +570,12 @@ class AppController : public QObject {
   bool canUndo() const;
   bool canRedo() const;
   bool hasCutPlanes() const;
+  /// The segmentation's extension boundaries are drawn (and dragged, and erased) as cutting planes: while a plan with at least one is
+  /// shown, and nothing has been adopted. They then take the place of the Cut by Face planes (the reference's Segmentation tab owns the
+  /// planes while it is open) (D-110).
+  bool extensionPlanesShown() const;
+  /// Sets the extension list from an undo/redo snapshot: axes the plan no longer leaves free are dropped, then the plan is rebuilt.
+  void restoreSegmentationExtensions(const std::vector<std::pair<Axis, double>>& extensions);
   bool cutPlanesVisible() const;
   void refreshCutPlanes();
   void setEraserHover(std::optional<FaceId> face);
