@@ -7,9 +7,9 @@ ApplicationWindow {
     id: window
     width: 1280
     height: 800
-    // The tool bar needs about 840 px (it ended at 835 px, past the 800 px minimum: Redo was cut off). The mold opacity slider that used to sit at
-    // its right end is in the inspector's Mold section.
-    minimumWidth: 880
+    // The tool bar needs about 890 px (with the Flip button it ended at 885 px, past the 880 px minimum: Redo was cut off). The mold opacity slider
+    // that used to sit at its right end is in the inspector's Mold section.
+    minimumWidth: 910
     minimumHeight: 520
     visible: true
     title: (app.modelInfo.fileName ? app.project.title + " — " : "") + "Craft"
