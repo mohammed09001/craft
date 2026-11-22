@@ -1306,6 +1306,7 @@ int main(int argc, char* argv[]) {
   parser.addOption({"sprue-gizmo", "With --sprue-preview: place a sprue, then drag one of its resize rings (smoke test)."});
   parser.addOption({"eraser", "Enable three Cut by Face planes and hover one with the Eraser tool (smoke test)."});
   parser.addOption({"project-bench", "Time a large project's save, autosave and open and write the result here (development builds).", "path"});
+  parser.addOption({"bench-kind", "With --project-bench: project (the default), mold or master.", "kind"});
   parser.addOption({"viewport-bench", "Measure the viewport for the Three.js comparison and write the result here (development builds).", "path"});
   parser.addOption({"viewport-size", "With --viewport-bench: the viewport size in pixels, WxH.", "size"});
   parser.addOption({"bench-dir", "With --viewport-bench: write empty.png and part.png here.", "dir"});
@@ -1372,6 +1373,7 @@ int main(int argc, char* argv[]) {
     options.outputJson = parser.value("project-bench");
     options.workDirectory = parser.value("bench-dir");
     options.label = parser.value("bench-label");
+    if (parser.isSet("bench-kind")) options.kind = parser.value("bench-kind");
     projectBench = std::make_unique<craft::app::ProjectBench>(controller, window, options);
     QTimer::singleShot(0, projectBench.get(), [&projectBench] { projectBench->start(); });
   } else if (parser.isSet("viewport-bench")) {

@@ -21,6 +21,9 @@ struct ProjectBenchOptions {
   QString outputJson;
   QString workDirectory;  // the project and autosave are written here
   QString label;
+  /// "project" (the default): import, saves, autosave, opens. "mold": import, then the mold at High and at Standard quality (one split at the
+  /// default clearance). "master": import, then the Master Mold. Each is meant to be run in a process of its own, so the peak memory is its own.
+  QString kind = QStringLiteral("project");
 };
 
 class ProjectBench : public QObject {

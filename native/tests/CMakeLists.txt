@@ -293,3 +293,9 @@ add_executable(bench_sdf bench_sdf.cpp)
 target_link_libraries(bench_sdf PRIVATE craft_core)
 target_include_directories(bench_sdf PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 craft_target_defaults(bench_sdf)
+
+# Development probe (not registered with CTest): the Master Mold preflight's pair loop on an STL, to inspect a "triangles intersect" verdict.
+add_executable(probe_selfx probe_selfx.cpp)
+target_link_libraries(probe_selfx PRIVATE craft_mold craft_core craft_io)
+target_include_directories(probe_selfx PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+craft_target_defaults(probe_selfx)

@@ -7,6 +7,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QTimer>
 
@@ -71,7 +72,47 @@ struct ProjectBench::Impl {
     QCoreApplication::exit(ok ? 0 : 2);
   }
 
+  /// Times a mold at one quality (what the Generate mold button does) or the Master Mold, until it ends; records time, outcome and memory.
+  void timeJob(const QString& name, const std::function<void()>& start, const std::function<bool()>& running, const std::function<QString()>& outcome) {
+    QElapsedTimer t;
+    t.start();
+    start();
+    waitFor([&] { return !running(); }, 30 * 60 * 1000);
+    QJsonObject r;
+    r["ms"] = static_cast<double>(t.nsecsElapsed()) / 1e6;
+    r["finished"] = !running();
+    r["outcome"] = outcome();
+    r["memory"] = processMemory();
+    result[name] = r;
+  }
+
+  void runPart() {
+    app.setAutosaveIntervalMs(24 * 60 * 60 * 1000);
+    app.importStlFile(options.importPath);
+    if (!waitFor([&] { return app.modelPhase() == QLatin1String("ready") || app.modelPhase() == QLatin1String("error"); }, 10 * 60 * 1000) || app.modelPhase() != QLatin1String("ready"))
+      return finish(false, QStringLiteral("the import failed or timed out: %1").arg(app.modelMessage()));
+    result["triangles"] = static_cast<double>(app.model()->sourceSoup->triangleCount());
+    { const auto& b = app.model()->groundedBounds; result["sizeMm"] = QJsonArray{b.max.x - b.min.x, b.max.y - b.min.y, b.max.z - b.min.z}; }
+    result["memoryAfterImport"] = processMemory();
+    if (options.kind == QLatin1String("master")) {
+      timeJob(QStringLiteral("master"), [&] { app.generateMasterMold(); }, [&] { return app.masterMold().value("generating").toBool(); },
+              [&] { return app.masterMold().value("uiKind").toString() + QLatin1Char(' ') + app.masterMold().value("banner").toString(); });
+    } else {
+      // The conditions of R-Cavity-1: 1 mm cavity clearance and one split (the top face at its default position).
+      app.setCavityClearanceMm(1.0);
+      app.setCutFaceEnabled(QStringLiteral("top"), true);
+      for (const QString quality : {QStringLiteral("high"), QStringLiteral("standard")}) {
+        app.setCavityQuality(quality);
+        timeJob(quality, [&] { app.generateMold(); }, [&] { return app.moldPhase() == QLatin1String("generating"); },
+                [&] { return app.moldPhase() + QLatin1Char(' ') + app.moldError() + QLatin1Char(' ') + QString::number(app.moldSummary().value("bodyCount").toInt()) + QStringLiteral(" bodies"); });
+        if (app.moldPhase() == QLatin1String("generating")) break;   // never finished: the second run would overlap it
+      }
+    }
+    finish(true, QStringLiteral("done"));
+  }
+
   void run() {
+    if (options.kind != QLatin1String("project")) return runPart();
     app.setAutosaveIntervalMs(24 * 60 * 60 * 1000);  // only the autosave this run asks for: a timer's own would overlap the measurements
     QDir().mkpath(options.workDirectory);
     const QString project = QDir(options.workDirectory).filePath(QStringLiteral("bench.craft"));
