@@ -621,3 +621,7 @@ ative/tests/fixtures/projects/format-1.0-full.craft, SHA-256 dec36faf...f842) an
 - A profile of the gear: 91 Booleans took 288 s of 446 s, about 3.2 s each; the rest of the speed-up would need a faster kernel, parallel Booleans or a coarser sweep (not done: it changes answers).
 - Verified: Release `tst_master_equivalence`, `tst_master_store`, `tst_master_export`, `app_smoke_master` pass; full rebuild and full Release ctest 46/46 in 266.6 s (it was 1141 s: the equivalence suite is now 128 s). No UI change, so no tour.
 - Slips on the way, no harm: a launch with nested quoting that never started (its waiter was stopped), an edit before reading the file, and a PowerShell alias (`R` is `Invoke-History`) that made a patch script do nothing; each was noticed and redone.
+
+### P0-1: full Debug ctest on the current head
+
+- Rebuilt Debug incrementally (173 s) and ran `ctest` once on b10727b: 46/46 passed, 378.6 s. This is the first full Debug run since the checkpoint's 38/38 (the Release suite also reports 46 tests now).

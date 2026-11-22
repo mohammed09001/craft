@@ -10,7 +10,7 @@ Three separate completion levels are tracked and none is claimed until all its r
 
 | ID | Item | Module | Test / measurement | Status | Evidence | Acceptance |
 |---|---|---|---|---|---|---|
-| P0-1 | Full Debug CTest in one run | all | `ctest --preset windows-debug` | pass (checkpoint) | EXECUTION_REPORT: 38/38, ~6.5 min. Re-run after this session's changes: see session log | 0 failures; Master fallback rows skipped in Debug by design |
+| P0-1 | Full Debug CTest in one run | all | `ctest --preset windows-debug` | **pass (2026-11-22, on b10727b)** | Full Debug ctest in one run after an incremental rebuild of the current head: 46/46 passed, 378.6 s (build 173 s). Master fallback rows are still skipped in Debug by design; log D:\CraftNative\logs\dbg-ctest.log | 0 failures; Master fallback rows skipped in Debug by design |
 | P0-2 | Full **Release** CTest in one run, including `tst_master_equivalence` | all | `ctest --preset windows-release` (one invocation) | **pass (2026-11-21)** | One invocation of ctest --preset windows-release on 018c7cc (before the 3MF commit): 38/38 passed, 1123.91 s, build exit 0, log D:CraftNativelogs
 elease-full-ctest.log. Must be re-run on the final tree before any release claim | 0 failures, count and duration recorded |
 | P0-3 | Mold geometry validity vs the reference | core/mold, engines | equivalence suites against fixtures recorded from the real TypeScript runtime | pass (checkpoint) | 13 generators, 14 fixture files, mutation-tested | unchanged; re-run with P0-1/2 |
