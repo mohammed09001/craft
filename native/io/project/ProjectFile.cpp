@@ -172,8 +172,8 @@ void writeProject(const QString& path, const Document& document, const QByteArra
   const bool embedded = document.model && document.model->storage == "embedded";
   if (embedded) {
     if (modelBytes.isEmpty()) fail("project_invalid", "The project cannot be saved: the embedded model has no data.");
-    if (sha256Chunked(modelBytes, options.control, 0.0, 0.2).toHex().toStdString() != document.model->sha256 ||
-        static_cast<std::uint64_t>(modelBytes.size()) != document.model->sizeBytes)
+    const bool digestMatches = options.modelDigestIsFresh || sha256Chunked(modelBytes, options.control, 0.0, 0.2).toHex().toStdString() == document.model->sha256;
+    if (!digestMatches || static_cast<std::uint64_t>(modelBytes.size()) != document.model->sizeBytes)
       fail("project_invalid", "The project cannot be saved: the embedded model data does not match its recorded size and hash.");
   }
   checkCancelled(options.control);

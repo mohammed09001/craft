@@ -294,6 +294,7 @@ void AppController::saveProjectToFile(const QString& path) {
         if (progress) progress("preparing", 0.0);
         const QByteArray bytes = embedModel(document, *soup, &cancel);
         project::WriteOptions options;
+        options.modelDigestIsFresh = true;  // embedModel has just hashed these bytes
         options.control.cancelled = [&cancel] { return cancel.isCancelled(); };
         options.control.progress = [&progress](double f) {
           if (progress) progress("saving", 0.1 + 0.9 * f);
@@ -359,6 +360,7 @@ void AppController::autosaveNow() {
         try {
           project::WriteOptions options;
           options.keepBackup = false;  // an autosave is itself the safety net
+          options.modelDigestIsFresh = true;
           project::writeProject(path, document, bytes, options);
         } catch (const project::ProjectIoError& error) {
           throw CodedError(error.code(), error.what());

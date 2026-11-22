@@ -289,6 +289,29 @@ class ProjectTest : public QObject {
     QVERIFY(!QFileInfo::exists(path + ".bak"));  // a refused save must not even rotate the backup
   }
 
+  void theWriterChecksTheModelsHashUnlessTheCallerHasJustComputedIt() {
+    QTemporaryDir dir;
+    const QByteArray stl = fakeStl();
+    Document d = fullDocument(stl);
+    QByteArray other = stl;
+    other[other.size() - 1] = static_cast<char>(other[other.size() - 1] ^ 0x5a);  // same size, different content: the recorded hash is wrong
+    const QString path = dir.filePath("p.craft");
+    // Default: the hash is computed and compared, so the substitution is refused and nothing is written.
+    QCOMPARE(errorCodeOf([&] { writeProject(path, d, other); }), std::string("project_invalid"));
+    QVERIFY(!QFileInfo::exists(path));
+    // With a fresh digest the writer takes the caller's word (this is what the application does, to hash 512 MiB once instead of twice) ...
+    WriteOptions fresh;
+    fresh.modelDigestIsFresh = true;
+    writeProject(path, d, other, fresh);
+    // ... and a file whose model does not match its hash is still caught when it is read.
+    QCOMPARE(errorCodeOf([&] { readProject(path); }), std::string("project_asset_corrupt"));
+    // The size is checked either way.
+    QCOMPARE(errorCodeOf([&] { writeProject(dir.filePath("q.craft"), d, fakeStl(5), fresh); }), std::string("project_invalid"));
+    // And a correct digest passes in both modes.
+    writeProject(dir.filePath("r.craft"), d, stl, fresh);
+    QCOMPARE(readProject(dir.filePath("r.craft")).document.mold.moldClearanceMm, d.mold.moldClearanceMm);
+  }
+
   void aSaveToAnUnwritableLocationFailsCleanly() {
     const QByteArray stl = fakeStl();
     // A path whose "directory" is an existing file cannot be created.

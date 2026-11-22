@@ -73,6 +73,10 @@ struct IoControl {
 
 struct WriteOptions {
   bool keepBackup = true;
+  /// The caller has just computed document.model->sha256 from these very bytes (the application does, while encoding the model), so the
+  /// writer does not hash them a second time (3 s for a 512 MiB model). The size is still checked, and a file whose model does not match
+  /// its recorded hash is refused when it is opened. Off by default: a caller that took the hash from somewhere else gets the check.
+  bool modelDigestIsFresh = false;
   IoControl control;
   /// Test hooks (also how files for older readers could be produced): write another format version.
   std::optional<int> overrideFormatMajor, overrideFormatMinor;

@@ -43,7 +43,7 @@ Three separate completion levels are tracked and none is claimed until all its r
 | P2-3 | Long paths (> MAX_PATH), network/removable drives, read-only folders | **pass in Debug and Release (2026-11-22); defects found and fixed** | Long paths were broken for STL, 3MF and Master export and for the Python analyses (D-115). Network path (loopback SMB share), read-only file and write-denied folder tested; a removable drive could not be (none here). Release: full ctest 46/46 on 52da243 |
 | P2-4 | Orbit rate and GPU memory at 10.7M triangles | not tested | Load time (2.5 s) was measured |
 | P2-5 | Non-sphere representative parts for cavity / Master Mold timing | not tested | |
-| P2-6 | Save/open at the 512 MiB limit (13-15 s) | measured | candidate optimisation: skip the second SHA-256 |
+| P2-6 | Save/open at the 512 MiB limit | **partly done (2026-11-22); Release tests pass** | D-118. Save and autosave hash the model once: first save 15.3 to 11.5 s, repeat save 20.1 to 15.6 s, autosave 14.1 to 11.6 s at 10.73M triangles. Open is unchanged (13 to 16 s first, 5.8 s with the cache file); deferring the analysis-cache write is the remaining candidate, not done |
 | P2-7 | Unexplained smoke failures R-Smoke-1/2 | open | not reproduced in 217 + 32 runs |
 | P2-8 | Shadows, remaining part-role colours | not started | |
 
