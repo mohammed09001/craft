@@ -9,7 +9,12 @@ ApplicationWindow {
     height: 800
     // The tool bar needs about 890 px (with the Flip button it ended at 885 px, past the 880 px minimum: Redo was cut off). The mold opacity slider
     // that used to sit at its right end is in the inspector's Mold section.
-    minimumWidth: 910
+    // The inspector's width follows the text size (Windows' Text size setting makes every row wider): at the normal size it is 340 px and may be
+    // dragged down to 260; with larger text both grow, and so does the window's minimum, so the viewport always keeps its 300 px.
+    FontMetrics { id: uiMetrics }
+    readonly property int inspectorPreferredWidth: Math.max(340, Math.round(uiMetrics.averageCharacterWidth * 48))
+    readonly property int inspectorMinimumWidth: Math.max(260, Math.round(uiMetrics.averageCharacterWidth * 37))
+    minimumWidth: Math.max(910, 300 + inspectorMinimumWidth + 20)
     minimumHeight: 520
     visible: true
     title: (app.modelInfo.fileName ? app.project.title + " — " : "") + "Craft"
@@ -268,9 +273,13 @@ ApplicationWindow {
     }
 
     header: ToolBar {
-        RowLayout {
-            anchors.fill: parent
-            spacing: 2   // the buttons carry their own padding; the whole toolbar must fit the minimum window width
+        // A Flow, not a row: at the normal text size every button is on one line, and with a larger text size (Windows' Text size setting) or a
+        // narrow window the buttons that do not fit go on a second line instead of leaving the window (P2-2).
+        contentHeight: toolbarFlow.implicitHeight
+        Flow {
+            id: toolbarFlow
+            width: parent.width
+            spacing: 2   // the buttons carry their own padding
             ToolButton { action: openAction }
             ToolButton { action: openProjectAction }
             ToolButton { action: saveAction }
@@ -313,7 +322,6 @@ ApplicationWindow {
             ToolSeparator {}
             ToolButton { objectName: "undoButton"; action: undoAction }
             ToolButton { objectName: "redoButton"; action: redoAction }
-            Item { Layout.fillWidth: true }
         }
     }
 
@@ -321,8 +329,8 @@ ApplicationWindow {
         anchors.fill: parent
         ViewportView { objectName: "viewport"; SplitView.fillWidth: true; SplitView.minimumWidth: 300 }
         Inspector {
-            SplitView.preferredWidth: 340
-            SplitView.minimumWidth: 260
+            SplitView.preferredWidth: window.inspectorPreferredWidth
+            SplitView.minimumWidth: window.inspectorMinimumWidth
             padding: 10
         }
     }

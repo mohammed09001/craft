@@ -15,7 +15,9 @@ param(
   [string]$Config = 'windows-release',
   [string]$Stl,
   [string]$BadStl,
-  [string]$OutDir
+  [string]$OutDir,
+  # Scale the application font as Windows' Text size setting does (1.5 = 150 %), without changing the display scale.
+  [double]$FontScale = 0
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
@@ -32,7 +34,9 @@ $env:CRAFT_AUTOSAVE_DIR = "$state\autosave"
 $env:CRAFT_CACHE_DIR = "$state\cache"
 $env:PATH = "$env:CRAFT_QT_DIR\bin;$env:PATH"
 try {
-  $log = & $craft --ui-tour $OutDir --import $Stl --tour-bad-stl $BadStl 2>&1 | Out-String
+  $extra = @()
+  if ($FontScale -gt 0) { $extra += @('--font-scale', ([string]$FontScale)) }
+  $log = & $craft --ui-tour $OutDir --import $Stl --tour-bad-stl $BadStl @extra 2>&1 | Out-String
   if ($log -notmatch 'CRAFT_TOUR_OK') { throw "The tour did not finish:`n$log" }
 } finally {
   Remove-Item Env:\CRAFT_AUTOSAVE_DIR, Env:\CRAFT_CACHE_DIR -ErrorAction SilentlyContinue

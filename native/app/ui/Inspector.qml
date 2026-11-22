@@ -439,7 +439,7 @@ ScrollView {
                         required property var modelData
                         CraftCheckBox {
                             objectName: "cutFaceCheck:" + modelData.face
-                            Layout.preferredWidth: 96   // the same width in every row, so the sliders start at the same place
+                            Layout.preferredWidth: Math.max(96, implicitWidth)   // the same width in every row at the normal text size, so the sliders start at the same place; wider when the text is larger
                             text: modelData.face + " (" + modelData.axis + ")"
                             checked: modelData.enabled
                             onToggled: app.setCutFaceEnabled(modelData.face, checked)
@@ -447,7 +447,7 @@ ScrollView {
                         Slider {
                             objectName: "cutFaceSlider:" + modelData.face
                             Accessible.name: qsTr("Position of the %1 cutting plane").arg(modelData.face)
-                            Layout.fillWidth: true
+                            Layout.fillWidth: true; Layout.minimumWidth: 40
                             enabled: modelData.enabled
                             from: 0.001; to: 0.999
                             value: modelData.position
@@ -608,7 +608,7 @@ ScrollView {
                             Slider {
                                 objectName: "sprueMainSlider:" + modelData.operationId
                                 Accessible.name: qsTr("Main diameter of %1 (mm)").arg(modelData.operationId)
-                                Layout.fillWidth: true; from: 2; to: 50
+                                Layout.fillWidth: true; Layout.minimumWidth: 40; from: 2; to: 50
                                 value: modelData.mainDiameterMm
                                 onMoved: app.resizeSprue(modelData.operationId, value)
                                 onPressedChanged: pressed ? app.beginHistoryGesture() : app.endHistoryGesture()
@@ -619,7 +619,7 @@ ScrollView {
                             Slider {
                                 objectName: "sprueNeckSlider:" + modelData.operationId
                                 Accessible.name: qsTr("Entry neck diameter of %1 (mm)").arg(modelData.operationId)
-                                Layout.fillWidth: true; from: 2; to: Math.max(2.1, modelData.mainDiameterMm)
+                                Layout.fillWidth: true; Layout.minimumWidth: 40; from: 2; to: Math.max(2.1, modelData.mainDiameterMm)
                                 value: modelData.entryNeckDiameterMm
                                 onMoved: app.resizeSprueEntryNeck(modelData.operationId, value)
                                 onPressedChanged: pressed ? app.beginHistoryGesture() : app.endHistoryGesture()
@@ -710,11 +710,11 @@ ScrollView {
                             Layout.fillWidth: true
                             Label {
                                 text: qsTr("Result: ") + (reportsBox.view && reportsBox.view.pullDirection.card ? reportsBox.view.pullDirection.card.result : "")
-                                font.bold: true
+                                font.bold: true; wrapMode: Text.Wrap; Layout.fillWidth: true
                             }
-                            Label { text: qsTr("Best direction: ") + (reportsBox.view && reportsBox.view.pullDirection.card ? reportsBox.view.pullDirection.card.bestDirection : "") }
-                            Label { text: qsTr("Confidence: ") + (reportsBox.view && reportsBox.view.pullDirection.card ? reportsBox.view.pullDirection.card.confidence : "") }
-                            Label { text: qsTr("Candidates: ") + (reportsBox.view && reportsBox.view.pullDirection.card ? reportsBox.view.pullDirection.card.candidates : 0) }
+                            Label { wrapMode: Text.Wrap; Layout.fillWidth: true; text: qsTr("Best direction: ") + (reportsBox.view && reportsBox.view.pullDirection.card ? reportsBox.view.pullDirection.card.bestDirection : "") }
+                            Label { wrapMode: Text.Wrap; Layout.fillWidth: true; text: qsTr("Confidence: ") + (reportsBox.view && reportsBox.view.pullDirection.card ? reportsBox.view.pullDirection.card.confidence : "") }
+                            Label { wrapMode: Text.Wrap; Layout.fillWidth: true; text: qsTr("Candidates: ") + (reportsBox.view && reportsBox.view.pullDirection.card ? reportsBox.view.pullDirection.card.candidates : 0) }
                             Repeater {
                                 model: reportsBox.view && reportsBox.view.pullDirection.card ? reportsBox.view.pullDirection.card.warnings : []
                                 Label { text: "• " + root.words(modelData); wrapMode: Text.Wrap; Layout.fillWidth: true }
@@ -731,10 +731,10 @@ ScrollView {
                                 model: reportsBox.view && reportsBox.view.pullDirection.evaluation ? reportsBox.view.pullDirection.evaluation.messages : []
                                 Label { text: "• " + root.words(modelData); wrapMode: Text.Wrap; Layout.fillWidth: true }
                             }
-                            Label { text: qsTr("Ranked candidates"); font.bold: true; visible: !!reportsBox.view && reportsBox.view.pullDirection.available }
+                            Label { wrapMode: Text.Wrap; Layout.fillWidth: true; text: qsTr("Ranked candidates"); font.bold: true; visible: !!reportsBox.view && reportsBox.view.pullDirection.available }
                             Repeater {
                                 model: reportsBox.view && reportsBox.view.pullDirection.ranked ? reportsBox.view.pullDirection.ranked : []
-                                Label { text: modelData.rank + ".  " + modelData.directionLabel + "   score " + root.fmt(modelData.score, 1) }
+                                Label { wrapMode: Text.Wrap; Layout.fillWidth: true; text: modelData.rank + ".  " + modelData.directionLabel + "   score " + root.fmt(modelData.score, 1) }
                             }
                         }
                     }
@@ -748,7 +748,7 @@ ScrollView {
                     ColumnLayout {
                         visible: !!reportsBox.view && !!reportsBox.view.moldability
                         Layout.fillWidth: true
-                        Label { text: qsTr("Moldability (preliminary)"); font.bold: true }
+                        Label { wrapMode: Text.Wrap; Layout.fillWidth: true; text: qsTr("Moldability (preliminary)"); font.bold: true }
                         Label {
                             text: reportsBox.view && reportsBox.view.moldability
                                   ? root.words(reportsBox.view.moldability.status) + " · risk " + root.words(reportsBox.view.moldability.overallRisk) : ""
@@ -779,8 +779,9 @@ ScrollView {
                                 text: reportsBox.view && reportsBox.view.cavity && reportsBox.view.cavity.available
                                       ? qsTr("Candidates: ") + reportsBox.view.cavity.candidateCount + qsTr("  Openings: ") + reportsBox.view.cavity.openingCount
                                         + qsTr("  Core targets: ") + (reportsBox.view.cavity.coreTargetCount || 0) : ""
+                                wrapMode: Text.Wrap; Layout.fillWidth: true
                             }
-                            Label { text: qsTr("Engine findings"); font.bold: true; visible: !!reportsBox.view && !!reportsBox.view.cavity && reportsBox.view.cavity.findings.length > 0 }
+                            Label { wrapMode: Text.Wrap; Layout.fillWidth: true; text: qsTr("Engine findings"); font.bold: true; visible: !!reportsBox.view && !!reportsBox.view.cavity && reportsBox.view.cavity.findings.length > 0 }
                             Repeater {
                                 model: reportsBox.view && reportsBox.view.cavity && reportsBox.view.cavity.findings ? reportsBox.view.cavity.findings : []
                                 Label { text: "• " + root.words(modelData); wrapMode: Text.Wrap; Layout.fillWidth: true }
@@ -806,17 +807,17 @@ ScrollView {
                                         + (reportsBox.view.readiness.requiresManualReview ? qsTr("  ·  manual review required") : "") : ""
                                 wrapMode: Text.Wrap; Layout.fillWidth: true
                             }
-                            Label { text: qsTr("Blockers"); font.bold: true; visible: !!reportsBox.view && !!reportsBox.view.readiness && reportsBox.view.readiness.blockers.length > 0 }
+                            Label { wrapMode: Text.Wrap; Layout.fillWidth: true; text: qsTr("Blockers"); font.bold: true; visible: !!reportsBox.view && !!reportsBox.view.readiness && reportsBox.view.readiness.blockers.length > 0 }
                             Repeater {
                                 model: reportsBox.view && reportsBox.view.readiness && reportsBox.view.readiness.blockers ? reportsBox.view.readiness.blockers : []
                                 Label { text: "• " + root.words(modelData); color: "#e5484d"; wrapMode: Text.Wrap; Layout.fillWidth: true }
                             }
-                            Label { text: qsTr("Missing inputs"); font.bold: true; visible: !!reportsBox.view && !!reportsBox.view.readiness && reportsBox.view.readiness.missingInputs.length > 0 }
+                            Label { wrapMode: Text.Wrap; Layout.fillWidth: true; text: qsTr("Missing inputs"); font.bold: true; visible: !!reportsBox.view && !!reportsBox.view.readiness && reportsBox.view.readiness.missingInputs.length > 0 }
                             Repeater {
                                 model: reportsBox.view && reportsBox.view.readiness && reportsBox.view.readiness.missingInputs ? reportsBox.view.readiness.missingInputs : []
                                 Label { text: "• " + root.words(modelData); wrapMode: Text.Wrap; Layout.fillWidth: true }
                             }
-                            Label { text: qsTr("Parting strategies"); font.bold: true; visible: !!reportsBox.view && !!reportsBox.view.readiness && reportsBox.view.readiness.partingStrategies.length > 0 }
+                            Label { wrapMode: Text.Wrap; Layout.fillWidth: true; text: qsTr("Parting strategies"); font.bold: true; visible: !!reportsBox.view && !!reportsBox.view.readiness && reportsBox.view.readiness.partingStrategies.length > 0 }
                             Repeater {
                                 model: reportsBox.view && reportsBox.view.readiness && reportsBox.view.readiness.partingStrategies ? reportsBox.view.readiness.partingStrategies : []
                                 Label {
@@ -825,7 +826,7 @@ ScrollView {
                                     wrapMode: Text.Wrap; Layout.fillWidth: true
                                 }
                             }
-                            Label { text: qsTr("Warnings"); font.bold: true; visible: !!reportsBox.view && !!reportsBox.view.readiness && reportsBox.view.readiness.warnings.length > 0 }
+                            Label { wrapMode: Text.Wrap; Layout.fillWidth: true; text: qsTr("Warnings"); font.bold: true; visible: !!reportsBox.view && !!reportsBox.view.readiness && reportsBox.view.readiness.warnings.length > 0 }
                             Repeater {
                                 model: reportsBox.view && reportsBox.view.readiness && reportsBox.view.readiness.warnings ? reportsBox.view.readiness.warnings : []
                                 Label { text: "• " + root.words(modelData); wrapMode: Text.Wrap; Layout.fillWidth: true }
@@ -848,10 +849,10 @@ ScrollView {
                 }
 
                 // --- registry (engineeringReportManifest) -------------------------------------------------------
-                Label { text: qsTr("Registered reports"); font.bold: true; Layout.topMargin: 6 }
+                Label { wrapMode: Text.Wrap; Layout.fillWidth: true; text: qsTr("Registered reports"); font.bold: true; Layout.topMargin: 6 }
                 Repeater {
                     model: reportsBox.reports.registry
-                    Label { text: modelData.displayName + " (" + modelData.supportLabel + ")"; Layout.fillWidth: true }
+                    Label { wrapMode: Text.Wrap; Layout.fillWidth: true; text: modelData.displayName + " (" + modelData.supportLabel + ")" }
                 }
             }
         }

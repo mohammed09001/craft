@@ -176,7 +176,7 @@ class Smoke : public QObject {
     // Platform-level events, like a real mouse: Qt itself turns a quick second press into the double click.
     const auto send = [this, item](QEvent::Type type, QPoint local, Qt::MouseButton button, Qt::MouseButtons buttons) {
       const QPointF scene = item->mapToScene(QPointF(local));
-      QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), buttons, button, type);
+      injectMouse(scene, buttons, button, type);
     };
     const auto findRing = [this, w, h]() {
       for (int y = h / 6; y < h * 5 / 6; y += 3)
@@ -246,6 +246,61 @@ class Smoke : public QObject {
   // plane, a right press on it drags it instead of panning, the release commits one undo step; a right drag elsewhere still pans.
   // Dropping files on the window through REAL platform drag-and-drop events: two files and a file that is not an STL are refused with the
   // reference's messages and import nothing; one STL imports (the drop target is outlined while the drag is over the window).
+  // The platform interface takes NATIVE pixels (QTest's own mouse helpers convert the same way); every position in these tests is in the
+  // window's device-independent pixels, as the application sees them, so it is scaled by the window's device pixel ratio here. Without this
+  // the real-input tests only held at a display scale of 100 %.
+  void injectMouse(const QPointF& scene, Qt::MouseButtons buttons, Qt::MouseButton button, QEvent::Type type) {
+    const qreal dpr = window_->devicePixelRatio();
+    QWindowSystemInterface::handleMouseEvent(window_, scene * dpr, window_->mapToGlobal(scene) * dpr, buttons, button, type);
+  }
+  // What is drawn as a plane must be what the controller picks as a plane, whatever the display scale and the window size. The ray of a pixel and
+  // the frame are made by different code, and a mix-up of device-independent and device pixels, or a stale viewport size after a resize, would put
+  // the drawn slab far from where the pick finds it. The test: a plane under the pointer is drawn brighter than an idle one, so the pixels that
+  // differ between the frame with the pointer on the plane and the frame without are drawn plane; each of them (in device pixels) must be picked
+  // as a plane. (The pick ignores what is in front of a slab, as the reference's raycast does, so the picked area may be larger than the drawn
+  // one, never smaller.) Needs the 'top' and 'left' planes chosen. Returns the problem, or nothing.
+  QString drawnAndPickedAgree(QQuickItem* item) {
+    const int w = static_cast<int>(item->width()), h = static_cast<int>(item->height());
+    app_.camera()->setViewportSize(w, h);
+    QPoint onPlane(-1, -1);
+    for (int y = h / 6; y < h * 5 / 6 && onPlane.x() < 0; y += 3)
+      for (int x = w / 8; x < w * 7 / 8 && onPlane.x() < 0; x += 3)
+        if (app_.cutPlaneHoverAt(x, y, w, h) && app_.cutPlanes().value("planeHoverFace").toString() == QLatin1String("top")) onPlane = QPoint(x, y);
+    app_.cutPlaneLeave();
+    if (onPlane.x() < 0) return QStringLiteral("no pixel on the top cutting plane (viewport %1 x %2)").arg(w).arg(h);
+    const qreal dpr = window_->devicePixelRatio();
+    const auto frameNow = [this, dpr] {
+      QImage frame;
+      for (int attempt = 0; attempt < 20 && (frame.isNull() || frame.width() != qRound(window_->width() * dpr)); ++attempt) {
+        QEventLoop loop;
+        QTimer::singleShot(120, &loop, &QEventLoop::quit);
+        loop.exec();
+        frame = window_->grabWindow();
+      }
+      return frame;
+    };
+    app_.cutPlaneHoverAt(onPlane.x(), onPlane.y(), w, h);
+    const QImage hovered = frameNow();
+    app_.cutPlaneLeave();
+    const QImage idle = frameNow();
+    if (hovered.isNull() || idle.isNull() || hovered.size() != idle.size()) return QStringLiteral("no frames could be grabbed to check the planes' pixels");
+    const QPointF origin = item->mapToScene(QPointF(0, 0));
+    int drawn = 0, picked = 0;
+    for (int y = 0; y < hovered.height(); y += 4)
+      for (int x = 0; x < hovered.width(); x += 4) {
+        const QColor a = hovered.pixelColor(x, y), b = idle.pixelColor(x, y);
+        if (std::abs(a.red() - b.red()) + std::abs(a.green() - b.green()) + std::abs(a.blue() - b.blue()) <= 20) continue;
+        const double lx = x / dpr - origin.x(), ly = y / dpr - origin.y();
+        if (lx < 0 || ly < 0 || lx >= w || ly >= h) continue;
+        ++drawn;
+        if (app_.cutPlaneHoverAt(lx, ly, w, h)) ++picked;
+      }
+    app_.cutPlaneLeave();
+    if (drawn < 200) return QStringLiteral("the hovered plane changed only %1 sampled pixels of the frame (scale %2, viewport %3 x %4): too few to compare with the pick").arg(drawn).arg(dpr).arg(w).arg(h);
+    if (picked < drawn * 95 / 100)
+      return QStringLiteral("only %1 of %2 sampled pixels that are drawn as a plane are picked as one (scale %3, viewport %4 x %5): the drawing and the picking disagree").arg(picked).arg(drawn).arg(dpr).arg(w).arg(h);
+    return {};
+  }
   void dropEventsSequence() { whenViewportSettled([this] { dropEventsBody(); }); }
   void dropEventsBody() {
 #ifndef CRAFT_SMOKE_REAL_EVENTS
@@ -259,9 +314,10 @@ class Smoke : public QObject {
     const auto drop = [&](const QList<QUrl>& urls, bool* overlayShown) {
       QMimeData mime;
       mime.setUrls(urls);
-      const auto over = QWindowSystemInterface::handleDrag(window_, &mime, where, Qt::CopyAction, Qt::LeftButton, Qt::NoModifier);
+      const QPoint nativeWhere = (QPointF(where) * window_->devicePixelRatio()).toPoint();   // the platform interface takes native pixels
+      const auto over = QWindowSystemInterface::handleDrag(window_, &mime, nativeWhere, Qt::CopyAction, Qt::LeftButton, Qt::NoModifier);
       if (overlayShown) *overlayShown = over.isAccepted() && overlay->isVisible();
-      QWindowSystemInterface::handleDrop(window_, &mime, where, Qt::CopyAction, Qt::LeftButton, Qt::NoModifier);
+      QWindowSystemInterface::handleDrop(window_, &mime, nativeWhere, Qt::CopyAction, Qt::LeftButton, Qt::NoModifier);
       return over.isAccepted();
     };
     bool shown = false;
@@ -318,9 +374,9 @@ class Smoke : public QObject {
     if (bodyCount() != 0) return fail(QStringLiteral("there are mold bodies before anything was generated"));
 
     const QPointF scene = button->mapToScene(QPointF(button->width() / 2, button->height() / 2));
-    QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::NoButton, Qt::NoButton, QEvent::MouseMove);
-    QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonPress);
-    QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::NoButton, Qt::LeftButton, QEvent::MouseButtonRelease);
+    injectMouse(scene, Qt::NoButton, Qt::NoButton, QEvent::MouseMove);
+    injectMouse(scene, Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonPress);
+    injectMouse(scene, Qt::NoButton, Qt::LeftButton, QEvent::MouseButtonRelease);
     // The click started the job (synchronously, with the worker still running): the button is unavailable and its tooltip is the progress.
     if (!app_.masterMold().value("generating").toBool()) return fail(QStringLiteral("a click on the Master Mold button did not start generating"));
     if (button->property("enabled").toBool()) return fail(QStringLiteral("the Master Mold button stayed enabled while generating"));
@@ -353,9 +409,9 @@ class Smoke : public QObject {
     const auto settle = [](int ms) { QEventLoop loop; QTimer::singleShot(ms, &loop, &QEventLoop::quit); loop.exec(); };
     const auto click = [this, &settle](QQuickItem* item) {
       const QPointF scene = item->mapToScene(QPointF(item->width() / 2, item->height() / 2));
-      QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::NoButton, Qt::NoButton, QEvent::MouseMove);
-      QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonPress);
-      QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::NoButton, Qt::LeftButton, QEvent::MouseButtonRelease);
+      injectMouse(scene, Qt::NoButton, Qt::NoButton, QEvent::MouseMove);
+      injectMouse(scene, Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonPress);
+      injectMouse(scene, Qt::NoButton, Qt::LeftButton, QEvent::MouseButtonRelease);
       settle(120);
     };
     const auto rowVisible = [this](const QString& id) {
@@ -438,9 +494,9 @@ class Smoke : public QObject {
     if (!header || !section || !content) return fail(QStringLiteral("the Model section, its header or the inspector was not found"));
     const auto click = [this](QQuickItem* item) {
       const QPointF scene = item->mapToScene(QPointF(item->width() / 2, item->height() / 2));
-      QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::NoButton, Qt::NoButton, QEvent::MouseMove);
-      QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonPress);
-      QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::NoButton, Qt::LeftButton, QEvent::MouseButtonRelease);
+      injectMouse(scene, Qt::NoButton, Qt::NoButton, QEvent::MouseMove);
+      injectMouse(scene, Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonPress);
+      injectMouse(scene, Qt::NoButton, Qt::LeftButton, QEvent::MouseButtonRelease);
     };
     const auto key = [this](int code, const QString& text) {
       QWindowSystemInterface::handleKeyEvent(window_, QEvent::KeyPress, code, Qt::NoModifier, text);
@@ -503,7 +559,7 @@ class Smoke : public QObject {
     app_.setCutFacePosition(QStringLiteral("left"), 0.7);
     const auto send = [this, item](QEvent::Type type, QPoint local, Qt::MouseButton button, Qt::MouseButtons buttons) {
       const QPointF scene = item->mapToScene(QPointF(local));
-      QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), buttons, button, type);
+      injectMouse(scene, buttons, button, type);
     };
     const auto topPosition = [this] {
       for (const QVariant& f : app_.cutFaces())
@@ -519,6 +575,8 @@ class Smoke : public QObject {
     app_.cutPlaneLeave();
     if (onPlane.x() < 0) return fail(QStringLiteral("no pixel on the top cutting plane"));
 
+    // What is drawn as a plane must be what the controller picks as a plane, at this display scale and after the window is resized (below).
+    if (const QString problem = drawnAndPickedAgree(item); !problem.isEmpty()) return fail(problem);
     // Hover (no timer: the planes are few): the plane brightens and the cursor becomes an open hand.
     send(QEvent::MouseMove, onPlane, Qt::NoButton, Qt::NoButton);
     if (app_.cutPlanes().value("planeHoverFace").toString() != QLatin1String("top") || app_.cutPlanes().value("cursor").toString() != QLatin1String("grab"))
@@ -558,6 +616,21 @@ class Smoke : public QObject {
     const craft::Vec3 panAfter = target();
     if (std::fabs(panAfter.x - panBefore.x) + std::fabs(panAfter.y - panBefore.y) + std::fabs(panAfter.z - panBefore.z) < 1e-6)
       return fail(QStringLiteral("a right drag away from the planes did not pan the camera"));
+    // The window is resized (down to its minimum, then up): the viewport follows through the application's own handlers, and the drawing and the
+    // picking still agree.
+    const QSize startSize = window_->size();
+    int resized = 0;
+    for (const QSize& size : {QSize(std::max(window_->minimumWidth(), 940), std::max(window_->minimumHeight(), 560)), QSize(1500, 900)}) {
+      window_->resize(size);
+      QEventLoop loop;
+      QTimer::singleShot(400, &loop, &QEventLoop::quit);
+      loop.exec();
+      if (window_->width() < size.width() - 60) continue;   // the screen cannot hold this size: not a failure of the application
+      ++resized;
+      if (const QString problem = drawnAndPickedAgree(item); !problem.isEmpty()) return fail(QStringLiteral("after resizing the window to %1 x %2: %3").arg(window_->width()).arg(window_->height()).arg(problem));
+    }
+    window_->resize(startSize);
+    if (resized == 0) return fail(QStringLiteral("the window could not be resized to any of the test sizes"));
     renderNow();
 #endif
   }
@@ -584,7 +657,7 @@ class Smoke : public QObject {
     };
     const auto send = [this, item](QEvent::Type type, QPoint local, Qt::MouseButton button, Qt::MouseButtons buttons) {
       const QPointF scene = item->mapToScene(QPointF(local));
-      QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), buttons, button, type);
+      injectMouse(scene, buttons, button, type);
     };
     const auto undoDepth = [this] { return app_.history().value("undoDepth").toInt(); };
     const auto target = [this] { return app_.camera()->pose().target(); };
@@ -879,7 +952,7 @@ class Smoke : public QObject {
     if (app_.tool() != "eraser") return fail(QStringLiteral("the Eraser tool was not available with three planes chosen"));
     const auto send = [this, item](QEvent::Type type, QPoint local, Qt::MouseButton button, Qt::MouseButtons buttons) {
       const QPointF scene = item->mapToScene(QPointF(local));
-      QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), buttons, button, type);
+      injectMouse(scene, buttons, button, type);
     };
     QPoint onPlane(-1, -1);
     for (int y = h / 6; y < h * 5 / 6 && onPlane.x() < 0; y += 3)
@@ -938,11 +1011,11 @@ class Smoke : public QObject {
         const QPointF local(viewport->width() / 2, viewport->height() / 3);
         const QPointF scene = viewport->mapToScene(local);
         if (hintWheel_) {
-          QWindowSystemInterface::handleWheelEvent(window_, scene, window_->mapToGlobal(scene), QPoint(), QPoint(0, 120), Qt::NoModifier);
+          QWindowSystemInterface::handleWheelEvent(window_, scene * window_->devicePixelRatio(), window_->mapToGlobal(scene) * window_->devicePixelRatio(), QPoint(), QPoint(0, 120), Qt::NoModifier);
         } else {
-          QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::NoButton, Qt::NoButton, QEvent::MouseMove);
-          QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonPress);
-          QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::NoButton, Qt::LeftButton, QEvent::MouseButtonRelease);
+          injectMouse(scene, Qt::NoButton, Qt::NoButton, QEvent::MouseMove);
+          injectMouse(scene, Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonPress);
+          injectMouse(scene, Qt::NoButton, Qt::LeftButton, QEvent::MouseButtonRelease);
         }
         QTimer::singleShot(100, this, [=, this] {
           if (hint->isVisible()) return fail(QStringLiteral("the hint badge stayed after the first %1").arg(hintWheel_ ? "wheel" : "press"));
@@ -970,9 +1043,9 @@ class Smoke : public QObject {
     };
     const auto clickItem = [this](QQuickItem* item) {
       const QPointF scene = item->mapToScene(QPointF(item->width() / 2, item->height() / 2));
-      QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::NoButton, Qt::NoButton, QEvent::MouseMove);
-      QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonPress);
-      QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::NoButton, Qt::LeftButton, QEvent::MouseButtonRelease);
+      injectMouse(scene, Qt::NoButton, Qt::NoButton, QEvent::MouseMove);
+      injectMouse(scene, Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonPress);
+      injectMouse(scene, Qt::NoButton, Qt::LeftButton, QEvent::MouseButtonRelease);
     };
     const auto key = [this](int code, Qt::KeyboardModifiers modifiers) {
       QWindowSystemInterface::handleKeyEvent(window_, QEvent::KeyPress, code, modifiers);
@@ -1011,9 +1084,9 @@ class Smoke : public QObject {
     if (!flipButton) return fail(QStringLiteral("the Flip toolbar button was not found"));
     const auto clickItem = [this](QQuickItem* item) {
       const QPointF scene = item->mapToScene(QPointF(item->width() / 2, item->height() / 2));
-      QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::NoButton, Qt::NoButton, QEvent::MouseMove);
-      QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonPress);
-      QWindowSystemInterface::handleMouseEvent(window_, scene, window_->mapToGlobal(scene), Qt::NoButton, Qt::LeftButton, QEvent::MouseButtonRelease);
+      injectMouse(scene, Qt::NoButton, Qt::NoButton, QEvent::MouseMove);
+      injectMouse(scene, Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonPress);
+      injectMouse(scene, Qt::NoButton, Qt::LeftButton, QEvent::MouseButtonRelease);
     };
     const auto key = [this](int code) {
       QWindowSystemInterface::handleKeyEvent(window_, QEvent::KeyPress, code, Qt::NoModifier);
@@ -1193,6 +1266,7 @@ int main(int argc, char* argv[]) {
   parser.addOption({"screenshot", "Save the rendered frame as a PNG (smoke test).", "path"});
   parser.addOption({"theme", "Start with this theme, dark or light (smoke test).", "name"});
   parser.addOption({"cut-face", "Choose a Cut by Face plane before the mold is generated; repeatable (smoke test).", "face"});
+  parser.addOption({"font-scale", "Scale the application font by this factor, as Windows' Text size setting does (development builds; the UI tour and the smoke tests).", "factor"});
   parser.addOption({"glass", "Draw the mold with the glass appearance (smoke test)."});
   parser.addOption({"mold-opacity", "Mold opacity, 0.05 to 1 (smoke test).", "value"});
   parser.addOption({"sprue-preview", "Select the Sprue tool and preview the funnel on the generated mold (smoke test; use with --generate-mold)."});
@@ -1230,6 +1304,14 @@ int main(int argc, char* argv[]) {
 
   if (parser.isSet("theme")) controller.setTheme(parser.value("theme"));
   if (parser.isSet("glass")) controller.setMoldGlass(true);
+  if (parser.isSet("font-scale")) {   // a larger system text size without a larger display scale
+    const double factor = parser.value("font-scale").toDouble();
+    if (factor > 0.25 && factor < 8) {
+      QFont font = QGuiApplication::font();
+      if (font.pointSizeF() > 0) font.setPointSizeF(font.pointSizeF() * factor); else font.setPixelSize(static_cast<int>(font.pixelSize() * factor));
+      QGuiApplication::setFont(font);
+    }
+  }
   if (parser.isSet("mold-opacity")) controller.setMoldOpacity(parser.value("mold-opacity").toDouble());
 
 #ifdef CRAFT_SMOKE_REAL_EVENTS

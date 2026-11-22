@@ -1,11 +1,13 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Layouts
 
 // A check box whose state reads at a glance in both themes. The Fusion style drew an unchecked box in the dark theme as a plain blue square
 // and a checked one as the same square with a faint tick, so "on" and "off" could hardly be told apart: the box here is empty with a visible
 // border when off and filled with the highlight colour and a white tick when on.
 CheckBox {
     id: control
+    Layout.minimumWidth: 80   // when in a layout: a long label wraps rather than widening the panel
 
     indicator: Rectangle {
         implicitWidth: 18
@@ -38,6 +40,6 @@ CheckBox {
         color: control.palette.windowText
         opacity: control.enabled ? 1.0 : 0.5
         verticalAlignment: Text.AlignVCenter
-        elide: Text.ElideRight
+        wrapMode: Text.Wrap   // a long label (a mold or piece name, or a larger text size) wraps instead of being cut off
     }
 }
