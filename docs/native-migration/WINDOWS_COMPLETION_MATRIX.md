@@ -40,7 +40,7 @@ Three separate completion levels are tracked and none is claimed until all its r
 |---|---|---|---|
 | P2-1 | Keyboard navigation, focus retention, popup lifecycle | not tested | R-UI-5: lists rebuild widgets and drop focus |
 | P2-2 | HiDPI / scaling / resize | not tested | |
-| P2-3 | Long paths (> MAX_PATH), network/removable drives, read-only folders | not tested | R-Export-3 |
+| P2-3 | Long paths (> MAX_PATH), network/removable drives, read-only folders | **pass in Debug (2026-11-22); defects found and fixed** | Long paths were broken for STL, 3MF and Master export and for the Python analyses (D-115). Network path (loopback SMB share), read-only file and write-denied folder tested; a removable drive could not be (none here). Release re-run pending |
 | P2-4 | Orbit rate and GPU memory at 10.7M triangles | not tested | Load time (2.5 s) was measured |
 | P2-5 | Non-sphere representative parts for cavity / Master Mold timing | not tested | |
 | P2-6 | Save/open at the 512 MiB limit (13-15 s) | measured | candidate optimisation: skip the second SHA-256 |

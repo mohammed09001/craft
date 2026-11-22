@@ -12,6 +12,7 @@
 #include <cmath>
 
 #include "AnalysisProtocol.h"
+#include "AppPaths.h"
 #include "AppController.h"
 #include "reports/EngineeringReports.h"
 #include "reports/GenerationReadiness.h"
@@ -378,7 +379,7 @@ void AppController::runMoldabilityAnalysis() {
   reportsResult_.clear();
   reportsStage_ = QStringLiteral("Starting…");
   reportsJobId_ = analysis_.startJob(QLatin1String(analysis::kCommandMoldabilityAnalysis),
-                                     {{"sourcePath", model_->sourcePath},
+                                     {{"sourcePath", AppPaths::pathForWorker(model_->sourcePath)},
                                       {"modelId", QString::fromStdString(model_->modelId)},
                                       {"geometryVersion", QString::fromStdString(model_->geometryVersion)}},
                                      kMoldabilityTimeoutMs);

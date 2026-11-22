@@ -1097,6 +1097,63 @@ class WorkflowTest : public QObject {
     QCOMPARE(app->scene()->hiddenBodyIds(), QSet<QString>{firstBody});
   }
 
+  // --- paths over Windows' MAX_PATH (P2-3) ----------------------------------------------------------------------------------------------
+
+  void importExportSaveAndOpenWorkThroughAPathOverMaxPath() {
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    QString deep = QDir::toNativeSeparators(root.path());
+    for (int n = 1; deep.size() < 300; ++n) deep += QStringLiteral("\\segment-%1-").arg(n) + QString(36, QLatin1Char('x'));
+    const QString folder = QDir::fromNativeSeparators(deep);
+    QVERIFY(QDir().mkpath(folder));
+    const QString stlPath = folder + QStringLiteral("/bracket.stl");
+    QVERIFY(QFile::copy(bracket(), stlPath));
+    QVERIFY(stlPath.size() > 260);
+
+    auto app = makeApp();
+    QSignalSpy exported(app.get(), &AppController::exportFinished);
+    app->importStlFile(stlPath);   // the file is read through the standard library
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready" || app->modelPhase() == "error"; }));
+    QVERIFY2(app->modelPhase() == "ready", qPrintable(app->modelMessage()));
+
+    // The Python worker is given the same path and opens the file itself: it must reach it too.
+    app->runImportAnalysis();
+    QVERIFY(waitFor([&] { return app->analysisPhase() == "complete" || app->analysisPhase() == "error"; }, 120000));
+    QVERIFY2(app->analysisPhase() == "complete", qPrintable(app->analysisError()));
+    QCOMPARE(app->analysisReport().value("import_succeeded").toBool(), true);
+    app->runMoldabilityAnalysis();   // the engineering reports run on the same file
+    QVERIFY(waitFor([&] { const QString p = app->engineeringReports().value("phase").toString(); return p == "complete" || p == "error"; }, 120000));
+    QVERIFY2(app->engineeringReports().value("phase").toString() == "complete", qPrintable(app->engineeringReports().value("error").toString()));
+
+    app->setCutFaceEnabled("left", true);
+    app->generateMold();
+    QVERIFY(waitFor([&] { return app->moldPhase() == "complete" || app->moldPhase() == "error"; }, 120000));
+    QVERIFY2(app->moldPhase() == "complete", qPrintable(app->moldError()));
+
+    app->exportMoldBodiesTo(folder + QStringLiteral("/stl-export"));
+    QVERIFY(exported.count() >= 1);
+    QVERIFY2(exported.last().at(0).toBool(), qPrintable(exported.last().at(1).toString()));
+    const QStringList written = exported.last().at(2).toStringList();
+    QVERIFY(!written.isEmpty());
+    for (const QString& file : written) QVERIFY2(QFileInfo::exists(file), qPrintable(file));
+
+    app->exportMoldBodies3mfTo(folder + QStringLiteral("/mold.3mf"));
+    QVERIFY2(exported.last().at(0).toBool(), qPrintable(exported.last().at(1).toString()));
+    QVERIFY(QFileInfo::exists(folder + QStringLiteral("/mold.3mf")));
+
+    const QString projectPath = folder + QStringLiteral("/p.craft");
+    app->saveProjectToFile(projectPath);
+    QVERIFY(waitFor([&] { return !app->busy() && QFileInfo::exists(projectPath); }));
+    QVERIFY(waitFor([&] { return !app->project().value("dirty").toBool(); }));
+    auto reopened = makeApp();
+    reopened->openProjectFile(projectPath);
+    QVERIFY(waitFor([&] { return reopened->modelPhase() == "ready" && !reopened->project().value("opening").toBool(); }));
+    bool leftChosen = false;
+    for (const QVariant& f : reopened->cutFaces())
+      if (f.toMap().value("face").toString() == QLatin1String("left")) leftChosen = f.toMap().value("enabled").toBool();
+    QVERIFY(leftChosen);   // what was saved came back
+  }
+
   // --- dragging a plane with the right button (reference: cuttingPlane3dRuntime.ts, split-face commitPlaneDrag) ---------------
 
   void aCuttingPlaneFollowsARightButtonDragAndCommitsOneUndoStep() {

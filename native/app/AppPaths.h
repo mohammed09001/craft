@@ -16,6 +16,9 @@ struct AppPaths {
   static QString dataDirectory();
   static QString logDirectory();
   static QString logFilePath();
+  /// A file path as the Python worker must be given it: the extended-length form ("\\?\C:\...") when the path is MAX_PATH or more, which the worker's
+  /// open() needs while Windows' long-path setting is off (io/path/ExtendedPath.h); otherwise the path unchanged.
+  static QString pathForWorker(const QString& path);
 
   /// Where unsaved work is autosaved for crash recovery. CRAFT_AUTOSAVE_DIR overrides it (tests, portable setups).
   static QString autosaveDirectory();

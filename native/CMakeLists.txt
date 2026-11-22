@@ -90,6 +90,8 @@ craft_target_defaults(craft_core)
 
 # --- craft_io: file formats (no Qt) -----------------------------------------
 add_library(craft_io STATIC
+  io/path/ExtendedPath.cpp
+  io/path/ExtendedPath.h
   io/stl/Stl.cpp
   io/stl/Stl.h
   io/threemf/ThreeMf.cpp

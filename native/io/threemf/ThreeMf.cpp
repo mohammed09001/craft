@@ -12,6 +12,7 @@
 #include <unordered_map>
 
 #include "contracts/Operation.h"
+#include "path/ExtendedPath.h"
 
 namespace craft::threemf {
 
@@ -232,7 +233,8 @@ std::vector<std::uint8_t> encode(const std::vector<Object>& objects, const std::
 
 void write(const std::filesystem::path& path, const std::vector<Object>& objects, const std::string& title) {
   const auto bytes = encode(objects, title);
-  std::filesystem::path partial = path;
+  const std::filesystem::path target = io::extendedLength(path, 8);   // 8: the temporary suffix below (path over MAX_PATH: io/path/ExtendedPath.h)
+  std::filesystem::path partial = target;
   partial += ".part";
   std::error_code ec;
   {
@@ -246,11 +248,11 @@ void write(const std::filesystem::path& path, const std::vector<Object>& objects
       throw CodedError("threemf_write_failed", "Cannot write " + pathText(path));
     }
   }
-  std::filesystem::rename(partial, path, ec);
+  std::filesystem::rename(partial, target, ec);
   if (ec) {
-    std::filesystem::remove(path, ec);  // rename onto an existing file is not portable everywhere
+    std::filesystem::remove(target, ec);  // rename onto an existing file is not portable everywhere
     std::error_code ec2;
-    std::filesystem::rename(partial, path, ec2);
+    std::filesystem::rename(partial, target, ec2);
     if (ec2) {
       std::filesystem::remove(partial, ec);
       throw CodedError("threemf_write_failed", "Cannot finish " + pathText(path) + ": " + ec2.message());
@@ -511,7 +513,7 @@ Report validate(const std::vector<std::uint8_t>& bytes) {
 }
 
 Report validateFile(const std::filesystem::path& path) {
-  std::ifstream file(path, std::ios::binary);
+  std::ifstream file(io::extendedLength(path), std::ios::binary);
   if (!file) {
     Report r;
     r.problem = "cannot open " + pathText(path);

@@ -5,6 +5,10 @@
 #include <QFileInfo>
 #include <QStandardPaths>
 
+#include <filesystem>
+
+#include "path/ExtendedPath.h"
+
 namespace craft::app {
 
 namespace {
@@ -113,6 +117,11 @@ QString AppPaths::modelCacheDirectory() {
   const QString path = !override.isEmpty() ? override : QDir(QStandardPaths::writableLocation(QStandardPaths::CacheLocation)).filePath(QStringLiteral("models"));
   QDir().mkpath(path);
   return path;
+}
+
+QString AppPaths::pathForWorker(const QString& path) {
+  const std::filesystem::path extended = craft::io::extendedLength(std::filesystem::path(path.toStdWString()));
+  return extended.native() == path.toStdWString() ? path : QString::fromStdWString(extended.native());
 }
 
 QString AppPaths::logFilePath() { return QDir(logDirectory()).filePath(QStringLiteral("craft.log")); }

@@ -21,6 +21,7 @@
 #include "geometry/MeshAnalysis.h"
 #include "mold/Segmentation.h"
 #include "stl/Stl.h"
+#include "path/ExtendedPath.h"
 #include "threemf/ThreeMf.h"
 
 Q_LOGGING_CATEGORY(lcApp, "craft.app")
@@ -802,7 +803,7 @@ void AppController::exportMoldBodies3mfTo(const QString& requestedPath) {
     const threemf::Report report = threemf::validateFile(path);
     if (!report.ok || report.objects.size() != objects.size()) {
       std::error_code ec;
-      std::filesystem::remove(path, ec);  // never leave a file we could not verify
+      std::filesystem::remove(io::extendedLength(path), ec);  // never leave a file we could not verify
       throw CodedError("threemf_validation_failed",
                        "The 3MF file did not pass read-back validation: " + (report.problem.empty() ? std::string("object count differs") : report.problem));
     }
@@ -878,7 +879,7 @@ void AppController::runImportAnalysis() {
   analysisStage_ = QStringLiteral("starting");
   analysisJobId_ = analysis_.startJob(
       QLatin1String(analysis::kCommandImportAnalysis),
-      {{"sourcePath", model_->sourcePath},
+      {{"sourcePath", AppPaths::pathForWorker(model_->sourcePath)},
        {"modelId", QString::fromStdString(model_->modelId)},
        {"geometryVersion", QString::fromStdString(model_->geometryVersion)}});
   setBusy(true, QStringLiteral("analysis"), 0);

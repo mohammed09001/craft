@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "contracts/Operation.h"
+#include "path/ExtendedPath.h"
 
 namespace craft::stl {
 
@@ -157,15 +158,16 @@ std::vector<std::uint8_t> readFileBytes(const std::filesystem::path& path, std::
   if (lowerExtension(path) != ".stl") {
     throw CodedError("stl_invalid_selection", "Only .stl files are supported.");
   }
+  const std::filesystem::path ioPath = io::extendedLength(path);   // a path of MAX_PATH or more needs the extended form (io/path/ExtendedPath.h)
   std::error_code error;
-  const std::uintmax_t size = std::filesystem::file_size(path, error);
+  const std::uintmax_t size = std::filesystem::file_size(ioPath, error);
   if (error) throw CodedError("stl_unreadable", "The STL file could not be read.");
   if (size == 0) throw CodedError("stl_invalid_selection", "The STL file is empty.");
   if (size > maxFileBytes) {
     throw CodedError("stl_invalid_selection", "The STL file is too large for local loading.");
   }
 
-  std::ifstream stream(path, std::ios::binary);
+  std::ifstream stream(ioPath, std::ios::binary);
   std::vector<std::uint8_t> bytes(static_cast<std::size_t>(size));
   if (!stream) throw CodedError("stl_unreadable", "The STL file could not be read.");
   const std::size_t chunk = std::max<std::size_t>(chunkBytes, 1);
@@ -262,7 +264,8 @@ void writeBinary(const std::filesystem::path& path, const MeshPayload& mesh,
 
   // Write to a sibling temp file and rename so a failed export never leaves a
   // truncated file under the requested name.
-  std::filesystem::path temporary = path;
+  const std::filesystem::path target = io::extendedLength(path, 12);   // 12: the temporary suffix below
+  std::filesystem::path temporary = target;
   temporary += ".craft-tmp";
   {
     std::ofstream stream(temporary, std::ios::binary | std::ios::trunc);
@@ -271,7 +274,7 @@ void writeBinary(const std::filesystem::path& path, const MeshPayload& mesh,
     }
   }
   std::error_code error;
-  std::filesystem::rename(temporary, path, error);
+  std::filesystem::rename(temporary, target, error);
   if (error) {
     std::filesystem::remove(temporary, error);
     throw CodedError("stl_write_failed", "The STL file could not be written.");

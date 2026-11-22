@@ -13,6 +13,7 @@
 #include <set>
 #include <system_error>
 
+#include "path/ExtendedPath.h"
 #include "stl/Stl.h"
 #include "threemf/ThreeMf.h"
 
@@ -271,13 +272,17 @@ std::string excludedSummary(const std::vector<ExcludedItem>& excluded) {
 
 }  // namespace
 
-MasterExportResult writeMasterToolingExport(const MasterExportPlan& plan, const fs::path& parentFolder, const MasterExportOptions& options,
+MasterExportResult writeMasterToolingExport(const MasterExportPlan& plan, const fs::path& requestedParent, const MasterExportOptions& options,
                                             const CancellationToken& cancel) {
   if (plan.files.empty()) throw CodedError("master_export_nothing", excludedSummary(plan.excluded));
 
+  // Everything below is built from parentFolder, in the extended-length form when the folder, the export folder and the file names it adds can
+  // pass MAX_PATH (a deep OneDrive folder): 230 covers the folder name and the longest file name. The result and the messages use the ordinary
+  // form (equestedParent, displayPath).
+  const fs::path parentFolder = io::extendedLength(requestedParent, 230);
   std::error_code ec;
   fs::create_directories(parentFolder, ec);
-  if (ec || !fs::is_directory(parentFolder)) writeFailed("The export folder '" + parentFolder.string() + "' could not be created.");
+  if (ec || !fs::is_directory(parentFolder)) writeFailed("The export folder '" + requestedParent.string() + "' could not be created.");
 
   // Never overwrite: take the first free "<stem>_master_tooling[_N]".
   const std::string baseName = plan.stem + "_master_tooling";
@@ -285,14 +290,14 @@ MasterExportResult writeMasterToolingExport(const MasterExportPlan& plan, const 
   for (int n = 1; n < 10000; ++n) {
     finalFolder = parentFolder / pathFromUtf8(n == 1 ? baseName : baseName + "_" + std::to_string(n));
     if (!fs::exists(finalFolder, ec)) break;
-    if (n == 9999) writeFailed("Too many earlier exports exist in '" + parentFolder.string() + "'.");
+    if (n == 9999) writeFailed("Too many earlier exports exist in '" + requestedParent.string() + "'.");
   }
   fs::path tempFolder = finalFolder;
   tempFolder += ".craft-export-tmp";
   fs::remove_all(tempFolder, ec);  // a leftover of an earlier interrupted export of the same name
   ec.clear();
   fs::create_directory(tempFolder, ec);
-  if (ec) writeFailed("The export folder could not be created in '" + parentFolder.string() + "'.");
+  if (ec) writeFailed("The export folder could not be created in '" + requestedParent.string() + "'.");
 
   struct Cleanup {
     fs::path path;
@@ -375,14 +380,15 @@ MasterExportResult writeMasterToolingExport(const MasterExportPlan& plan, const 
   totalBytes += static_cast<std::uintmax_t>(manifest.size());
 
   fs::rename(tempFolder, finalFolder, ec);
-  if (ec) writeFailed("The finished export could not be moved into place as '" + finalFolder.string() + "' (" + ec.message() + ").");
+  if (ec) writeFailed("The finished export could not be moved into place as '" + io::displayPath(finalFolder).string() + "' (" + ec.message() + ").");
   cleanup.armed = false;
 
   MasterExportResult result;
-  result.folder = finalFolder;
-  result.manifest = finalFolder / "manifest.json";
-  for (const WrittenFile& w : written) result.files.push_back(finalFolder / pathFromUtf8(w.planned->fileName));
-  if (threeMf) result.threeMf = finalFolder / pathFromUtf8(threeMf->fileName);
+  const fs::path shownFolder = io::displayPath(finalFolder);   // what the user recognises: no \\?\ prefix in the panel, the log or the manifest
+  result.folder = shownFolder;
+  result.manifest = shownFolder / "manifest.json";
+  for (const WrittenFile& w : written) result.files.push_back(shownFolder / pathFromUtf8(w.planned->fileName));
+  if (threeMf) result.threeMf = shownFolder / pathFromUtf8(threeMf->fileName);
   result.warnings = warnings;
   result.excluded = plan.excluded;
   result.totalBytes = totalBytes;
