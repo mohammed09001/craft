@@ -15,7 +15,7 @@ Three separate completion levels are tracked and none is claimed until all its r
 | P0-3 | Mold geometry validity vs the reference | core/mold, engines | equivalence suites against fixtures recorded from the real TypeScript runtime | pass (checkpoint) | 13 generators, 14 fixture files, mutation-tested | unchanged; re-run with P0-1/2 |
 | P0-4 | No data loss: project save/open/autosave/recovery | io/project | tst_project 26, tst_app_workflow, crash-drill (26/26 real kills) | pass (checkpoint) | R-Project-3 | unchanged |
 | P0-5 | Cancelled / timed-out jobs do not hold the app or leak CPU/RAM forever | app jobs | D-106 | partial | A running Boolean cannot be interrupted; the thread ends in the background with its result ignored. Bounded, not preemptive | documented limit; blocker only if a measurement shows unbounded growth |
-| P0-6 | Package installs and runs on a machine without Qt/Python/MSVC | packaging | `verify-install.ps1` (hostile environment); clean VM | partial | Hostile-environment run passes; no clean VM available here | blocked on a clean Windows image for the final row |
+| P0-6 | Package installs and runs on a machine without Qt/Python/MSVC | packaging | `verify-install.ps1` (hostile environment); clean VM | partial | Hostile-environment run passes on the rebuilt package (2026-11-22, layout and extracted ZIP); no clean VM available here | blocked on a clean Windows image for the final row |
 | P0-7 | Qt Quick 3D / Craft licensing decided | - | owner + legal | **blocked (owner)** | R-License-1 | decision recorded; NOT something engineering can close |
 
 ## P1 - required Windows functionality and parity
@@ -51,7 +51,7 @@ Three separate completion levels are tracked and none is claimed until all its r
 
 | ID | Item | Status | Notes |
 |---|---|---|---|
-| PK-1 | Portable Windows x64 ZIP builds and passes `verify-install.ps1` | pass (checkpoint) | 133.1 MB layout, 71.2 MB ZIP; to be rebuilt after this session's changes |
+| PK-1 | Portable Windows x64 ZIP builds and passes `verify-install.ps1` | **pass (2026-11-22, rebuilt on d7dfbcf)** | 133.2 MB layout (1589 files), 71.2 MB ZIP, SHA-256 DEDC080FEC07822155106470554BB39A0B8C7650A7790F2B4042AC18104CA494, D:\CraftNative\build\windows-package\packages\Craft-0.1.0-windows-x64.zip. verify-install passes on the installed layout and on the ZIP extracted into a fresh folder (34 checks each: layout, 131-binary dependency closure, hostile-environment run with the bundled Python, install folder untouched); the extracted file list equals the installed one. The packaged app also starts normally in that environment (window "Craft", responsive, closes with exit 0, empty stderr) |
 | PK-2 | Installer (WiX or equivalent): install, Start menu, uninstall, upgrade, `.craft` association, data preservation | **blocked** | WiX not installed; download denied at the checkpoint. Re-check tool availability; if still denied, owner must allow it |
 | PK-3 | Update strategy defined | not started | Documentation task; recommended default: manual download of a signed installer for v1, no in-app updater |
 | PK-4 | Dependency + licence inventory of the release package | partial | `licenses/THIRD_PARTY_NOTICES.txt`; legal review is owner-controlled |
