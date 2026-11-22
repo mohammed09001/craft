@@ -1679,7 +1679,8 @@ QVariantMap AppController::segmentation() const {
 }
 
 QVariantMap AppController::stateSummary() const {
-  QVariantMap s{{"modelPhase", modelPhase_},
+  QVariantMap s{{"applicationVersion", applicationVersion()},
+                {"modelPhase", modelPhase_},
                 {"moldPhase", moldPhase_},
                 {"analysisPhase", analysisPhase_},
                 {"reportsPhase", reportsPhase_},

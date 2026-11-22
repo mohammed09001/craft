@@ -937,7 +937,7 @@ int main(int argc, char* argv[]) {
   QGuiApplication application(argc, argv);
   QCoreApplication::setOrganizationName(QStringLiteral("Craft"));
   QCoreApplication::setApplicationName(QStringLiteral("Craft"));
-  QCoreApplication::setApplicationVersion(QStringLiteral("0.1.0"));
+  QCoreApplication::setApplicationVersion(QStringLiteral(CRAFT_APP_VERSION));   // the CMake project version, also the executable's file version
   QQuickStyle::setStyle(QStringLiteral("Fusion"));
   installLogging();
 

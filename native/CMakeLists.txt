@@ -6,6 +6,10 @@ project(CraftNative
   LANGUAGES CXX
 )
 
+if(WIN32)
+  enable_language(RC)   # the executable's version resource (app/craft.rc.in)
+endif()
+
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
   message(FATAL_ERROR "In-source builds are not supported. Use a preset: cmake --preset windows-debug")
 endif()

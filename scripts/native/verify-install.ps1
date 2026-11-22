@@ -139,6 +139,12 @@ if (Test-Path $summaryPath) {
   Check 'the application resolved the installed native kernels' ($s.analysisKernels -and (& $norm $s.analysisKernels) -eq (& $norm (Join-Path $InstallDir 'analysis\craft_analysis_kernels.dll'))) "kernels=$($s.analysisKernels)"
   Check 'worker reports Python 3.13.17' ($s.analysisWorkerInfo.python -eq '3.13.17') "python=$($s.analysisWorkerInfo.python)"
   Check 'engine version resolved from the bundled metadata' ($s.analysisWorkerInfo.engine.version -match '^\d+\.\d+\.\d+') "engine=$($s.analysisWorkerInfo.engine | ConvertTo-Json -Compress)"
+  # One version: what the executable carries (Explorer's Details tab, what an installer compares to decide an upgrade) is what the application
+  # reports and writes into projects and exports. A mismatch would mean the version resource and the code drifted apart.
+  $versionInfo = (Get-Item $exe).VersionInfo
+  Check 'Craft.exe carries a product version' ($versionInfo.ProductVersion -match '^\d+\.\d+\.\d+$') "ProductVersion=$($versionInfo.ProductVersion)"
+  Check 'Craft.exe file version equals its product version' ($versionInfo.FileVersion -eq $versionInfo.ProductVersion) "file=$($versionInfo.FileVersion) product=$($versionInfo.ProductVersion)"
+  Check 'the application reports the version the executable carries' ($s.applicationVersion -eq $versionInfo.ProductVersion) "app=$($s.applicationVersion) exe=$($versionInfo.ProductVersion)"
   Check 'STL imported' ($s.modelPhase -eq 'ready')
   Check 'mold generated (Manifold kernel)' ($s.moldPhase -eq 'complete')
   Check 'import analysis completed (Python)' ($s.analysisPhase -eq 'complete')

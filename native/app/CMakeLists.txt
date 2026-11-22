@@ -39,6 +39,13 @@ craft_target_defaults(craft_app_lib)
 # --- the application ----------------------------------------------------------
 qt_add_executable(craft WIN32 MACOSX_BUNDLE main.cpp)
 target_link_libraries(craft PRIVATE craft_app_lib Qt6::Quick Qt6::QuickControls2 Qt6::QuickDialogs2)
+# One source for the version: the project's. The application reports it, the executable carries it as its file and product version, and the
+# package file name has it (docs/native-migration/UPDATE_STRATEGY.md).
+target_compile_definitions(craft PRIVATE CRAFT_APP_VERSION="${PROJECT_VERSION}")
+if(WIN32)
+  configure_file(craft.rc.in "${CMAKE_CURRENT_BINARY_DIR}/craft.rc" @ONLY)
+  target_sources(craft PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/craft.rc")
+endif()
 if(CRAFT_BUILD_TESTS)
   # The smoke test can drive the window with real platform mouse events (--sprue-gizmo-events). That uses Qt's private
   # platform event interface, so packaged (tests-off) builds neither link it nor contain the code.

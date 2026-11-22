@@ -57,6 +57,6 @@ An installer (MSI through CPack's WiX generator, per-user install scope so it ca
 1. **Qt licensing (blocking).** The Qt SBOM on this machine records Qt Quick 3D 6.8.3 as `Commercial OR GPL-3.0-only` (not LGPL; Qt Base, Declarative and Shader Tools do offer LGPL-3.0). The viewport is built on Qt Quick 3D, so distributing Craft with the open-source Qt means either a commercial Qt license or releasing Craft under the GPL-3.0. This must be decided by the product owner; until then the package is for internal testing. `licenses/THIRD_PARTY_NOTICES.txt` says so.
 2. **Craft's own license** is not chosen yet.
 3. **Code signing.** There is no certificate: the executable, the DLLs and any installer are unsigned, so Windows SmartScreen will warn on a downloaded copy. Signing needs a certificate and a signing step in the build; neither exists.
-4. **No update mechanism** exists or is designed.
+4. **Updates:** no update mechanism exists, by design for v1; the proposed strategy (manual signed installer, no updater, no network access) is in `UPDATE_STRATEGY.md` and waits for the owner's approval.
 5. **macOS** needs its own bundling (`.app`, a relocatable Python such as python-build-standalone, `macdeployqt`, signing and notarization) and a real Mac runner. None of it was attempted; nothing here has been run on macOS.
 6. There is no native **CI** job; builds and verification are run by hand with the scripts above.
