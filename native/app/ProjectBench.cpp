@@ -95,6 +95,10 @@ struct ProjectBench::Impl {
     { const auto& b = app.model()->groundedBounds; result["sizeMm"] = QJsonArray{b.max.x - b.min.x, b.max.y - b.min.y, b.max.z - b.min.z}; }
     result["memoryAfterImport"] = processMemory();
     if (options.kind == QLatin1String("master")) {
+      // The application's limit is the reference's 180 s; a measurement can ask for longer to see how long a part really takes.
+      bool limitOk = false;
+      const int limitMs = qEnvironmentVariable("CRAFT_BENCH_MASTER_TIMEOUT_MS").toInt(&limitOk);
+      if (limitOk && limitMs > 0) app.setMasterMoldTimeoutMs(limitMs);
       timeJob(QStringLiteral("master"), [&] { app.generateMasterMold(); }, [&] { return app.masterMold().value("generating").toBool(); },
               [&] { return app.masterMold().value("uiKind").toString() + QLatin1Char(' ') + app.masterMold().value("banner").toString(); });
     } else {

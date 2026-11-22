@@ -147,6 +147,9 @@ void AppController::generateMasterMold() {
         MasterMoldEngineHooks hooks;
         hooks.cancel = token;
         hooks.onStage = [progress](const MasterMoldProgressStage& stage) {
+          // One line per stage change with the time since the run started: where a slow Master Mold spends its time (P2-5).
+          qCInfo(lcApp).noquote() << "Master Mold stage" << QString::fromStdString(stage.stage) << QString::fromStdString(stage.detail.value_or(std::string()))
+                                  << "at" << qRound64(stage.elapsedMs) << "ms";
           if (progress) progress(stage.stage, (stage.stageIndex + 1.0) / stage.stageCount);
         };
         return evaluateMasterMoldGeneration(*engine, request, hooks);

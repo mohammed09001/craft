@@ -111,8 +111,16 @@ MeshPayload cylinderPrismPayload(const Point3& direction, const Point3& center, 
 
 DemoldVerificationResult verifyDemoldTranslationByVector(IMeshGeometryEngine& engine, const SolidPtr& tool, const SolidPtr& target,
                                                          const Point3& direction, double clearanceDistanceMm, double toleranceMm,
-                                                         double volumeToleranceMm3, int coarseSampleCount) {
+                                                         double volumeToleranceMm3, int coarseSampleCount, bool wantCollisionDistance) {
+  const Bounds3 toolBounds = tool->bounds();
+  const Bounds3 targetBounds = target->bounds();
+  const double gap = std::max(toleranceMm, 1e-9);   // boxes this far apart cannot touch, whatever the rounding of the translation
   const auto overlapVolumeAt = [&](double distance) {
+    const Point3 shift{direction.x * distance, direction.y * distance, direction.z * distance};
+    if (targetBounds.min.x + shift.x > toolBounds.max.x + gap || targetBounds.max.x + shift.x < toolBounds.min.x - gap ||
+        targetBounds.min.y + shift.y > toolBounds.max.y + gap || targetBounds.max.y + shift.y < toolBounds.min.y - gap ||
+        targetBounds.min.z + shift.z > toolBounds.max.z + gap || targetBounds.max.z + shift.z < toolBounds.min.z - gap)
+      return 0.0;
     const SolidPtr translated = engine.translate(target, direction.x * distance, direction.y * distance, direction.z * distance);
     return engine.intersect(tool, translated)->volume();
   };
@@ -131,6 +139,7 @@ DemoldVerificationResult verifyDemoldTranslationByVector(IMeshGeometryEngine& en
   if (!firstCollision) return {true, std::nullopt};
 
   double lo = previousClear, hi = *firstCollision;
+  if (!wantCollisionDistance) return {false, hi};
   for (int i = 0; i < kRefinementIterations; ++i) {
     const double mid = (lo + hi) / 2;
     if (collidesAt(mid)) hi = mid; else lo = mid;
@@ -176,7 +185,7 @@ ReleaseResult verifyWorkingMoldRelease(IMeshGeometryEngine& engine, const Workin
       const double clearance = sweepClearance(env.bounds, candidate);
       const auto vsPart = verifyDemoldTranslationByVector(engine, part, carved[static_cast<std::size_t>(pieceIndex)], candidate, clearance,
                                                           env.policy.surfaceToleranceMm, env.volumeTolerance);
-      const bool siblingsOk = !remainingUnion || verifyDemoldTranslationByVector(engine, remainingUnion, carved[static_cast<std::size_t>(pieceIndex)],
+      const bool siblingsOk = !vsPart.removable ? false : !remainingUnion || verifyDemoldTranslationByVector(engine, remainingUnion, carved[static_cast<std::size_t>(pieceIndex)],
                                                                                  candidate, clearance, env.policy.surfaceToleranceMm,
                                                                                  env.volumeTolerance).removable;
       if (vsPart.removable && siblingsOk) return std::make_pair(candidate, clearance);

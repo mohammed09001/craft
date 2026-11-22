@@ -613,3 +613,11 @@ Fresh evidence for `EXECUTION_REPORT.md` instead of memory of earlier runs. Pack
 ative/tests/fixtures/projects/format-1.0-full.craft, SHA-256 dec36faf...f842) and added 	heFrozenFormat1_0FileStillOpens; flipping one byte of the file fails it (checked), the restored file passes. .gitattributes marks *.craft binary.
 - P1-10: two app-level tests added (saving a linked project embeds the model, a changed linked model is refused with the relink prompt); with the existing relink test, 3 pass. tst_project 35 passed, 1 skipped (the generator slot).
 - Decision D-121 (embedded-only for v1) is the matrix's recommended default and awaits the owner's confirmation.
+
+### P2-5: Master Mold timing
+
+- Added a one-line stage log (stage, detail, elapsed ms) to the Master Mold hook and a bench-only `CRAFT_BENCH_MASTER_TIMEOUT_MS`. With them: the small cup took 234 s and ended "blocked" (the reference's behaviour). Temporary timers (removed) showed the planner's search at about 0.2 s and piece construction under 3 s; the rest was the release sweep (D-122, R-Parts-2).
+- Three changes that keep every `removable` answer: no bisection unless the distance is wanted, no Boolean when the moved bounding box is clear of the tool's, no sibling sweep after a failed part sweep. Small cup 234 s to 10.2 s with a character-identical outcome; medium ring success in 125.7 s; medium gear success in about 450 s; medium cup "blocked" in 54.7 s (all three had no result in 180 s before).
+- A profile of the gear: 91 Booleans took 288 s of 446 s, about 3.2 s each; the rest of the speed-up would need a faster kernel, parallel Booleans or a coarser sweep (not done: it changes answers).
+- Verified: Release `tst_master_equivalence`, `tst_master_store`, `tst_master_export`, `app_smoke_master` pass; full rebuild and full Release ctest 46/46 in 266.6 s (it was 1141 s: the equivalence suite is now 128 s). No UI change, so no tour.
+- Slips on the way, no harm: a launch with nested quoting that never started (its waiter was stopped), an edit before reading the file, and a PowerShell alias (`R` is `Invoke-History`) that made a patch script do nothing; each was noticed and redone.

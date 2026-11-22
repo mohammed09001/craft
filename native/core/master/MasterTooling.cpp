@@ -707,7 +707,7 @@ OnePieceAttempt attemptOnePiece(IMeshGeometryEngine& engine, const MasterCastTar
 
   const MasterDir releaseDirection = masterDirFlip(pourFace);
   const Point3 releaseVector = masterDirVector(releaseDirection);
-  const auto sweep = verifyDemoldTranslationByVector(engine, targetSolid, constructed.solid, releaseVector, sweepClearanceMm, policy.surfaceToleranceMm, volumeTolerance);
+  const auto sweep = verifyDemoldTranslationByVector(engine, targetSolid, constructed.solid, releaseVector, sweepClearanceMm, policy.surfaceToleranceMm, volumeTolerance, 32, true);   // the distance seeds the lock localization
   if (!sweep.removable) {
     // Exact lock localization: where the case jams against the target at first contact (seeds the localized-core search).
     if (sweep.firstCollisionDistanceMm) {

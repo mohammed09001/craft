@@ -106,10 +106,13 @@ struct DemoldVerificationResult {
   bool removable = false;
   std::optional<double> firstCollisionDistanceMm;
 };
-/// Exact translation sweep (masterMoldDemold.verifier.ts verifyDemoldTranslationByVector).
+/// Exact translation sweep (masterMoldDemold.verifier.ts verifyDemoldTranslationByVector). `removable` is exact. `firstCollisionDistanceMm` is
+/// the bisected distance of first contact only when `wantCollisionDistance` is set (twelve more Booleans); otherwise it is the first colliding
+/// sample, which no caller that only asks "can it be removed" looks at. A step whose moved bounding box is clearly clear of the tool's cannot
+/// collide, so its Boolean is skipped (P2-5: the same answer, far fewer exact operations).
 DemoldVerificationResult verifyDemoldTranslationByVector(IMeshGeometryEngine& engine, const SolidPtr& tool, const SolidPtr& target,
                                                          const Point3& direction, double clearanceDistanceMm, double toleranceMm,
-                                                         double volumeToleranceMm3, int coarseSampleCount = 32);
+                                                         double volumeToleranceMm3, int coarseSampleCount = 32, bool wantCollisionDistance = false);
 
 /// Height-field cutting tool following one piece's parting curve near the part and exactly flat beyond `outerRadiusMm`.
 SolidPtr heightFieldPartingSolid(IMeshGeometryEngine& engine, const std::vector<Point3>& curvePoints, const Point3& flatDirection, double flatOffsetMm,
