@@ -79,6 +79,13 @@ AppController::AppController(std::shared_ptr<IMeshGeometryEngine> engine,
     connect(this, signal, this, &AppController::refreshSelectionOverlay);
   }
   connect(&scene_, &SceneModel::sceneChanged, this, &AppController::refreshSelectionOverlay);
+  // The list models follow the lists they mirror: the same signals the QVariantList properties notify with.
+  connect(this, &AppController::moldInputsChanged, this, [this] { cutFaceModel_.setItems(cutFaces()); });
+  connect(this, &AppController::spruesChanged, this, [this] { sprueModel_.setItems(sprues()); });
+  connect(this, &AppController::segmentationChanged, this, [this] { extensionModel_.setItems(segmentation().value(QStringLiteral("extensions")).toList()); });
+  connect(this, &AppController::masterMoldChanged, this, [this] { masterSetModel_.setItems(masterMold().value(QStringLiteral("sets")).toList()); });
+  cutFaceModel_.setItems(cutFaces());
+
   // The Sprue tool's glass look and preview follow the tool and the mold.
   // Cutting-plane slabs follow the faces, the mold, the tool and the part.
   for (auto signal : {&AppController::moldChanged, &AppController::moldInputsChanged, &AppController::segmentationChanged,

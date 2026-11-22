@@ -120,9 +120,9 @@ ScrollView {
                 // label were wider than the panel and the third was cut off.
                 RowLayout {
                     Layout.fillWidth: true
-                    SpinBox { id: printerX; Layout.fillWidth: true; Layout.minimumWidth: 70; from: 10; to: 5000; stepSize: 10; value: app.printerVolume.x || 220; editable: true; implicitWidth: 70 }
-                    SpinBox { id: printerY; Layout.fillWidth: true; Layout.minimumWidth: 70; from: 10; to: 5000; stepSize: 10; value: app.printerVolume.y || 220; editable: true; implicitWidth: 70 }
-                    SpinBox { id: printerZ; Layout.fillWidth: true; Layout.minimumWidth: 70; from: 10; to: 5000; stepSize: 10; value: app.printerVolume.z || 250; editable: true; implicitWidth: 70 }
+                    SpinBox { id: printerX; Accessible.name: qsTr("Printer build volume X (mm)"); Layout.fillWidth: true; Layout.minimumWidth: 70; from: 10; to: 5000; stepSize: 10; value: app.printerVolume.x || 220; editable: true; implicitWidth: 70 }
+                    SpinBox { id: printerY; Accessible.name: qsTr("Printer build volume Y (mm)"); Layout.fillWidth: true; Layout.minimumWidth: 70; from: 10; to: 5000; stepSize: 10; value: app.printerVolume.y || 220; editable: true; implicitWidth: 70 }
+                    SpinBox { id: printerZ; Accessible.name: qsTr("Printer build volume Z (mm)"); Layout.fillWidth: true; Layout.minimumWidth: 70; from: 10; to: 5000; stepSize: 10; value: app.printerVolume.z || 250; editable: true; implicitWidth: 70 }
                 }
                 Button {
                     text: qsTr("Plan segmentation")
@@ -177,11 +177,13 @@ ScrollView {
                     }
                 }
                 Repeater {
-                    model: app.segmentation.extensions || []
+                    model: app.extensionModel
                     delegate: RowLayout {
                         required property var modelData
                         Label { text: modelData.axis.toUpperCase() + qsTr(" cut at") }
                         TextField {
+                            objectName: "extensionField:" + modelData.axis
+                            Accessible.name: qsTr("Extra cut position on the %1 axis (mm)").arg(modelData.axis.toUpperCase())
                             text: Number(modelData.coordinateMm).toFixed(2)
                             inputMethodHints: Qt.ImhFormattedNumbersOnly
                             implicitWidth: 90
@@ -285,9 +287,10 @@ ScrollView {
                         ToolButton { text: qsTr("Show all"); onClicked: app.showAllMasterPieces() }
                     }
                     Repeater {
-                        model: app.masterMold.sets || []
+                        model: app.masterSetModel
                         delegate: ColumnLayout {
                             required property var modelData
+                            required property var pieces   // this set's pieces, a model of their own that is updated in place
                             Layout.fillWidth: true
                             RowLayout {
                                 Label {
@@ -303,9 +306,10 @@ ScrollView {
                                 }
                             }
                             Repeater {
-                                model: modelData.pieces
+                                model: pieces
                                 delegate: CraftCheckBox {
                                     required property var modelData
+                                    objectName: "masterPiece:" + modelData.key
                                     text: modelData.name
                                     checked: modelData.visible
                                     onToggled: app.toggleMasterPiece(modelData.key)
@@ -380,6 +384,7 @@ ScrollView {
                 RowLayout {
                     Label { text: qsTr("Clearance (mm)") }
                     SpinBox {
+                        Accessible.name: qsTr("Mold clearance (mm)")
                         from: app.minMoldClearanceMm; to: app.maxMoldClearanceMm
                         value: app.moldClearanceMm
                         editable: true
@@ -389,7 +394,7 @@ ScrollView {
                 RowLayout {
                     Layout.fillWidth: true
                     Label { text: qsTr("Mold opacity") }
-                    Slider { Layout.fillWidth: true; from: 0.1; to: 1; value: app.moldOpacity; onMoved: app.moldOpacity = value }
+                    Slider { Accessible.name: qsTr("Mold opacity"); Layout.fillWidth: true; from: 0.1; to: 1; value: app.moldOpacity; onMoved: app.moldOpacity = value }
                 }
                 // The reference's MoldAppearanceToggle: shown once the mold is complete.
                 Button {
@@ -405,6 +410,7 @@ ScrollView {
                 RowLayout {
                     Label { text: qsTr("Cavity clearance: ") + root.fmt(app.cavityClearanceMm, 1) + " mm" }
                     Slider {
+                        Accessible.name: qsTr("Cavity clearance (mm)")
                         Layout.fillWidth: true
                         from: 0; to: app.maxCavityClearanceMm; stepSize: 0.1
                         value: app.cavityClearanceMm
@@ -428,16 +434,19 @@ ScrollView {
                 }
                 Label { text: qsTr("Cut by face"); font.bold: true }
                 Repeater {
-                    model: app.cutFaces
+                    model: app.cutFaceModel
                     delegate: RowLayout {
                         required property var modelData
                         CraftCheckBox {
+                            objectName: "cutFaceCheck:" + modelData.face
                             Layout.preferredWidth: 96   // the same width in every row, so the sliders start at the same place
                             text: modelData.face + " (" + modelData.axis + ")"
                             checked: modelData.enabled
                             onToggled: app.setCutFaceEnabled(modelData.face, checked)
                         }
                         Slider {
+                            objectName: "cutFaceSlider:" + modelData.face
+                            Accessible.name: qsTr("Position of the %1 cutting plane").arg(modelData.face)
                             Layout.fillWidth: true
                             enabled: modelData.enabled
                             from: 0.001; to: 0.999
@@ -573,7 +582,7 @@ ScrollView {
                           : qsTr("Move over the top face of the mold.")
                 }
                 Repeater {
-                    model: app.sprues
+                    model: app.sprueModel
                     delegate: ColumnLayout {
                         required property var modelData
                         Layout.fillWidth: true
@@ -597,6 +606,8 @@ ScrollView {
                         RowLayout {
                             Label { text: qsTr("Main Ø ") + root.fmt(modelData.mainDiameterMm, 1) }
                             Slider {
+                                objectName: "sprueMainSlider:" + modelData.operationId
+                                Accessible.name: qsTr("Main diameter of %1 (mm)").arg(modelData.operationId)
                                 Layout.fillWidth: true; from: 2; to: 50
                                 value: modelData.mainDiameterMm
                                 onMoved: app.resizeSprue(modelData.operationId, value)
@@ -606,6 +617,8 @@ ScrollView {
                         RowLayout {
                             Label { text: qsTr("Neck Ø ") + root.fmt(modelData.entryNeckDiameterMm, 1) }
                             Slider {
+                                objectName: "sprueNeckSlider:" + modelData.operationId
+                                Accessible.name: qsTr("Entry neck diameter of %1 (mm)").arg(modelData.operationId)
                                 Layout.fillWidth: true; from: 2; to: Math.max(2.1, modelData.mainDiameterMm)
                                 value: modelData.entryNeckDiameterMm
                                 onMoved: app.resizeSprueEntryNeck(modelData.operationId, value)

@@ -38,7 +38,7 @@ Three separate completion levels are tracked and none is claimed until all its r
 
 | ID | Item | Status | Notes |
 |---|---|---|---|
-| P2-1 | Keyboard navigation, focus retention, popup lifecycle | not tested | R-UI-5: lists rebuild widgets and drop focus |
+| P2-1 | Keyboard navigation, focus retention, popup lifecycle | **pass in Debug (2026-11-22); defect found and fixed** | D-116. R-UI-5 reproduced in the real window for four lists and fixed with a keyed list model; app_smoke_focus (real key events: first Tab, focus retention, no trap, 47 stops, focus rings, modal dialog and Escape, accessible names), tst_variant_list_model (9). Not covered: menus and the combo box by keyboard, OS file dialogs, a real screen reader. Release re-run pending |
 | P2-2 | HiDPI / scaling / resize | not tested | |
 | P2-3 | Long paths (> MAX_PATH), network/removable drives, read-only folders | **pass in Debug (2026-11-22); defects found and fixed** | Long paths were broken for STL, 3MF and Master export and for the Python analyses (D-115). Network path (loopback SMB share), read-only file and write-denied folder tested; a removable drive could not be (none here). Release re-run pending |
 | P2-4 | Orbit rate and GPU memory at 10.7M triangles | not tested | Load time (2.5 s) was measured |

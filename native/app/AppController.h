@@ -27,6 +27,7 @@
 #include "IMeshGeometryEngine.h"
 #include "JobRunner.h"
 #include "SceneModel.h"
+#include "VariantListModel.h"
 #include "ViewportCamera.h"
 #include "model/ModelGrounding.h"
 #include "model/PartOrientation.h"
@@ -95,6 +96,13 @@ class AppController : public QObject {
   Q_PROPERTY(double minMoldClearanceMm READ minMoldClearanceMm CONSTANT)
   Q_PROPERTY(double maxMoldClearanceMm READ maxMoldClearanceMm CONSTANT)
   Q_PROPERTY(QVariantList cutFaces READ cutFaces NOTIFY moldInputsChanged)
+  // The lists the Inspector's Repeaters run on, as models that keep their rows when a row's fields change, so that a control that changes
+  // its own row (a check box, a slider, a field) keeps the keyboard focus and a mouse drag in progress (VariantListModel, R-UI-5). The
+  // QVariantList properties stay for callers that read the whole list.
+  Q_PROPERTY(QObject* cutFaceModel READ cutFaceModel CONSTANT)
+  Q_PROPERTY(QObject* sprueModel READ sprueModel CONSTANT)
+  Q_PROPERTY(QObject* extensionModel READ extensionModel CONSTANT)
+  Q_PROPERTY(QObject* masterSetModel READ masterSetModel CONSTANT)
   Q_PROPERTY(QString moldPhase READ moldPhase NOTIFY moldChanged)
   /// A mold generation that was cancelled (or superseded) is still ending its last step in the background: a new one has to wait.
   Q_PROPERTY(bool moldWindingDown READ moldWindingDown NOTIFY moldChanged)
@@ -337,6 +345,10 @@ class AppController : public QObject {
 
   // --- cutting planes and the Eraser (reference: cuttingPlane3dRuntime.ts, removeSplitFace) ---------------------------
   CutPlaneModel* cutPlaneSlabs() { return &cutPlaneSlabs_; }
+  QObject* cutFaceModel() { return &cutFaceModel_; }
+  QObject* sprueModel() { return &sprueModel_; }
+  QObject* extensionModel() { return &extensionModel_; }
+  QObject* masterSetModel() { return &masterSetModel_; }
   QQuick3DGeometry* cutPlaneEdgeGeometry() { return &cutPlaneEdges_; }
   QVariantMap cutPlanes() const;
   bool eraserAvailable() const;
@@ -703,6 +715,10 @@ class AppController : public QObject {
 
   // cutting-plane slabs and the Eraser
   CutPlaneModel cutPlaneSlabs_;
+  VariantListModel cutFaceModel_{QStringLiteral("face")};
+  VariantListModel sprueModel_{QStringLiteral("operationId")};
+  VariantListModel extensionModel_{QStringLiteral("axis")};
+  VariantListModel masterSetModel_{QStringLiteral("id"), {{QStringLiteral("pieces"), QStringLiteral("key")}}};
   viewport::LineGeometry cutPlaneEdges_;  // the twelve edges of a unit box, scaled per slab in QML
   std::vector<PlaneSlab> cutSlabs_;
   std::string cutSlabSignature_;

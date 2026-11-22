@@ -18,6 +18,7 @@ add_library(craft_app_lib STATIC
   JobRunner.h
   Logging.cpp Logging.h
   SceneModel.cpp SceneModel.h
+  VariantListModel.cpp VariantListModel.h
 )
 target_include_directories(craft_app_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(craft_app_lib PUBLIC

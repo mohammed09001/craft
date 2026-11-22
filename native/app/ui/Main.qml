@@ -167,6 +167,7 @@ ApplicationWindow {
     }
     Dialog {
         id: errorDialog
+        objectName: "errorDialog"
         property string detail: ""
         title: qsTr("Craft")
         modal: true

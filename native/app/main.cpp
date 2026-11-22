@@ -1,13 +1,16 @@
+#include <QAccessible>
 #include <QCommandLineParser>
 #include <QFile>
 #include <QFileInfo>
 #include <QGuiApplication>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QMimeData>
 #include <QRegularExpression>
+#include <QSet>
 #include <QMouseEvent>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -53,6 +56,7 @@ class Smoke : public QObject {
     if (!qEnvironmentVariable("CRAFT_AUTOSAVE_DIR").isEmpty()) app_.discardRecovery();
     QObject::connect(&app_, &AppController::errorOccurred, this,
                      [this](const QString& title, const QString& message, const QString& code) {
+                       if (expectError_) return;   // a test that raises an error on purpose (the dialog's focus)
                        fail(QStringLiteral("%1: %2 (%3)").arg(title, message, code));
                      });
     QObject::connect(&app_, &AppController::modelChanged, this, [this] {
@@ -623,6 +627,239 @@ class Smoke : public QObject {
     renderNow();
 #endif
   }
+  // Keyboard use through REAL key events (P2-1): the first Tab lands on the first control in reading order, Tab reaches every control without a
+  // trap and shows where the focus is, and a control that changes the controller's lists keeps the keyboard focus: a Cut by face check box
+  // toggled with Space and its slider moved with the arrow keys, a sprue's slider, a segmentation extension's field confirmed with Enter, a
+  // Master Mold piece's check box. Writes the audit (every focusable control, the Tab order, what did not get focus) next to the summary file.
+  void focusEventsSequence() { whenViewportSettled([this] { focusEventsBody(); }); }
+  void focusEventsBody() {
+#ifndef CRAFT_SMOKE_REAL_EVENTS
+    return fail(QStringLiteral("--focus-events needs a build with CRAFT_BUILD_TESTS"));
+#else
+    QWindowSystemInterface::setSynchronousWindowSystemEvents(true);
+    window_->requestActivate();
+    // Items made by a Repeater are not QObject children of the window: search the visual tree.
+    std::function<QQuickItem*(QQuickItem*, const QString&)> findIn = [&findIn](QQuickItem* from, const QString& name) -> QQuickItem* {
+      if (from->objectName() == name) return from;
+      for (QQuickItem* child : from->childItems())
+        if (QQuickItem* found = findIn(child, name)) return found;
+      return nullptr;
+    };
+    const auto find = [this, &findIn](const QString& name) { return findIn(window_->contentItem(), name); };
+    const auto key = [this](int code, const QString& text = QString(), Qt::KeyboardModifiers modifiers = Qt::NoModifier) {
+      QWindowSystemInterface::handleKeyEvent(window_, QEvent::KeyPress, code, modifiers, text);
+      QWindowSystemInterface::handleKeyEvent(window_, QEvent::KeyRelease, code, modifiers, text);
+    };
+    const auto settle = [](int ms) { QEventLoop loop; QTimer::singleShot(ms, &loop, &QEventLoop::quit); loop.exec(); };
+    const auto waitFor = [&settle](const std::function<bool()>& condition, int ms) {
+      QElapsedTimer timer;
+      timer.start();
+      while (!condition() && timer.elapsed() < ms) settle(50);
+      return condition();
+    };
+    const auto describe = [](QQuickItem* item) {
+      if (!item) return QStringLiteral("(nothing)");
+      QString text = item->property("text").toString();
+      if (text.isEmpty()) text = item->property("displayText").toString();
+      return QStringLiteral("%1 '%2' %3").arg(QString::fromLatin1(item->metaObject()->className()), item->objectName(), text).trimmed();
+    };
+    // The focus must still be on the control with this name after it acted.
+    const auto stillFocused = [&](const QString& name, const QString& what) -> QString {
+      QQuickItem* now = window_->activeFocusItem();
+      if (now && now->objectName() == name) return {};
+      return QStringLiteral("after %1 the keyboard focus is on %2, not on '%3' (R-UI-5)").arg(what, describe(now), name);
+    };
+    const int w = static_cast<int>(window_->width()), h = static_cast<int>(window_->height());
+    app_.camera()->setViewportSize(w, h);
+
+    // Unfold every section without clicking anything (a click would put the focus somewhere before the first Tab is measured).
+    for (QQuickItem* section : window_->findChildren<QQuickItem*>(QRegularExpression(QStringLiteral("^section:")))) section->setProperty("collapsed", false);
+    settle(200);
+
+    // 0. A keyboard user who has not touched anything yet: the first Tab must land on the first control in reading order, the toolbar's Open
+    // button, not on something in the middle of the inspector.
+    const QString startFocus = describe(window_->activeFocusItem());
+    key(Qt::Key_Tab);
+    QQuickItem* firstStop = window_->activeFocusItem();
+    if (!firstStop || !firstStop->property("text").toString().remove(QLatin1Char('&')).startsWith(QLatin1String("Open STL")))
+      return fail(QStringLiteral("the first Tab from a fresh window (focus on %1) lands on %2, not on the toolbar's Open button").arg(startFocus, describe(firstStop)));
+
+    // 1. A sprue's sliders (the mold the smoke test generated is complete): an arrow key resizes the sprue and the slider keeps the focus.
+    if (app_.moldPhase() == QLatin1String("complete")) {
+      app_.setTool(QStringLiteral("sprue"));
+      bool placed = false;
+      for (int y = h / 4; y < h * 3 / 4 && !placed; y += 4)
+        for (int x = w / 8; x < w * 5 / 8 && !placed; x += 4) {
+          app_.previewSprueAt(x, y, w, h);
+          if (app_.sprueCandidate().value("valid").toBool()) placed = app_.placeSprueAt(x, y, w, h);
+        }
+      if (!placed) return fail(QStringLiteral("could not place a sprue for the focus test"));
+      app_.setTool(QStringLiteral("select"));
+      if (!waitFor([&] { return app_.spruePhase() == QLatin1String("idle") && app_.sprueEvaluation().has_value(); }, 60000)) return fail(QStringLiteral("the sprue did not resolve"));
+      const QString id = app_.sprues().value(0).toMap().value("operationId").toString();
+      QQuickItem* slider = find(QStringLiteral("sprueMainSlider:") + id);
+      if (!slider) return fail(QStringLiteral("the sprue's main-diameter slider was not found"));
+      slider->forceActiveFocus();
+      const double before = app_.sprues().value(0).toMap().value("mainDiameterMm").toDouble();
+      key(Qt::Key_Right);
+      key(Qt::Key_Right);
+      if (!waitFor([&] { return std::fabs(app_.sprues().value(0).toMap().value("mainDiameterMm").toDouble() - before) > 1e-6; }, 5000))
+        return fail(QStringLiteral("the arrow keys did not resize the sprue"));
+      settle(150);
+      if (const QString problem = stillFocused(QStringLiteral("sprueMainSlider:") + id, QStringLiteral("arrow keys on the sprue's slider")); !problem.isEmpty()) return fail(problem);
+      waitFor([&] { return app_.spruePhase() == QLatin1String("idle"); }, 60000);
+    }
+
+    // 2. The cut-face rows: Space on a check box, an arrow key on a slider.
+    QQuickItem* check = find(QStringLiteral("cutFaceCheck:top"));
+    if (!check) return fail(QStringLiteral("the Cut by face check box for 'top' was not found"));
+    check->forceActiveFocus();
+    key(Qt::Key_Space, QStringLiteral(" "));
+    settle(100);
+    bool topChosen = false;
+    for (const QVariant& f : app_.cutFaces()) if (f.toMap().value("face").toString() == QLatin1String("top")) topChosen = f.toMap().value("enabled").toBool();
+    if (!topChosen) return fail(QStringLiteral("Space on the 'top' check box did not choose the face"));
+    if (const QString problem = stillFocused(QStringLiteral("cutFaceCheck:top"), QStringLiteral("Space on the 'top' check box")); !problem.isEmpty()) return fail(problem);
+    QQuickItem* slider = find(QStringLiteral("cutFaceSlider:top"));
+    if (!slider || !slider->isEnabled()) return fail(QStringLiteral("the 'top' slider is missing or disabled"));
+    slider->forceActiveFocus();
+    const auto topPosition = [this] {
+      for (const QVariant& f : app_.cutFaces()) if (f.toMap().value("face").toString() == QLatin1String("top")) return f.toMap().value("position").toDouble();
+      return -1.0;
+    };
+    const double before = topPosition();
+    key(Qt::Key_Left);
+    key(Qt::Key_Left);
+    settle(100);
+    if (std::fabs(topPosition() - before) < 1e-6) return fail(QStringLiteral("the arrow keys did not move the 'top' plane"));
+    if (const QString problem = stillFocused(QStringLiteral("cutFaceSlider:top"), QStringLiteral("arrow keys on the 'top' slider")); !problem.isEmpty()) return fail(problem);
+
+    // 3. A segmentation extension's field: type a value and confirm it with Enter; the field keeps the focus.
+    app_.setPrinterVolume(150, 300, 300);
+    app_.planSegmentation();
+    app_.addSegmentationExtension(QStringLiteral("y"));
+    QQuickItem* field = find(QStringLiteral("extensionField:y"));
+    if (!field) return fail(QStringLiteral("the extension's coordinate field was not found"));
+    field->forceActiveFocus();
+    QMetaObject::invokeMethod(field, "selectAll");
+    key(Qt::Key_5, QStringLiteral("5"));
+    key(Qt::Key_Return, QStringLiteral("\r"));
+    settle(150);
+    double coordinate = std::nan("");
+    for (const QVariant& e : app_.segmentation().value("extensions").toList()) if (e.toMap().value("axis").toString() == QLatin1String("y")) coordinate = e.toMap().value("coordinateMm").toDouble();
+    if (std::fabs(coordinate - 5.0) > 1e-9) return fail(QStringLiteral("typing 5 and Enter in the extension field gave %1").arg(coordinate));
+    if (const QString problem = stillFocused(QStringLiteral("extensionField:y"), QStringLiteral("Enter in the extension field")); !problem.isEmpty()) return fail(problem);
+
+    // 4. A Master Mold piece's check box (the Master Mold is generated from the part alone).
+    app_.resetSegmentation();
+    app_.generateMasterMold();
+    if (!waitFor([&] { return app_.masterMold().value("status").toString() != QLatin1String("generating") && !app_.busy(); }, 150000)) return fail(QStringLiteral("the Master Mold did not finish"));
+    QString pieceKey;
+    for (const QVariant& set : app_.masterMold().value("sets").toList())
+      for (const QVariant& piece : set.toMap().value("pieces").toList()) if (pieceKey.isEmpty()) pieceKey = piece.toMap().value("key").toString();
+    if (!pieceKey.isEmpty()) {
+      QQuickItem* piece = find(QStringLiteral("masterPiece:") + pieceKey);
+      if (!piece) return fail(QStringLiteral("the Master Mold piece's check box was not found"));
+      piece->forceActiveFocus();
+      const auto visibleNow = [&] {
+        for (const QVariant& set : app_.masterMold().value("sets").toList())
+          for (const QVariant& p : set.toMap().value("pieces").toList()) if (p.toMap().value("key").toString() == pieceKey) return p.toMap().value("visible").toBool();
+        return false;
+      };
+      const bool was = visibleNow();
+      key(Qt::Key_Space, QStringLiteral(" "));
+      settle(150);
+      if (visibleNow() == was) return fail(QStringLiteral("Space on the Master Mold piece's check box did not toggle it"));
+      if (const QString problem = stillFocused(QStringLiteral("masterPiece:") + pieceKey, QStringLiteral("Space on a Master Mold piece's check box")); !problem.isEmpty()) return fail(problem);
+    }
+
+    // 5. A modal dialog (the error dialog): it takes the focus, Tab stays inside it, Escape closes it, and the control that had the focus before
+    // gets it back.
+    {
+      QQuickItem* before = find(QStringLiteral("masterMoldButton"));
+      if (!before) return fail(QStringLiteral("the Master Mold toolbar button was not found"));
+      before->forceActiveFocus();
+      expectError_ = true;
+      app_.importStlFile(QStringLiteral("C:/this/folder/does/not/exist.stl"));   // an error: the dialog opens
+      QObject* dialog = window_->findChild<QObject*>(QStringLiteral("errorDialog"));
+      if (!dialog) return fail(QStringLiteral("the error dialog was not found"));
+      if (!waitFor([&] { return dialog->property("visible").toBool(); }, 5000)) return fail(QStringLiteral("the error dialog did not open"));
+      settle(150);
+      // The dialog's items live in the window's overlay: the focus must be on the dialog's own popup item or one of its controls.
+      const auto inPopup = [](QQuickItem* item) {
+        for (QQuickItem* p = item; p; p = p->parentItem())
+          if (QByteArray(p->metaObject()->className()).contains("QQuickPopupItem")) return true;
+        return false;
+      };
+      QQuickItem* focused = window_->activeFocusItem();
+      if (!inPopup(focused)) return fail(QStringLiteral("the open error dialog does not hold the keyboard focus (it is on %1)").arg(describe(focused)));
+      for (int i = 0; i < 6; ++i) {
+        key(Qt::Key_Tab);
+        QQuickItem* now = window_->activeFocusItem();
+        if (!inPopup(now)) return fail(QStringLiteral("Tab left the modal dialog and went to %1").arg(describe(now)));
+      }
+      key(Qt::Key_Escape);
+      if (!waitFor([&] { return !dialog->property("visible").toBool(); }, 5000)) return fail(QStringLiteral("Escape did not close the error dialog"));
+      settle(150);
+      if (window_->activeFocusItem() != before)
+        return fail(QStringLiteral("after the dialog closed the keyboard focus is on %1, not back on the Master Mold button").arg(describe(window_->activeFocusItem())));
+    }
+
+    // 6. Tab walks the whole window and comes back; every stop shows its focus.
+    QList<QQuickItem*> focusable;
+    std::function<void(QQuickItem*)> collect = [&](QQuickItem* item) {
+      if (item->activeFocusOnTab() && item->isVisible() && item->isEnabled() && item->width() > 0 && item->height() > 0) focusable << item;
+      for (QQuickItem* child : item->childItems()) collect(child);
+    };
+    collect(window_->contentItem());
+    QJsonArray audit, order, unreached;
+    QSet<QQuickItem*> visited;
+    window_->contentItem()->forceActiveFocus();
+    key(Qt::Key_Tab);
+    QQuickItem* start = window_->activeFocusItem();
+    int steps = 0;
+    bool cycled = false;
+    for (; steps < 400; ++steps) {
+      QQuickItem* now = window_->activeFocusItem();
+      if (steps > 0 && now == start) { cycled = true; break; }
+      if (now) {
+        visited.insert(now);
+        order.append(QJsonObject{{"item", describe(now)}, {"visualFocusProperty", now->property("visualFocus").isValid()}, {"visualFocus", now->property("visualFocus").toBool()}});
+      }
+      key(Qt::Key_Tab);
+    }
+    for (QQuickItem* item : focusable) {
+      audit.append(QJsonObject{{"item", describe(item)}, {"reached", visited.contains(item)}});
+      if (!visited.contains(item)) unreached.append(describe(item));
+    }
+    const QJsonObject report{{"focusable", audit}, {"tabOrder", order}, {"unreached", unreached}, {"tabStops", static_cast<int>(visited.size())}, {"cycled", cycled}};
+    if (!summary_.isEmpty()) {
+      QFile out(summary_ + QStringLiteral(".focus.json"));
+      if (out.open(QIODevice::WriteOnly)) out.write(QJsonDocument(report).toJson(QJsonDocument::Indented));
+    }
+    // Every control Tab stops on has a name a screen reader can say: an Accessible.name, the text of a button or check box, or the name of the control
+    // it is part of (the editor inside a spin box). Sliders and spin boxes have no text, so they need an Accessible.name of their own.
+    QAccessible::setActive(true);
+    QJsonArray unnamed;
+    for (QQuickItem* item : std::as_const(visited)) {
+      QString name;
+      for (QQuickItem* p = item; p && name.isEmpty(); p = p->parentItem()) {
+        if (QAccessibleInterface* a = QAccessible::queryAccessibleInterface(p)) name = a->text(QAccessible::Name).trimmed();
+        const QByteArray type = p->metaObject()->className();
+        if (name.isEmpty() && (type.contains("Button") || type.contains("CheckBox"))) name = p->property("text").toString().remove(QLatin1Char('&')).trimmed();   // a button is named by its text
+      }
+      if (name.isEmpty()) unnamed.append(describe(item));
+    }
+    if (!unnamed.isEmpty()) return fail(QStringLiteral("%1 control(s) have no accessible name, for example %2").arg(unnamed.size()).arg(unnamed.first().toString()));
+    if (!cycled) return fail(QStringLiteral("Tab did not come back to its first stop within 400 presses: a focus trap (%1 stops)").arg(visited.size()));
+    if (!unreached.isEmpty()) return fail(QStringLiteral("%1 control(s) cannot be reached with Tab, for example %2").arg(unreached.size()).arg(unreached.first().toString()));
+    for (const QJsonValue& v : order) {
+      const QJsonObject o = v.toObject();
+      if (o.value("visualFocusProperty").toBool() && !o.value("visualFocus").toBool()) return fail(QStringLiteral("%1 has the focus by Tab but shows no focus indicator").arg(o.value("item").toString()));
+    }
+    renderNow();
+#endif
+  }
   void eraserEventsSequence() { whenViewportSettled([this] { eraserEventsBody(); }); }
   void eraserEventsBody() {
 #ifndef CRAFT_SMOKE_REAL_EVENTS
@@ -831,6 +1068,7 @@ class Smoke : public QObject {
     if (sectionsEvents_) return sectionsEventsSequence();
     if (moldsEvents_) return moldsEventsSequence();
     if (masterEvents_) return masterEventsSequence();
+    if (focusEvents_) return focusEventsSequence();
     if (planeDragEvents_) return planeDragEventsSequence();
     if (extensionDragEvents_) return extensionDragEventsSequence();
     if (spruePreview_ && sprueGizmoEvents_) return gizmoEventsSequence();
@@ -912,6 +1150,7 @@ class Smoke : public QObject {
   void setEraser(bool value, bool events = false) { eraser_ = value; eraserEvents_ = events; }
   void setUndoEvents(bool value) { undoEvents_ = value; }
   void setFlipEvents(bool value) { flipEvents_ = value; }
+  void setFocusEvents(bool value) { focusEvents_ = value; }
   void setExtensionDragEvents(bool value) { extensionDragEvents_ = value; }
   void setPlaneDragEvents(bool value) { planeDragEvents_ = value; }
   void setSectionsEvents(bool value) { sectionsEvents_ = value; }
@@ -926,7 +1165,8 @@ class Smoke : public QObject {
   QQuickWindow* window_;
   QString importPath_, summary_, screenshot_;
   QStringList cutFaces_;
-  bool selectPart_ = false, spruePreview_ = false, spruePreviewInvalid_ = false, sprueGizmo_ = false, sprueGizmoEvents_ = false, eraser_ = false, eraserEvents_ = false, planeDragEvents_ = false, sectionsEvents_ = false, moldsEvents_ = false, masterEvents_ = false, dropEvents_ = false, undoEvents_ = false, flipEvents_ = false, extensionDragEvents_ = false, hintEvents_ = false, hintWheel_ = false;
+  bool expectError_ = false;
+  bool selectPart_ = false, spruePreview_ = false, spruePreviewInvalid_ = false, sprueGizmo_ = false, sprueGizmoEvents_ = false, eraser_ = false, eraserEvents_ = false, planeDragEvents_ = false, sectionsEvents_ = false, moldsEvents_ = false, masterEvents_ = false, dropEvents_ = false, undoEvents_ = false, flipEvents_ = false, focusEvents_ = false, extensionDragEvents_ = false, hintEvents_ = false, hintWheel_ = false;
   bool mold_, analyse_, moldability_;
   bool imported_ = false, moldDone_ = false, analysisDone_ = false, reportsDone_ = false, done_ = false;
 };
@@ -974,6 +1214,7 @@ int main(int argc, char* argv[]) {
   parser.addOption({"hint-wheel", "The interaction hint through a real wheel event (smoke test)."});
   parser.addOption({"undo-events", "Undo/redo through real input: the toolbar buttons and Ctrl+Z / Ctrl+Y (smoke test)."});
   parser.addOption({"extension-drag-events", "A segmentation extension plane dragged with the right mouse button, then undone with Ctrl+Z, through real input (smoke test)."});
+  parser.addOption({"focus-events", "Keyboard use through real key events: Tab reaches every control, focus is kept when a list changes (smoke test)."});
   parser.addOption({"flip-events", "Flip through real input: the toolbar button and the four arrow keys (smoke test)."});
   parser.addOption({"eraser-events", "The Eraser through real mouse events: hover a plane, click empty space, click the plane (smoke test)."});
   parser.addOption({"master-events", "The Master Mold toolbar button through a real click (smoke test)."});
@@ -1053,6 +1294,7 @@ int main(int argc, char* argv[]) {
     smoke->setEraser(parser.isSet("eraser"), parser.isSet("eraser-events"));
     smoke->setUndoEvents(parser.isSet("undo-events"));
     smoke->setFlipEvents(parser.isSet("flip-events"));
+    smoke->setFocusEvents(parser.isSet("focus-events"));
     smoke->setExtensionDragEvents(parser.isSet("extension-drag-events"));
     smoke->setPlaneDragEvents(parser.isSet("plane-drag-events"));
     smoke->setDropEvents(parser.isSet("drop-events"));

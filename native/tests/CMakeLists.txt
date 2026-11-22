@@ -65,6 +65,7 @@ target_compile_definitions(tst_cutplane_drag_equivalence PRIVATE
 craft_add_test(tst_master_store SOURCES tst_master_store.cpp LIBS craft_mold craft_mesh_manifold)
 craft_add_test(tst_master_export SOURCES tst_master_export.cpp LIBS craft_export Qt6::Core)
 craft_add_test(tst_long_paths SOURCES tst_long_paths.cpp LIBS craft_export craft_project Qt6::Core)
+craft_add_test(tst_variant_list_model SOURCES tst_variant_list_model.cpp LIBS craft_app_lib Qt6::Core)
 craft_add_test(tst_master_equivalence
   SOURCES tst_master_equivalence.cpp
   LIBS craft_mold craft_mesh_manifold Qt6::Core)
@@ -195,6 +196,16 @@ if(CRAFT_BUILD_APP)
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${CRAFT_QT_BIN_DIR}"
     TIMEOUT 120
     PASS_REGULAR_EXPRESSION "CRAFT_SMOKE_OK")
+  # Keyboard use through REAL key events: Tab reaches every control, and focus survives a control that changes the controller's lists.
+  add_test(NAME app_smoke_focus
+    COMMAND craft --smoke-test
+            --import "${CRAFT_REPO_ROOT}/native/tests/fixtures/models/bracket.stl"
+            --generate-mold --focus-events
+            --summary "${CMAKE_CURRENT_BINARY_DIR}/app_smoke_focus_summary.json")
+  set_tests_properties(app_smoke_focus PROPERTIES
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${CRAFT_QT_BIN_DIR}"
+    TIMEOUT 420
+    PASS_REGULAR_EXPRESSION "CRAFT_SMOKE_OK")
   # The Eraser through REAL mouse events delivered to the window.
   add_test(NAME app_smoke_eraser
     COMMAND craft --smoke-test
@@ -258,7 +269,7 @@ if(CRAFT_BUILD_APP)
   # Each smoke test works in an autosave and cache folder of its own in the build tree. They used to share the user's real ones: a run that
   # ended without a clean shutdown (the UI tour did, and so would a killed test) left an autosave behind, the next launch opened with the
   # "Recover unsaved work?" dialog over the window, and every test that sends real mouse events failed because the dialog swallowed them.
-  foreach(_smoke app_smoke app_smoke_sprue_gizmo app_smoke_hint_events app_smoke_hint_wheel app_smoke_undo app_smoke_flip app_smoke_extension_drag app_smoke_eraser app_smoke_drop app_smoke_sections app_smoke_molds app_smoke_master app_smoke_plane_drag)
+  foreach(_smoke app_smoke app_smoke_sprue_gizmo app_smoke_hint_events app_smoke_hint_wheel app_smoke_undo app_smoke_flip app_smoke_extension_drag app_smoke_focus app_smoke_eraser app_smoke_drop app_smoke_sections app_smoke_molds app_smoke_master app_smoke_plane_drag)
     if(TEST ${_smoke})
       set_property(TEST ${_smoke} APPEND PROPERTY ENVIRONMENT
         "CRAFT_AUTOSAVE_DIR=${CMAKE_CURRENT_BINARY_DIR}/smoke-state/${_smoke}/autosave"
