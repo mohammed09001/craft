@@ -114,6 +114,12 @@ class SceneModel : public QAbstractListModel {
   /// Forgets every hidden id and shows every row (a new model).
   void clearHidden();
   bool isHidden(const QString& id) const { return hiddenIds_.contains(id); }
+  /// Whether `id` is the imported part's row (its visibility is a view toggle; the mold bodies' is part of the undo history, D-113).
+  bool isPartId(const QString& id) const;
+  /// The ids of the mold bodies the user hid, without the part (the reference's bodyVisibility map).
+  QSet<QString> hiddenBodyIds() const;
+  /// Replaces the hidden mold bodies (an undo or redo): the part keeps whatever visibility it has.
+  void setHiddenBodyIds(const QSet<QString>& ids);
   Q_INVOKABLE void setItemVisible(int row, bool visible);
   Q_INVOKABLE void setKindVisible(const QString& kind, bool visible);
 

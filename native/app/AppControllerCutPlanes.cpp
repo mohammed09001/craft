@@ -178,6 +178,7 @@ bool AppController::removeCutFace(const QString& faceName) {
 
   setEraserHover(std::nullopt);
   pushHistory();
+  resetBodyVisibility();
   state = {};  // the plane is gone, with its position: choosing the face again starts from the face's own default
   invalidateMoldInputs();  // the mold built with it is dropped; sprue intents survive, as in the reference
   setStatus(QStringLiteral("Removed the %1 cutting plane.").arg(faceName));
@@ -289,6 +290,7 @@ bool AppController::cutPlaneDragEnd() {
   emit cutPlanesChanged();
   if (!next) return false;  // back where it was (within 1e-9): no undo step, the mold is kept
   pushHistory();
+  resetBodyVisibility();
   state.position = *next;
   invalidateMoldInputs();  // the mold built with the old position is dropped; the slab is rebuilt there
   return true;

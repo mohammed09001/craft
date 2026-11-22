@@ -417,7 +417,14 @@ QVariantMap AppController::moldBrowser() const {
   return {{"available", !bodies.isEmpty() && !masterShown_}, {"bodies", bodies}, {"model", model}};
 }
 
-void AppController::setBodyVisible(const QString& id, bool visible) { scene_.setVisibleById(id, visible); }
+void AppController::resetBodyVisibility() { scene_.setHiddenBodyIds({}); }
+
+void AppController::setBodyVisible(const QString& id, bool visible) {
+  // Hiding or showing a mold body is one undoable step, as in the reference (setBodyVisibility records history); the part's own toggle is a
+  // view option and an unchanged value is no edit (D-113).
+  if (!scene_.isPartId(id) && scene_.isHidden(id) == visible) pushHistory();
+  scene_.setVisibleById(id, visible);
+}
 
 QVariantList AppController::cutFaces() const {
   QVariantList list;
@@ -440,7 +447,10 @@ void AppController::setCutFaceEnabled(const QString& face, bool enabled) {
   const auto id = faceIdFromName(face.toStdString());
   if (!id) return;
   CutFaceState& state = cutFaces_[static_cast<std::size_t>(*id)];
-  if (state.enabled != enabled) pushHistory();  // choosing or dropping a face is one undoable step
+  if (state.enabled != enabled) {  // choosing or dropping a face is one undoable step, and shows every body again
+    pushHistory();
+    resetBodyVisibility();
+  }
   state.enabled = enabled;
   invalidateMoldInputs();
 }
@@ -451,7 +461,10 @@ void AppController::setCutFacePosition(const QString& face, double normalizedPos
   if (!id || !std::isfinite(normalizedPosition)) return;
   CutFaceState& state = cutFaces_[static_cast<std::size_t>(*id)];
   const double next = std::clamp(normalizedPosition, 1e-6, 1 - 1e-6);
-  if (createCuttingPlane(*id, state.position).normalizedPosition != next) pushHistory();  // a slider drag is one gesture
+  if (createCuttingPlane(*id, state.position).normalizedPosition != next) {  // a slider drag is one gesture
+    pushHistory();
+    resetBodyVisibility();
+  }
   state.position = next;
   invalidateMoldInputs();
 }
@@ -460,7 +473,10 @@ void AppController::resetCutFacePosition(const QString& face) {
   const auto id = faceIdFromName(face.toStdString());
   if (!id) return;
   CutFaceState& state = cutFaces_[static_cast<std::size_t>(*id)];
-  if (state.position) pushHistory();
+  if (state.position) {
+    pushHistory();
+    resetBodyVisibility();
+  }
   state.position.reset();
   invalidateMoldInputs();
 }

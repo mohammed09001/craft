@@ -568,6 +568,7 @@ class AppController : public QObject {
     Held<SprueEvaluation> sprueEvaluation;
     Held<DerivedRegistrationState> registration;
     std::vector<std::pair<Axis, double>> segmentationExtensions;   // the extension boundaries of the segmentation plan (D-110)
+    QSet<QString> hiddenBodies;                                    // the mold bodies the user hid (the reference's bodyVisibility, D-113)
   };
   HistoryEntry captureHistory() const;
   /// Records `before` (the state an edit is about to change) as an undo step, unless a gesture already did.
@@ -584,6 +585,9 @@ class AppController : public QObject {
   bool extensionPlanesShown() const;
   /// Sets the extension list from an undo/redo snapshot: axes the plan no longer leaves free are dropped, then the plan is rebuilt.
   void restoreSegmentationExtensions(const std::vector<std::pair<Axis, double>>& extensions);
+  /// Shows every mold body again: the reference's invalidateCommittedTopology resets its bodyVisibility whenever a plane is chosen, moved or
+  /// removed (a clearance change keeps it). The step before it is already on the undo stack (D-113).
+  void resetBodyVisibility();
   bool cutPlanesVisible() const;
   void refreshCutPlanes();
   void setEraserHover(std::optional<FaceId> face);

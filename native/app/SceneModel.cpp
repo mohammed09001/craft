@@ -192,6 +192,30 @@ void SceneModel::setVisibleById(const QString& id, bool visible) {
     if (items_[static_cast<std::size_t>(row)].id == id) setItemVisible(row, visible);
 }
 
+bool SceneModel::isPartId(const QString& id) const {
+  for (const SceneItem& item : items_)
+    if (item.id == id && item.kind == kPartKind) return true;
+  return false;
+}
+
+QSet<QString> SceneModel::hiddenBodyIds() const {
+  QSet<QString> bodies;
+  for (const QString& id : hiddenIds_)
+    if (!isPartId(id)) bodies.insert(id);
+  return bodies;
+}
+
+void SceneModel::setHiddenBodyIds(const QSet<QString>& ids) {
+  QSet<QString> next = ids;
+  for (const QString& id : hiddenIds_)
+    if (isPartId(id)) next.insert(id);   // the part's own toggle is not part of this
+  hiddenIds_ = next;
+  for (int row = 0; row < count(); ++row) {
+    const SceneItem& item = items_[static_cast<std::size_t>(row)];
+    if (item.kind != kPartKind) setItemVisible(row, !hiddenIds_.contains(item.id));
+  }
+}
+
 void SceneModel::clearHidden() {
   hiddenIds_.clear();
   for (int row = 0; row < count(); ++row) setItemVisible(row, true);

@@ -26,6 +26,7 @@ type Op =
   | { op: "clearance"; mm: number }
   | { op: "gesture"; values: number[] }
   | { op: "remove"; face: PartBoundingBoxFaceId }
+  | { op: "visibility"; id: string; visible: boolean }
   | { op: "undo" }
   | { op: "redo" };
 
@@ -36,6 +37,8 @@ function observe(baseline: number) {
     clearanceMm: s.clearanceMm,
     undoDepth: s.undoStack.length - baseline,
     redoDepth: s.redoStack.length,
+    // The mold bodies the user hid (bodyVisibility is part of every snapshot and a toggle is a history entry).
+    hidden: Object.entries(s.bodyVisibility).filter(([, visible]) => visible === false).map(([id]) => id).sort(),
   };
 }
 
@@ -58,6 +61,7 @@ function run(ops: Op[]) {
         S().commitClearanceEdit();
         break;
       case "remove": S().removeSplitFace(op.face); break;
+      case "visibility": S().setBodyVisibility(op.id, op.visible); break;
       case "undo": S().undo(); break;
       case "redo": S().redo(); break;
     }
@@ -127,6 +131,31 @@ it("records the real split-face undo/redo history", async () => {
     ]),
   });
 
+  // Hiding and showing a mold body is recorded like any other edit and restored with undo/redo; an unchanged value is no edit. Every edit that
+  // replaces the committed topology (a plane chosen, moved or removed, the clearance) shows all bodies again, and undo brings the hidden set back.
+  sequences.push({
+    name: "body-visibility-is-recorded",
+    steps: run([
+      { op: "toggle", face: "front" },
+      { op: "visibility", id: "body-a", visible: false },
+      { op: "visibility", id: "body-a", visible: false },   // already hidden: no entry
+      { op: "visibility", id: "body-b", visible: false },
+      { op: "visibility", id: "body-a", visible: true },
+      { op: "undo" }, { op: "undo" },
+      { op: "redo" },
+      { op: "toggle", face: "right" },                       // a new edit clears the redo history
+      { op: "visibility", id: "body-a", visible: false },
+      { op: "drag", face: "right", position: 0.4 },
+      { op: "visibility", id: "body-b", visible: false },
+      { op: "clearance", mm: 14 },
+      { op: "visibility", id: "body-a", visible: false },
+      { op: "remove", face: "front" },
+      { op: "undo" }, { op: "undo" }, { op: "undo" }, { op: "undo" }, { op: "undo" }, { op: "undo" },
+      { op: "redo" }, { op: "redo" },
+      { op: "undo" }, { op: "undo" }, { op: "undo" }, { op: "undo" }, { op: "undo" }, { op: "undo" }, { op: "undo" }, { op: "undo" },
+      { op: "undo" },                                        // past the start
+    ]),
+  });
   // The 50-entry cap: 55 edits, then undo until nothing is left.
   const capOps: Op[] = [];
   for (let i = 0; i < 55; i++) capOps.push({ op: "toggle", face: i % 2 === 0 ? "front" : "back" });
@@ -163,5 +192,5 @@ it("records the real split-face undo/redo history", async () => {
   };
   mkdirSync(dirname(outputPath), { recursive: true });
   writeFileSync(outputPath, JSON.stringify(fixture, null, 1));
-  expect(sequences.length).toBe(5);
+  expect(sequences.length).toBe(6);
 });

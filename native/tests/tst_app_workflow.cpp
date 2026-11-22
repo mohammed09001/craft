@@ -1043,6 +1043,60 @@ class WorkflowTest : public QObject {
     QCOMPARE(glass.value("metalness").toDouble(), 0.02);
   }
 
+  // --- body visibility in the undo history (D-113) --------------------------------------------------------------------------------------
+
+  void hidingAMoldBodyIsAnUndoableStepAndAPlaneChangeShowsEveryBodyAgain() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->setCutFaceEnabled("left", true);
+    app->generateMold();
+    QVERIFY(waitFor([&] { return app->moldPhase() == "complete" || app->moldPhase() == "error"; }, 120000));
+    QVERIFY2(app->moldPhase() == "complete", qPrintable(app->moldError()));
+    QString partId, firstBody;
+    for (const SceneItem& item : app->scene()->items()) {
+      if (item.kind == QLatin1String("part")) partId = item.id;
+      else if (firstBody.isEmpty()) firstBody = item.id;
+    }
+    QVERIFY(!partId.isEmpty() && !firstBody.isEmpty());
+    const auto visible = [&](const QString& id) {
+      for (const SceneItem& item : app->scene()->items()) if (item.id == id) return item.visible;
+      return false;
+    };
+    const auto undoDepth = [&] { return app->history().value("undoDepth").toInt(); };
+    const int depth = undoDepth();
+
+    // A body's eye toggle is one undoable step; the same value again, and the part's own toggle, are not.
+    app->setBodyVisible(firstBody, false);
+    QVERIFY(!visible(firstBody));
+    QCOMPARE(undoDepth(), depth + 1);
+    app->setBodyVisible(firstBody, false);
+    QCOMPARE(undoDepth(), depth + 1);
+    app->setBodyVisible(partId, false);
+    QVERIFY(!visible(partId));
+    QCOMPARE(undoDepth(), depth + 1);
+    QCOMPARE(app->scene()->hiddenBodyIds(), QSet<QString>{firstBody});   // the part is not among the hidden bodies
+
+    // Undo shows the body again and leaves the part's toggle alone; redo hides it.
+    app->undo();
+    QVERIFY(visible(firstBody));
+    QVERIFY(!visible(partId));
+    app->redo();
+    QVERIFY(!visible(firstBody));
+
+    // A plane change replaces the mold's topology: every body is shown again, and undo brings the mold back with its body hidden.
+    app->setCutFaceEnabled("top", true);
+    QVERIFY(app->scene()->hiddenBodyIds().isEmpty());
+    app->undo();
+    QCOMPARE(app->moldPhase(), QStringLiteral("complete"));
+    QVERIFY(!visible(firstBody));
+    QVERIFY(!visible(partId));
+
+    // A clearance change keeps the hidden bodies, as the reference's does.
+    app->setMoldClearanceMm(14);
+    QCOMPARE(app->scene()->hiddenBodyIds(), QSet<QString>{firstBody});
+  }
+
   // --- dragging a plane with the right button (reference: cuttingPlane3dRuntime.ts, split-face commitPlaneDrag) ---------------
 
   void aCuttingPlaneFollowsARightButtonDragAndCommitsOneUndoStep() {
@@ -1350,6 +1404,7 @@ class WorkflowTest : public QObject {
           for (const QJsonValue& v : op.value("values").toArray()) app->setMoldClearanceMm(v.toDouble());
           app->endHistoryGesture();
         } else if (kind == "remove") app->removeCutFace(op.value("face").toString());
+        else if (kind == "visibility") app->setBodyVisible(op.value("id").toString(), op.value("visible").toBool());
         else if (kind == "undo") app->undo();
         else if (kind == "redo") app->redo();
         // kind == "start": nothing yet.
@@ -1368,6 +1423,11 @@ class WorkflowTest : public QObject {
           QVERIFY2(std::fabs(planes.at(p).second - expectedPlanes.at(p).toObject().value("position").toDouble()) < 1e-9, qPrintable(where + ": plane position"));
         }
         QVERIFY2(std::fabs(app->moldClearanceMm() - expected.value("clearanceMm").toDouble()) < 1e-9, qPrintable(where + ": clearance"));
+        QStringList hidden = QStringList(app->scene()->hiddenBodyIds().begin(), app->scene()->hiddenBodyIds().end());
+        hidden.sort();
+        QStringList expectedHidden;
+        for (const QJsonValue& id : expected.value("hidden").toArray()) expectedHidden << id.toString();
+        QVERIFY2(hidden == expectedHidden, qPrintable(where + QStringLiteral(": hidden bodies %1, reference %2").arg(hidden.join(','), expectedHidden.join(','))));
         const int undoDepth = app->history().value("undoDepth").toInt(), redoDepth = app->history().value("redoDepth").toInt();
         QVERIFY2(undoDepth == expected.value("undoDepth").toInt(), qPrintable(where + QStringLiteral(": undo depth %1, reference %2").arg(undoDepth).arg(expected.value("undoDepth").toInt())));
         QVERIFY2(redoDepth == expected.value("redoDepth").toInt(), qPrintable(where + QStringLiteral(": redo depth %1, reference %2").arg(redoDepth).arg(expected.value("redoDepth").toInt())));
@@ -1377,7 +1437,7 @@ class WorkflowTest : public QObject {
       }
       ++sequences;
     }
-    QCOMPARE(sequences, 5);
+    QCOMPARE(sequences, 6);
     QVERIFY(steps > 150);
   }
 
@@ -3121,17 +3181,18 @@ class WorkflowTest : public QObject {
     QCOMPARE(app->moldBrowser().value("bodies").toList().at(1).toMap().value("visible").toBool(), true);
     app->setBodyVisible(first, true);
     QVERIFY(rowVisible(first));
-    QCOMPARE(app->history().value("undoDepth").toInt(), undoDepth);   // a view toggle, not an undo step (D-073)
+    QCOMPARE(app->history().value("undoDepth").toInt(), undoDepth + 2);   // hiding and showing a body are undoable steps, as in the reference (D-113)
 
-    // Hidden bodies stay hidden when the same mold is built again (the reference keeps its body visibility map).
+    // A plane edit replaces the mold's topology and shows every body again, also when the inputs come back as they were (the reference resets
+    // its body visibility map in invalidateCommittedTopology; D-113).
     app->setBodyVisible(first, false);
     app->setCutFaceEnabled("left", true);
     app->setCutFaceEnabled("left", false);   // the inputs are back as they were
     app->generateMold();
     QVERIFY(waitFor([&] { return app->moldPhase() == "complete" || app->moldPhase() == "error"; }));
-    QVERIFY(!rowVisible(first));
+    QVERIFY(rowVisible(first));
     QCOMPARE(app->moldBrowser().value("bodies").toList().at(0).toMap().value("id").toString(), first);
-    QCOMPARE(app->moldBrowser().value("bodies").toList().at(0).toMap().value("visible").toBool(), false);
+    QCOMPARE(app->moldBrowser().value("bodies").toList().at(0).toMap().value("visible").toBool(), true);
 
     // The original model: hidden, it cannot be picked; shown, it can.
     const QString modelId = app->moldBrowser().value("model").toMap().value("id").toString();

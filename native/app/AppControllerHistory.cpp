@@ -9,8 +9,8 @@
 // are replayed against the real store by tst_app_workflow (undo-reference.json).
 //
 // In history: the cut faces and their positions, the segmentation's extension boundaries (the reference keeps its extension planes in the
-// same snapshots; D-110), the mold and cavity clearance, the sprues, and the mold built from them. Not in history: the model, the view
-// (camera, tool, theme, selection), the rest of segmentation (adopting or resetting one starts a fresh history, like the reference) and the Master Mold (its own store).
+// same snapshots; D-110), which mold bodies are hidden (the reference's bodyVisibility; D-113), the mold and cavity clearance, the sprues,
+// and the mold built from them. Not in history: the model, the view (camera, tool, theme, selection, the part's own visibility), the rest of segmentation (adopting or resetting one starts a fresh history, like the reference) and the Master Mold (its own store).
 
 #include <algorithm>
 
@@ -34,6 +34,7 @@ AppController::HistoryEntry AppController::captureHistory() const {
   entry.sprueEvaluation = sprueEvaluation_;
   entry.registration = registration_;
   entry.segmentationExtensions = segmentation_.extensions;
+  entry.hiddenBodies = scene_.hiddenBodyIds();
   // A mold that is still being generated is not a state to come back to: its inputs, without the mold.
   entry.moldPhase = moldPhase_ == QLatin1String("generating") ? QStringLiteral("ready") : moldPhase_;
   entry.moldError = moldError_;
@@ -128,6 +129,7 @@ void AppController::restoreHistory(const HistoryEntry& entry) {
   moldErrorCode_ = entry.moldErrorCode;
   spruePhase_ = QStringLiteral("idle");
   restoreSegmentationExtensions(entry.segmentationExtensions);   // before the scene is rebuilt below: what the snapshot shows wins
+  scene_.setHiddenBodyIds(entry.hiddenBodies);                   // the rebuilt bodies come back shown or hidden as they were
 
   // Take down what is shown, then put the snapshot's mold back as it was (no recomputation).
   sprueEvaluation_.reset();
