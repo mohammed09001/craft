@@ -1,0 +1,2 @@
+# A .craft project is a binary container; never let line-ending conversion touch it (the frozen format fixtures are pinned by SHA-256).
+*.craft binary

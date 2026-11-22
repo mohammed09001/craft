@@ -509,6 +509,36 @@ class ProjectTest : public QObject {
     }
   }
 
+  // --- the frozen format 1.0 file (P1-9) -------------------------------------------------------------------------------------
+  // fixtures/projects/format-1.0-full.craft was written once by the format-1.0 writer from fullDocument(fakeStl()) and is committed as it
+  // was. Every later build must still open it and read exactly these values: the first change to the format has to keep reading it or
+  // register a migration for it, and this test is what notices if it does not. Never regenerate the file to make this test pass; if the
+  // format changes, add the new version's own frozen file next to it and keep this one (docs/native-migration/PROJECT_FORMAT.md).
+  void theFrozenFormat1_0FileStillOpens() {
+    const QString path = QStringLiteral(CRAFT_REPO_ROOT "/native/tests/fixtures/projects/format-1.0-full.craft");
+    const QByteArray file = readAll(path);
+    QVERIFY2(!file.isEmpty(), "the frozen format-1.0 project is missing");
+    QCOMPARE(sha256Hex(file), std::string("dec36faf919d7549035411a1109f5b31c4edaa07ce77cf9d7fb3032c6f57f842"));   // the file itself is not edited or regenerated
+    const ProjectBundle bundle = readProject(path);
+    QCOMPARE(bundle.fileMajor, 1);
+    QCOMPARE(bundle.fileMinor, 0);
+    QVERIFY(!bundle.migrated);
+    QVERIFY(bundle.warnings.empty());
+    const QByteArray stl = fakeStl();
+    expectSameDocument(bundle.document, fullDocument(stl));
+    QCOMPARE(bundle.embeddedModelBytes, stl);
+    QVERIFY(isIntactProject(path));
+  }
+
+  // Not a test: writes the frozen file. Run once with CRAFT_WRITE_FROZEN_PROJECT=<path>; skipped otherwise.
+  void writeTheFrozenFormat1_0File() {
+    const QString target = qEnvironmentVariable("CRAFT_WRITE_FROZEN_PROJECT");
+    if (target.isEmpty()) QSKIP("only when CRAFT_WRITE_FROZEN_PROJECT is set");
+    const QByteArray stl = fakeStl();
+    writeProject(target, fullDocument(stl), stl);
+    QVERIFY(QFileInfo::exists(target));
+  }
+
   // --- linked models ---------------------------------------------------------------------------------------------------------
 
   void aLinkedModelIsVerifiedAndMissingOrChangedFilesAreReported() {

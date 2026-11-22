@@ -606,3 +606,10 @@ Fresh evidence for `EXECUTION_REPORT.md` instead of memory of earlier runs. Pack
 
 - Measured by hand first: a silent upgrade with the installed Craft open exits 0, Restart Manager closes Craft, the new files are in place, no residue, no reboot. Silent uninstall likewise. An upgrade whose files are identical to the installed ones proves nothing, so the test builds the upgrade from a layout whose Craft.exe differs.
 - Added section 6 to verify-installer.ps1. The first run of it failed three checks because my wait loop compared an IntPtr as a boolean and the installer ran while Craft was still starting; fixing the wait made it pass (log installer-test4.log). The failed run also showed that an uninstall arriving during Craft's startup left 44 files behind; recorded in PACKAGING.md and RISKS.md, not fixed (not a realistic user timing).
+
+### P1-9 and P1-10
+
+- P1-9: froze the format-1.0 project (
+ative/tests/fixtures/projects/format-1.0-full.craft, SHA-256 dec36faf...f842) and added 	heFrozenFormat1_0FileStillOpens; flipping one byte of the file fails it (checked), the restored file passes. .gitattributes marks *.craft binary.
+- P1-10: two app-level tests added (saving a linked project embeds the model, a changed linked model is refused with the relink prompt); with the existing relink test, 3 pass. tst_project 35 passed, 1 skipped (the generator slot).
+- Decision D-121 (embedded-only for v1) is the matrix's recommended default and awaits the owner's confirmation.

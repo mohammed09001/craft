@@ -3612,6 +3612,90 @@ class WorkflowTest : public QObject {
     QCOMPARE(app->moldClearanceMm(), 15.0);
   }
 
+  // P1-10 (D-121): the application writes embedded projects only. A project that arrives with a linked model (from another tool) is read,
+  // and saving it again makes it self-contained: the model is copied into the file, so the project no longer depends on a path.
+  void savingAProjectWithALinkedModelEmbedsTheModel() {
+    QTemporaryDir dir;
+    QFile stlFile(bracket());
+    QVERIFY(stlFile.open(QIODevice::ReadOnly));
+    const QByteArray stlBytes = stlFile.readAll();
+    const QString modelCopy = dir.filePath("outside/bracket.stl");
+    QVERIFY(QDir().mkpath(dir.filePath("outside")));
+    QFile copy(modelCopy);
+    QVERIFY(copy.open(QIODevice::WriteOnly));
+    copy.write(stlBytes);
+    copy.close();
+    project::Document doc;
+    doc.projectId = "linked-2";
+    doc.createdAt = doc.modifiedAt = "2026-11-18T10:00:00.000Z";
+    doc.appVersion = "test";
+    project::ModelReference ref;
+    ref.fileName = "bracket.stl";
+    ref.storage = "linked";
+    ref.linkedPath = modelCopy.toStdString();
+    ref.sizeBytes = static_cast<std::uint64_t>(stlBytes.size());
+    ref.sha256 = project::sha256Hex(stlBytes);
+    doc.model = ref;
+    doc.mold.moldClearanceMm = 11;
+    doc.mold.cavityClearanceMm = 0;
+    const QString linked = dir.filePath("linked.craft");
+    project::writeProject(linked, doc, {});
+    QVERIFY(QFileInfo(linked).size() < 8192);
+
+    auto app = makeApp();
+    app->openProjectFile(linked);
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready" && !app->project().value("opening").toBool(); }, 60000));
+    const QString saved = dir.filePath("self-contained.craft");
+    app->saveProjectToFile(saved);
+    QVERIFY(waitFor([&] { return !app->busy() && QFileInfo::exists(saved) && !app->project().value("dirty").toBool(); }, 60000));
+    QVERIFY(QFile::remove(modelCopy));   // the original model is gone: the saved project must not need it
+    const project::ProjectBundle bundle = project::readProject(saved);
+    QCOMPARE(QString::fromStdString(bundle.document.model->storage), QStringLiteral("embedded"));
+    QVERIFY(QFileInfo(saved).size() > stlBytes.size() / 2);
+    auto reopened = makeApp();
+    reopened->openProjectFile(saved);
+    QVERIFY(waitFor([&] { return reopened->modelPhase() == "ready" && !reopened->project().value("opening").toBool(); }, 60000));
+    QCOMPARE(reopened->moldClearanceMm(), 11.0);
+  }
+
+  // A linked model that was edited since the project was written is not silently used: the user is told and asked to locate the right file.
+  void aLinkedModelThatChangedIsRefusedWithARelinkPrompt() {
+    QTemporaryDir dir;
+    QFile stlFile(bracket());
+    QVERIFY(stlFile.open(QIODevice::ReadOnly));
+    const QByteArray stlBytes = stlFile.readAll();
+    const QString modelCopy = dir.filePath("bracket.stl");
+    QFile copy(modelCopy);
+    QVERIFY(copy.open(QIODevice::WriteOnly));
+    copy.write(stlBytes);
+    copy.close();
+    project::Document doc;
+    doc.projectId = "linked-3";
+    doc.createdAt = doc.modifiedAt = "2026-11-18T10:00:00.000Z";
+    doc.appVersion = "test";
+    project::ModelReference ref;
+    ref.fileName = "bracket.stl";
+    ref.storage = "linked";
+    ref.linkedPath = modelCopy.toStdString();
+    ref.sizeBytes = static_cast<std::uint64_t>(stlBytes.size());
+    ref.sha256 = project::sha256Hex(stlBytes);
+    doc.model = ref;
+    doc.mold.cavityClearanceMm = 0;
+    project::writeProject(dir.filePath("linked.craft"), doc, {});
+    QByteArray edited = stlBytes;                       // same size, different content: only the hash can tell
+    edited[edited.size() / 2] = static_cast<char>(edited[edited.size() / 2] ^ 0x55);
+    QVERIFY(copy.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    copy.write(edited);
+    copy.close();
+
+    auto app = makeApp();
+    QSignalSpy relink(app.get(), &AppController::projectModelNeedsRelink);
+    app->openProjectFile(dir.filePath("linked.craft"));
+    QVERIFY(waitFor([&] { return relink.count() == 1; }, 30000));
+    QCOMPARE(relink.first().at(1).toString(), QStringLiteral("project_asset_changed"));
+    QVERIFY(!app->model().has_value());
+  }
+
   void segmentationPlanAndExecutionComeBackWithTheProject() {
     QTemporaryDir dir;
     const QString file = dir.filePath("seg.craft");

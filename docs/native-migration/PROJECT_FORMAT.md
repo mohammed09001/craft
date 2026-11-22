@@ -60,7 +60,7 @@ Written to a temporary file beside the target (`QSaveFile`) and renamed over it 
 | **newer major** | refused: "created by a newer version of Craft" |
 | **older major** | upgraded in memory by the registered migration chain (`builtinMigrations()`), with a warning per step; refused with "no migration" if a step is missing; a failing step is `project_migration_failed`. The file on disk is untouched until the next save, which writes the current version |
 
-Format 1 is the first major, so `builtinMigrations()` is empty. The migration machinery is tested with an injected chain (ordering, reporting, failure), not with a real historical format: there is none.
+Format 1 is the first major, so `builtinMigrations()` is empty. The migration machinery is tested with an injected chain (ordering, reporting, failure), not with a real historical format: there is none. What is real instead is a **frozen format-1.0 file**, `native/tests/fixtures/projects/format-1.0-full.craft` (2,792 bytes, every field filled, written once by the 1.0 writer and pinned by SHA-256 in `tst_project::theFrozenFormat1_0FileStillOpens`). Every later build must open it and read the same values. Rules for the first format change: keep the frozen file and its test; add the new version's own frozen file beside it; register a migration step from the old major if the major changes; never regenerate a frozen file to make a test pass (`.gitattributes` marks `*.craft` binary so line-ending conversion cannot alter it).
 
 ## Linked models
 
