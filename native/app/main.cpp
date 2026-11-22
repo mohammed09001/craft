@@ -279,10 +279,13 @@ class Smoke : public QObject {
       }
       return frame;
     };
-    app_.cutPlaneHoverAt(onPlane.x(), onPlane.y(), w, h);
-    const QImage hovered = frameNow();
+    // The idle frame first; then the hover, and frames are taken until one differs from the idle one (a change of the scene reaches the
+    // screen on the next rendered frame, and after a resize that can be a moment later), for at most three seconds.
     app_.cutPlaneLeave();
     const QImage idle = frameNow();
+    app_.cutPlaneHoverAt(onPlane.x(), onPlane.y(), w, h);
+    QImage hovered = frameNow();
+    for (int attempt = 0; attempt < 30 && !hovered.isNull() && hovered == idle; ++attempt) hovered = frameNow();
     if (hovered.isNull() || idle.isNull() || hovered.size() != idle.size()) return QStringLiteral("no frames could be grabbed to check the planes' pixels");
     const QPointF origin = item->mapToScene(QPointF(0, 0));
     int drawn = 0, picked = 0;
