@@ -21,7 +21,7 @@ The app finds all of this relative to its own directory (`AppPaths::analysisWork
 
 ## The bundled Python runtime
 
-- Source: the official `python-3.13.17-embed-amd64.zip`, pinned by URL **and SHA-256** in `native/packaging/pins.json`. `scripts/native/prepare-python-runtime.ps1` downloads it, refuses to continue on a hash mismatch, extracts it and writes `python313._pth`.
+- Source: the official `python-3.13.17-embed-amd64.zip`, pinned by URL **and SHA-256** in `native/packaging/pins.json` (verified against python.org's signature by `scripts/native/verify-python-pin.ps1`, D-051). `scripts/native/prepare-python-runtime.ps1` downloads it, refuses to continue on a hash mismatch, extracts it and writes `python313._pth`.
 - **Isolation by construction.** The `_pth` file (`python313.zip`, `.`, `..\analysis\site`) makes the interpreter ignore `PYTHONPATH`, `PYTHONHOME`, the registry and the user's site-packages. The bundled engine cannot be shadowed by anything on the user's machine, and the user's Python cannot be affected.
 - **No dependencies to install.** The engine is pure Python with no third-party packages (`mold/pyproject.toml`), so there is no pip step and no wheel to pin.
 - Size: the runtime is 21.6 MB; the engine sources are 0.9 MB.

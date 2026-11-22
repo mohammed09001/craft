@@ -85,7 +85,7 @@ These are what the code already does; they are the contract a release must keep.
 1. Full Debug and Release CTest in one run each, and the UI tour, on the tagged commit.
 2. `build-package.ps1` on that commit; `verify-install.ps1` on the installed layout **and** on the ZIP extracted into a fresh folder.
 3. The product version bumped in one place; the executable's version, the application's reported version and the package name agree (checked by `verify-install.ps1`).
-4. SHA-256 of every artefact recorded; the bundled Python checksum compared with the one python.org publishes (PACKAGING.md says this is still to do before a public release).
+4. SHA-256 of every artefact recorded; `scripts/native/verify-python-pin.ps1` run and passing (the bundled Python against python.org's hash and signature; done once on 2026-11-22, D-051).
 5. Signature applied and verified (needs the certificate).
 6. A clean-machine install, upgrade-from-previous and uninstall run (needs a clean Windows image: P0-6's open row).
 7. Release notes: user-visible changes, format changes and migrations, bundled component versions, known limits (the risk register's open items that a user can meet).

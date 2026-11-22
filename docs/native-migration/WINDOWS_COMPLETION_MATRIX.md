@@ -56,7 +56,7 @@ Three separate completion levels are tracked and none is claimed until all its r
 | PK-3 | Update strategy defined | **written, awaiting owner approval (2026-11-22)** | UPDATE_STRATEGY.md and D-114: manual signed installer, no updater, no network access; versioning, upgrade/rollback and data-compatibility rules, release checklist. Engineering part done: one version source, a version resource in Craft.exe, verify-install checks that the versions agree. Owner decisions listed in the document (approval, release host, certificate, licences, installer toolchain, support window) |
 | PK-4 | Dependency + licence inventory of the release package | partial | `licenses/THIRD_PARTY_NOTICES.txt`; legal review is owner-controlled |
 | PK-5 | Code signing | **blocked (owner)** | certificate required; never fabricated |
-| PK-6 | Python runtime SHA-256 pin compared with python.org | not tested | R-Packaging-2 |
+| PK-6 | Python runtime SHA-256 pin compared with python.org | **pass (2026-11-22)** | D-051. `verify-python-pin.ps1`: a fresh download has the pinned SHA-256 (9e35319b...ddb38), python.org's `.asc` is a good signature, the signing key is the Windows-binaries key python.org lists (7ED10B6531D7C8E1BC296021FC624643487034E5); a wrong fingerprint and a wrong hash each fail the script. No MD5/SHA-256 is published for the embeddable zip, so the signature is the evidence; Sigstore not checked |
 
 ## Repository cleanup (single maintained app)
 
