@@ -250,10 +250,12 @@ class Smoke : public QObject {
   // The platform interface takes NATIVE pixels (QTest's own mouse helpers convert the same way); every position in these tests is in the
   // window's device-independent pixels, as the application sees them, so it is scaled by the window's device pixel ratio here. Without this
   // the real-input tests only held at a display scale of 100 %.
+#ifdef CRAFT_SMOKE_REAL_EVENTS   // the private platform interface is not linked into packaged (tests-off) builds
   void injectMouse(const QPointF& scene, Qt::MouseButtons buttons, Qt::MouseButton button, QEvent::Type type) {
     const qreal dpr = window_->devicePixelRatio();
     QWindowSystemInterface::handleMouseEvent(window_, scene * dpr, window_->mapToGlobal(scene) * dpr, buttons, button, type);
   }
+#endif
   // What is drawn as a plane must be what the controller picks as a plane, whatever the display scale and the window size. The ray of a pixel and
   // the frame are made by different code, and a mix-up of device-independent and device pixels, or a stale viewport size after a resize, would put
   // the drawn slab far from where the pick finds it. The test: a plane under the pointer is drawn brighter than an idle one, so the pixels that

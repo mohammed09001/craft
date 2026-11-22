@@ -40,7 +40,7 @@ Scheme: `MAJOR.MINOR.PATCH`.
 |---|---|
 | Portable ZIP `Craft-<version>-windows-x64.zip` | builds and passes `verify-install.ps1` (PK-1) |
 | `SHA-256` of every artefact, published next to it | to do at release time (the build already prints the ZIP; record it in the release notes) |
-| Installer (MSI/EXE) | **blocked**: no installer toolchain on the build machine and the WiX download was not allowed (PK-2) |
+| Installer (MSI) | built by `build-installer.ps1`, install / upgrade / refused downgrade / uninstall tested by `verify-installer.ps1` (PK-2); unsigned |
 | Authenticode signature on `Craft.exe`, the DLLs and the installer, with a trusted timestamp | **blocked on the owner's certificate** (unsigned binaries trigger SmartScreen: PACKAGING.md, open decision 3) |
 | `licenses/THIRD_PARTY_NOTICES.txt` | in the package; the legal review and the Qt / Craft licence decisions are the owner's (R-License-1, P0-7) |
 | Release notes | to write per release: user-visible changes, any `.craft` format change (and its migration), the bundled component versions, known limits |
@@ -49,14 +49,14 @@ Until the certificate and the licence decisions exist the package is **internal-
 
 ## How an update behaves
 
-### With the installer (when it exists)
+### With the installer (built, PK-2)
 
 Requirements for it, so that updating is safe by construction:
 
 1. **Per-user install scope** (no elevation), installing to `%LOCALAPPDATA%\Programs\Craft` or a user-chosen folder.
 2. A **stable upgrade identity** (one `UpgradeCode` / product id for all versions) and **major-upgrade semantics**: a higher `ProductVersion` replaces the old files, the same or a lower one is refused with a clear message (downgrade is a manual uninstall; see Rollback).
 3. **Nothing outside the install folder** is installed or changed except the Start-menu entry and the optional `.craft` association; no shared files, no machine-wide registry state, no services. (The package needs none: Qt, the MSVC runtime and Python are application-local.)
-4. The installer **detects a running `Craft.exe`** and asks to close it (the files are locked while it runs) instead of failing half-way. Autosave protects the user's unsaved work in any case (P0-4: autosave and recovery, crash drill 26/26 real kills).
+4. (Not verified: the MSI relies on Windows Installer's Restart Manager and a running Craft was not tested.) The installer **detects a running `Craft.exe`** and asks to close it (the files are locked while it runs) instead of failing half-way. Autosave protects the user's unsaved work in any case (P0-4: autosave and recovery, crash drill 26/26 real kills).
 5. **Data preservation:** install, upgrade and uninstall never delete `%LOCALAPPDATA%\Craft\Craft\` (autosave, cache, logs) or any `.craft` file. An uninstall may offer to remove the cache and logs, never the autosave without saying so.
 6. After an upgrade the first launch offers recovery of any autosave left by the previous version exactly as after a crash (the autosave is an ordinary `.craft` file).
 

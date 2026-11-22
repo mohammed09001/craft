@@ -1,6 +1,6 @@
 # Packaging the Windows application
 
-Status: the **installed layout, the bundled Python runtime and a portable ZIP** are implemented and verified. A **Windows installer (MSI/EXE) is not built yet**: see "Installer" below. **macOS packaging is not started.**
+Status: the **installed layout, the bundled Python runtime and a portable ZIP** are implemented and verified. A **per-user Windows installer (MSI, unsigned)** is built and tested by `verify-installer.ps1`: see "Installer" below. **macOS packaging is not started.**
 
 ## What is in the package
 
@@ -48,15 +48,18 @@ Note for developers: `scripts/native/windows-env.ps1` sets `CRAFT_PYTHON`, which
 
 ## Installer
 
-The portable ZIP is the only distributable built so far.
+Two distributables are built from the same installed layout (`Craft-install`): the portable ZIP and a per-user MSI.
 
-An installer (MSI through CPack's WiX generator, per-user install scope so it can be installed and tested without elevation) was the plan, but it needs the WiX Toolset binaries, which are not installed on this machine. Fetching them (a 41 MB GitHub release archive) was blocked during this work, and was not worked around. **What an installer must add on top of the verified layout:** Start-menu shortcut, uninstaller, the `.craft` file association (the app already opens a `.craft` or `.stl` passed on its command line), upgrade handling. Nothing about the layout needs to change.
-
+- Build: `scripts\native\build-installer.ps1` (WiX Toolset 3.14: `heat` harvests the layout, `candle` compiles, `light` links). Output: `D:\CraftNative\build\windows-package\packages\Craft-<version>-windows-x64.msi`. Source: `native/packaging/wix/Craft.wxs`. The WiX binaries are a build tool only, fetched by `prepare-wix.ps1` into `D:\CraftNative\tools\wix314` and pinned by URL, size and SHA-256 in `pins.json` (trust on first use: GitHub publishes no digest and the archive is unsigned). They are not part of the package.
+- What it does: installs per user (no elevation) to `%LocalAppData%\Programs\Craft` (or `INSTALLFOLDER=<folder>` on the command line); adds a Start-menu shortcut, an entry in Settings > Apps with an uninstaller, and the `.craft` association for the current user (HKCU). A higher `ProductVersion` with the same `UpgradeCode` replaces the old version (major upgrade); an older or equal one is refused. Uninstall removes what the installer put down and nothing else; autosaves, recovery files, the model cache and the user's `.craft` files live outside the install folder and are never touched. No licence text is shown (R-License-1 is the owner's).
+- Test: `scripts\native\verify-installer.ps1` (non-elevated; refuses to run if Craft is already installed for the user). It installs the real MSI and checks the file count against the layout, the Settings > Apps entry and version, the shortcut target, `verify-install.ps1` on the installed copy, the `.craft` command with a real launch of a project made by `--project-bench`, a user-data marker, the upgrade to the next patch version (built on the fly), the refused downgrade, the uninstall, and that the per-user registry and Start menu equal their state before the first install. Last run: all checks passed (log `D:\CraftNative\logs\installer-test2.log`).
+- Windows behaviour worth knowing: the Settings > Apps entry of this per-user MSI is written under `HKLM\...\Uninstall` by Windows Installer's service, although the install needs no elevation (measured on Windows 11 24H2). The test therefore looks in both hives.
+- Not done and not claimed: the MSI is **not signed** (needs the owner's certificate, PK-5), so SmartScreen will warn; behaviour when Craft is running during an upgrade or uninstall was **not tested** (Windows Installer's Restart Manager may offer to close it in an interactive install; UPDATE_STRATEGY.md requirement 4 stays open); no test on a clean machine or another Windows version (P0-6); no per-machine mode.
 ## Open decisions and blockers for a release
 
 1. **Qt licensing (blocking).** The Qt SBOM on this machine records Qt Quick 3D 6.8.3 as `Commercial OR GPL-3.0-only` (not LGPL; Qt Base, Declarative and Shader Tools do offer LGPL-3.0). The viewport is built on Qt Quick 3D, so distributing Craft with the open-source Qt means either a commercial Qt license or releasing Craft under the GPL-3.0. This must be decided by the product owner; until then the package is for internal testing. `licenses/THIRD_PARTY_NOTICES.txt` says so.
 2. **Craft's own license** is not chosen yet.
-3. **Code signing.** There is no certificate: the executable, the DLLs and any installer are unsigned, so Windows SmartScreen will warn on a downloaded copy. Signing needs a certificate and a signing step in the build; neither exists.
+3. **Code signing.** There is no certificate: the executable, the DLLs and the MSI are unsigned, so Windows SmartScreen will warn on a downloaded copy. Signing needs a certificate and a signing step in the build; neither exists.
 4. **Updates:** no update mechanism exists, by design for v1; the proposed strategy (manual signed installer, no updater, no network access) is in `UPDATE_STRATEGY.md` and waits for the owner's approval.
 5. **macOS** needs its own bundling (`.app`, a relocatable Python such as python-build-standalone, `macdeployqt`, signing and notarization) and a real Mac runner. None of it was attempted; nothing here has been run on macOS.
 6. There is no native **CI** job; builds and verification are run by hand with the scripts above.
