@@ -260,6 +260,32 @@ class Smoke : public QObject {
   // differ between the frame with the pointer on the plane and the frame without are drawn plane; each of them (in device pixels) must be picked
   // as a plane. (The pick ignores what is in front of a slab, as the reference's raycast does, so the picked area may be larger than the drawn
   // one, never smaller.) Needs the 'top' and 'left' planes chosen. Returns the problem, or nothing.
+  /// The centre of `item` in scene coordinates, once it can be clicked: the window is exposed and active, the item is visible and has a size,
+  /// and its position has not changed for three polls in a row (a layout that is still settling after a start, a resize or a model that was
+  /// just loaded moves a button between the moment its position is read and the moment the press arrives, and the press then misses it).
+  /// Gives up after five seconds and returns what it has; `why` then names what was not so, for the test's message.
+  QPointF stableCentre(QQuickItem* item, QString* why = nullptr) {
+    QPointF last(-1e9, -1e9);
+    int steady = 0;
+    QElapsedTimer timer;
+    timer.start();
+    QString problem;
+    while (timer.elapsed() < 5000) {
+      problem.clear();
+      if (!window_->isExposed()) problem = QStringLiteral("the window is not exposed");
+      else if (!window_->isActive()) { window_->requestActivate(); problem = QStringLiteral("the window is not active"); }
+      else if (!item->isVisible() || item->width() <= 0 || item->height() <= 0) problem = QStringLiteral("the item is not visible or has no size");
+      const QPointF now = item->mapToScene(QPointF(item->width() / 2, item->height() / 2));
+      steady = (problem.isEmpty() && now == last) ? steady + 1 : 0;
+      last = now;
+      if (steady >= 3) break;
+      QEventLoop loop;
+      QTimer::singleShot(30, &loop, &QEventLoop::quit);
+      loop.exec();
+    }
+    if (why) *why = steady >= 3 ? QString() : (problem.isEmpty() ? QStringLiteral("its position kept changing") : problem);
+    return last;
+  }
   QString drawnAndPickedAgree(QQuickItem* item) {
     const int w = static_cast<int>(item->width()), h = static_cast<int>(item->height());
     app_.camera()->setViewportSize(w, h);
@@ -377,12 +403,14 @@ class Smoke : public QObject {
     if (tip() != QLatin1String("Master Mold")) return fail(QStringLiteral("the idle tooltip is not the plain name: ") + tip());
     if (bodyCount() != 0) return fail(QStringLiteral("there are mold bodies before anything was generated"));
 
-    const QPointF scene = button->mapToScene(QPointF(button->width() / 2, button->height() / 2));
+    QString notReady;
+    const QPointF scene = stableCentre(button, &notReady);
+    if (!notReady.isEmpty()) return fail(QStringLiteral("the Master Mold button could not be clicked: ") + notReady);
     injectMouse(scene, Qt::NoButton, Qt::NoButton, QEvent::MouseMove);
     injectMouse(scene, Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonPress);
     injectMouse(scene, Qt::NoButton, Qt::LeftButton, QEvent::MouseButtonRelease);
     // The click started the job (synchronously, with the worker still running): the button is unavailable and its tooltip is the progress.
-    if (!app_.masterMold().value("generating").toBool()) return fail(QStringLiteral("a click on the Master Mold button did not start generating"));
+    if (!app_.masterMold().value("generating").toBool()) return fail(QStringLiteral("a click on the Master Mold button did not start generating (button at %1,%2 size %3x%4, enabled %5, window active %6, status %7)").arg(scene.x()).arg(scene.y()).arg(button->width()).arg(button->height()).arg(button->property("enabled").toBool()).arg(window_->isActive()).arg(app_.masterMold().value("status").toString()));
     if (button->property("enabled").toBool()) return fail(QStringLiteral("the Master Mold button stayed enabled while generating"));
     if (tip() == QLatin1String("Master Mold")) return fail(QStringLiteral("the tooltip did not show progress while generating"));
     if (!waitFor([&] { return !app_.masterMold().value("generating").toBool() && app_.masterMold().value("status").toString() != "unavailable"; }, 120000))
@@ -412,7 +440,7 @@ class Smoke : public QObject {
     const auto find = [this](const QString& name) { return window_->findChild<QQuickItem*>(name); };
     const auto settle = [](int ms) { QEventLoop loop; QTimer::singleShot(ms, &loop, &QEventLoop::quit); loop.exec(); };
     const auto click = [this, &settle](QQuickItem* item) {
-      const QPointF scene = item->mapToScene(QPointF(item->width() / 2, item->height() / 2));
+      const QPointF scene = stableCentre(item);
       injectMouse(scene, Qt::NoButton, Qt::NoButton, QEvent::MouseMove);
       injectMouse(scene, Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonPress);
       injectMouse(scene, Qt::NoButton, Qt::LeftButton, QEvent::MouseButtonRelease);
@@ -497,7 +525,7 @@ class Smoke : public QObject {
     QQuickItem* content = find(QStringLiteral("inspectorContent"));
     if (!header || !section || !content) return fail(QStringLiteral("the Model section, its header or the inspector was not found"));
     const auto click = [this](QQuickItem* item) {
-      const QPointF scene = item->mapToScene(QPointF(item->width() / 2, item->height() / 2));
+      const QPointF scene = stableCentre(item);
       injectMouse(scene, Qt::NoButton, Qt::NoButton, QEvent::MouseMove);
       injectMouse(scene, Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonPress);
       injectMouse(scene, Qt::NoButton, Qt::LeftButton, QEvent::MouseButtonRelease);
@@ -1046,7 +1074,7 @@ class Smoke : public QObject {
       return faces;
     };
     const auto clickItem = [this](QQuickItem* item) {
-      const QPointF scene = item->mapToScene(QPointF(item->width() / 2, item->height() / 2));
+      const QPointF scene = stableCentre(item);
       injectMouse(scene, Qt::NoButton, Qt::NoButton, QEvent::MouseMove);
       injectMouse(scene, Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonPress);
       injectMouse(scene, Qt::NoButton, Qt::LeftButton, QEvent::MouseButtonRelease);
@@ -1087,7 +1115,7 @@ class Smoke : public QObject {
     auto* flipButton = window_->findChild<QQuickItem*>(QStringLiteral("flipToolButton"));
     if (!flipButton) return fail(QStringLiteral("the Flip toolbar button was not found"));
     const auto clickItem = [this](QQuickItem* item) {
-      const QPointF scene = item->mapToScene(QPointF(item->width() / 2, item->height() / 2));
+      const QPointF scene = stableCentre(item);
       injectMouse(scene, Qt::NoButton, Qt::NoButton, QEvent::MouseMove);
       injectMouse(scene, Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonPress);
       injectMouse(scene, Qt::NoButton, Qt::LeftButton, QEvent::MouseButtonRelease);

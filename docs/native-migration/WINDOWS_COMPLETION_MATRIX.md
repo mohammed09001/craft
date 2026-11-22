@@ -44,7 +44,7 @@ Three separate completion levels are tracked and none is claimed until all its r
 | P2-4 | Orbit rate and GPU memory at 10.7M triangles | not tested | Load time (2.5 s) was measured |
 | P2-5 | Non-sphere representative parts for cavity / Master Mold timing | not tested | |
 | P2-6 | Save/open at the 512 MiB limit | **partly done (2026-11-22); Release tests pass** | D-118. Save and autosave hash the model once: first save 15.3 to 11.5 s, repeat save 20.1 to 15.6 s, autosave 14.1 to 11.6 s at 10.73M triangles. Open is unchanged (13 to 16 s first, 5.8 s with the cache file); deferring the analysis-cache write is the remaining candidate, not done |
-| P2-7 | Unexplained smoke failures R-Smoke-1/2 | open | not reproduced in 217 + 32 runs |
+| P2-7 | Unexplained smoke failures R-Smoke-1/2 | **hardened, not explained (2026-11-22)** | Two further timing mechanisms found and fixed (frame lag in the plane-drag pixel check; clicks on a button whose position or window activity had not settled, now `stableCentre`). 84 more runs under full CPU load on Release, no failure (333 in total since the first failures). The three original failures are not reproduced; if one recurs its message carries the state |
 | P2-8 | Shadows, remaining part-role colours | not started | |
 
 ## Packaging, distribution, CI

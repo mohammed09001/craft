@@ -16,7 +16,8 @@ param(
   [int]$Iterations = 10,
   [switch]$Busy,
   [switch]$Dialog,
-  [string]$Out
+  [string]$Out,
+  [string]$Preset = 'windows-debug'
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
@@ -69,7 +70,7 @@ try {
   $failures = @{}; $total = 0; $times = @{}
   "start $(Get-Date -Format s): $Iterations iterations, busy=$Busy dialog=$Dialog" | Tee-Object $Out
   foreach ($i in 1..$Iterations) {
-    $text = ctest --preset windows-debug -R app_smoke --output-on-failure 2>&1 | Out-String
+    $text = ctest --preset $Preset -R app_smoke --output-on-failure 2>&1 | Out-String
     foreach ($m in [regex]::Matches($text, 'Test\s+#\d+: (\S+) \.+\s*(\*\*\*)?(Passed|Failed|Timeout)\s+([\d.]+) sec')) {
       $total++
       $name = $m.Groups[1].Value
