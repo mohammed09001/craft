@@ -14,6 +14,8 @@
 #      installing the older MSI again is refused;
 #   5. uninstall: exit 0; the install folder, shortcut, association and Settings entry are gone; the user data marker is still there;
 #      the registry and Start menu are exactly as they were before the first install.
+#   6. Craft running: a silent upgrade and a silent uninstall while the installed Craft is open close it (Restart Manager), replace or remove
+#      every file, leave no rollback files, and need no reboot.
 # Exit code 0 only if every check passes. An interrupted run uninstalls in its finally block.
 
 [CmdletBinding()]
@@ -153,7 +155,51 @@ try {
   if ($marker) { Check 'the user data marker is still there' (Test-Path $marker) }
   $after = Get-State
   Check 'the per-user registry and Start menu are exactly as before the first install' (($after | ConvertTo-Json -Compress) -eq ($before | ConvertTo-Json -Compress)) "(before $($before | ConvertTo-Json -Compress), after $($after | ConvertTo-Json -Compress))"
+
+  # 6. Craft is running while the installer upgrades and uninstalls it. A running Craft.exe locks its own files. Measured on Windows 11: in a
+  # silent (/qn) install Windows Installer's Restart Manager closes the running application (no prompt: there is no UI) and replaces the
+  # files; this section holds that: the new files are in place, nothing is left behind and no reboot is needed. (An interactive install
+  # shows the "files in use" dialog instead; that is Windows' own dialog and is not driven here.) The upgrade MSI is built from a copy of the
+  # layout whose Craft.exe differs (a byte appended): with identical files there is nothing to replace and the test would prove nothing.
+  Step '6. Upgrade and uninstall while Craft is running'
+  function Start-InstalledCraft {
+    $app = Start-Process (Join-Path $InstallDir 'Craft.exe') -PassThru
+    # Wait for the window (a handle is an IntPtr: compare it as a number), then a little longer so that the application has finished loading.
+    for ($i = 0; $i -lt 60 -and [int64]$app.MainWindowHandle -eq 0 -and -not $app.HasExited; $i++) { Start-Sleep -Milliseconds 500; $app.Refresh() }
+    Start-Sleep -Seconds 3
+    $app
+  }
+  $changed = Join-Path $work 'layout-changed'
+  & robocopy $layout $changed /E /NFL /NDL /NJH /NJS /NP | Out-Null
+  $stream = [IO.File]::Open((Join-Path $changed 'Craft.exe'), 'Append'); $stream.WriteByte(0); $stream.Close()
+  Set-Content (Join-Path $changed 'upgrade-marker.txt') 'only in the upgrade'
+  $runningMsi = & (Join-Path $PSScriptRoot 'build-installer.ps1') -InstallDir $changed -Version $upgradeVersion -OutDir (Join-Path $work 'upgrade-running') | Select-Object -Last 1
+  Remove-Item $changed -Recurse -Force
+
+  $code = Invoke-Msi @('/i', "`"$Msi`"", "INSTALLFOLDER=`"$InstallDir`"") 'install-running.log'
+  Check 'installs again (exit 0)' ($code -eq 0) "(exit $code)"
+  $hashBefore = (Get-FileHash (Join-Path $InstallDir 'Craft.exe')).Hash
+  $app = Start-InstalledCraft
+  Check 'the installed Craft is running with a window' ($app -and -not $app.HasExited -and [int64]$app.MainWindowHandle -ne 0)
+  $code = Invoke-Msi @('/i', "`"$runningMsi`"", "INSTALLFOLDER=`"$InstallDir`"") 'upgrade-running.log'
+  Check 'upgrading while it runs exits 0 (no reboot needed, not 3010, not a failure)' ($code -eq 0) "(exit $code, see $work\upgrade-running.log)"
+  Check 'the running Craft was closed by the installer' ($app.WaitForExit(15000))
+  Check 'Craft.exe was replaced' ((Get-FileHash (Join-Path $InstallDir 'Craft.exe')).Hash -ne $hashBefore)
+  Check 'a file only the new version has is installed' (Test-Path (Join-Path $InstallDir 'upgrade-marker.txt'))
+  Check 'no rollback or backup files were left in the install folder' (@(Get-ChildItem $InstallDir -Filter '*.rbf' -Force -ErrorAction SilentlyContinue).Count -eq 0)
+  $entries = Get-CraftEntries
+  Check 'one Craft entry in Settings > Apps, showing the new version' ($entries.Count -eq 1 -and (Get-ItemProperty $entries[0].PSPath).DisplayVersion -eq $upgradeVersion)
+  $app = Start-InstalledCraft
+  Check 'the upgraded Craft starts' ($app -and -not $app.HasExited)
+  $code = Invoke-Msi @('/x', "`"$runningMsi`"") 'uninstall-running.log'
+  Check 'uninstalling while it runs exits 0' ($code -eq 0) "(exit $code)"
+  Check 'the running Craft was closed by the installer' ($app.WaitForExit(15000))
+  Check 'the install folder is gone (nothing left behind)' (-not (Test-Path $InstallDir)) "($(@(Get-ChildItem $InstallDir -Recurse -Force -File -ErrorAction SilentlyContinue).Count) files left)"
+  Check 'the user data marker is still there' ([bool]$marker -and (Test-Path $marker))
+  $after = Get-State
+  Check 'the per-user registry and Start menu are again exactly as before the first install' (($after | ConvertTo-Json -Compress) -eq ($before | ConvertTo-Json -Compress)) "(after $($after | ConvertTo-Json -Compress))"
 } finally {
+  Get-Process Craft -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($InstallDir, [StringComparison]::OrdinalIgnoreCase) } | Stop-Process -Force -ErrorAction SilentlyContinue
   # An interrupted run must not leave a Craft installed for the user.
   if ((Get-CraftEntries).Count -gt 0) {
     Write-Host 'Cleaning up an installation left by an interrupted run...' -ForegroundColor Yellow

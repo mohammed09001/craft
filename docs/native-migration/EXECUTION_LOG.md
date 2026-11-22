@@ -601,3 +601,8 @@ Fresh evidence for `EXECUTION_REPORT.md` instead of memory of earlier runs. Pack
 - The package rebuild found a real bug: `injectMouse` in `native/app/main.cpp` used Qt's private platform interface outside its `CRAFT_SMOKE_REAL_EVENTS` guard, so the tests-off package configuration did not compile. Guarded; the layout then passed `verify-install.ps1` (1590 files).
 - First `verify-installer.ps1` run: everything passed except the Settings > Apps count: Windows Installer writes that entry of a per-user MSI under HKLM even without elevation. The test now searches both hives; second run: all checks passed, and nothing was left on the machine afterwards.
 - Not tested: Craft running during upgrade/uninstall, a clean machine, signing.
+
+### PK-2: Craft running during upgrade and uninstall
+
+- Measured by hand first: a silent upgrade with the installed Craft open exits 0, Restart Manager closes Craft, the new files are in place, no residue, no reboot. Silent uninstall likewise. An upgrade whose files are identical to the installed ones proves nothing, so the test builds the upgrade from a layout whose Craft.exe differs.
+- Added section 6 to verify-installer.ps1. The first run of it failed three checks because my wait loop compared an IntPtr as a boolean and the installer ran while Craft was still starting; fixing the wait made it pass (log installer-test4.log). The failed run also showed that an uninstall arriving during Craft's startup left 44 files behind; recorded in PACKAGING.md and RISKS.md, not fixed (not a realistic user timing).
