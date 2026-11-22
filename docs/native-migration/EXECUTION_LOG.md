@@ -625,3 +625,8 @@ ative/tests/fixtures/projects/format-1.0-full.craft, SHA-256 dec36faf...f842) an
 ### P0-1: full Debug ctest on the current head
 
 - Rebuilt Debug incrementally (173 s) and ran `ctest` once on b10727b: 46/46 passed, 378.6 s. This is the first full Debug run since the checkpoint's 38/38 (the Release suite also reports 46 tests now).
+
+### P2-7: cold-start stress
+
+- Added `-Cold` to `smoke-stress.ps1`: before each iteration `Craft.exe` is copied aside and moved back over itself with a new write time (what a link step leaves), and the script throws if the time did not change. R-Smoke-2 failed once on the first launch after a rebuild.
+- Release, all 14 real-event smokes: 6 iterations (84 runs, 294 s) and 4 iterations with 8 burners at 100 % CPU (56 runs, 12.5 min, the load was checked before starting): no failure. 473 runs without a failure since the first failures; the original failures are not reproduced and not explained. Stopped here: more of the same conditions would not add information; what was not tried is listed in R-Smoke-1.

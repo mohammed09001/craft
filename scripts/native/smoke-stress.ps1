@@ -6,6 +6,9 @@
 #   .\scripts\native\smoke-stress.ps1 -Iterations 8 -Busy                     every logical CPU kept at 100 %
 #   .\scripts\native\smoke-stress.ps1 -Iterations 8 -Dialog                   a topmost modal dialog holding the foreground
 #   .\scripts\native\smoke-stress.ps1 -Iterations 8 -Busy -Dialog
+#   .\scripts\native\smoke-stress.ps1 -Iterations 8 -Cold                     before each iteration Craft.exe is rewritten as a new file,
+#                                                                             as a rebuild's link step does: the first launch of a file that
+#                                                                             Windows (Defender, the file cache) has not seen (R-Smoke-2)
 #
 # The conditions are checked before the first run and the script refuses to go on without them: an earlier version of this
 # measurement "ran under load" with burners that had silently failed to start (a command line split at its space) and "ran with a
@@ -16,6 +19,7 @@ param(
   [int]$Iterations = 10,
   [switch]$Busy,
   [switch]$Dialog,
+  [switch]$Cold,
   [string]$Out,
   [string]$Preset = 'windows-debug'
 )
@@ -68,8 +72,19 @@ try {
   }
   Push-Location (Join-Path $repo 'native')
   $failures = @{}; $total = 0; $times = @{}
-  "start $(Get-Date -Format s): $Iterations iterations, busy=$Busy dialog=$Dialog" | Tee-Object $Out
+  "start $(Get-Date -Format s): $Iterations iterations, busy=$Busy dialog=$Dialog cold=$Cold" | Tee-Object $Out
+  $craftExe = Join-Path (Join-Path $env:CRAFT_BUILD_ROOT $Preset) 'Craft.exe'
+  if ($Cold -and -not (Test-Path $craftExe)) { throw "-Cold needs $craftExe (build the application first)." }
   foreach ($i in 1..$Iterations) {
+    if ($Cold) {
+      # A new file with the same bytes and a new write time, which is what a link step leaves: copy aside, then move over.
+      $before = (Get-Item $craftExe).LastWriteTimeUtc
+      $copy = $craftExe + '.cold'
+      Copy-Item $craftExe $copy -Force
+      Move-Item $copy $craftExe -Force
+      (Get-Item $craftExe).LastWriteTimeUtc = [DateTime]::UtcNow   # a rebuild would stamp it now; Copy-Item keeps the old time
+      if ((Get-Item $craftExe).LastWriteTimeUtc -le $before) { throw '-Cold: Craft.exe was not rewritten.' }
+    }
     $text = ctest --preset $Preset -R app_smoke --output-on-failure 2>&1 | Out-String
     foreach ($m in [regex]::Matches($text, 'Test\s+#\d+: (\S+) \.+\s*(\*\*\*)?(Passed|Failed|Timeout)\s+([\d.]+) sec')) {
       $total++
