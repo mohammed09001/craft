@@ -156,6 +156,8 @@ class AppController : public QObject {
   Q_PROPERTY(QVariantMap gridInfo READ gridInfo NOTIFY gridChanged)
 
   Q_PROPERTY(QString tool READ tool WRITE setTool NOTIFY toolChanged)
+  /// The Mold Scale tool (the reference's global command): drag in the viewport or type a value to change the clearance of the mold.
+  Q_PROPERTY(bool moldScaleDragging READ moldScaleDragging NOTIFY toolChanged)
   /// {x, y, z, w, isIdentity, available, reason}: the part orientation and whether Flip / Auto orient may change it now.
   Q_PROPERTY(QVariantMap orientationState READ orientationState NOTIFY orientationChanged)
   Q_PROPERTY(QVariantMap selection READ selection NOTIFY selectionChanged)
@@ -349,6 +351,16 @@ class AppController : public QObject {
   Q_INVOKABLE void beginHistoryGesture();
   Q_INVOKABLE void endHistoryGesture();
 
+  // --- Mold Scale (moldScaleRuntime.ts): a horizontal drag changes the clearance by 0.1 mm per pixel, every move writes the real value, the release
+  // is ONE undo step, Escape (or a lost grab) puts the start value back and leaves no history entry. A typed value is one step as well. ---------------
+  bool moldScaleAvailable() const;
+  bool moldScaleDragging() const { return moldScaleDragging_; }
+  Q_INVOKABLE bool moldScaleBegin();
+  Q_INVOKABLE void moldScaleDragBy(qreal pixels);
+  Q_INVOKABLE void moldScaleEnd();
+  Q_INVOKABLE void moldScaleCancel();
+  /// Sets the clearance from the typed value as one undo step; returns the value that was set (clamped to the limits).
+  Q_INVOKABLE double moldScaleCommit(double millimetres);
   // --- cutting planes and the Eraser (reference: cuttingPlane3dRuntime.ts, removeSplitFace) ---------------------------
   CutPlaneModel* cutPlaneSlabs() { return &cutPlaneSlabs_; }
   QObject* cutFaceModel() { return &cutFaceModel_; }
@@ -724,6 +736,9 @@ class AppController : public QObject {
   // undo / redo
   std::deque<HistoryEntry> undoStack_, redoStack_;
   bool historyGestureActive_ = false, historyGesturePushed_ = false;
+  bool moldScaleDragging_ = false;
+  double moldScaleStartMm_ = 0;
+  std::optional<HistoryEntry> moldScaleBefore_;
   bool historyPaused_ = false;               // opening a project applies its inputs through the setters: no entries
   bool suppressGenerationHistory_ = false;   // the mold rebuilt on open is not an undoable step
 

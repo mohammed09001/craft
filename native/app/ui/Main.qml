@@ -28,8 +28,8 @@ ApplicationWindow {
     Shortcut { sequence: "Down"; autoRepeat: false; enabled: app.tool === "orientation"; onActivated: app.flipPart("backward") }
     Shortcut {
         sequence: "Escape"
-        enabled: app.sprueGizmo.cancellable || (app.tool === "select" && !!app.selection.kind)
-        onActivated: { if (!app.sprueGizmoCancel()) app.clearSelection() }
+        enabled: app.moldScaleDragging || app.sprueGizmo.cancellable || (app.tool === "select" && !!app.selection.kind)
+        onActivated: { if (app.moldScaleDragging) app.moldScaleCancel(); else if (!app.sprueGizmoCancel()) app.clearSelection() }
     }
 
     function exportMold() { exportDialog.open() }

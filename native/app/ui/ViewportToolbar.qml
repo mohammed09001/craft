@@ -99,6 +99,11 @@ Item {
         Part { color: g.color; d: "M6 6.5c1.5-2.7 4.9-3.8 7.7-2.4 1.1.5 2 1.4 2.6 2.4" }
         Part { color: g.color; d: "m14.4 5.2 2.2 1.5.8-2.5" }
     }
+    component MoldScaleGlyph: Glyph {
+        id: g
+        Part { color: g.color; w: 1.55; d: "M5.5 5.5h8v8h-8z" }
+        Part { color: g.color; w: 1.55; d: "M13 11 19 5m-4 0h4v4" }
+    }
     component SprueGlyph: Glyph {
         id: g
         Part { color: g.color; fillShare: 0.22; w: 1.5; d: "M7 5.5h10l-3 5v7a2 2 0 0 1-4 0v-7l-3-5Z" }
@@ -224,7 +229,18 @@ Item {
             onClicked: app.tool = app.tool === "orientation" ? "select" : "orientation"
         }
 
-        // Mold Scale: the clearance between the part and the mold's outside, stepped in whole millimetres (the exact value is in the Mold section).
+        // Mold Scale, the global command: drag in the view (0.1 mm per pixel) or type the value; one undo step.
+        IconButton {
+            objectName: "moldScaleToolButton"
+            text: qsTr("Mold Scale")
+            tip: qsTr("Mold Scale: drag in the view to change the mold clearance, or type a value")
+            glyph: Component { MoldScaleGlyph {} }
+            highlighted: app.tool === "mold-scale"
+            enabled: (app.modelPhase === "ready" && !app.busy && app.spruePhase !== "evaluating") || app.tool === "mold-scale"   // as AppController::moldScaleAvailable
+            onClicked: app.tool = app.tool === "mold-scale" ? "select" : "mold-scale"
+        }
+
+        // The clearance between the part and the mold's outside, stepped in whole millimetres (the exact value is in the Mold section).
         Row {
             spacing: 4
             height: 30

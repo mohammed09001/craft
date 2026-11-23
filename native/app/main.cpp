@@ -497,6 +497,78 @@ class Smoke : public QObject {
     if (app_.tool() != QLatin1String("select")) return problem(QStringLiteral("the pointer is not the tool at the start"));
     if (!item("pointerToolButton")->property("highlighted").toBool()) return problem(QStringLiteral("the Pointer button is not shown as the active tool"));
 
+    // 0b. Mold Scale through real input: the bar's button makes it the tool; a drag in the view changes the clearance by 0.1 mm per pixel and is one
+    // undo step; Escape in mid-drag puts the value back; the field takes a typed value and commits it with Enter.
+    {
+      const auto key = [this](int code, const QString& text = QString(), Qt::KeyboardModifiers modifiers = Qt::NoModifier) {
+        QWindowSystemInterface::handleKeyEvent(window_, QEvent::KeyPress, code, modifiers, text);
+        QWindowSystemInterface::handleKeyEvent(window_, QEvent::KeyRelease, code, modifiers, text);
+      };
+      const auto depth = [&] { return app_.history().value("undoDepth").toInt(); };
+      const double base = app_.moldClearanceMm();
+      const int depthBase = depth();
+      QQuickItem* scaleField = item("moldScaleEditor");
+      if (!item("moldScaleToolButton") || !scaleField) return problem(QStringLiteral("the Mold Scale button or its field is missing"));
+      if (scaleField->isVisible()) return problem(QStringLiteral("the Mold Scale field is shown before the tool is chosen"));
+      if (const QString p = click("moldScaleToolButton"); !p.isEmpty()) return problem(p);
+      if (app_.tool() != QLatin1String("mold-scale") || !item("moldScaleToolButton")->property("highlighted").toBool()) return problem(QStringLiteral("a click on the Mold Scale button did not make it the active tool (%1)").arg(app_.tool()));
+      if (!waitFor([&] { return scaleField->isVisible(); }, 3000)) return problem(QStringLiteral("the Mold Scale field did not appear with the tool"));
+      if (scaleField->property("text").toString() != QString::number(base)) return problem(QStringLiteral("the field shows '%1' for a clearance of %2").arg(scaleField->property("text").toString()).arg(base));
+
+      // A drag of 50 px to the right in empty viewport: +5 mm while it is held, one undo step once it is released, and the camera stays where it was.
+      const QRectF vp(viewport->mapToScene(QPointF(0, 0)), QSizeF(viewport->width(), viewport->height()));
+      const QPointF from(vp.left() + 80, vp.bottom() - 120);
+      const QVector3D eye = app_.camera()->position();
+      injectMouse(from, Qt::NoButton, Qt::NoButton, QEvent::MouseMove);
+      settle(60);
+      injectMouse(from, Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonPress);
+      settle(60);
+      for (int step = 1; step <= 5; ++step) { injectMouse(from + QPointF(10 * step, 0), Qt::LeftButton, Qt::LeftButton, QEvent::MouseMove); settle(30); }
+      if (std::fabs(app_.moldClearanceMm() - (base + 5.0)) > 1e-9) return problem(QStringLiteral("a 50 px drag gave a clearance of %1, expected %2").arg(app_.moldClearanceMm()).arg(base + 5.0));
+      if (scaleField->property("text").toString() != QString::number(base + 5.0)) return problem(QStringLiteral("the field shows '%1' during the drag, expected %2").arg(scaleField->property("text").toString()).arg(base + 5.0));
+      injectMouse(from + QPointF(50, 0), Qt::NoButton, Qt::LeftButton, QEvent::MouseButtonRelease);
+      settle(100);
+      if (depth() != depthBase + 1) return problem(QStringLiteral("the drag made %1 undo steps, expected 1").arg(depth() - depthBase));
+      if ((app_.camera()->position() - eye).length() > 1e-4) return problem(QStringLiteral("a Mold Scale drag moved the camera"));
+
+      // Escape in mid-drag: the value goes back, no step is added.
+      injectMouse(from, Qt::NoButton, Qt::NoButton, QEvent::MouseMove);
+      settle(60);
+      injectMouse(from, Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonPress);
+      settle(60);
+      for (int step = 1; step <= 3; ++step) { injectMouse(from + QPointF(10 * step, 0), Qt::LeftButton, Qt::LeftButton, QEvent::MouseMove); settle(30); }
+      if (std::fabs(app_.moldClearanceMm() - (base + 8.0)) > 1e-9) return problem(QStringLiteral("the second drag gave %1, expected %2").arg(app_.moldClearanceMm()).arg(base + 8.0));
+      key(Qt::Key_Escape);
+      settle(100);
+      if (std::fabs(app_.moldClearanceMm() - (base + 5.0)) > 1e-9) return problem(QStringLiteral("Escape in mid-drag left the clearance at %1, expected %2").arg(app_.moldClearanceMm()).arg(base + 5.0));
+      injectMouse(from + QPointF(30, 0), Qt::NoButton, Qt::LeftButton, QEvent::MouseButtonRelease);
+      settle(100);
+      if (depth() != depthBase + 1) return problem(QStringLiteral("the cancelled drag changed the history (%1 steps)").arg(depth() - depthBase));
+
+      // A typed value: click into the field, replace its text, Enter.
+      QString notReady;
+      const QPointF fieldCentre = stableCentre(scaleField, &notReady);
+      if (!notReady.isEmpty()) return problem(QStringLiteral("the Mold Scale field could not be clicked: ") + notReady);
+      injectMouse(fieldCentre, Qt::NoButton, Qt::NoButton, QEvent::MouseMove);
+      injectMouse(fieldCentre, Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonPress);
+      injectMouse(fieldCentre, Qt::NoButton, Qt::LeftButton, QEvent::MouseButtonRelease);
+      settle(100);
+      if (!scaleField->hasActiveFocus()) return problem(QStringLiteral("a click on the Mold Scale field did not focus it"));
+      QMetaObject::invokeMethod(scaleField, "selectAll");
+      key(Qt::Key_7, QStringLiteral("7"));
+      key(Qt::Key_Period, QStringLiteral("."));
+      key(Qt::Key_5, QStringLiteral("5"));
+      key(Qt::Key_Return, QStringLiteral("\r"));
+      settle(150);
+      if (std::fabs(app_.moldClearanceMm() - 7.5) > 1e-9) return problem(QStringLiteral("typing 7.5 and Enter gave a clearance of %1").arg(app_.moldClearanceMm()));
+      if (depth() != depthBase + 2) return problem(QStringLiteral("the typed value made %1 more undo steps, expected 1").arg(depth() - depthBase - 1));
+      if (scaleField->hasActiveFocus()) return problem(QStringLiteral("the field kept the focus after Enter"));
+
+      // Leave the tool; put the clearance back so that the steps below start from the usual value.
+      if (const QString p = click("pointerToolButton"); !p.isEmpty()) return problem(p);
+      if (app_.tool() != QLatin1String("select") || scaleField->isVisible()) return problem(QStringLiteral("the Pointer button did not leave Mold Scale"));
+      app_.setMoldClearanceMm(base);
+    }
     // 1. The mold-scale stepper: whole millimetres, and the value on the bar follows.
     const double start = app_.moldClearanceMm();
     const auto shown = [&] { return item("clearanceValue")->property("text").toString(); };

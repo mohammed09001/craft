@@ -17,6 +17,7 @@ Item {
     property bool gizmoPress: false             // a press that landed on a sprue ring: this gesture belongs to the gizmo
     property bool swallowRelease: false         // the release that ends a double click the gizmo handled is not a click
     property bool planeDrag: false              // a right-button press that landed on a cutting plane: the gesture drags that plane
+    property bool scaleDrag: false              // a left press under the Mold Scale tool: the gesture changes the clearance, not the camera
     clip: true
 
     // The background is a plain rectangle under a transparent 3D view: Qt tone maps the clear colour, which would turn the
@@ -344,8 +345,11 @@ Item {
             root.gizmoPress = e.button === Qt.LeftButton && app.tool === "sprue" && app.sprueGizmoPressAt(e.x, e.y, width, height)
             // A right-button press on a cutting plane drags the plane instead of panning (not under the Eraser).
             root.planeDrag = e.button === Qt.RightButton && !root.gizmoPress && app.cutPlaneDragBegin(e.x, e.y, width, height)
+            // Mold Scale: a left press starts a clearance drag (moldScaleRuntime.ts); the camera does not move.
+            root.scaleDrag = e.button === Qt.LeftButton && app.tool === "mold-scale" && app.moldScaleBegin()
         }
         onCanceled: {
+            if (root.scaleDrag) { root.scaleDrag = false; app.moldScaleCancel() }
             if (root.gizmoPress) { root.gizmoPress = false; app.sprueGizmoCancel() }
             if (root.planeDrag) { root.planeDrag = false; app.cutPlaneDragCancel() }
         }
@@ -366,6 +370,7 @@ Item {
         // pointing hand over the part.
         property string cursorName: app.cutPlanes.cursor ? app.cutPlanes.cursor   // over a cutting plane: an open hand, a closed one while dragging it
                                   : app.tool === "sprue" ? (app.sprueGizmo.active ? app.sprueGizmo.cursor : "cross")
+                                  : app.tool === "mold-scale" ? (app.moldScaleDragging ? "grabbing" : "grab")
                                   : app.tool === "eraser" ? "eraser"
                                   : (app.tool === "select" && root.overPart ? "hand" : "arrow")
         onCursorNameChanged: app.applyViewportCursor(mouse, cursorName)
@@ -388,6 +393,7 @@ Item {
         }
         onExited: { hoverTimer.stop(); sprueTimer.stop(); app.clearHover(); app.clearSprueCandidate(); app.sprueGizmoLeave(); app.eraserLeave(); app.cutPlaneLeave(); root.overPart = false }
         onPositionChanged: (e) => {
+            if (root.scaleDrag) { app.moldScaleDragBy(e.x - pressX); return }   // the pointer drives the clearance: 0.1 mm per pixel
             if (root.planeDrag) {   // dragging a cutting plane: the pointer drives the plane, not the camera
                 app.cutPlaneDragTo(e.x, e.y, width, height)
                 return
@@ -422,6 +428,7 @@ Item {
         onReleased: (e) => {
             const swallow = root.swallowRelease
             root.swallowRelease = false
+            if (root.scaleDrag && e.button === Qt.LeftButton) { root.scaleDrag = false; app.moldScaleEnd(); return }   // one undo step
             if (root.planeDrag && e.button === Qt.RightButton) { root.planeDrag = false; app.cutPlaneDragEnd(); return }   // commits when it moved
             if (root.gizmoPress) { root.gizmoPress = false; app.sprueGizmoRelease(); return }   // commits when the diameter changed
             if (swallow) return
@@ -431,7 +438,8 @@ Item {
     }
 
     // The floating model toolbar of the reference (upper centre): Flip, mold scale, the tools, the cavity, Master Mold, undo and redo.
-    ViewportToolbar {}
+    ViewportToolbar { id: toolbar }
+    MoldScaleEditor { anchors.horizontalCenter: parent.horizontalCenter; y: toolbar.y + toolbar.height + 8 }
 
     // The diameter label (7.00 mm with the diameter sign) next to the pointer while a ring is dragged; it takes the
     // warning colour at either limit.

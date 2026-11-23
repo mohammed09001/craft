@@ -13,6 +13,7 @@
 // and the mold built from them. Not in history: the model, the view (camera, tool, theme, selection, the part's own visibility), the rest of segmentation (adopting or resetting one starts a fresh history, like the reference) and the Master Mold (its own store).
 
 #include <algorithm>
+#include <cmath>
 
 #include "AppController.h"
 
@@ -62,6 +63,61 @@ void AppController::beginHistoryGesture() {
 void AppController::endHistoryGesture() {
   historyGestureActive_ = false;
   historyGesturePushed_ = false;
+}
+
+// --- Mold Scale -------------------------------------------------------------------------------------------------------------------------------
+
+// Like every tool that edits the mold: not while a long job runs (the reference refuses a mutating tool while it evaluates).
+bool AppController::moldScaleAvailable() const {
+  return model_.has_value() && modelPhase_ == QLatin1String("ready") && !busy_ && spruePhase_ != QLatin1String("evaluating");
+}
+
+bool AppController::moldScaleBegin() {
+  if (tool_ != QLatin1String("mold-scale") || moldScaleDragging_ || !moldScaleAvailable()) return false;
+  moldScaleDragging_ = true;
+  moldScaleStartMm_ = moldClearanceMm_;
+  moldScaleBefore_ = captureHistory();
+  beginHistoryGesture();   // every move edits the clearance: the whole drag is one entry
+  emit toolChanged();
+  return true;
+}
+
+void AppController::moldScaleDragBy(qreal pixels) {
+  if (!moldScaleDragging_) return;
+  constexpr double kMillimetresPerPixel = 0.1;
+  // Rounded to a micrometre, as the reference rounds its value, so that the number shown is the number stored.
+  setMoldClearanceMm(std::round((moldScaleStartMm_ + pixels * kMillimetresPerPixel) * 1000.0) / 1000.0);
+}
+
+void AppController::moldScaleEnd() {
+  if (!moldScaleDragging_) return;
+  moldScaleDragging_ = false;
+  moldScaleBefore_.reset();
+  endHistoryGesture();
+  emit toolChanged();
+}
+
+void AppController::moldScaleCancel() {
+  if (!moldScaleDragging_) return;
+  const bool madeAnEntry = historyGesturePushed_;
+  HistoryEntry before = std::move(*moldScaleBefore_);
+  moldScaleDragging_ = false;
+  moldScaleBefore_.reset();
+  endHistoryGesture();
+  if (madeAnEntry && !undoStack_.empty()) {   // the drag changed something: back to exactly what it was, with no trace in the history
+    undoStack_.pop_back();
+    restoreHistory(before);
+    emit historyChanged();
+  }
+  emit toolChanged();
+}
+
+double AppController::moldScaleCommit(double millimetres) {
+  if (!moldScaleAvailable()) return moldClearanceMm_;
+  beginHistoryGesture();
+  setMoldClearanceMm(millimetres);
+  endHistoryGesture();
+  return moldClearanceMm_;
 }
 
 void AppController::clearHistory() {

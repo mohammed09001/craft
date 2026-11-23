@@ -1630,6 +1630,122 @@ class WorkflowTest : public QObject {
     QVERIFY(!app->busy());
   }
 
+  // --- Mold Scale (moldScaleRuntime.ts) ---------------------------------------------------------------------------------------------------------
+
+  void moldScaleFollowsThePointerAndIsOneUndoStep() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    QVERIFY(app->moldScaleAvailable());
+    app->setTool(QStringLiteral("mold-scale"));
+    QCOMPARE(app->tool(), QStringLiteral("mold-scale"));
+    QCOMPARE(app->moldClearanceMm(), 10.0);
+    QVERIFY(app->moldScaleBegin());
+    QVERIFY(app->moldScaleDragging());
+    app->moldScaleDragBy(50);                       // 0.1 mm per pixel from where the drag started
+    QCOMPARE(app->moldClearanceMm(), 15.0);
+    app->moldScaleDragBy(-30);                      // relative to the START, not to the last move
+    QCOMPARE(app->moldClearanceMm(), 7.0);
+    app->moldScaleDragBy(123);
+    QCOMPARE(app->moldClearanceMm(), 22.3);         // rounded to a micrometre, never 22.299999...
+    QCOMPARE(app->history().value("undoDepth").toInt(), 1);   // many moves, one entry
+    app->moldScaleEnd();
+    QVERIFY(!app->moldScaleDragging());
+    QCOMPARE(app->history().value("undoDepth").toInt(), 1);
+    app->undo();
+    QCOMPARE(app->moldClearanceMm(), 10.0);
+    app->redo();
+    QCOMPARE(app->moldClearanceMm(), 22.3);
+  }
+
+  void moldScaleIsClampedToTheReferenceLimits() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->setTool(QStringLiteral("mold-scale"));
+    QVERIFY(app->moldScaleBegin());
+    app->moldScaleDragBy(1e6);
+    QCOMPARE(app->moldClearanceMm(), app->maxMoldClearanceMm());
+    app->moldScaleDragBy(-1e6);
+    QCOMPARE(app->moldClearanceMm(), app->minMoldClearanceMm());
+    app->moldScaleEnd();
+  }
+
+  void anUnmovedMoldScaleDragLeavesNoHistoryEntry() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->setTool(QStringLiteral("mold-scale"));
+    QVERIFY(app->moldScaleBegin());
+    app->moldScaleDragBy(0);
+    app->moldScaleEnd();
+    QCOMPARE(app->history().value("undoDepth").toInt(), 0);
+    QCOMPARE(app->moldClearanceMm(), 10.0);
+  }
+
+  // Escape during the drag: the value and the mold that the first move invalidated come back exactly, and the history is as it was.
+  void cancellingAMoldScaleDragRestoresTheValueTheMoldAndTheHistory() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->setCutFaceEnabled(QStringLiteral("left"), true);
+    app->generateMold();
+    QVERIFY(waitFor([&] { return app->moldPhase() == "complete"; }, 120000));
+    const int depthBefore = app->history().value("undoDepth").toInt();
+    const auto bodiesBefore = app->moldResult()->cavity.bodies.size();
+
+    app->setTool(QStringLiteral("mold-scale"));
+    QVERIFY(app->moldScaleBegin());
+    app->moldScaleDragBy(80);
+    QCOMPARE(app->moldClearanceMm(), 18.0);
+    QVERIFY2(app->moldPhase() != "complete", "changing the clearance must drop the mold built with the old one");
+    app->moldScaleCancel();
+    QVERIFY(!app->moldScaleDragging());
+    QCOMPARE(app->moldClearanceMm(), 10.0);
+    QCOMPARE(app->moldPhase(), QStringLiteral("complete"));            // the mold comes back as it was, it is not rebuilt
+    QCOMPARE(app->moldResult()->cavity.bodies.size(), bodiesBefore);
+    QCOMPARE(app->history().value("undoDepth").toInt(), depthBefore);   // and the cancelled drag is not an undo step
+    QVERIFY(!app->history().value("canRedo").toBool());
+  }
+
+  void aTypedMoldScaleValueIsOneClampedUndoStep() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    QCOMPARE(app->moldScaleCommit(25.5), 25.5);
+    QCOMPARE(app->moldClearanceMm(), 25.5);
+    QCOMPARE(app->history().value("undoDepth").toInt(), 1);
+    QCOMPARE(app->moldScaleCommit(1e6), app->maxMoldClearanceMm());
+    QCOMPARE(app->history().value("undoDepth").toInt(), 2);
+    QCOMPARE(app->moldScaleCommit(app->moldClearanceMm()), app->maxMoldClearanceMm());   // the same value: nothing to undo
+    QCOMPARE(app->history().value("undoDepth").toInt(), 2);
+    app->undo();
+    QCOMPARE(app->moldClearanceMm(), 25.5);
+  }
+
+  void moldScaleNeedsAModelAndNoRunningJobAndLeavingTheToolMidDragCancelsIt() {
+    auto app = makeApp();
+    QVERIFY(!app->moldScaleAvailable());
+    app->setTool(QStringLiteral("mold-scale"));
+    QCOMPARE(app->tool(), QStringLiteral("select"));          // refused without a model
+    QVERIFY(!app->moldScaleBegin());
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    QVERIFY(!app->moldScaleBegin());                           // the tool is not the active one
+    app->setTool(QStringLiteral("mold-scale"));
+    QVERIFY(app->moldScaleBegin());
+    QVERIFY(!app->moldScaleBegin());                           // one drag at a time
+    app->moldScaleDragBy(60);
+    app->setTool(QStringLiteral("select"));                    // leaving the tool mid-drag puts the value back
+    QVERIFY(!app->moldScaleDragging());
+    QCOMPARE(app->moldClearanceMm(), 10.0);
+    QCOMPARE(app->history().value("undoDepth").toInt(), 0);
+    app->generateMold();
+    QVERIFY(app->busy());
+    QVERIFY(!app->moldScaleAvailable());                       // not while a job runs
+    QVERIFY(waitFor([&] { return app->moldPhase() != "generating"; }, 120000));
+  }
+
   void undoWhileTheMoldIsGeneratingCancelsIt() {
     auto app = makeApp();
     app->importStlFile(bracket());

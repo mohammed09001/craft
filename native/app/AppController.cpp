@@ -1085,6 +1085,11 @@ void AppController::setTool(const QString& tool) {
     setStatus(QStringLiteral("The Eraser needs a cutting plane: choose a face to cut by first."));
     return;
   }
+  if (tool == QLatin1String("mold-scale") && !moldScaleAvailable()) {   // Mold Scale needs a model and no running job
+    setStatus(QStringLiteral("Mold Scale is unavailable while a job runs or without a model."));
+    return;
+  }
+  if (moldScaleDragging_) moldScaleCancel();   // leaving the tool mid-drag puts the value back
   if (tool == QLatin1String("orientation")) {  // the Flip tool needs a model whose geometry has not been generated yet
     if (const OrientationCapability c = orientationCapability(); !c.available) {
       setStatus(c.reason);
