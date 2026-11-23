@@ -15,38 +15,14 @@
 #include "master/MasterMoldStore.h"
 #include "master/MasterWire.h"
 #include "ManifoldMeshEngine.h"
+#include "MasterTestRequests.h"
 
 using namespace craft;
 
 namespace {
 
-Point3 pointOf(const QJsonObject& o) { return {o["x"].toDouble(), o["y"].toDouble(), o["z"].toDouble()}; }
 
-MasterMoldRequest requestFor(const QJsonObject& c) {
-  const QJsonObject input = c["input"].toObject();
-  MasterSeedInput seedInput;
-  MasterSeedGeometryInput& g = seedInput.sourcePartGeometry;
-  g.modelId = "model-" + c["name"].toString().toStdString();
-  for (const QJsonValue& v : input["positions"].toArray()) g.positions.push_back(v.toDouble());
-  for (const QJsonValue& v : input["indices"].toArray()) g.indices.push_back(static_cast<std::uint32_t>(v.toInt()));
-  const QJsonArray transform = input["transform"].toArray();
-  for (int i = 0; i < 16; ++i) g.transform[static_cast<std::size_t>(i)] = transform[i].toDouble();
-  Bounds3 local = emptyBounds();
-  for (std::size_t i = 0; i < g.positions.size(); i += 3)
-    for (int a = 0; a < 3; ++a) {
-      local.min[a] = std::min(local.min[a], g.positions[i + static_cast<std::size_t>(a)]);
-      local.max[a] = std::max(local.max[a], g.positions[i + static_cast<std::size_t>(a)]);
-    }
-  g.localBounds = local;
-  g.geometryVersion = "geom-" + c["name"].toString().toStdString();
-  if (input["printer"].isObject()) seedInput.printerBuildVolume = pointOf(input["printer"].toObject());
-  seedInput.projectRevision = "rev-1";
-  MasterMoldRequest request;
-  request.operationId = "master-mold:1";
-  request.generationVersion = 1;
-  request.seed = buildMasterMoldSeedSnapshot(seedInput);
-  return request;
-}
+MasterMoldRequest requestFor(const QJsonObject& c) { return craft::testing::masterRequestFor(c); }
 
 void compareMesh(const MeshPayload& a, const MeshPayload& b) {
   QCOMPARE(a.positions, b.positions);

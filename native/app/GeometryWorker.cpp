@@ -2,14 +2,21 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QFileInfo>
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
 
 #include <chrono>
 #include <cstdio>
+#include <exception>
 #include <thread>
 #include <vector>
+
+#include "ManifoldMeshEngine.h"
+#include "contracts/Operation.h"
+#include "master/MasterMoldStore.h"
+#include "master/MasterWire.h"
 
 namespace craft::app {
 
@@ -27,6 +34,43 @@ bool writeResult(const QString& resultFile, const QByteArray& bytes) {
   file.close();
   QFile::remove(resultFile);
   return QFile::rename(temporary, resultFile);
+}
+
+}  // namespace
+
+namespace {
+
+/// A failure the launcher can show: "ERROR <code>\t<message>" on stderr, exit code 4.
+int reportFailure(const std::string& code, const std::string& message) {
+  std::fprintf(stderr, "ERROR %s\t%s\n", code.c_str(), message.c_str());
+  return 4;
+}
+
+int runMasterMoldJob(const QString& jobFile, const QString& resultFile) {
+  try {
+    QFile payload(QFileInfo(jobFile).dir().filePath(QStringLiteral("payload.bin")));
+    if (!payload.open(QIODevice::ReadOnly)) return reportFailure("worker_payload_missing", "The job's request file could not be read.");
+    const QByteArray bytes = payload.readAll();
+    const MasterMoldRequest request = decodeMasterMoldRequest({reinterpret_cast<const std::uint8_t*>(bytes.constData()), static_cast<std::size_t>(bytes.size())});
+    auto engine = createManifoldMeshEngine();
+    MasterMoldEngineHooks hooks;   // no cancel token: cancelling means killing this process
+    hooks.onStage = [](const MasterMoldProgressStage& stage) {
+      progressLine(QString::fromStdString(stage.stage), (stage.stageIndex + 1.0) / stage.stageCount);
+      std::fprintf(stderr, "STAGE %s\t%s\t%lld\n", stage.stage.c_str(), stage.detail.value_or(std::string()).c_str(), static_cast<long long>(stage.elapsedMs));
+      std::fflush(stderr);
+    };
+    const MasterMoldResult result = evaluateMasterMoldGeneration(*engine, request, hooks);
+    const std::vector<std::uint8_t> out = encodeMasterMoldResult(result);
+    return writeResult(resultFile, QByteArray(reinterpret_cast<const char*>(out.data()), static_cast<qsizetype>(out.size()))) ? 0 : 3;
+  } catch (const WireError& e) {
+    return reportFailure("worker_wire_error", e.what());
+  } catch (const CodedError& e) {
+    return reportFailure(e.code(), e.what());
+  } catch (const std::bad_alloc&) {
+    return reportFailure("worker_out_of_memory", "The geometry process ran out of memory.");
+  } catch (const std::exception& e) {
+    return reportFailure("worker_exception", e.what());
+  }
 }
 
 }  // namespace
@@ -69,6 +113,7 @@ int runGeometryWorker(const QString& jobFile, const QString& resultFile) {
     }
     return writeResult(resultFile, QByteArray("{\"done\":true}")) ? 0 : 3;
   }
+  if (kind == QLatin1String("master-mold")) return runMasterMoldJob(jobFile, resultFile);
   std::fprintf(stderr, "Unknown job kind: %s\n", kind.toUtf8().constData());
   return 2;
 }
@@ -78,6 +123,7 @@ int runGeometryWorker(const QString& jobFile, const QString& resultFile) {
 WorkerProcess::WorkerProcess(QString executable, QObject* parent) : QObject(parent), executable_(std::move(executable)) {
   qRegisterMetaType<craft::app::WorkerOutcome>();
   connect(&process_, &QProcess::readyReadStandardOutput, this, &WorkerProcess::onReadyRead);
+  connect(&process_, &QProcess::readyReadStandardError, this, &WorkerProcess::onReadyReadError);
   connect(&process_, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this, &WorkerProcess::onFinished);
 }
 
@@ -89,7 +135,7 @@ WorkerProcess::~WorkerProcess() {
   }
 }
 
-bool WorkerProcess::start(const QByteArray& jobJson) {
+bool WorkerProcess::start(const QByteArray& jobJson, const QByteArray& payload) {
   dir_ = std::make_unique<QTemporaryDir>();
   if (!dir_->isValid()) return false;
   const QString jobPath = QDir(dir_->path()).filePath(QStringLiteral("job.json"));
@@ -97,9 +143,16 @@ bool WorkerProcess::start(const QByteArray& jobJson) {
   QFile job(jobPath);
   if (!job.open(QIODevice::WriteOnly) || job.write(jobJson) != jobJson.size()) return false;
   job.close();
+  if (!payload.isEmpty()) {   // the worker reads "payload.bin" from the job file's own folder
+    QFile data(QDir(dir_->path()).filePath(QStringLiteral("payload.bin")));
+    if (!data.open(QIODevice::WriteOnly) || data.write(payload) != payload.size()) return false;
+    data.close();
+  }
   cancelled_ = false;
   reported_ = false;
   pending_.clear();
+  pendingError_.clear();
+  errorText_.clear();
   process_.setProcessChannelMode(QProcess::SeparateChannels);
   process_.start(executable_, {QStringLiteral("--geometry-worker"), jobPath, resultPath_});
   return process_.waitForStarted(10000);
@@ -123,12 +176,38 @@ void WorkerProcess::onReadyRead() {
   }
 }
 
+// stderr carries "STAGE name<TAB>detail<TAB>ms" lines (passed on for the log), one "ERROR code<TAB>message" line on failure, and anything else
+// the process wrote (kept as the message when there is no ERROR line).
+void WorkerProcess::onReadyReadError() {
+  pendingError_ += process_.readAllStandardError();
+  qsizetype newline;
+  while ((newline = pendingError_.indexOf('\n')) >= 0) {
+    const QByteArray line = pendingError_.left(newline).trimmed();
+    pendingError_.remove(0, newline + 1);
+    if (line.startsWith("STAGE ")) emit stageLine(QString::fromUtf8(line.mid(6)));
+    else if (!line.isEmpty()) errorText_ += line + '\n';
+  }
+}
+
 void WorkerProcess::onFinished(int exitCode, QProcess::ExitStatus status) {
   if (reported_) return;
   reported_ = true;
+  onReadyRead();
+  onReadyReadError();
+  if (!pendingError_.trimmed().isEmpty()) errorText_ += pendingError_.trimmed() + '\n';
   WorkerOutcome outcome;
   outcome.exitCode = exitCode;
-  outcome.message = QString::fromUtf8(process_.readAllStandardError()).trimmed();
+  outcome.message = QString::fromUtf8(errorText_).trimmed();
+  for (const QByteArray& line : errorText_.split('\n')) {
+    if (!line.startsWith("ERROR ")) continue;
+    const QByteArray body = line.mid(6);
+    const qsizetype tab = body.indexOf('\t');
+    if (tab > 0) {
+      outcome.errorCode = QString::fromUtf8(body.left(tab));
+      outcome.message = QString::fromUtf8(body.mid(tab + 1));
+    }
+    break;
+  }
   if (cancelled_) {
     outcome.state = WorkerOutcome::State::Cancelled;
     outcome.message = QStringLiteral("The job was cancelled and its process was stopped.");

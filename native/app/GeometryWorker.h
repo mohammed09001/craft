@@ -25,7 +25,8 @@ int runGeometryWorker(const QString& jobFile, const QString& resultFile);
 struct WorkerOutcome {
   enum class State { Succeeded, Failed, Cancelled, Crashed };
   State state = State::Failed;
-  QString message;       // stderr of the worker, or why it was stopped
+  QString message;       // the worker's error message, or why it was stopped
+  QString errorCode;     // the worker's error code ("ERROR <code>" line), when it reported one
   int exitCode = -1;
   QByteArray result;     // the result file's contents when Succeeded
 };
@@ -38,24 +39,26 @@ class WorkerProcess : public QObject {
   ~WorkerProcess() override;
 
   /// Writes the job file and starts the worker. False (and `finished` is not emitted) if it could not be started.
-  bool start(const QByteArray& jobJson);
+  bool start(const QByteArray& jobJson, const QByteArray& payload = {});
   void cancel();
   bool running() const { return process_.state() != QProcess::NotRunning; }
   qint64 processId() const { return process_.processId(); }
 
  signals:
   void progress(QString stage, double fraction);
+  void stageLine(QString line);   // "name<TAB>detail<TAB>elapsedMs" for the log
   void finished(craft::app::WorkerOutcome outcome);
 
  private:
   void onReadyRead();
+  void onReadyReadError();
   void onFinished(int exitCode, QProcess::ExitStatus status);
 
   QString executable_;
   QProcess process_;
   std::unique_ptr<QTemporaryDir> dir_;
   QString resultPath_;
-  QByteArray pending_;
+  QByteArray pending_, pendingError_, errorText_;
   bool cancelled_ = false;
   bool reported_ = false;
 };

@@ -135,7 +135,8 @@ if(CRAFT_BUILD_APP)
   target_compile_definitions(tst_sprue_preview_equivalence PRIVATE
     CRAFT_REFERENCE_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/reference")
   craft_add_test(tst_geometry_worker SOURCES tst_geometry_worker.cpp LIBS craft_app_lib)
-  target_compile_definitions(tst_geometry_worker PRIVATE CRAFT_WORKER_EXE="$<TARGET_FILE:craft>")
+  target_compile_definitions(tst_geometry_worker PRIVATE CRAFT_WORKER_EXE="$<TARGET_FILE:craft>"
+    CRAFT_REFERENCE_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/reference")
   add_dependencies(tst_geometry_worker craft)
   craft_add_test(tst_app_workflow SOURCES tst_app_workflow.cpp LIBS craft_app_lib)
   target_compile_definitions(tst_app_workflow PRIVATE
