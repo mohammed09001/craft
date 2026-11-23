@@ -147,6 +147,8 @@ if (Test-Path $summaryPath) {
   Check 'the application reports the version the executable carries' ($s.applicationVersion -eq $versionInfo.ProductVersion) "app=$($s.applicationVersion) exe=$($versionInfo.ProductVersion)"
   Check 'STL imported' ($s.modelPhase -eq 'ready')
   Check 'mold generated (Manifold kernel)' ($s.moldPhase -eq 'complete')
+  # P0-5: the mold runs in a separate process (this same Craft.exe in --geometry-worker mode), which a cancel can kill. Its log line proves the installed executable can start itself as that worker.
+  Check 'the mold ran in a geometry worker process from the install folder' ($err -match 'geometry worker: .* succeeded') ($err.Trim().Substring(0, [Math]::Min(300, $err.Trim().Length)))
   Check 'import analysis completed (Python)' ($s.analysisPhase -eq 'complete')
   $reports = $s.engineeringReportsSummary
   Check 'moldability analysis completed (Python: pull direction, cavity, readiness)' ($reports.phase -eq 'complete' -and $reports.report.success -eq $true) "phase=$($reports.phase) $($reports.error)"
