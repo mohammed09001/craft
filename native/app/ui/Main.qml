@@ -7,8 +7,8 @@ ApplicationWindow {
     id: window
     width: 1280
     height: 800
-    // The tool bar needs about 890 px (with the Flip button it ended at 885 px, past the 880 px minimum: Redo was cut off). The mold opacity slider
-    // that used to sit at its right end is in the inspector's Mold section.
+    // The window keeps its 910 px minimum from the time the whole tool bar was in the header (it needed about 890 px). The header now holds only the
+    // file and view commands, and the floating toolbar in the viewport wraps onto a second line in a narrow viewport instead of leaving it.
     // The inspector's width follows the text size (Windows' Text size setting makes every row wider): at the normal size it is 340 px and may be
     // dragged down to 260; with larger text both grow, and so does the window's minimum, so the viewport always keeps its 300 px.
     FontMetrics { id: uiMetrics }
@@ -206,20 +206,12 @@ ApplicationWindow {
     Action { id: resetAction; text: qsTr("&Reset view"); shortcut: "Home"; onTriggered: app.resetView() }
     Action { id: generateAction; text: qsTr("&Generate mold"); shortcut: "Ctrl+G"; onTriggered: app.generateMold() }
     // Master Mold's own entry, a peer of Generate mold (MasterMoldAction.tsx): it needs only a valid model, never a mold, planes or a cavity, and
-    // is unavailable while it runs (Cancel is in the inspector).
+    // is unavailable while it runs (Cancel is in the inspector). Its button, with the tooltip that shows its state, is in the viewport's toolbar.
     Action {
         id: masterMoldAction
         text: qsTr("Master Mold")
         enabled: app.masterMold.canGenerate === true && app.masterMold.generating !== true
         onTriggered: app.generateMasterMold()
-    }
-    // The button's tooltip is its state, as in the reference: progress, the failure, "needs regeneration", or just the name.
-    readonly property string masterMoldTip: {
-        const m = app.masterMold
-        if (m.generating) return m.progressLabel !== "" ? m.progressLabel : qsTr("Generating Master Mold…")
-        if (m.bannerIsError) return qsTr("Master Mold: ") + m.banner
-        if (m.uiKind === "stale") return qsTr("Master Mold: needs regeneration (the part or printer context changed)")
-        return qsTr("Master Mold")
     }
     Action { id: undoAction; text: qsTr("&Undo"); shortcut: StandardKey.Undo; enabled: app.history.canUndo; onTriggered: app.undo() }
     Action { id: redoAction; text: qsTr("&Redo"); shortcut: StandardKey.Redo; enabled: app.history.canRedo; onTriggered: app.redo() }
@@ -272,9 +264,11 @@ ApplicationWindow {
         }
     }
 
+    // The window's tool bar carries the file and view commands, as the reference's header does (import, title, view); the model tools (Flip, the
+    // mold scale, Pointer, Eraser, Sprue, the cavity, Master Mold, Undo and Redo) are the floating toolbar in the viewport (ViewportToolbar.qml).
     header: ToolBar {
-        // A Flow, not a row: at the normal text size every button is on one line, and with a larger text size (Windows' Text size setting) or a
-        // narrow window the buttons that do not fit go on a second line instead of leaving the window (P2-2).
+        // A Flow, not a row: with a larger text size (Windows' Text size setting) or a narrow window the buttons that do not fit go on a second
+        // line instead of leaving the window (P2-2).
         contentHeight: toolbarFlow.implicitHeight
         Flow {
             id: toolbarFlow
@@ -284,47 +278,11 @@ ApplicationWindow {
             ToolButton { action: openProjectAction }
             ToolButton { action: saveAction }
             ToolSeparator {}
-            ToolButton { text: qsTr("Select"); checkable: true; checked: app.tool === "select"; onClicked: app.tool = "select" }
-            ToolButton { text: qsTr("Measure"); checkable: true; checked: app.tool === "measure"; onClicked: app.tool = "measure" }
-            ToolButton {
-                objectName: "flipToolButton"
-                text: qsTr("Flip"); checkable: true; checked: app.tool === "orientation"
-                enabled: app.orientationState.available || app.tool === "orientation"
-                ToolTip.visible: hovered
-                ToolTip.text: app.orientationState.available ? qsTr("Use the arrow keys to flip the part") : app.orientationState.reason
-                onClicked: app.tool = app.tool === "orientation" ? "select" : "orientation"
-            }
-            ToolButton {
-                text: qsTr("Eraser"); checkable: true; checked: app.tool === "eraser"
-                enabled: app.eraserAvailable || app.tool === "eraser"
-                ToolTip.visible: hovered; ToolTip.text: qsTr("Click a cutting plane to remove it")
-                onClicked: app.tool = "eraser"
-            }
-            ToolButton {
-                text: qsTr("Sprue"); checkable: true; checked: app.tool === "sprue"
-                enabled: app.moldPhase === "complete"
-                onClicked: app.tool = "sprue"
-            }
-            ToolSeparator {}
+            ToolButton { text: qsTr("Measure"); checkable: true; checked: app.tool === "measure"; onClicked: app.tool = app.tool === "measure" ? "select" : "measure" }
             ToolButton { action: fitAction }
             ToolButton { action: resetAction }
-            ToolSeparator {}
-            ToolButton { action: generateAction; enabled: app.modelPhase === "ready" && !app.busy }
-            ToolButton {
-                objectName: "masterMoldButton"
-                action: masterMoldAction
-                text: qsTr("Master")   // short: the full toolbar must fit the minimum window width (the name, tooltip and menu entry say "Master Mold")
-                Accessible.name: qsTr("Master Mold")
-                highlighted: app.masterMold.uiKind === "success"   // the reference's pressed look once the tooling is complete
-                ToolTip.visible: hovered; ToolTip.text: window.masterMoldTip
-                Accessible.description: window.masterMoldTip
-            }
-            ToolSeparator {}
-            ToolButton { objectName: "undoButton"; action: undoAction }
-            ToolButton { objectName: "redoButton"; action: redoAction }
         }
     }
-
     SplitView {
         anchors.fill: parent
         ViewportView { objectName: "viewport"; SplitView.fillWidth: true; SplitView.minimumWidth: 300 }

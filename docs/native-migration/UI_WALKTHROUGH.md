@@ -8,12 +8,13 @@ fixed, and what it did not look at. The tools are `scripts/native/ui/` (`native-
 
 ## Short version
 
-- **The two UIs are organised differently on purpose.** The reference is a viewport-centred workspace: an icon toolbar, popovers and a
-  session panel on the canvas, a status area. The directive prescribes the native one (menus, toolbars, status bar, a context inspector),
-  and it is that, so this is a comparison of what the user can do and of how well it is presented, not of layout.
-- **Every capability of the reference's toolbar has a native counterpart, with one exception:** Flip (manual part orientation, known and
-  recorded as not ported: R-Viewport-4). Drag and drop of an STL onto the window and the Molds browser (show or hide each mold body and the
-  original model) were missing and are now ported.
+- **The model tools are now the reference's floating toolbar (2026-11-23, D-124).** Until then this document said the two UIs were organised
+  differently on purpose and the native tools were text buttons in the window's tool bar; the owner compared a screenshot of each and wanted the
+  reference's toolbar. The viewport now carries the same icon bar at its upper centre (Flip, the mold-scale stepper, the cutting-plane badge,
+  Pointer, Eraser, Sprue, the cavity button, the glass toggle, Master Mold, Undo, Redo). The rest is still native (menus, the inspector, the status bar),
+  and the window's tool bar keeps the file and view commands, as the reference's header does.
+- **Every capability of the reference's toolbar has a native counterpart.** Flip (manual part orientation) was ported later (D-108); drag and drop of an STL
+  onto the window and the Molds browser (show or hide each mold body and the original model) were missing and are now ported.
 - **Looking found ten defects that no test had caught** (below), of which nine are fixed. The seed was one picture: the hint badge had a stray
   A-circumflex before each separator dot.
 - **The cause of a whole group of failing smoke tests turned out to be a stale autosave** left by the new tour: the next launch opened with
@@ -45,7 +46,7 @@ repeated.
 
 | | Reference | Native |
 |---|---|---|
-| Frame | header (import, title, theme), icon toolbar (centre), navigation panel (left, collapsible), status area (bottom) | menu bar, text toolbar, viewport, context inspector (right, scrolls), status bar |
+| Frame | header (import, title, theme), icon toolbar (centre), navigation panel (left, collapsible), status area (bottom) | menu bar, a tool bar of file and view commands, **the floating icon toolbar in the viewport (centre, as the reference)**, viewport, context inspector (right, scrolls), status bar |
 | Settings and results | popovers and a session panel over the canvas; reports in a context area | one inspector column: Model, Segmentation, Master Mold, Mold, Mold result, Sprues, Import analysis, Engineering reports, Selection |
 | Cutting | one session: "Constructed Cutting Plan" opens a panel with tabs Cutting by Face and Segmentation, Cancel and Done | no session: checkboxes and sliders per face, direct plane drag and the Eraser, a Segmentation section |
 | Theme | the whole page | the whole window (a defect until today: see below) |
@@ -89,7 +90,7 @@ repeated.
 | 10 | (Not fixed) The Windows title bar stays in the system theme | the light capture | not fixable from QML | R-UI-2 |
 | 13 | The reference has Master Mold as an entry of its toolbar; native had it only in the inspector. Adding the button also showed that **the panel's `canGenerate` never notified**: the model loading and the busy state change did not emit `masterMoldChanged`, so the inspector's own Generate Master Mold button stayed disabled after an import (it is greyed in the first tour's mold-generated capture) | a "Master" button (label short, name and tooltip "Master Mold"; highlighted when complete; unavailable while generating; tooltip is the progress, the failure, "needs regeneration", or the name) shared as one Action with a Mold-menu entry; the notification gap closed; the toolbar had no room left at 880 px (lint: Redo off the window) so its spacing went from 4 to 2 px | `masterMoldAvailabilityNotifiesWhenTheModelOrBusyStateChanges`, `app_smoke_master` through a real click; tour lint 0 |
 | 12 | The reference's Molds browser had no counterpart: no way to hide a mold body or the model to look at what is inside | a "Molds" section (hidden under Master tooling, which has its own pieces list): a checkbox per body and one for the original model, accessible by name; visibility is kept by id in the scene model, survives the same mold being rebuilt, is reset by a new model, and is not an undo step (D-073). The checkbox list runs on the body ids so that toggling does not rebuild (and so destroy and unfocus) the checkbox that was toggled | `theMoldsBrowserShowsAndHidesBodiesAndTheModel` (picking skips a hidden model, undo depth unchanged), `app_smoke_molds` through real clicks; 7 of 9 mutations caught, the other two equivalent in practice |
-| 11 | The inspector was one 3,400 px column of fixed group boxes | the full-height capture | `CraftSection`: every section folds from its header (click, Space or Enter), the header takes focus with Tab, shows a focus ring and names itself and its state to a screen reader; "Collapse all" and "Expand all" at the top; nested sections too. Fold state lasts for the session, it is not saved with the project or between runs | `app_smoke_sections` through real clicks and keys, 9 mutations caught; a tour state with every section folded |
+| 14 | **The native window had no floating model toolbar** (owner's screenshots: the reference's icon bar over the viewport, against a row of text buttons in the window header) | ViewportToolbar.qml: a dark rounded bar (the reference's neutral-950 whatever the theme) at the upper centre of the viewport, 30 px icon buttons with the reference's own SVG glyph paths drawn by Qt Quick Shapes, the reference's hover, active (accent tinted), disabled (34 %) and focus states; Flip; a mold-scale stepper (minus, value in mm, plus; whole millimetres, clamped to the limits); a round badge with the number of chosen cutting planes; Pointer, Eraser, Sprue; the cavity button (\ of fixed group boxes | the full-height capture | `CraftSection`: every section folds from its header (click, Space or Enter), the header takes focus with Tab, shows a focus ring and names itself and its state to a screen reader; "Collapse all" and "Expand all" at the top; nested sections too. Fold state lasts for the session, it is not saved with the project or between runs | `app_smoke_sections` through real clicks and keys, 9 mutations caught; a tour state with every section folded |
 
 ## The stale autosave, and what it says about R-Smoke-1
 

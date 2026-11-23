@@ -430,6 +430,9 @@ Item {
         onWheel: (w) => { root.interacted = true; app.camera.zoomByWheel(w.angleDelta.y) }
     }
 
+    // The floating model toolbar of the reference (upper centre): Flip, mold scale, the tools, the cavity, Master Mold, undo and redo.
+    ViewportToolbar {}
+
     // The diameter label (7.00 mm with the diameter sign) next to the pointer while a ring is dragged; it takes the
     // warning colour at either limit.
     Rectangle {

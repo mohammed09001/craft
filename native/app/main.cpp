@@ -393,7 +393,10 @@ class Smoke : public QObject {
     };
     QQuickItem* button = findItem(window_->contentItem(), QStringLiteral("masterMoldButton"));
     if (!button) return fail(QStringLiteral("the Master Mold toolbar button was not found"));
-    const auto tip = [&] { return window_->property("masterMoldTip").toString(); };   // what the button's tooltip shows
+    const auto tip = [&] {   // what the button's tooltip shows (the toolbar owns it)
+      QQuickItem* bar = findItem(window_->contentItem(), QStringLiteral("viewportToolbar"));
+      return bar ? bar->property("masterMoldTip").toString() : QString();
+    };
     const auto bodyCount = [&] {
       int n = 0;
       for (int r = 0; r < app_.scene()->rowCount(); ++r)
@@ -433,7 +436,141 @@ class Smoke : public QObject {
     renderNow();
 #endif
   }
-  void moldsEventsSequence() { whenViewportSettled([this] { moldsEventsBody(); }); }
+  // The viewport's floating toolbar through REAL clicks (the reference's "Model tools" bar): it sits inside the viewport; the mold-scale stepper
+  // steps the clearance in whole millimetres and shows it; a disabled tool ignores a click; the badge counts the chosen cutting planes; the
+  // Eraser, Pointer and Sprue buttons switch the tool; the cavity button says "Create Cavity", builds the mold and then says "Rebuild Cavity";
+  // the glass button toggles the appearance; Undo steps back; and a press, a drag and a wheel on the bar neither orbit nor zoom the view.
+  // The smoke flow comes back to its dispatcher whenever a mold completes, and this test builds a mold: it must not start itself a second time inside
+  // its own event loop (the second copy removed the planes under the first and the mold with them).
+  void toolbarEventsSequence() {
+    if (toolbarEventsStarted_) return;
+    toolbarEventsStarted_ = true;
+    whenViewportSettled([this] { toolbarEventsBody(); });
+  }
+  void toolbarEventsBody() {
+#ifndef CRAFT_SMOKE_REAL_EVENTS
+    return fail(QStringLiteral("--toolbar-events needs a build with CRAFT_BUILD_TESTS"));
+#else
+    QWindowSystemInterface::setSynchronousWindowSystemEvents(true);
+    window_->requestActivate();
+    const auto settle = [](int ms) { QEventLoop loop; QTimer::singleShot(ms, &loop, &QEventLoop::quit); loop.exec(); };
+    const auto waitFor = [&settle](const std::function<bool()>& condition, int ms) {
+      QElapsedTimer timer;
+      timer.start();
+      while (!condition() && timer.elapsed() < ms) settle(25);
+      return condition();
+    };
+    std::function<QQuickItem*(QQuickItem*, const QString&)> findItem = [&findItem](QQuickItem* from, const QString& name) -> QQuickItem* {
+      if (from->objectName() == name) return from;
+      for (QQuickItem* child : from->childItems())
+        if (QQuickItem* found = findItem(child, name)) return found;
+      return nullptr;
+    };
+    const auto item = [&](const char* name) { return findItem(window_->contentItem(), QString::fromLatin1(name)); };
+    // A real click on a named item: the problem, or nothing.
+    const auto click = [&](const char* name) -> QString {
+      QQuickItem* target = item(name);
+      if (!target) return QStringLiteral("the toolbar item '%1' was not found").arg(QString::fromLatin1(name));
+      QString notReady;
+      const QPointF scene = stableCentre(target, &notReady);
+      if (!notReady.isEmpty()) return QStringLiteral("'%1' could not be clicked: %2").arg(QString::fromLatin1(name), notReady);
+      injectMouse(scene, Qt::NoButton, Qt::NoButton, QEvent::MouseMove);
+      injectMouse(scene, Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonPress);
+      injectMouse(scene, Qt::NoButton, Qt::LeftButton, QEvent::MouseButtonRelease);
+      settle(120);
+      return {};
+    };
+    const auto enabled = [&](const char* name) { QQuickItem* t = item(name); return t && t->property("enabled").toBool(); };
+    const auto problem = [&](const QString& what) { return fail(what); };
+
+    // 0. The bar is there, inside the viewport, centred in its upper part.
+    QQuickItem* bar = item("viewportToolbar");
+    QQuickItem* viewport = item("viewport");
+    if (!bar || !viewport || !bar->isVisible()) return problem(QStringLiteral("the viewport toolbar is not shown with a model loaded"));
+    const QRectF barRect(bar->mapToScene(QPointF(0, 0)), QSizeF(bar->width(), bar->height()));
+    const QRectF viewportRect(viewport->mapToScene(QPointF(0, 0)), QSizeF(viewport->width(), viewport->height()));
+    if (!viewportRect.contains(barRect)) return problem(QStringLiteral("the toolbar (%1) is not inside the viewport (%2)").arg(QString::number(barRect.width()), QString::number(viewportRect.width())));
+    if (std::fabs(barRect.center().x() - viewportRect.center().x()) > 2 || barRect.top() - viewportRect.top() > 30)
+      return problem(QStringLiteral("the toolbar is not at the upper centre of the viewport"));
+    for (const char* name : {"flipToolButton", "clearanceMinus", "clearancePlus", "pointerToolButton", "eraserToolButton", "sprueToolButton", "cavityButton", "masterMoldButton", "undoButton", "redoButton"})
+      if (!item(name)) return problem(QStringLiteral("the toolbar has no '%1'").arg(QString::fromLatin1(name)));
+    if (app_.tool() != QLatin1String("select")) return problem(QStringLiteral("the pointer is not the tool at the start"));
+    if (!item("pointerToolButton")->property("highlighted").toBool()) return problem(QStringLiteral("the Pointer button is not shown as the active tool"));
+
+    // 1. The mold-scale stepper: whole millimetres, and the value on the bar follows.
+    const double start = app_.moldClearanceMm();
+    const auto shown = [&] { return item("clearanceValue")->property("text").toString(); };
+    if (const QString p = click("clearancePlus"); !p.isEmpty()) return problem(p);
+    const double up = std::floor(start + 1e-9) + 1;
+    if (std::fabs(app_.moldClearanceMm() - up) > 1e-9) return problem(QStringLiteral("+ gave a clearance of %1, expected %2 (from %3)").arg(app_.moldClearanceMm()).arg(up).arg(start));
+    if (shown() != QStringLiteral("%1 mm").arg(up)) return problem(QStringLiteral("the bar shows '%1' for a clearance of %2").arg(shown()).arg(up));
+    if (const QString p = click("clearanceMinus"); !p.isEmpty()) return problem(p);
+    if (const QString p = click("clearanceMinus"); !p.isEmpty()) return problem(p);
+    if (std::fabs(app_.moldClearanceMm() - (up - 2)) > 1e-9) return problem(QStringLiteral("two - gave a clearance of %1, expected %2").arg(app_.moldClearanceMm()).arg(up - 2));
+    if (const QString p = click("clearancePlus"); !p.isEmpty()) return problem(p);   // back to a whole step above the start
+
+    // 2. Tools: the Eraser is unavailable with no plane and ignores a click; with a plane chosen the badge counts it and the Eraser works.
+    // (Which planes are chosen when a model has just been imported is the application's business, so the test sets what it needs.)
+    for (const QVariant& f : app_.cutFaces()) app_.setCutFaceEnabled(f.toMap().value("face").toString(), false);
+    if (!waitFor([&] { return !enabled("eraserToolButton"); }, 3000)) return problem(QStringLiteral("the Eraser stayed enabled with every plane removed"));
+    if (enabled("eraserToolButton")) return problem(QStringLiteral("the Eraser is enabled with no cutting plane"));
+    if (const QString p = click("eraserToolButton"); !p.isEmpty()) return problem(p);
+    if (app_.tool() != QLatin1String("select")) return problem(QStringLiteral("a click on the disabled Eraser changed the tool to %1").arg(app_.tool()));
+    if (item("cutPlaneBadge")->property("planes").toInt() != 0) return problem(QStringLiteral("the badge counts planes before any is chosen"));
+    app_.setCutFaceEnabled(QStringLiteral("top"), true);
+    if (!waitFor([&] { return enabled("eraserToolButton"); }, 3000)) return problem(QStringLiteral("the Eraser stayed disabled with a cutting plane chosen"));
+    if (item("cutPlaneBadge")->property("planes").toInt() != 1) return problem(QStringLiteral("the badge does not count the chosen plane (%1)").arg(item("cutPlaneBadge")->property("planes").toInt()));
+    if (const QString p = click("eraserToolButton"); !p.isEmpty()) return problem(p);
+    if (app_.tool() != QLatin1String("eraser") || !item("eraserToolButton")->property("highlighted").toBool()) return problem(QStringLiteral("a click on the Eraser did not make it the active tool (%1)").arg(app_.tool()));
+    if (const QString p = click("pointerToolButton"); !p.isEmpty()) return problem(p);
+    if (app_.tool() != QLatin1String("select")) return problem(QStringLiteral("a click on the Pointer did not select it (%1)").arg(app_.tool()));
+    if (enabled("sprueToolButton")) return problem(QStringLiteral("the Sprue button is enabled before a mold exists"));
+
+    // 3. The cavity button builds the mold; the glass button toggles its look; the Sprue button then works and toggles back to the pointer.
+    if (item("cavityButton")->property("text").toString() != QLatin1String("Create Cavity")) return problem(QStringLiteral("the cavity button says '%1' before a mold exists").arg(item("cavityButton")->property("text").toString()));
+    if (item("glassToggleButton")->isVisible()) return problem(QStringLiteral("the glass button is shown before a mold exists"));
+    if (const QString p = click("cavityButton"); !p.isEmpty()) return problem(p);
+    if (app_.moldPhase() != QLatin1String("generating") && app_.moldPhase() != QLatin1String("complete")) return problem(QStringLiteral("a click on the cavity button did not start a mold (%1)").arg(app_.moldPhase()));
+    if (!waitFor([&] { return app_.moldPhase() == QLatin1String("complete") || app_.moldPhase() == QLatin1String("error"); }, 120000) || app_.moldPhase() != QLatin1String("complete"))
+      return problem(QStringLiteral("the mold did not complete: %1").arg(app_.moldError()));
+    if (!waitFor([&] { return item("cavityButton")->property("text").toString() == QLatin1String("Rebuild Cavity"); }, 3000)) return problem(QStringLiteral("the cavity button says '%1' after the mold, not 'Rebuild Cavity'").arg(item("cavityButton")->property("text").toString()));
+    if (!item("glassToggleButton")->isVisible()) return problem(QStringLiteral("the glass button is not shown once the mold exists"));
+    const bool glass = app_.moldGlass();
+    if (const QString p = click("glassToggleButton"); !p.isEmpty()) return problem(p);
+    if (app_.moldGlass() == glass) return problem(QStringLiteral("a click on the glass button did not toggle the appearance"));
+    if (const QString p = click("glassToggleButton"); !p.isEmpty()) return problem(p);
+    if (app_.moldGlass() != glass) return problem(QStringLiteral("a second click on the glass button did not toggle it back"));
+    if (!waitFor([&] { return enabled("sprueToolButton"); }, 3000)) return problem(QStringLiteral("the Sprue button stayed disabled with a mold"));
+    if (const QString p = click("sprueToolButton"); !p.isEmpty()) return problem(p);
+    if (app_.tool() != QLatin1String("sprue")) return problem(QStringLiteral("a click on the Sprue button did not select the tool (%1)").arg(app_.tool()));
+    if (const QString p = click("sprueToolButton"); !p.isEmpty()) return problem(p);
+    if (app_.tool() != QLatin1String("select")) return problem(QStringLiteral("a second click on the Sprue button did not go back to the pointer (%1)").arg(app_.tool()));
+
+    // 4. Undo steps back (the mold, the plane and the clearance are all edits), and Redo is then available.
+    if (!app_.history().value("canUndo").toBool() || !enabled("undoButton")) return problem(QStringLiteral("Undo is not available after edits"));
+    if (const QString p = click("undoButton"); !p.isEmpty()) return problem(p);
+    if (!waitFor([&] { return app_.history().value("canRedo").toBool() && enabled("redoButton"); }, 5000)) return problem(QStringLiteral("Redo is not available after an Undo"));
+
+    // 5. The bar takes the pointer: a press and a drag that stay on its padding must not orbit the view, and the wheel over it must not zoom it.
+    //    The control comes first: the same gesture on empty viewport does orbit, so "the camera did not move" means something.
+    const auto drag = [&](const QPointF& from, const QPointF& step, int moves) {
+      injectMouse(from, Qt::NoButton, Qt::NoButton, QEvent::MouseMove);
+      settle(60);
+      injectMouse(from, Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonPress);
+      settle(60);
+      for (int i = 1; i <= moves; ++i) { injectMouse(from + step * i, Qt::LeftButton, Qt::LeftButton, QEvent::MouseMove); settle(30); }
+      injectMouse(from + step * moves, Qt::NoButton, Qt::LeftButton, QEvent::MouseButtonRelease);
+      settle(150);
+    };
+    const QVector3D eyeStart = app_.camera()->position();
+    const QPointF barTopLeft = bar->mapToScene(QPointF(0, 0));
+    drag(QPointF(barTopLeft.x() + 3, barTopLeft.y() + 8), QPointF(0, 2), 4);   // 3 px in from the left edge, 8 px down: inside the bar all the way
+    if ((app_.camera()->position() - eyeStart).length() > 1e-4) return problem(QStringLiteral("dragging on the toolbar's padding moved the camera by %1").arg((app_.camera()->position() - eyeStart).length()));
+    const QRectF nowViewport(viewport->mapToScene(QPointF(0, 0)), QSizeF(viewport->width(), viewport->height()));
+    drag(QPointF(nowViewport.left() + 60, nowViewport.bottom() - 90), QPointF(10, 10), 6);
+    if ((app_.camera()->position() - eyeStart).length() < 1e-3) return problem(QStringLiteral("the control drag on empty viewport did not orbit the camera: the test cannot tell whether the bar takes the pointer"));    renderNow();
+#endif
+  }  void moldsEventsSequence() { whenViewportSettled([this] { moldsEventsBody(); }); }
   void moldsEventsBody() {
 #ifndef CRAFT_SMOKE_REAL_EVENTS
     return fail(QStringLiteral("--molds-events needs a build with CRAFT_BUILD_TESTS"));
@@ -1176,6 +1313,7 @@ class Smoke : public QObject {
     if (sectionsEvents_) return sectionsEventsSequence();
     if (moldsEvents_) return moldsEventsSequence();
     if (masterEvents_) return masterEventsSequence();
+    if (toolbarEvents_) return toolbarEventsSequence();
     if (focusEvents_) return focusEventsSequence();
     if (planeDragEvents_) return planeDragEventsSequence();
     if (extensionDragEvents_) return extensionDragEventsSequence();
@@ -1264,6 +1402,7 @@ class Smoke : public QObject {
   void setSectionsEvents(bool value) { sectionsEvents_ = value; }
   void setMoldsEvents(bool value) { moldsEvents_ = value; }
   void setMasterEvents(bool value) { masterEvents_ = value; }
+  void setToolbarEvents(bool value) { toolbarEvents_ = value; }
   void setDropEvents(bool value) { dropEvents_ = value; }
   void setHintEvents(bool value, bool wheel) { hintEvents_ = value; hintWheel_ = wheel; }
   void setScreenshot(const QString& path) { screenshot_ = path; }
@@ -1274,7 +1413,7 @@ class Smoke : public QObject {
   QString importPath_, summary_, screenshot_;
   QStringList cutFaces_;
   bool expectError_ = false;
-  bool selectPart_ = false, spruePreview_ = false, spruePreviewInvalid_ = false, sprueGizmo_ = false, sprueGizmoEvents_ = false, eraser_ = false, eraserEvents_ = false, planeDragEvents_ = false, sectionsEvents_ = false, moldsEvents_ = false, masterEvents_ = false, dropEvents_ = false, undoEvents_ = false, flipEvents_ = false, focusEvents_ = false, extensionDragEvents_ = false, hintEvents_ = false, hintWheel_ = false;
+  bool selectPart_ = false, spruePreview_ = false, spruePreviewInvalid_ = false, sprueGizmo_ = false, sprueGizmoEvents_ = false, eraser_ = false, eraserEvents_ = false, planeDragEvents_ = false, sectionsEvents_ = false, moldsEvents_ = false, masterEvents_ = false, toolbarEvents_ = false, toolbarEventsStarted_ = false, dropEvents_ = false, undoEvents_ = false, flipEvents_ = false, focusEvents_ = false, extensionDragEvents_ = false, hintEvents_ = false, hintWheel_ = false;
   bool mold_, analyse_, moldability_;
   bool imported_ = false, moldDone_ = false, analysisDone_ = false, reportsDone_ = false, done_ = false;
 };
@@ -1335,6 +1474,7 @@ int main(int argc, char* argv[]) {
   parser.addOption({"flip-events", "Flip through real input: the toolbar button and the four arrow keys (smoke test)."});
   parser.addOption({"eraser-events", "The Eraser through real mouse events: hover a plane, click empty space, click the plane (smoke test)."});
   parser.addOption({"master-events", "The Master Mold toolbar button through a real click (smoke test)."});
+  parser.addOption({"toolbar-events", "The viewport's floating toolbar through real clicks (smoke test)."});
   parser.addOption({"molds-events", "The Molds browser through real clicks, with a mold generated (smoke test)."});
   parser.addOption({"sections-events", "The inspector's sections through real mouse and keyboard events (smoke test)."});
   parser.addOption({"drop-events", "Dropping files on the window through real platform drag-and-drop events (smoke test)."});
@@ -1439,6 +1579,7 @@ int main(int argc, char* argv[]) {
     smoke->setSectionsEvents(parser.isSet("sections-events"));
     smoke->setMoldsEvents(parser.isSet("molds-events"));
     smoke->setMasterEvents(parser.isSet("master-events"));
+    smoke->setToolbarEvents(parser.isSet("toolbar-events"));
     smoke->setHintEvents(parser.isSet("hint-events") || parser.isSet("hint-wheel"), parser.isSet("hint-wheel"));
     smoke->setScreenshot(parser.value("screenshot"));
     QTimer::singleShot(0, smoke.get(), [&smoke] { smoke->start(); });
