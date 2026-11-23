@@ -135,6 +135,7 @@ Item {
     }
     // The Constructed Cutting Plan icon: two coloured blocks with the cut between them (its own colours, not the bar's).
     component ConstructGlyph: Item {
+        property color color: "transparent"   // unused: this icon has its own colours, but the button hands every glyph the colour of its state
         implicitWidth: 23
         implicitHeight: 20
         Shape {

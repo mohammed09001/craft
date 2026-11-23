@@ -291,6 +291,9 @@ if(CRAFT_BUILD_APP)
   # "Recover unsaved work?" dialog over the window, and every test that sends real mouse events failed because the dialog swallowed them.
   foreach(_smoke app_smoke app_smoke_sprue_gizmo app_smoke_hint_events app_smoke_hint_wheel app_smoke_undo app_smoke_flip app_smoke_extension_drag app_smoke_focus app_smoke_eraser app_smoke_drop app_smoke_sections app_smoke_molds app_smoke_master app_smoke_toolbar app_smoke_plane_drag)
     if(TEST ${_smoke})
+      # A QML error (a missing property, a failed binding, a type error) is a defect even when the test's own checks pass: verify-install.ps1 caught
+      # "Cannot assign to non-existent property" in the toolbar that every smoke test had let through.
+      set_property(TEST ${_smoke} PROPERTY FAIL_REGULAR_EXPRESSION "qrc:/[^\n]*(Error|error)|TypeError|ReferenceError|Unable to assign to|non-existent property")
       set_property(TEST ${_smoke} APPEND PROPERTY ENVIRONMENT
         "CRAFT_AUTOSAVE_DIR=${CMAKE_CURRENT_BINARY_DIR}/smoke-state/${_smoke}/autosave"
         "CRAFT_CACHE_DIR=${CMAKE_CURRENT_BINARY_DIR}/smoke-state/${_smoke}/cache")
