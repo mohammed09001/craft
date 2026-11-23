@@ -111,6 +111,8 @@ class SprueResultCache {
   };
   std::optional<SprueGenerationResult> find(const std::string& operationId, const std::string& key) const;
   void replaceAll(std::map<std::string, Entry> entries);
+  /// A copy of every entry (the geometry worker sends the cache to another process and takes the updated one back).
+  std::map<std::string, Entry> snapshot() const;
   void clear();
   std::size_t size() const;
 

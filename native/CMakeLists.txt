@@ -151,6 +151,9 @@ add_library(craft_mold STATIC
   core/mold/SegmentationIdentity.cpp
   core/mold/SegmentationIdentity.h
   core/mold/SprueGeneration.cpp
+  core/mold/MoldWire.cpp
+  core/mold/MoldWire.h
+  core/wire/Wire.h
   core/mold/CuttingPlaneDrag.cpp
   core/mold/CuttingPlaneDrag.h
   core/mold/CuttingPlaneSlabs.cpp

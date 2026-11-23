@@ -66,6 +66,7 @@ craft_add_test(tst_master_store SOURCES tst_master_store.cpp LIBS craft_mold cra
 craft_add_test(tst_master_export SOURCES tst_master_export.cpp LIBS craft_export Qt6::Core)
 craft_add_test(tst_long_paths SOURCES tst_long_paths.cpp LIBS craft_export craft_project Qt6::Core)
 craft_add_test(tst_variant_list_model SOURCES tst_variant_list_model.cpp LIBS craft_app_lib Qt6::Core)
+craft_add_test(tst_mold_wire SOURCES tst_mold_wire.cpp LIBS craft_mold craft_mesh_manifold Qt6::Core)
 craft_add_test(tst_master_wire SOURCES tst_master_wire.cpp LIBS craft_mold craft_mesh_manifold Qt6::Core)
 target_compile_definitions(tst_master_wire PRIVATE
   CRAFT_REFERENCE_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/reference")

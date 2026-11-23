@@ -10,6 +10,8 @@
 #include <chrono>
 #include <cstdio>
 #include <exception>
+#include <functional>
+#include <span>
 #include <thread>
 #include <vector>
 
@@ -17,6 +19,7 @@
 #include "contracts/Operation.h"
 #include "master/MasterMoldStore.h"
 #include "master/MasterWire.h"
+#include "mold/MoldWire.h"
 
 namespace craft::app {
 
@@ -46,21 +49,14 @@ int reportFailure(const std::string& code, const std::string& message) {
   return 4;
 }
 
-int runMasterMoldJob(const QString& jobFile, const QString& resultFile) {
+/// Runs one wire-format job: reads "payload.bin" beside the job file, hands its bytes to `body`, writes what it returns as the result. Every
+/// failure becomes an "ERROR" line and a non-zero exit code (the launcher shows the code and the message).
+int runWireJob(const QString& jobFile, const QString& resultFile, const std::function<std::vector<std::uint8_t>(std::span<const std::uint8_t>)>& body) {
   try {
     QFile payload(QFileInfo(jobFile).dir().filePath(QStringLiteral("payload.bin")));
     if (!payload.open(QIODevice::ReadOnly)) return reportFailure("worker_payload_missing", "The job's request file could not be read.");
     const QByteArray bytes = payload.readAll();
-    const MasterMoldRequest request = decodeMasterMoldRequest({reinterpret_cast<const std::uint8_t*>(bytes.constData()), static_cast<std::size_t>(bytes.size())});
-    auto engine = createManifoldMeshEngine();
-    MasterMoldEngineHooks hooks;   // no cancel token: cancelling means killing this process
-    hooks.onStage = [](const MasterMoldProgressStage& stage) {
-      progressLine(QString::fromStdString(stage.stage), (stage.stageIndex + 1.0) / stage.stageCount);
-      std::fprintf(stderr, "STAGE %s\t%s\t%lld\n", stage.stage.c_str(), stage.detail.value_or(std::string()).c_str(), static_cast<long long>(stage.elapsedMs));
-      std::fflush(stderr);
-    };
-    const MasterMoldResult result = evaluateMasterMoldGeneration(*engine, request, hooks);
-    const std::vector<std::uint8_t> out = encodeMasterMoldResult(result);
+    const std::vector<std::uint8_t> out = body({reinterpret_cast<const std::uint8_t*>(bytes.constData()), static_cast<std::size_t>(bytes.size())});
     return writeResult(resultFile, QByteArray(reinterpret_cast<const char*>(out.data()), static_cast<qsizetype>(out.size()))) ? 0 : 3;
   } catch (const WireError& e) {
     return reportFailure("worker_wire_error", e.what());
@@ -73,6 +69,37 @@ int runMasterMoldJob(const QString& jobFile, const QString& resultFile) {
   }
 }
 
+int runMasterMoldJob(const QString& jobFile, const QString& resultFile) {
+  return runWireJob(jobFile, resultFile, [](std::span<const std::uint8_t> bytes) {
+    const MasterMoldRequest request = decodeMasterMoldRequest(bytes);
+    auto engine = createManifoldMeshEngine();
+    MasterMoldEngineHooks hooks;   // no cancel token: cancelling means killing this process
+    hooks.onStage = [](const MasterMoldProgressStage& stage) {
+      progressLine(QString::fromStdString(stage.stage), (stage.stageIndex + 1.0) / stage.stageCount);
+      std::fprintf(stderr, "STAGE %s\t%s\t%lld\n", stage.stage.c_str(), stage.detail.value_or(std::string()).c_str(), static_cast<long long>(stage.elapsedMs));
+      std::fflush(stderr);
+    };
+    return encodeMasterMoldResult(evaluateMasterMoldGeneration(*engine, request, hooks));
+  });
+}
+
+/// Mold generation and the derived evaluation (sprues, registration), as one job like the in-process one. The sprue cache comes in with the request and
+/// goes back out with the result.
+int runMoldJob(const QString& jobFile, const QString& resultFile) {
+  return runWireJob(jobFile, resultFile, [](std::span<const std::uint8_t> bytes) {
+    MoldWorkerRequest request = decodeMoldWorkerRequest(bytes);
+    auto engine = createManifoldMeshEngine();
+    SprueResultCache cache;
+    cache.replaceAll(std::move(request.sprueCache));
+    const ProgressCallback progress = [](const std::string& stage, double fraction) { progressLine(QString::fromStdString(stage), fraction); };
+    const CancellationToken noToken;   // cancelling means killing this process
+    MoldWorkerResult result;
+    result.mold = generateMold(*engine, request.request, noToken, progress);
+    result.derived = evaluateDerivedMold(*engine, result.mold, std::move(request.sprueIntents), progress, &cache);
+    result.sprueCache = cache.snapshot();
+    return encodeMoldWorkerResult(result);
+  });
+}
 }  // namespace
 
 int runGeometryWorker(const QString& jobFile, const QString& resultFile) {
@@ -114,6 +141,7 @@ int runGeometryWorker(const QString& jobFile, const QString& resultFile) {
     return writeResult(resultFile, QByteArray("{\"done\":true}")) ? 0 : 3;
   }
   if (kind == QLatin1String("master-mold")) return runMasterMoldJob(jobFile, resultFile);
+  if (kind == QLatin1String("mold")) return runMoldJob(jobFile, resultFile);
   std::fprintf(stderr, "Unknown job kind: %s\n", kind.toUtf8().constData());
   return 2;
 }

@@ -14,12 +14,9 @@
 #include <vector>
 
 #include "master/MasterMoldStore.h"
+#include "wire/Wire.h"
 
 namespace craft {
-
-struct WireError : std::runtime_error {
-  using std::runtime_error::runtime_error;
-};
 
 std::vector<std::uint8_t> encodeMasterMoldRequest(const MasterMoldRequest& request);
 MasterMoldRequest decodeMasterMoldRequest(std::span<const std::uint8_t> bytes);

@@ -341,6 +341,10 @@ void SprueResultCache::clear() {
   const std::lock_guard<std::mutex> lock(mutex_);
   entries_.clear();
 }
+std::map<std::string, SprueResultCache::Entry> SprueResultCache::snapshot() const {
+  const std::lock_guard<std::mutex> lock(mutex_);
+  return entries_;
+}
 std::size_t SprueResultCache::size() const {
   const std::lock_guard<std::mutex> lock(mutex_);
   return entries_.size();
