@@ -1,62 +1,42 @@
 # Craft
 
-Craft is a browser-based mold-generation tool: import a 3D model (STL), define
-where it splits, and derive the mold geometry (cavity, sprue, registration
-keys) needed to manufacture it. It also contains an independent Python
-analysis engine exploring the same problem offline.
+Craft is a native Windows desktop application for mold generation: import a 3D
+model (STL), define where it splits, and derive the mold geometry (cavity,
+sprue, registration keys) needed to manufacture it. It is one application:
+Qt/QML for the interface, C++ with native Manifold for the geometry, and a
+local Python engine for the engineering analysis. There is no web runtime.
 
 ## Repository layout
 
 ```
+native/        the application (C++/Qt Quick), its tests and packaging
+  app/         application controller, QML, jobs, project handling
+  core/        geometry, mold, segmentation, Master Mold (platform-neutral)
+  io/          STL, 3MF, project file, tooling export
+  engines/     analysis bridge, native Manifold wrapper
+  viewport/    3D viewport adapters
+  tests/       Qt Test suites and recorded fixtures
 mold/
-  frontend/   → the active application (React/TypeScript/Vite)
-  src/        → a Python 3.13 core engine (mold_generator_engine) plus
-                engineering_analysis/engineering_reports support packages
-  tests/      → Python test suite
-  docs/       → architecture, engineering, and agent-operating documentation
+  src/         Python 3.13 engineering engine (mold_generator_engine,
+               engineering_analysis, engineering_reports)
+  tests/       Python test suite
+  docs/        engine and engineering documentation
+scripts/native/  Windows environment, packaging, installer, smoke and benchmarks
+docs/native-migration/  architecture, decisions, risks, completion matrix
 ```
 
-### `mold/frontend/`
+The earlier React/TypeScript web app was removed from this tree. The last tree
+that contains it is the tag `web-reference-final`; the behaviour it defined is
+recorded in `native/tests/fixtures/reference`.
 
-A single-page app that does its own in-browser 3D geometry work: Three.js for
-rendering, the `manifold-3d` WASM library for boolean solid operations. This
-is where STL import, the interactive viewport, and the full mold-generation
-pipeline (reference mold block → Cut by Face → Cavity → Sprue → Registration)
-actually run today. See `mold/docs/agent/PROJECT_MAP.md` for the full
-architecture and per-feature navigation guide.
+## Build and test (Windows)
 
-### `mold/src/`
-
-A Python 3.13 package (`mold_generator_engine`) running a staged, offline
-moldability-analysis and mold-generation pipeline (import validation →
-moldability screening → cavity/detailed analysis → generation readiness →
-mold generation), plus `engineering_analysis` (session orchestration) and
-`engineering_reports` (shared report contracts).
-
-**The frontend and the Python engine are not runtime-connected.** They are
-two independently real codebases solving overlapping problems from different
-angles; `mold/frontend/src/features/engine-integration` is a typed,
-contracts-only boundary for a *future* bridge and performs no subprocess,
-HTTP, or WebSocket call today. See `mold/docs/agent/PROJECT_MAP.md`'s
-Source-of-Truth Matrix for which domain currently owns which behavior.
-
-## Running the frontend
-
-```bash
-cd mold/frontend
-npm ci
-npm run dev        # local development server
-```
-
-### Frontend verification
-
-```bash
-cd mold/frontend
-npm ci
-npm run typecheck
-npm run lint
-npm run build
-npm run test:run
+```powershell
+. .\scripts\native\windows-env.ps1
+cd native
+cmake --preset windows-release
+cmake --build --preset windows-release
+ctest --preset windows-release
 ```
 
 ## Python verification
@@ -69,24 +49,8 @@ ruff format --check .
 pytest
 ```
 
-## Documentation map
+## Documentation
 
-- `mold/docs/agent/PROJECT_MAP.md` — architecture and navigation: where to
-  start for a given kind of change, and what else it touches.
-- `mold/docs/agent/ENGINEERING_LOOP.md` and
-  `mold/docs/agent/WORKFLOW_POLICY.md` — the operating loop and Skill/agent
-  decision policy for engineering work in this repository.
-- `mold/docs/` — per-subsystem design and engine documentation (import
-  analysis, cavity analysis, mold generation, moldability assessment).
-
-Dynamic repository state (current branch, HEAD, working-tree status) is
-intentionally not recorded in any committed document — discover it live with
-`git branch --show-current`, `git rev-parse HEAD`, and `git status --short`.
-
-## What isn't implemented yet
-
-- No frontend↔Python runtime bridge — the two pipelines run independently.
-- The Python engine's pipeline stages are not exposed through any UI.
-- CI (`.github/workflows/ci.yml`) gates frontend quality, Python quality, and
-  repository integrity on every push/PR to `main`; it does not deploy
-  anything.
+- `docs/native-migration/WINDOWS_COMPLETION_MATRIX.md` - what passes and what is open.
+- `docs/native-migration/OWNER_DECISIONS.md` - decisions only the owner can make.
+- `docs/native-migration/README.md` - index of the migration documents.

@@ -31,8 +31,8 @@ line-length = 88
 # The authoritative Python surface for this package is `src/` (the
 # mold-generator-engine package itself, see [tool.setuptools.packages.find])
 # and `tests/` (see [tool.pytest.ini_options] testpaths). `mold/` also holds
-# the frontend/ TypeScript app and docs/cad-skills/'s own self-contained
-# tooling test -- neither belongs to this package's quality gate.
+# docs/cad-skills/'s own self-contained
+# tooling test -- that does not belong to this package's quality gate.
 include = ["src/**/*.py", "tests/**/*.py"]
 
 [tool.ruff.lint]
