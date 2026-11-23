@@ -12,7 +12,7 @@ Three separate completion levels are tracked and none is claimed until all its r
 |---|---|---|---|---|---|---|
 | P0-1 | Full Debug CTest in one run | all | `ctest --preset windows-debug` | **pass (2026-11-22, on b10727b)** | Full Debug ctest in one run after an incremental rebuild of the current head: 46/46 passed, 378.6 s (build 173 s). Master fallback rows are still skipped in Debug by design; log D:\CraftNative\logs\dbg-ctest.log | 0 failures; Master fallback rows skipped in Debug by design |
 | P0-2 | Full **Release** CTest in one run, including `tst_master_equivalence` | all | `ctest --preset windows-release` (one invocation) | **pass (2026-11-21)** | One invocation of ctest --preset windows-release on 018c7cc (before the 3MF commit): 38/38 passed, 1123.91 s, build exit 0, log D:CraftNativelogs
-elease-full-ctest.log. Must be re-run on the final tree before any release claim | 0 failures, count and duration recorded |
+elease-full-ctest.log. Re-run 2026-11-23 on 28be334 plus the STL path move: 46/46, 278.8 s, log D:\CraftNative\logs\rel-full-ctest2.log. Must be re-run on the final tree before any release claim | 0 failures, count and duration recorded |
 | P0-3 | Mold geometry validity vs the reference | core/mold, engines | equivalence suites against fixtures recorded from the real TypeScript runtime | pass (checkpoint) | 13 generators, 14 fixture files, mutation-tested | unchanged; re-run with P0-1/2 |
 | P0-4 | No data loss: project save/open/autosave/recovery | io/project | tst_project 26, tst_app_workflow, crash-drill (26/26 real kills) | pass (checkpoint) | R-Project-3 | unchanged |
 | P0-5 | Cancelled / timed-out jobs do not hold the app or leak CPU/RAM forever | app jobs | D-106 | partial | A running Boolean cannot be interrupted; the thread ends in the background with its result ignored. Bounded, not preemptive | documented limit; blocker only if a measurement shows unbounded growth |
@@ -63,8 +63,8 @@ elease-full-ctest.log. Must be re-run on the final tree before any release claim
 
 | ID | Item | Status | Notes |
 |---|---|---|---|
-| RC-1 | Inventory of every consumer of the web frontend | not started | fixture generators (`native/tests/reference/*.test.ts`), `ci.yml` jobs, docs, scripts |
-| RC-2 | Preserve golden fixtures and test specs | not started | the 14 recorded fixtures already live under `native/tests/fixtures/reference` |
+| RC-1 | Inventory of every consumer of the web frontend | **pass (2026-11-23)**: WEB_FRONTEND_CONSUMERS.md lists 9 consumers and the removal order | fixture generators (`native/tests/reference/*.test.ts`), `ci.yml` jobs, docs, scripts |
+| RC-2 | Preserve golden fixtures and test specs | **partly done (2026-11-23)**: the two STLs the native tests read from `mold/frontend/e2e/fixtures` now live in `native/tests/fixtures/stl`; `tst_app_workflow` passes on the new paths (Release). Fate of the 14 generators still open | the 14 recorded fixtures already live under `native/tests/fixtures/reference` |
 | RC-3 | Remove the web app in controlled, reversible commits | **gated** | only after native parity rows above pass and the fixture generators are replaced or archived; fixture regeneration needs the TypeScript runtime |
 
 ## Deferred / Future / Not Started - requires explicit user authorization after Windows reaches 100%

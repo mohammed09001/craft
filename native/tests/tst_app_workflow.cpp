@@ -2983,7 +2983,7 @@ class WorkflowTest : public QObject {
   }
 
   void endToEndProjectJourney() {
-    const QString sphere = QStringLiteral(CRAFT_REPO_ROOT "/mold/frontend/e2e/fixtures/highpoly_sphere_15mm_ascii.stl");
+    const QString sphere = QStringLiteral(CRAFT_REPO_ROOT "/native/tests/fixtures/stl/highpoly_sphere_15mm_ascii.stl");
     QTemporaryDir work;
     const QString projectFile = work.filePath("sphere.craft");
 
@@ -3361,7 +3361,7 @@ class WorkflowTest : public QObject {
     QTest::qWait(50);
     // The 30 mm box keeps the same label step before and after the fit (the bracket happens to change it), which is the case
     // where building the ruler too early leaves oversized labels.
-    app->importStlFile(QStringLiteral(CRAFT_REPO_ROOT "/mold/frontend/e2e/fixtures/box_30mm_ascii.stl"));
+    app->importStlFile(QStringLiteral(CRAFT_REPO_ROOT "/native/tests/fixtures/stl/box_30mm_ascii.stl"));
     QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
     QTest::qWait(100);
     // The grid changes and the camera is fitted in the same step; the reference rebuilds the ruler on the next frame, so its
