@@ -687,6 +687,36 @@ class Smoke : public QObject {
       app_.setCutFaceEnabled(QStringLiteral("top"), false);   // the steps below start from no plane
       settle(100);
     }
+    // 0d. The dividers between groups of buttons, over a sweep of window widths. Where the bar wraps, a divider that would end a line or begin the next must not
+    // be drawn; every other divider is. The expected answer is computed here from the buttons' own positions, independently of the bar's rule.
+    {
+      QQuickItem* flow = item("toolbarFlow");
+      if (!flow) return problem(QStringLiteral("the toolbar's button flow is missing"));
+      QQuickItem* toolbarItem = item("viewportToolbar");
+      int checked = 0, hidden = 0, drawn = 0;
+      for (int width = 700; width >= 120; width -= 20) {   // the bar's own width limit, from wider than its buttons down to a few of them per line
+        toolbarItem->setProperty("widthLimit", width);
+        settle(150);
+        const QList<QQuickItem*> kids = flow->childItems();
+        for (int i = 0; i < kids.size(); ++i) {
+          if (kids[i]->objectName() != QLatin1String("barSeparator")) continue;
+          QQuickItem *previous = nullptr, *next = nullptr;
+          for (int k = i - 1; k >= 0 && !previous; --k) if (kids[k]->isVisible() && kids[k]->width() > 1) previous = kids[k];
+          for (int k = i + 1; k < kids.size() && !next; ++k) if (kids[k]->isVisible() && kids[k]->width() > 1) next = kids[k];
+          const bool expected = previous && next && qFuzzyCompare(previous->y() + 1, kids[i]->y() + 1) && qFuzzyCompare(next->y() + 1, kids[i]->y() + 1);
+          const bool shown = kids[i]->property("dividing").toBool();
+          if (expected != shown)
+            return problem(QStringLiteral("at a bar width of %1 a divider %2 drawn where it %3").arg(width).arg(shown ? QStringLiteral("is") : QStringLiteral("is not")).arg(expected ? QStringLiteral("divides two buttons") : QStringLiteral("would hang at the end or start of a line")));
+          ++checked;
+          (shown ? drawn : hidden) += 1;
+        }
+      }
+      toolbarItem->setProperty("widthLimit", 0);
+      settle(150);
+      if (checked == 0) return problem(QStringLiteral("no divider was found to check"));
+      if (hidden == 0) return problem(QStringLiteral("no bar width made the bar wrap at a divider, so the rule was never exercised (%1 dividers drawn)").arg(drawn));
+      if (drawn == 0) return problem(QStringLiteral("no divider was drawn at any width"));
+    }
     // 1. The mold-scale stepper: whole millimetres, and the value on the bar follows.
     const double start = app_.moldClearanceMm();
     const auto shown = [&] { return item("clearanceValue")->property("text").toString(); };

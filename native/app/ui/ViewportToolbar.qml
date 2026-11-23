@@ -42,7 +42,8 @@ Item {
         }
         return w + Math.max(0, n - 1) * flow.spacing
     }
-    readonly property real barWidth: Math.min(naturalWidth + 12, Math.max(60, width))
+    property real widthLimit: 0   // 0: none. A bar narrower than the viewport (the smoke test uses it to wrap the bar at any text size)
+    readonly property real barWidth: Math.min(naturalWidth + 12, Math.max(60, width), widthLimit > 0 ? widthLimit : Infinity)
     readonly property real barHeight: flow.childrenRect.height + 10
     readonly property real barBottom: y + barHeight        // what is placed under the bar starts here (the Mold Scale field, the pieces list)
     readonly property real barRight: x + (width + barWidth) / 2
@@ -262,8 +263,28 @@ Item {
         }
     }
 
+    // A divider between groups of buttons. It is drawn only where it divides something: when the bar wraps, a divider that ends a line or begins the next
+    // one would hang there alone. It keeps its width (opacity, not visibility) so that hiding it does not move the buttons and change the wrapping.
+    component BarSeparator: Item {
+        id: sep
+        objectName: "barSeparator"
+        width: 1; height: 30
+        readonly property bool dividing: {
+            bar.naturalWidth; flow.childrenRect   // re-evaluated when the content or the layout changes
+            let previous = null, next = null, seen = false
+            for (let i = 0; i < flow.children.length; ++i) {
+                const c = flow.children[i]
+                if (c === sep) { seen = true; continue }
+                if (!c.visible || c.width <= 1) continue   // other separators and hidden buttons are not neighbours
+                if (!seen) previous = c; else if (!next) next = c
+            }
+            return previous !== null && next !== null && previous.y === sep.y && next.y === sep.y
+        }
+        Rectangle { width: 1; height: 24; anchors.verticalCenter: parent.verticalCenter; color: bar.lineColor; opacity: sep.dividing ? 1 : 0 }
+    }
     Flow {
         id: flow
+        objectName: "toolbarFlow"
         x: panel.x + 6; y: 5
         width: panel.width - 12
         spacing: 6
@@ -323,7 +344,7 @@ Item {
             }
         }
 
-        Item { width: 1; height: 30; Rectangle { width: 1; height: 24; anchors.verticalCenter: parent.verticalCenter; color: bar.lineColor } }   // separator
+        BarSeparator {}
 
         // The Constructed Cutting Plan: opens the session (Cutting by Face / Segmentation, then Done or Cancel).
         IconButton {
@@ -365,7 +386,7 @@ Item {
             }
         }
 
-        Item { width: 1; height: 30; Rectangle { width: 1; height: 24; anchors.verticalCenter: parent.verticalCenter; color: bar.lineColor } }   // separator
+        BarSeparator {}
 
         IconButton {
             objectName: "pointerToolButton"
@@ -434,7 +455,7 @@ Item {
             onClicked: bar.piecesOpen = !bar.piecesOpen
         }
 
-        Item { width: 1; height: 30; Rectangle { width: 1; height: 24; anchors.verticalCenter: parent.verticalCenter; color: bar.lineColor } }   // the reference's separator
+        BarSeparator {}
 
         IconButton {
             objectName: "undoButton"
