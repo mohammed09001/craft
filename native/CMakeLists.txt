@@ -123,6 +123,8 @@ add_library(craft_mold STATIC
   core/master/MasterMultiPiece.cpp
   core/master/MasterMultiPiece.h
   core/master/MasterMoldStore.cpp
+  core/master/MasterWire.cpp
+  core/master/MasterWire.h
   core/master/MasterMoldStore.h
   core/master/MasterMultiLabel.cpp
   core/master/MasterMultiLabel.h
