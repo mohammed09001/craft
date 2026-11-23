@@ -2814,6 +2814,88 @@ class WorkflowTest : public QObject {
     QCOMPARE(app->scene()->count(), 2);   // the part and the one mold body, no Master pieces
   }
 
+  // --- the same, with the run in a separate process (P0-5): a stop is real, nothing is left winding down ------------------------------------------
+
+  void aMasterMoldRunInAWorkerProcessGivesTheSameTooling() {
+    auto here = makeApp();
+    here->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return here->modelPhase() == "ready"; }));
+    here->generateMasterMold();
+    QVERIFY(waitFor([&] { return !here->masterMold().value("generating").toBool(); }, 120000));
+
+    auto there = makeApp();
+    there->setGeometryWorkerExecutable(QStringLiteral(CRAFT_WORKER_EXE));
+    there->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return there->modelPhase() == "ready"; }));
+    there->generateMasterMold();
+    QVERIFY(there->masterMold().value("generating").toBool());
+    QVERIFY(there->busy());
+    QVERIFY(waitFor([&] { return !there->masterMold().value("generating").toBool(); }, 120000));
+    QVERIFY(!there->busy());
+    QCOMPARE(there->masterMold().value("status").toString(), here->masterMold().value("status").toString());
+    QCOMPARE(there->masterMold().value("status").toString(), QStringLiteral("current"));
+    QCOMPARE(there->scene()->count(), here->scene()->count());
+    QVERIFY(there->scene()->count() > 1);
+  }
+
+  void cancellingAWorkerMasterMoldStopsItForRealAndAllowsANewRunAtOnce() {
+    auto app = makeApp();
+    app->setGeometryWorkerExecutable(QStringLiteral(CRAFT_WORKER_EXE));
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->generateMasterMold();
+    QVERIFY(app->masterMold().value("generating").toBool());
+    app->cancelCurrentJob();
+    QVERIFY(!app->masterMold().value("generating").toBool());
+    QVERIFY(!app->busy());
+    QVERIFY(app->statusText().contains("cancelled"));
+    QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("error"));
+    QVERIFY2(!masterWindingDown(*app), "a killed process leaves nothing winding down");
+    QVERIFY(app->masterMold().value("canGenerate").toBool());   // a new run is allowed at once, unlike the in-process run
+
+    app->generateMasterMold();
+    QVERIFY(app->masterMold().value("generating").toBool());
+    QVERIFY(waitFor([&] { return !app->masterMold().value("generating").toBool(); }, 120000));
+    QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("current"));
+    QVERIFY(app->scene()->count() > 1);
+  }
+
+  void aWorkerMasterMoldThatTimesOutIsKilledAndNothingIsLeftWindingDown() {
+    auto app = makeApp();
+    app->setGeometryWorkerExecutable(QStringLiteral(CRAFT_WORKER_EXE));
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->setMasterMoldTimeoutMs(1);
+    app->generateMasterMold();
+    QVERIFY(waitFor([&] { return !app->masterMold().value("generating").toBool(); }, 20000));
+    QVERIFY(app->statusText().contains("exceeded 1 ms"));
+    QVERIFY(!app->busy());
+    QVERIFY(!masterWindingDown(*app));
+    QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("error"));
+    QTest::qWait(300);   // the killed process's end arrives: it must change nothing
+    QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("error"));
+    QCOMPARE(app->scene()->count(), 1);
+    app->setMasterMoldTimeoutMs(180000);
+    app->generateMasterMold();
+    QVERIFY(waitFor([&] { return !app->masterMold().value("generating").toBool(); }, 120000));
+    QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("current"));
+  }
+
+  void aWorkerThatCannotBeStartedFailsTheRunCleanly() {
+    auto app = makeApp();
+    app->setGeometryWorkerExecutable(QStringLiteral("Z:/there/is/no/such/craft.exe"));
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    QSignalSpy errors(app.get(), &AppController::errorOccurred);
+    app->generateMasterMold();
+    QVERIFY(waitFor([&] { return !app->masterMold().value("generating").toBool(); }, 20000));
+    QVERIFY(!app->busy());
+    QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("error"));
+    QCOMPARE(errors.count(), 1);
+    QCOMPARE(errors.first().at(2).toString(), QStringLiteral("worker_start_failed"));
+    QCOMPARE(app->scene()->count(), 1);
+  }
+
   void resettingARunningMasterMoldReleasesTheApplicationToo() {
     auto app = makeApp();
     app->importStlFile(bracket());

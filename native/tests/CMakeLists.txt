@@ -139,7 +139,9 @@ if(CRAFT_BUILD_APP)
     CRAFT_REFERENCE_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/reference")
   add_dependencies(tst_geometry_worker craft)
   craft_add_test(tst_app_workflow SOURCES tst_app_workflow.cpp LIBS craft_app_lib)
+  add_dependencies(tst_app_workflow craft)
   target_compile_definitions(tst_app_workflow PRIVATE
+    CRAFT_WORKER_EXE="$<TARGET_FILE:craft>"
     CRAFT_DEV_PYTHON="${CRAFT_PYTHON_EXECUTABLE_NORMALIZED}"
     CRAFT_REFERENCE_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/reference")
 

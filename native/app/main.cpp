@@ -1356,6 +1356,9 @@ int main(int argc, char* argv[]) {
     }
   }
   if (parser.isSet("mold-opacity")) controller.setMoldOpacity(parser.value("mold-opacity").toDouble());
+  // P0-5: Master Mold runs in a separate process (this executable, --geometry-worker) so that Cancel and the time limit really stop it. CRAFT_MASTER_IN_PROCESS=1 keeps
+  // the old in-process run (for comparison and as a fallback).
+  if (!qEnvironmentVariableIsSet("CRAFT_MASTER_IN_PROCESS")) controller.setGeometryWorkerExecutable(QCoreApplication::applicationFilePath());
 
 #ifdef CRAFT_SMOKE_REAL_EVENTS
   if (parser.isSet("bench-no-vsync")) {

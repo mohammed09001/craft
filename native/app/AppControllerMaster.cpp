@@ -15,6 +15,7 @@
 
 #include "AppController.h"
 #include "master/MasterPlanning.h"
+#include "master/MasterWire.h"
 
 Q_DECLARE_LOGGING_CATEGORY(lcApp)
 
@@ -141,22 +142,11 @@ void AppController::generateMasterMold() {
 
   auto engine = engine_;
   const MasterMoldRequest request = *start.request;
-  runJob<MasterMoldResult>(
-      this, cancel,
-      [engine, request](const CancellationToken& token, const ProgressCallback& progress) {
-        MasterMoldEngineHooks hooks;
-        hooks.cancel = token;
-        hooks.onStage = [progress](const MasterMoldProgressStage& stage) {
-          // One line per stage change with the time since the run started: where a slow Master Mold spends its time (P2-5).
-          qCInfo(lcApp).noquote() << "Master Mold stage" << QString::fromStdString(stage.stage) << QString::fromStdString(stage.detail.value_or(std::string()))
-                                  << "at" << qRound64(stage.elapsedMs) << "ms";
-          if (progress) progress(stage.stage, (stage.stageIndex + 1.0) / stage.stageCount);
-        };
-        return evaluateMasterMoldGeneration(*engine, request, hooks);
-      },
-      [this, generation, abandoned, timeoutMs](JobOutcome<MasterMoldResult> outcome) {
+  const bool inWorker = !workerExecutable_.isEmpty();   // P0-5: the run is a separate process that a cancel can really kill
+  const auto done =
+      [this, generation, abandoned, timeoutMs, inWorker](JobOutcome<MasterMoldResult> outcome) {
         if (*abandoned) {  // the run was given up (timeout, cancel, reset): the UI has moved on, nothing here may touch it
-          --masterOrphans_;
+          if (!inWorker) --masterOrphans_;   // a worker process is killed, not left to end: nothing is still running
           emit masterMoldChanged();
           return;
         }
@@ -189,7 +179,8 @@ void AppController::generateMasterMold() {
           emit errorOccurred(QStringLiteral("Master Mold failed"), message, outcome.errorCode);
           qCWarning(lcApp) << "Master Mold failed:" << outcome.errorCode << message;
         }
-      },
+      };
+  const auto onProgress =
       [this, generation, abandoned](QString stage, double) {
         if (*abandoned) return;  // an abandoned run's last reports must not touch the footer while other work runs
         const std::string name = stage.toStdString();
@@ -202,16 +193,80 @@ void AppController::generateMasterMold() {
         busyProgress_ = (s.stageIndex + 1.0) / s.stageCount;
         emit busyChanged();
         emit masterMoldChanged();
-      });
+      };
+  if (inWorker) {
+    masterWorker_ = std::make_unique<WorkerProcess>(workerExecutable_, this);
+    WorkerProcess* worker = masterWorker_.get();
+    connect(worker, &WorkerProcess::progress, this, [onProgress](QString stage, double fraction) { onProgress(stage, fraction); });
+    connect(worker, &WorkerProcess::stageLine, this, [](QString line) { qCInfo(lcApp).noquote() << "Master Mold stage" << line; });
+    connect(worker, &WorkerProcess::finished, this, [this, worker, done](WorkerOutcome outcome) {
+      JobOutcome<MasterMoldResult> job;
+      switch (outcome.state) {
+        case WorkerOutcome::State::Succeeded:
+          try {
+            job.result = decodeMasterMoldResult({reinterpret_cast<const std::uint8_t*>(outcome.result.constData()), static_cast<std::size_t>(outcome.result.size())});
+            job.state = JobState::Succeeded;
+          } catch (const WireError& error) {
+            job.state = JobState::Failed;
+            job.errorCode = QStringLiteral("worker_wire_error");
+            job.errorMessage = QString::fromUtf8(error.what());
+          }
+          break;
+        case WorkerOutcome::State::Cancelled:
+          job.state = JobState::Cancelled;
+          break;
+        case WorkerOutcome::State::Crashed:
+          job.state = JobState::Failed;
+          job.errorCode = QStringLiteral("worker_crashed");
+          job.errorMessage = QStringLiteral("The Master Mold process stopped unexpectedly (it may have run out of memory). ") + outcome.message;
+          break;
+        case WorkerOutcome::State::Failed:
+          job.state = JobState::Failed;
+          job.errorCode = outcome.errorCode.isEmpty() ? QStringLiteral("worker_failed") : outcome.errorCode;
+          job.errorMessage = outcome.message;
+          break;
+      }
+      if (masterWorker_.get() == worker) masterWorker_.release()->deleteLater();   // finished: nothing left to kill
+      done(std::move(job));
+    });
+    const std::vector<std::uint8_t> payload = encodeMasterMoldRequest(request);
+    if (!worker->start(QByteArray(R"({"kind":"master-mold"})"), QByteArray(reinterpret_cast<const char*>(payload.data()), static_cast<qsizetype>(payload.size())))) {
+      masterWorker_.release()->deleteLater();
+      JobOutcome<MasterMoldResult> failed;
+      failed.state = JobState::Failed;
+      failed.errorCode = QStringLiteral("worker_start_failed");
+      failed.errorMessage = QStringLiteral("The Master Mold process could not be started.");
+      done(std::move(failed));
+    }
+    return;
+  }
+  runJob<MasterMoldResult>(
+      this, cancel,
+      [engine, request](const CancellationToken& token, const ProgressCallback& progress) {
+        MasterMoldEngineHooks hooks;
+        hooks.cancel = token;
+        hooks.onStage = [progress](const MasterMoldProgressStage& stage) {
+          // One line per stage change with the time since the run started: where a slow Master Mold spends its time (P2-5).
+          qCInfo(lcApp).noquote() << "Master Mold stage" << QString::fromStdString(stage.stage) << QString::fromStdString(stage.detail.value_or(std::string()))
+                                  << "at" << qRound64(stage.elapsedMs) << "ms";
+          if (progress) progress(stage.stage, (stage.stageIndex + 1.0) / stage.stageCount);
+        };
+        return evaluateMasterMoldGeneration(*engine, request, hooks);
+      },
+      done, onProgress);
 }
-
 // Gives up the Master Mold run in progress: the UI is released now, the worker thread is left to end on its own (cancelled, so it stops at its next check
 // and otherwise at the end of the Boolean it is in) and its result will be ignored.
 void AppController::abandonMasterRun(const QString& message, bool failTheStore) {
   if (!masterRunning_ || !masterAbandon_) return;
   *masterAbandon_ = true;
   masterAbandon_.reset();
-  ++masterOrphans_;
+  if (masterWorker_) {   // a separate process: stop it for real, so nothing keeps running and nothing is left to wait for
+    masterWorker_->cancel();
+    masterWorker_.release()->deleteLater();
+  } else {
+    ++masterOrphans_;
+  }
   if (activeCancel_) {
     activeCancel_->cancel();
     activeCancel_.reset();

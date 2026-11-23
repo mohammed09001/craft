@@ -24,6 +24,7 @@
 #include <optional>
 
 #include "AnalysisWorkerClient.h"
+#include "GeometryWorker.h"
 #include "IMeshGeometryEngine.h"
 #include "JobRunner.h"
 #include "SceneModel.h"
@@ -270,6 +271,9 @@ class AppController : public QObject {
   void setMemoryProbe(std::function<std::uint64_t()> probe) { memoryProbe_ = std::move(probe); }
   /// How long a Master Mold run may take before the UI gives up on it (tests shorten it).
   void setMasterMoldTimeoutMs(int ms) { masterTimeoutMs_ = ms; }
+  /// P0-5: when set, Master Mold runs in a separate process (this executable in --geometry-worker mode) that a cancel or a timeout kills
+  /// for real. Empty (the default) keeps the in-process run, which cannot be interrupted inside a Boolean.
+  void setGeometryWorkerExecutable(const QString& path) { workerExecutable_ = path; }
   bool isDirty() const { return projectDirty_; }
   /// Current inputs as a project document (the model bytes are added by the save job).
   project::Document captureDocument(bool forFingerprint = false) const;
@@ -688,6 +692,8 @@ class AppController : public QObject {
   std::shared_ptr<bool> moldAbandon_;
   int moldOrphans_ = 0;
   int masterOrphans_ = 0;
+  QString workerExecutable_;
+  std::unique_ptr<WorkerProcess> masterWorker_;
   int masterRunGeneration_ = 0;
   int masterTimeoutMs_ = 180000;  // DEFAULT_MASTER_MOLD_WORKER_TIMEOUT_MS
   bool masterRunning_ = false;
