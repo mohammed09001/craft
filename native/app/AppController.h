@@ -120,6 +120,8 @@ class AppController : public QObject {
   Q_PROPERTY(QVariantMap project READ project NOTIFY projectChanged)
   Q_PROPERTY(QVariantMap recovery READ recovery NOTIFY recoveryChanged)
   Q_PROPERTY(QVariantMap segmentation READ segmentation NOTIFY segmentationChanged)
+  /// The Constructed Cutting Plan session (CuttingSessionPanel.tsx): {open, tab ("cutByFace" or "segmentation"), committing, blockedReason}.
+  Q_PROPERTY(QVariantMap cuttingSession READ cuttingSession NOTIFY cuttingSessionChanged)
   Q_PROPERTY(QVariantMap printerVolume READ printerVolume NOTIFY segmentationChanged)
   Q_PROPERTY(QVariantList sprues READ sprues NOTIFY spruesChanged)
   Q_PROPERTY(QVariantMap sprueCandidate READ sprueCandidate NOTIFY spruesChanged)
@@ -311,7 +313,16 @@ class AppController : public QObject {
   Q_INVOKABLE void removeSegmentationExtension(const QString& axis);
   /// Cuts the block along the plan and keys the pieces; the result becomes the mold bodies.
   Q_INVOKABLE void executeSegmentation();
-  Q_INVOKABLE void resetSegmentation();
+
+  // --- the Constructed Cutting Plan session (cuttingWorkflow.store.ts): a temporary session over the cut faces and the segmentation plan. Opening takes a
+  // snapshot; Cancel puts the cut faces, the extensions, the mold and the history back exactly as they were; Done on Cutting by Face keeps the planes, on
+  // Segmentation it cuts the mold into sections (and the session ends when that has worked). Flip, Mold Scale, the mold and Master Mold wait for it. -----
+  QVariantMap cuttingSession() const;
+  bool cuttingSessionOpen() const { return cuttingSession_.open; }
+  Q_INVOKABLE bool openCuttingSession();
+  Q_INVOKABLE void setCuttingSessionTab(const QString& tab);
+  Q_INVOKABLE void commitCuttingSession();
+  Q_INVOKABLE void cancelCuttingSession();  Q_INVOKABLE void resetSegmentation();
   bool segmentationAdopted() const { return segmentation_.adopted; }
   const SegmentationPlan* segmentationPlan() const { return segmentation_.plan ? &*segmentation_.plan : nullptr; }
   const std::vector<MoldBody>& segmentationBodies() const { return segmentation_.shownBodies; }
@@ -503,6 +514,7 @@ class AppController : public QObject {
   void analysisChanged();
   void spruesChanged();
   void segmentationChanged();
+  void cuttingSessionChanged();
   void masterMoldChanged();
   void engineeringReportsChanged();
   void projectChanged();
@@ -736,6 +748,18 @@ class AppController : public QObject {
   // undo / redo
   std::deque<HistoryEntry> undoStack_, redoStack_;
   bool historyGestureActive_ = false, historyGesturePushed_ = false;
+  // The Constructed Cutting Plan session: what the world looked like when it opened, to go back to on Cancel.
+  struct CuttingSession {
+    bool open = false;
+    bool committing = false;              // Done on the Segmentation tab is cutting the mold
+    QString tab = QStringLiteral("cutByFace");
+    QString blockedReason;                // why the last Done did not go through
+    bool segmentationWasIdle = true;      // no plan existed when it opened: Cancel removes the one the session made
+    std::optional<HistoryEntry> before;
+    std::deque<HistoryEntry> undoAtOpen, redoAtOpen;
+  } cuttingSession_;
+  void closeCuttingSession();
+  void finishCuttingSessionCommit();      // the segmentation that Done started has ended
   bool moldScaleDragging_ = false;
   double moldScaleStartMm_ = 0;
   std::optional<HistoryEntry> moldScaleBefore_;

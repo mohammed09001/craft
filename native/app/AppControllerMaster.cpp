@@ -62,6 +62,10 @@ std::optional<std::string> AppController::masterLiveIdentity() const {
 // --- generate / reset -------------------------------------------------------------------------------------------------------
 
 void AppController::generateMasterMold() {
+  if (cuttingSession_.open) {
+    setStatus(QStringLiteral("Finish the cutting session (Done or Cancel) before generating the Master Mold."));
+    return;
+  }
   if (!model_) {
     emit errorOccurred(QStringLiteral("Master Mold"), QStringLiteral("Import an STL model first."), QStringLiteral("no_model"));
     return;

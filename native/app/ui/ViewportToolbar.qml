@@ -28,7 +28,9 @@ Item {
     readonly property color hoverColor: "#202832"         // neutral-800
 
     // Like the reference's bar the width is its content; in a narrow viewport the buttons wrap onto a second line instead of leaving it.
-    anchors { top: parent.top; topMargin: 12; horizontalCenter: parent.horizontalCenter }
+    // The root is a lane across the viewport (it takes no input); the visible bar is centred in it and the session panel hangs under its right end, so that
+    // both lie inside their parent.
+    anchors { top: parent.top; topMargin: 12; left: parent.left; right: parent.right; leftMargin: 12; rightMargin: 12 }
     // The width the buttons need on one line, from the buttons themselves (not from the Flow, whose size depends on this one).
     readonly property real naturalWidth: {
         let w = 0, n = 0
@@ -40,8 +42,12 @@ Item {
         }
         return w + Math.max(0, n - 1) * flow.spacing
     }
-    width: Math.min(naturalWidth + 12, Math.max(60, parent.width - 24))
-    height: flow.childrenRect.height + 10
+    readonly property real barWidth: Math.min(naturalWidth + 12, Math.max(60, width))
+    readonly property real barHeight: flow.childrenRect.height + 10
+    readonly property real barBottom: y + barHeight        // what is placed under the bar starts here (the Mold Scale field, the pieces list)
+    readonly property real barRight: x + (width + barWidth) / 2
+    height: barHeight + (sessionPanel.visible ? sessionPanel.height + 6 : 0)
+    readonly property bool sessionOpen: app.cuttingSession.open === true
 
     readonly property bool hasModel: app.modelPhase === "ready"
     property bool piecesOpen: false   // the Master Mold pieces list under the bar
@@ -79,11 +85,14 @@ Item {
         property bool solid: false
         property real fillShare: 0
         property color fill: "transparent"
+        property bool dashed: false
         strokeColor: w > 0 ? color : "transparent"
         strokeWidth: w
         fillColor: fill.a > 0 ? fill : (solid ? color : (fillShare > 0 ? Qt.rgba(color.r, color.g, color.b, fillShare) : "transparent"))
         capStyle: ShapePath.RoundCap
         joinStyle: ShapePath.RoundJoin
+        strokeStyle: dashed ? ShapePath.DashLine : ShapePath.SolidLine
+        dashPattern: dashed ? [1.5, 1.5] : []
         PathSvg { path: part.d }
     }
     component PointerGlyph: Glyph {
@@ -123,6 +132,32 @@ Item {
         Part { color: g.color; solid: true; w: 0; d: "M5.4 6a2.1 2.1 0 1 0 4.2 0a2.1 2.1 0 1 0-4.2 0Z" }
         Part { color: g.color; solid: true; w: 0; d: "M14.4 12a2.1 2.1 0 1 0 4.2 0a2.1 2.1 0 1 0-4.2 0Z" }
         Part { color: g.color; solid: true; w: 0; d: "M6.9 18a2.1 2.1 0 1 0 4.2 0a2.1 2.1 0 1 0-4.2 0Z" }
+    }
+    // The Constructed Cutting Plan icon: two coloured blocks with the cut between them (its own colours, not the bar's).
+    component ConstructGlyph: Item {
+        implicitWidth: 23
+        implicitHeight: 20
+        Shape {
+            width: 28; height: 24
+            scale: 0.82
+            transformOrigin: Item.TopLeft
+            preferredRendererType: Shape.CurveRenderer
+            Part { color: "#d8f5e4"; fill: "#4fb879"; w: 1.1; d: "M4.5 5.5 10.5 2v15.8l-6 3.5V5.5Z" }
+            Part { color: "#d8f5e4"; fill: "#3c9462"; w: 1; d: "m4.5 5.5 6 2.5v9.8l-6 3.5" }
+            Part { color: "#ffe5cb"; fill: "#ed9a54"; w: 1.1; d: "M17.5 6.2 23.5 2.7v15.8l-6 3.5V6.2Z" }
+            Part { color: "#ffe5cb"; fill: "#c97838"; w: 1; d: "m17.5 6.2 6 2.5v9.8l-6 3.5" }
+            Part { color: "#bac8d8"; w: 1; dashed: true; d: "M11.8 7.5h4.4M11.8 12h4.4M11.8 16.5h4.4" }
+        }
+    }
+    component CutByFaceGlyph: Glyph {
+        id: g
+        Part { color: g.color; fillShare: 0.32; w: 1.3; d: "M5 8.5 12 5l7 3.5-7 3.5-7-3.5Z" }
+        Part { color: g.color; w: 1.3; d: "M5 8.5v7l7 3.5v-7L5 8.5ZM19 8.5v7l-7 3.5v-7l7-3.5Z" }
+    }
+    component SegmentationGlyph: Glyph {
+        id: g
+        Part { color: g.color; fillShare: 0.22; w: 1.3; d: "M5 8.5 12 5l7 3.5v7L12 19l-7-3.5v-7Z" }
+        Part { color: g.color; w: 1.1; d: "M5 8.5 12 12l7-3.5M12 12v7" }
     }
     component UndoGlyph: Glyph {
         id: g
@@ -209,7 +244,10 @@ Item {
     // --- the bar ----------------------------------------------------------------------------------------------------------------------------
     Rectangle {
         id: panel
-        anchors.fill: parent
+        objectName: "viewportToolbarPanel"
+        x: (bar.width - width) / 2
+        width: bar.barWidth
+        height: bar.barHeight
         radius: 6
         color: bar.panelColor
         border.width: 1
@@ -225,8 +263,8 @@ Item {
 
     Flow {
         id: flow
-        x: 6; y: 5
-        width: bar.width - 12
+        x: panel.x + 6; y: 5
+        width: panel.width - 12
         spacing: 6
 
         IconButton {
@@ -234,7 +272,7 @@ Item {
             text: qsTr("Flip")
             glyph: Component { FlipGlyph {} }
             highlighted: app.tool === "orientation"
-            enabled: app.orientationState.available || app.tool === "orientation"
+            enabled: !bar.sessionOpen && (app.orientationState.available || app.tool === "orientation")
             tip: app.orientationState.available ? qsTr("Use the arrow keys to flip the part") : app.orientationState.reason
             onClicked: app.tool = app.tool === "orientation" ? "select" : "orientation"
         }
@@ -246,7 +284,7 @@ Item {
             tip: qsTr("Mold Scale: drag in the view to change the mold clearance, or type a value")
             glyph: Component { MoldScaleGlyph {} }
             highlighted: app.tool === "mold-scale"
-            enabled: (app.modelPhase === "ready" && !app.busy && app.spruePhase !== "evaluating") || app.tool === "mold-scale"   // as AppController::moldScaleAvailable
+            enabled: !bar.sessionOpen && ((app.modelPhase === "ready" && !app.busy && app.spruePhase !== "evaluating") || app.tool === "mold-scale")   // as AppController::moldScaleAvailable
             onClicked: app.tool = app.tool === "mold-scale" ? "select" : "mold-scale"
         }
 
@@ -259,7 +297,7 @@ Item {
                 text: qsTr("Decrease mold clearance")
                 tip: text
                 glyph: Component { MinusGlyph {} }
-                enabled: bar.hasModel && !app.busy && bar.clearance > app.minMoldClearanceMm + 1e-9
+                enabled: bar.hasModel && !app.busy && !bar.sessionOpen && bar.clearance > app.minMoldClearanceMm + 1e-9
                 onClicked: app.moldClearanceMm = Math.max(app.minMoldClearanceMm, Math.ceil(bar.clearance - 1e-9) - 1)
             }
             Text {
@@ -279,9 +317,22 @@ Item {
                 text: qsTr("Increase mold clearance")
                 tip: text
                 glyph: Component { PlusGlyph {} }
-                enabled: bar.hasModel && !app.busy && bar.clearance < app.maxMoldClearanceMm - 1e-9
+                enabled: bar.hasModel && !app.busy && !bar.sessionOpen && bar.clearance < app.maxMoldClearanceMm - 1e-9
                 onClicked: app.moldClearanceMm = Math.min(app.maxMoldClearanceMm, Math.floor(bar.clearance + 1e-9) + 1)
             }
+        }
+
+        Item { width: 1; height: 30; Rectangle { width: 1; height: 24; anchors.verticalCenter: parent.verticalCenter; color: bar.lineColor } }   // separator
+
+        // The Constructed Cutting Plan: opens the session (Cutting by Face / Segmentation, then Done or Cancel).
+        IconButton {
+            objectName: "constructButton"
+            text: qsTr("Constructed Cutting Plan")
+            tip: bar.sessionOpen ? qsTr("The cutting session is open: finish it with Done or Cancel") : text
+            glyph: Component { ConstructGlyph {} }
+            highlighted: bar.sessionOpen
+            enabled: bar.hasModel && !app.busy && !bar.sessionOpen && app.moldPhase !== "generating" && app.segmentation.adopted !== true
+            onClicked: app.openCuttingSession()
         }
 
         // The number of cutting planes in the mold (the reference's round badge).
@@ -312,6 +363,8 @@ Item {
             ToolTip.text: Accessible.name
             }
         }
+
+        Item { width: 1; height: 30; Rectangle { width: 1; height: 24; anchors.verticalCenter: parent.verticalCenter; color: bar.lineColor } }   // separator
 
         IconButton {
             objectName: "pointerToolButton"
@@ -346,7 +399,7 @@ Item {
             text: app.moldPhase === "generating" ? qsTr("Creating Cavity…") : (app.moldPhase === "complete" ? qsTr("Rebuild Cavity") : qsTr("Create Cavity"))
             tip: qsTr("Generate the mold (Ctrl+G)")
             accented: true
-            enabled: bar.hasModel && !app.busy && app.moldPhase !== "generating"
+            enabled: bar.hasModel && !app.busy && !bar.sessionOpen && app.moldPhase !== "generating"
             onClicked: app.generateMold()
         }
         IconButton {
@@ -365,7 +418,7 @@ Item {
             tip: bar.masterMoldTip
             glyph: Component { MasterMoldGlyph {} }
             highlighted: app.masterMold.uiKind === "success"   // the reference's pressed look once the tooling is complete
-            enabled: app.masterMold.canGenerate === true && app.masterMold.generating !== true
+            enabled: !bar.sessionOpen && app.masterMold.canGenerate === true && app.masterMold.generating !== true
             onClicked: app.generateMasterMold()
         }
 
@@ -397,6 +450,156 @@ Item {
             glyph: Component { RedoGlyph {} }
             enabled: app.history.canRedo
             onClicked: app.redo()
+        }
+    }
+
+    // --- the Constructed Cutting Plan session (CuttingSessionPanel.tsx): two icon tabs, the tab's content, then Cancel and Done -----------------------------
+    readonly property int planeCount: { let n = 0; for (const f of app.cutFaces) if (f.enabled) ++n; return n }
+    Rectangle {
+        id: sessionPanel
+        objectName: "cuttingSessionPanel"
+        visible: bar.sessionOpen
+        width: Math.min(300, bar.width)
+        x: bar.width - width
+        y: bar.barHeight + 6
+        height: sessionColumn.implicitHeight + 16
+        radius: 6
+        color: Qt.rgba(11 / 255, 17 / 255, 24 / 255, 0.96)
+        border.width: 1
+        border.color: bar.lineColor
+        Accessible.role: Accessible.Pane
+        Accessible.name: qsTr("Constructed Cutting Plan")
+        MouseArea {   // the panel takes the pointer, as the bar does
+            anchors.fill: parent
+            hoverEnabled: true
+            acceptedButtons: Qt.AllButtons
+            onWheel: (w) => w.accepted = true
+        }
+        Column {
+            id: sessionColumn
+            x: 8; y: 8
+            width: parent.width - 16
+            spacing: 6
+
+            Row {
+                spacing: 4
+                IconButton {
+                    objectName: "sessionTabCutByFace"
+                    text: qsTr("Cutting by Face")
+                    tip: text
+                    glyph: Component { CutByFaceGlyph {} }
+                    highlighted: app.cuttingSession.tab === "cutByFace"
+                    enabled: app.cuttingSession.committing !== true
+                    onClicked: app.setCuttingSessionTab("cutByFace")
+                }
+                IconButton {
+                    objectName: "sessionTabSegmentation"
+                    text: qsTr("Segmentation")
+                    tip: text
+                    glyph: Component { SegmentationGlyph {} }
+                    highlighted: app.cuttingSession.tab === "segmentation"
+                    enabled: app.cuttingSession.committing !== true
+                    onClicked: app.setCuttingSessionTab("segmentation")
+                }
+            }
+            Rectangle { width: parent.width; height: 1; color: bar.lineColor }
+
+            // Cutting by Face: the planes are chosen on the part's box (or in the inspector); the tab shows how many.
+            Row {
+                visible: app.cuttingSession.tab === "cutByFace"
+                spacing: 8
+                Rectangle {
+                    objectName: "sessionPlaneCount"
+                    readonly property int planes: bar.planeCount
+                    width: Math.max(24, countText.implicitWidth + 12); height: 24
+                    radius: 4
+                    color: Qt.rgba(1, 1, 1, 0.07)
+                    Accessible.role: Accessible.StaticText
+                    Accessible.name: planes === 1 ? qsTr("1 split plane") : qsTr("%1 split planes").arg(planes)
+                    Text { id: countText; anchors.centerIn: parent; text: parent.planes; font.pixelSize: 12; color: "#f7f9fb" }
+                }
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: qsTr("Click a face of the part's box to cut by it")
+                    font.pixelSize: 11
+                    color: "#8a8f98"
+                }
+            }
+
+            // Segmentation: one extension plane per axis the plan did not use (AxisExtensionPicker.tsx).
+            Column {
+                visible: app.cuttingSession.tab === "segmentation"
+                width: parent.width
+                spacing: 6
+                Row {
+                    spacing: 4
+                    Repeater {
+                        model: ["x", "y", "z"]
+                        delegate: IconButton {
+                            required property string modelData
+                            readonly property bool extended: { const e = app.segmentation.extensions || []; for (let i = 0; i < e.length; ++i) if (e[i].axis === modelData) return true; return false }
+                            // "required" holds the plan's own axes and the extensions': an axis the plan used is one that is neither free nor an extension.
+                            readonly property bool algorithmUsed: !extended && (app.segmentation.availableAxes || []).indexOf(modelData) < 0
+                            objectName: "sessionAxis:" + modelData
+                            text: modelData.toUpperCase()
+                            tip: algorithmUsed ? qsTr("%1 is already used by the segmentation plan").arg(text)
+                                 : extended ? qsTr("%1 already has an extension plane -- click again to remove it").arg(text)
+                                 : qsTr("Add a %1 extension plane").arg(text)
+                            Accessible.name: qsTr("%1 axis").arg(text)
+                            highlighted: extended
+                            enabled: !algorithmUsed && app.segmentation.phase === "planned" && app.cuttingSession.committing !== true
+                            onClicked: extended ? app.removeSegmentationExtension(modelData) : app.addSegmentationExtension(modelData)
+                        }
+                    }
+                }
+                Text {
+                    objectName: "sessionSegmentationNote"
+                    width: parent.width
+                    wrapMode: Text.Wrap
+                    font.pixelSize: 11
+                    readonly property bool problem: app.segmentation.phase === "failed" || app.segmentation.valid === false
+                    text: problem ? (app.segmentation.message || qsTr("The plan is not valid."))
+                                  : (app.segmentation.sectionCount !== undefined ? qsTr("%1 section(s)").arg(app.segmentation.sectionCount) : (app.segmentation.message || ""))
+                    visible: text !== ""
+                    color: problem ? "#e5484d" : "#8a8f98"
+                }
+            }
+            Rectangle { width: parent.width; height: 1; color: bar.lineColor }
+
+            Row {
+                spacing: 6
+                IconButton {
+                    objectName: "sessionCancel"
+                    width: (sessionColumn.width - 6) / 2
+                    text: qsTr("Cancel")
+                    tip: qsTr("Close the session and put the cuts back as they were")
+                    enabled: app.cuttingSession.committing !== true
+                    onClicked: app.cancelCuttingSession()
+                }
+                IconButton {
+                    objectName: "sessionDone"
+                    width: (sessionColumn.width - 6) / 2
+                    text: qsTr("Done")
+                    accented: true
+                    readonly property bool segmentationTab: app.cuttingSession.tab === "segmentation"
+                    readonly property bool ready: segmentationTab ? (app.segmentation.phase === "planned" && app.segmentation.valid === true) : bar.planeCount > 0
+                    tip: segmentationTab && app.segmentation.phase === "planned" && app.segmentation.valid === false
+                         ? qsTr("The current extension plane position is invalid -- move it to a valid location before committing.")
+                         : (segmentationTab ? qsTr("Cut the mold into these sections") : qsTr("Keep these cutting planes"))
+                    enabled: app.cuttingSession.committing !== true && ready
+                    onClicked: app.commitCuttingSession()
+                }
+            }
+            Text {
+                objectName: "sessionBlockedReason"
+                visible: app.cuttingSession.blockedReason !== ""
+                width: parent.width
+                text: app.cuttingSession.blockedReason
+                wrapMode: Text.Wrap
+                font.pixelSize: 12
+                color: "#e5484d"
+                Accessible.role: Accessible.AlertMessage
+            }
         }
     }
 }

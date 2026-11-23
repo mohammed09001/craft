@@ -439,12 +439,12 @@ Item {
 
     // The floating model toolbar of the reference (upper centre): Flip, mold scale, the tools, the cavity, Master Mold, undo and redo.
     ViewportToolbar { id: toolbar }
-    MoldScaleEditor { anchors.horizontalCenter: parent.horizontalCenter; y: toolbar.y + toolbar.height + 8 }
+    MoldScaleEditor { anchors.horizontalCenter: parent.horizontalCenter; y: toolbar.barBottom + 8 }
     // The Master Mold pieces list, opened by the toolbar's pieces button; under the right end of the bar, kept inside the viewport.
     MasterPiecesFlyout {
         visible: toolbar.piecesOpen && app.masterMold.showPieces === true
-        x: Math.max(8, Math.min(parent.width - width - 8, toolbar.x + toolbar.width - width))
-        y: toolbar.y + toolbar.height + 6
+        x: Math.max(8, Math.min(parent.width - width - 8, toolbar.barRight - width))
+        y: toolbar.barBottom + 6
     }
 
     // The diameter label (7.00 mm with the diameter sign) next to the pointer while a ring is dragged; it takes the

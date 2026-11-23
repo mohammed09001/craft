@@ -1630,6 +1630,168 @@ class WorkflowTest : public QObject {
     QVERIFY(!app->busy());
   }
 
+  // --- the Constructed Cutting Plan session (cuttingWorkflow.store.ts) -----------------------------------------------------------------------------
+
+  static QStringList chosenFaces(AppController& app) {
+    QStringList faces;
+    for (const QVariant& f : app.cutFaces()) if (f.toMap().value("enabled").toBool()) faces << f.toMap().value("face").toString();
+    faces.sort();
+    return faces;
+  }
+
+  void aCuttingSessionNeedsAModelAndOpensOnTheCuttingByFaceTab() {
+    auto app = makeApp();
+    QVERIFY(!app->openCuttingSession());                       // nothing to cut
+    QVERIFY(!app->cuttingSession().value("open").toBool());
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    QSignalSpy changes(app.get(), &AppController::cuttingSessionChanged);
+    QVERIFY(app->openCuttingSession());
+    QVERIFY(app->cuttingSession().value("open").toBool());
+    QCOMPARE(app->cuttingSession().value("tab").toString(), QStringLiteral("cutByFace"));
+    QVERIFY(!app->cuttingSession().value("committing").toBool());
+    QCOMPARE(changes.count(), 1);
+    QVERIFY(app->openCuttingSession());                         // already open: nothing changes
+    QCOMPARE(changes.count(), 1);
+  }
+
+  // Cancel: the faces, their positions, the plan the session made and the history are exactly what they were when it opened.
+  void cancellingACuttingSessionPutsEverythingBackAndLeavesNoHistory() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->setCutFaceEnabled(QStringLiteral("top"), true);
+    app->setCutFacePosition(QStringLiteral("top"), 0.3);
+    const int depthBefore = app->history().value("undoDepth").toInt();
+    QVERIFY(app->openCuttingSession());
+    app->setCutFaceEnabled(QStringLiteral("left"), true);
+    app->setCutFaceEnabled(QStringLiteral("front"), true);
+    app->setCutFacePosition(QStringLiteral("top"), 0.8);
+    QCOMPARE(chosenFaces(*app), (QStringList{"front", "left", "top"}));
+    QVERIFY(app->history().value("undoDepth").toInt() > depthBefore);   // the edits are history while the session is open
+    app->setCuttingSessionTab(QStringLiteral("segmentation"));          // and the Segmentation tab made a plan
+    QCOMPARE(app->segmentation().value("phase").toString(), QStringLiteral("planned"));
+
+    app->cancelCuttingSession();
+    QVERIFY(!app->cuttingSession().value("open").toBool());
+    QCOMPARE(chosenFaces(*app), (QStringList{"top"}));
+    for (const QVariant& f : app->cutFaces()) if (f.toMap().value("face").toString() == "top") QCOMPARE(f.toMap().value("position").toDouble(), 0.3);
+    QCOMPARE(app->history().value("undoDepth").toInt(), depthBefore);   // no step of the session is left
+    QVERIFY(!app->history().value("canRedo").toBool());
+    QCOMPARE(app->segmentation().value("phase").toString(), QStringLiteral("idle"));   // the plan it made is gone
+    QVERIFY(app->statusText().contains("cancelled"));
+  }
+
+  void cancellingASessionBringsBackAMoldItInvalidated() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->setCutFaceEnabled(QStringLiteral("left"), true);
+    app->generateMold();
+    QVERIFY(waitFor([&] { return app->moldPhase() == "complete"; }, 120000));
+    const auto bodies = app->moldResult()->cavity.bodies.size();
+    QVERIFY(app->openCuttingSession());
+    app->setCutFaceEnabled(QStringLiteral("front"), true);
+    QVERIFY(app->moldPhase() != "complete");                             // a changed plane drops the mold built without it
+    app->cancelCuttingSession();
+    QCOMPARE(app->moldPhase(), QStringLiteral("complete"));              // and Cancel brings the mold back, not rebuilt
+    QCOMPARE(app->moldResult()->cavity.bodies.size(), bodies);
+  }
+
+  void doneOnCuttingByFaceNeedsAPlaneAndKeepsTheChanges() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    QVERIFY(app->openCuttingSession());
+    app->commitCuttingSession();                                         // no plane: the reference's Done is disabled
+    QVERIFY(app->cuttingSession().value("open").toBool());
+    QVERIFY(!app->cuttingSession().value("blockedReason").toString().isEmpty());
+    app->setCutFaceEnabled(QStringLiteral("top"), true);
+    app->setCutFaceEnabled(QStringLiteral("left"), true);
+    const int depth = app->history().value("undoDepth").toInt();
+    app->commitCuttingSession();
+    QVERIFY(!app->cuttingSession().value("open").toBool());
+    QCOMPARE(chosenFaces(*app), (QStringList{"left", "top"}));
+    QCOMPARE(app->history().value("undoDepth").toInt(), depth);          // the steps stay: Done keeps them (they can be undone one by one)
+    QVERIFY(app->statusText().contains("2 planes"));
+  }
+
+  void theSegmentationTabPlansWithTheInspectorsDefaultVolumeAndDoneCutsTheMold() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    QVERIFY(app->printerVolume().isEmpty());                             // the user never set one
+    QVERIFY(app->openCuttingSession());
+    app->setCuttingSessionTab(QStringLiteral("segmentation"));
+    QCOMPARE(app->cuttingSession().value("tab").toString(), QStringLiteral("segmentation"));
+    QCOMPARE(app->segmentation().value("phase").toString(), QStringLiteral("planned"));
+    QCOMPARE(app->printerVolume().value("x").toDouble(), 220.0);         // the inspector's default
+    QVERIFY(app->segmentation().value("sectionCount").toULongLong() >= 2);
+    QVERIFY(app->segmentation().value("valid").toBool());
+    const qulonglong sectionsBefore = app->segmentation().value("sectionCount").toULongLong();
+    const QStringList free = app->segmentation().value("availableAxes").toStringList();
+    QVERIFY(!free.isEmpty());
+    app->addSegmentationExtension(free.first());                         // the axis picker
+    QVERIFY(app->segmentation().value("sectionCount").toULongLong() > sectionsBefore);
+
+    app->commitCuttingSession();                                         // Done cuts the mold; the session ends when that has worked
+    QVERIFY(app->cuttingSession().value("committing").toBool() || !app->cuttingSession().value("open").toBool());
+    QVERIFY(waitFor([&] { return !app->cuttingSession().value("open").toBool(); }, 120000));
+    QVERIFY(app->segmentationAdopted());
+    QCOMPARE(app->segmentation().value("phase").toString(), QStringLiteral("executed"));
+    QVERIFY(app->segmentationBodies().size() >= 2);
+  }
+
+  void doneOnAnInvalidSegmentationPlanIsRefusedWithTheReason() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    QVERIFY(app->openCuttingSession());
+    app->setCuttingSessionTab(QStringLiteral("segmentation"));
+    const QStringList free = app->segmentation().value("availableAxes").toStringList();
+    QVERIFY(!free.isEmpty());
+    app->addSegmentationExtension(free.first());
+    app->moveSegmentationExtension(free.first(), 1e6);                   // far outside the block: the plan is invalid
+    QVERIFY(!app->segmentation().value("valid").toBool());
+    app->commitCuttingSession();
+    QVERIFY(app->cuttingSession().value("open").toBool());
+    QVERIFY(!app->cuttingSession().value("committing").toBool());
+    QVERIFY(app->cuttingSession().value("blockedReason").toString().contains("invalid"));
+    QVERIFY(!app->segmentationAdopted());
+    app->cancelCuttingSession();
+    QCOMPARE(app->segmentation().value("phase").toString(), QStringLiteral("idle"));
+  }
+
+  void flipMoldScaleTheMoldAndMasterMoldWaitForTheSession() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    QVERIFY(app->openCuttingSession());
+    app->setTool(QStringLiteral("orientation"));
+    QCOMPARE(app->tool(), QStringLiteral("select"));
+    app->setTool(QStringLiteral("mold-scale"));
+    QCOMPARE(app->tool(), QStringLiteral("select"));
+    app->generateMold();
+    QCOMPARE(app->moldPhase(), QStringLiteral("ready"));
+    QVERIFY(app->statusText().contains("cutting session"));
+    app->generateMasterMold();
+    QVERIFY(!app->masterMold().value("generating").toBool());
+    QVERIFY(app->statusText().contains("cutting session"));
+    app->cancelCuttingSession();
+    app->setTool(QStringLiteral("mold-scale"));                          // and they work again once it is over
+    QCOMPARE(app->tool(), QStringLiteral("mold-scale"));
+  }
+
+  void importingAnotherModelEndsTheSession() {
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    QVERIFY(app->openCuttingSession());
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready" && !app->busy(); }));
+    QVERIFY(!app->cuttingSession().value("open").toBool());
+  }
+
   // --- Mold Scale (moldScaleRuntime.ts) ---------------------------------------------------------------------------------------------------------
 
   void moldScaleFollowsThePointerAndIsOneUndoStep() {

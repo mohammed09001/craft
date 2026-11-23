@@ -349,6 +349,7 @@ void AppController::importStlFile(const QString& path) {
 }
 
 void AppController::applyModel(LoadedModel model, bool fitCamera, bool announce) {
+  if (cuttingSession_.open) closeCuttingSession();   // another model: nothing of the session's snapshot applies any more
   clearMasterRun(true);
   invalidateSegmentation(QString());
   clearEngineeringReports();
@@ -540,6 +541,10 @@ void AppController::clearMold(const QString& phase) {
 }
 
 void AppController::generateMold() {
+  if (cuttingSession_.open) {
+    setStatus(QStringLiteral("Finish the cutting session (Done or Cancel) before generating the mold."));
+    return;
+  }
   if (!model_) {
     emit errorOccurred(QStringLiteral("Generate mold"), QStringLiteral("Import an STL model first."),
                        QStringLiteral("no_model"));
@@ -1085,6 +1090,10 @@ void AppController::setTool(const QString& tool) {
     setStatus(QStringLiteral("The Eraser needs a cutting plane: choose a face to cut by first."));
     return;
   }
+  if (cuttingSession_.open && (tool == QLatin1String("orientation") || tool == QLatin1String("mold-scale"))) {   // as in the reference: not while a cutting session is open
+    setStatus(QStringLiteral("Flip and Mold Scale are unavailable while a cutting session is open."));
+    return;
+  }
   if (tool == QLatin1String("mold-scale") && !moldScaleAvailable()) {   // Mold Scale needs a model and no running job
     setStatus(QStringLiteral("Mold Scale is unavailable while a job runs or without a model."));
     return;
@@ -1373,6 +1382,11 @@ void AppController::invalidateSegmentation(const QString& message) {
   // A running segmentation or plan preview in a worker process belongs to the state that is being discarded: stop it, so it does not go on using the CPU.
   if (segmentationWorker_) segmentationWorker_->cancel();
   if (segmentationPreviewWorker_) segmentationPreviewWorker_->cancel();
+  if (cuttingSession_.open && cuttingSession_.committing) {   // what Done was cutting is gone: the session goes on editing
+    cuttingSession_.committing = false;
+    cuttingSession_.blockedReason = QStringLiteral("The segmentation was reset while it was being cut.");
+    emit cuttingSessionChanged();
+  }
   const bool wasAdopted = segmentation_.adopted;
   const quint64 generation = segmentation_.generation + 1;
   segmentation_ = SegmentationUi{};
@@ -1707,6 +1721,7 @@ void AppController::executeSegmentation() {
           segmentation_.message = message;
           emit segmentationChanged();
           setStatus(message);
+          finishCuttingSessionCommit();   // Done on the Segmentation tab did not work: the session stays open with the reason
           if (code != QLatin1String("execution_cancelled")) {
             emit errorOccurred(QStringLiteral("Segmentation failed"), message, code);
           }
@@ -1740,6 +1755,7 @@ void AppController::executeSegmentation() {
         emit segmentationChanged();
         emit moldInputsChanged();
         setStatus(segmentation_.message);
+        finishCuttingSessionCommit();   // the cuts worked: the session ends
       };
   const auto onProgress =
       [this](QString stage, double fraction) {

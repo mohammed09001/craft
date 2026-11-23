@@ -542,7 +542,7 @@ class Smoke : public QObject {
     const auto problem = [&](const QString& what) { return fail(what); };
 
     // 0. The bar is there, inside the viewport, centred in its upper part.
-    QQuickItem* bar = item("viewportToolbar");
+    QQuickItem* bar = item("viewportToolbarPanel");   // the visible bar (the toolbar item itself is a lane across the viewport that takes no input)
     QQuickItem* viewport = item("viewport");
     if (!bar || !viewport || !bar->isVisible()) return problem(QStringLiteral("the viewport toolbar is not shown with a model loaded"));
     const QRectF barRect(bar->mapToScene(QPointF(0, 0)), QSizeF(bar->width(), bar->height()));
@@ -626,6 +626,66 @@ class Smoke : public QObject {
       if (const QString p = click("pointerToolButton"); !p.isEmpty()) return problem(p);
       if (app_.tool() != QLatin1String("select") || scaleField->isVisible()) return problem(QStringLiteral("the Pointer button did not leave Mold Scale"));
       app_.setMoldClearanceMm(base);
+    }
+    // 0c. The Constructed Cutting Plan session through real clicks: the bar's button opens the panel; Flip, Mold Scale, the cavity and Master Mold wait; the
+    // tabs switch (the Segmentation tab plans); the axis buttons add and remove an extension plane; Cancel puts the planes back; Done with no plane is refused
+    // with its reason; Done with a plane keeps it and closes the panel.
+    {
+      for (const QVariant& f : app_.cutFaces()) app_.setCutFaceEnabled(f.toMap().value("face").toString(), false);
+      settle(100);
+      const auto chosen = [&] { QStringList on; for (const QVariant& f : app_.cutFaces()) if (f.toMap().value("enabled").toBool()) on << f.toMap().value("face").toString(); on.sort(); return on; };
+      QQuickItem* panelItem = item("cuttingSessionPanel");
+      if (!item("constructButton") || !panelItem) return problem(QStringLiteral("the Constructed Cutting Plan button or its panel is missing"));
+      if (panelItem->isVisible()) return problem(QStringLiteral("the session panel is shown before the session was opened"));
+      if (!enabled("constructButton")) return problem(QStringLiteral("the Constructed Cutting Plan button is disabled with a model and no job"));
+
+      if (const QString p = click("constructButton"); !p.isEmpty()) return problem(p);
+      if (!waitFor([&] { return app_.cuttingSession().value("open").toBool() && panelItem->isVisible(); }, 3000)) return problem(QStringLiteral("a click on the Constructed Cutting Plan button did not open the session"));
+      if (app_.cuttingSession().value("tab").toString() != QLatin1String("cutByFace") || !item("sessionTabCutByFace")->property("highlighted").toBool()) return problem(QStringLiteral("the session did not open on the Cutting by Face tab"));
+      for (const char* waiting : {"flipToolButton", "moldScaleToolButton", "clearancePlus", "clearanceMinus", "cavityButton", "masterMoldButton", "constructButton"})
+        if (enabled(waiting)) return problem(QStringLiteral("'%1' is enabled while the cutting session is open").arg(QString::fromLatin1(waiting)));
+      const QRectF panelRect(panelItem->mapToScene(QPointF(0, 0)), QSizeF(panelItem->width(), panelItem->height()));
+      QQuickItem* vpItem = item("viewport");
+      const QRectF vpRect(vpItem->mapToScene(QPointF(0, 0)), QSizeF(vpItem->width(), vpItem->height()));
+      if (!vpRect.contains(panelRect)) return problem(QStringLiteral("the session panel is not inside the viewport"));
+
+      // Planes chosen inside the session count on the tab; Cancel puts them back.
+      app_.setCutFaceEnabled(QStringLiteral("top"), true);
+      app_.setCutFaceEnabled(QStringLiteral("left"), true);
+      if (!waitFor([&] { return item("sessionPlaneCount")->property("planes").toInt() == 2; }, 3000)) return problem(QStringLiteral("the tab does not count the two chosen planes"));
+      if (const QString p = click("sessionTabSegmentation"); !p.isEmpty()) return problem(p);
+      if (!waitFor([&] { return app_.cuttingSession().value("tab").toString() == QLatin1String("segmentation") && app_.segmentation().value("phase").toString() == QLatin1String("planned"); }, 10000))
+        return problem(QStringLiteral("the Segmentation tab did not plan (tab %1, phase %2)").arg(app_.cuttingSession().value("tab").toString(), app_.segmentation().value("phase").toString()));
+      QString axis;
+      for (const char* a : {"x", "y", "z"}) if (axis.isEmpty() && enabled((QStringLiteral("sessionAxis:") + QLatin1String(a)).toLatin1().constData())) axis = QLatin1String(a);
+      if (axis.isEmpty()) return problem(QStringLiteral("no axis button is available for an extension plane"));
+      const QByteArray axisButton = (QStringLiteral("sessionAxis:") + axis).toLatin1();
+      const int extensionsBefore = app_.segmentation().value("extensions").toList().size();
+      if (const QString p = click(axisButton.constData()); !p.isEmpty()) return problem(p);
+      if (app_.segmentation().value("extensions").toList().size() != extensionsBefore + 1 || !item(axisButton.constData())->property("highlighted").toBool())
+        return problem(QStringLiteral("a click on the %1 axis button did not add an extension plane").arg(axis));
+      if (const QString p = click(axisButton.constData()); !p.isEmpty()) return problem(p);
+      if (app_.segmentation().value("extensions").toList().size() != extensionsBefore) return problem(QStringLiteral("a second click on the %1 axis button did not remove the extension plane").arg(axis));
+
+      if (const QString p = click("sessionCancel"); !p.isEmpty()) return problem(p);
+      if (!waitFor([&] { return !app_.cuttingSession().value("open").toBool() && !panelItem->isVisible(); }, 3000)) return problem(QStringLiteral("Cancel did not close the session"));
+      if (!chosen().isEmpty()) return problem(QStringLiteral("Cancel left planes chosen: %1").arg(chosen().join(QLatin1Char('+'))));
+      if (app_.segmentation().value("phase").toString() != QLatin1String("idle")) return problem(QStringLiteral("Cancel left the plan its Segmentation tab made (%1)").arg(app_.segmentation().value("phase").toString()));
+      if (!enabled("flipToolButton") && app_.orientationState().value("available").toBool()) return problem(QStringLiteral("Flip stayed disabled after the session ended"));
+
+      // Done with no plane is refused with the reason; with one it keeps it and closes.
+      if (const QString p = click("constructButton"); !p.isEmpty()) return problem(p);
+      if (!waitFor([&] { return panelItem->isVisible(); }, 3000)) return problem(QStringLiteral("the session did not open a second time"));
+      if (enabled("sessionDone")) return problem(QStringLiteral("Done is enabled on Cutting by Face with no plane"));
+      app_.commitCuttingSession();   // what an activated Done would do: refused
+      if (!waitFor([&] { return item("sessionBlockedReason")->isVisible(); }, 3000)) return problem(QStringLiteral("the refused Done shows no reason"));
+      app_.setCutFaceEnabled(QStringLiteral("top"), true);
+      if (!waitFor([&] { return enabled("sessionDone"); }, 3000)) return problem(QStringLiteral("Done stayed disabled with a plane chosen"));
+      if (const QString p = click("sessionDone"); !p.isEmpty()) return problem(p);
+      if (!waitFor([&] { return !app_.cuttingSession().value("open").toBool(); }, 3000)) return problem(QStringLiteral("Done did not close the session"));
+      if (chosen() != QStringList{QStringLiteral("top")}) return problem(QStringLiteral("Done did not keep the chosen plane (%1)").arg(chosen().join(QLatin1Char('+'))));
+      app_.setCutFaceEnabled(QStringLiteral("top"), false);   // the steps below start from no plane
+      settle(100);
     }
     // 1. The mold-scale stepper: whole millimetres, and the value on the bar follows.
     const double start = app_.moldClearanceMm();
