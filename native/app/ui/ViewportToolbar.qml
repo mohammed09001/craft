@@ -44,6 +44,8 @@ Item {
     height: flow.childrenRect.height + 10
 
     readonly property bool hasModel: app.modelPhase === "ready"
+    property bool piecesOpen: false   // the Master Mold pieces list under the bar
+    Binding on piecesOpen { when: app.masterMold.showPieces !== true; value: false }   // no pieces, no list
     readonly property real clearance: app.moldClearanceMm
     function clearanceText() { return (Math.round(clearance * 10) / 10) + " mm" }
     readonly property string masterMoldTip: {
@@ -113,6 +115,14 @@ Item {
         id: g
         Part { color: g.color; fill: "#1c2f4d"; w: 1.3; d: "M4 7h5v12H4z" }
         Part { color: g.color; w: 1.3; d: "M12 4h8v17h-8z" }
+    }
+    // Three rows with a dot on each (the reference's pieces icon, drawn at 16 px there: its 16-unit coordinates are scaled by 1.5 for this 24-unit box).
+    component PiecesGlyph: Glyph {
+        id: g
+        Part { color: g.color; w: 2.25; d: "M3 6h18M3 12h18M3 18h18" }
+        Part { color: g.color; solid: true; w: 0; d: "M5.4 6a2.1 2.1 0 1 0 4.2 0a2.1 2.1 0 1 0-4.2 0Z" }
+        Part { color: g.color; solid: true; w: 0; d: "M14.4 12a2.1 2.1 0 1 0 4.2 0a2.1 2.1 0 1 0-4.2 0Z" }
+        Part { color: g.color; solid: true; w: 0; d: "M6.9 18a2.1 2.1 0 1 0 4.2 0a2.1 2.1 0 1 0-4.2 0Z" }
     }
     component UndoGlyph: Glyph {
         id: g
@@ -357,6 +367,17 @@ Item {
             highlighted: app.masterMold.uiKind === "success"   // the reference's pressed look once the tooling is complete
             enabled: app.masterMold.canGenerate === true && app.masterMold.generating !== true
             onClicked: app.generateMasterMold()
+        }
+
+        // The pieces list: only when there is tooling to inspect (a blocked-only or failed result is never shown as generated geometry).
+        IconButton {
+            objectName: "masterPiecesButton"
+            visible: app.masterMold.showPieces === true
+            text: qsTr("Master Mold pieces")
+            tip: text
+            glyph: Component { PiecesGlyph {} }
+            highlighted: bar.piecesOpen
+            onClicked: bar.piecesOpen = !bar.piecesOpen
         }
 
         Item { width: 1; height: 30; Rectangle { width: 1; height: 24; anchors.verticalCenter: parent.verticalCenter; color: bar.lineColor } }   // the reference's separator

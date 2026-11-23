@@ -530,6 +530,7 @@ QVariantMap AppController::masterMold() const {
   m.insert("showPieces", hasRenderableToolingGeometry(store.sets()) && ui.kind != "blocked" && ui.kind != "error" && inspectable);
   m.insert("workingMoldPieceCount", store.plan() ? static_cast<int>(store.plan()->moldPieces.size()) : 0);
   m.insert("generationVersion", store.generationVersion());
+  m.insert("schemaVersion", kMasterMoldSchemaVersion);
 
   // Exportable = some tooling set is current and has pieces. Stale or blocked sets are never exported (they are listed
   // in the export's manifest as excluded).

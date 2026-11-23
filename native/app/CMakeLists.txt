@@ -56,7 +56,7 @@ if(CRAFT_BUILD_TESTS)
 endif()
 craft_target_defaults(craft)
 
-foreach(_q Main ViewportView ViewportToolbar MoldScaleEditor Inspector CraftCheckBox CraftSection)
+foreach(_q Main ViewportView ViewportToolbar MoldScaleEditor MasterPiecesFlyout Inspector CraftCheckBox CraftSection)
   set_source_files_properties(ui/${_q}.qml PROPERTIES QT_RESOURCE_ALIAS ${_q}.qml)
 endforeach()
 
@@ -68,6 +68,7 @@ qt_add_qml_module(craft
     ui/ViewportView.qml
     ui/ViewportToolbar.qml
     ui/MoldScaleEditor.qml
+    ui/MasterPiecesFlyout.qml
     ui/Inspector.qml
     ui/CraftCheckBox.qml
     ui/CraftSection.qml

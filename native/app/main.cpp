@@ -433,6 +433,64 @@ class Smoke : public QObject {
     settle(150);
     if (!tip().contains(QLatin1String("needs regeneration"))) return fail(QStringLiteral("a stale result's tooltip does not say so: ") + tip());
     if (button->property("highlighted").toBool()) return fail(QStringLiteral("a stale Master Mold button is still highlighted"));
+
+    // The pieces list (MasterMoldPiecesBrowser.tsx): its button is there once there is tooling to inspect; a click opens the list under the bar,
+    // a check box shows or hides one piece, Show all brings every piece back, Isolate keeps one set, a second click on the button closes it.
+    {
+      const auto clickItem = [&](QQuickItem* target, const QString& what) -> QString {
+        QString notReady;
+        const QPointF at = stableCentre(target, &notReady);
+        if (!notReady.isEmpty()) return QStringLiteral("%1 could not be clicked: %2").arg(what, notReady);
+        injectMouse(at, Qt::NoButton, Qt::NoButton, QEvent::MouseMove);
+        injectMouse(at, Qt::LeftButton, Qt::LeftButton, QEvent::MouseButtonPress);
+        injectMouse(at, Qt::NoButton, Qt::LeftButton, QEvent::MouseButtonRelease);
+        settle(150);
+        return {};
+      };
+      const auto visibleKeys = [&] {
+        QStringList shown, hidden;
+        for (const QVariant& set : app_.masterMold().value("sets").toList())
+          for (const QVariant& piece : set.toMap().value("pieces").toList()) (piece.toMap().value("visible").toBool() ? shown : hidden) << piece.toMap().value("key").toString();
+        return QPair<QStringList, QStringList>(shown, hidden);
+      };
+      QQuickItem* piecesButton = findItem(window_->contentItem(), QStringLiteral("masterPiecesButton"));
+      if (!piecesButton || !piecesButton->isVisible()) return fail(QStringLiteral("the Master Mold pieces button is not shown with tooling to inspect"));
+      QQuickItem* flyout = findItem(window_->contentItem(), QStringLiteral("masterPiecesFlyout"));
+      if (!flyout) return fail(QStringLiteral("the Master Mold pieces list does not exist"));
+      if (flyout->isVisible()) return fail(QStringLiteral("the pieces list is open before the button was clicked"));
+      if (const QString p = clickItem(piecesButton, QStringLiteral("the pieces button")); !p.isEmpty()) return fail(p);
+      if (!waitFor([&] { return flyout->isVisible(); }, 3000)) return fail(QStringLiteral("a click on the pieces button did not open the list"));
+      if (!piecesButton->property("highlighted").toBool()) return fail(QStringLiteral("the pieces button is not shown as pressed while the list is open"));
+      QQuickItem* title = findItem(flyout, QStringLiteral("masterPiecesTitle"));
+      if (!title || !title->property("text").toString().startsWith(QLatin1String("Working mold:"))) return fail(QStringLiteral("the pieces list has no 'Working mold' title"));
+      const QRectF listRect(flyout->mapToScene(QPointF(0, 0)), QSizeF(flyout->width(), flyout->height()));
+      QQuickItem* viewportItem = findItem(window_->contentItem(), QStringLiteral("viewport"));
+      const QRectF viewRect(viewportItem->mapToScene(QPointF(0, 0)), QSizeF(viewportItem->width(), viewportItem->height()));
+      if (!viewRect.contains(listRect)) return fail(QStringLiteral("the pieces list is not inside the viewport"));
+
+      const auto [shownAtFirst, hiddenAtFirst] = visibleKeys();
+      if (shownAtFirst.isEmpty() || !hiddenAtFirst.isEmpty()) return fail(QStringLiteral("the pieces are not all shown when the list opens (%1 shown, %2 hidden)").arg(shownAtFirst.size()).arg(hiddenAtFirst.size()));
+      const QString firstKey = shownAtFirst.first();
+      QQuickItem* check = findItem(flyout, QStringLiteral("masterPieceFlyout:") + firstKey);
+      if (!check) return fail(QStringLiteral("the list has no check box for the piece %1").arg(firstKey));
+      if (const QString p = clickItem(check, QStringLiteral("a piece's check box")); !p.isEmpty()) return fail(p);
+      if (!waitFor([&] { return visibleKeys().second.contains(firstKey); }, 3000)) return fail(QStringLiteral("a click on a piece's check box did not hide the piece"));
+      QQuickItem* showAll = findItem(flyout, QStringLiteral("masterPiecesShowAll"));
+      if (!showAll) return fail(QStringLiteral("the list has no Show all"));
+      if (const QString p = clickItem(showAll, QStringLiteral("Show all")); !p.isEmpty()) return fail(p);
+      if (!waitFor([&] { return visibleKeys().second.isEmpty(); }, 3000)) return fail(QStringLiteral("Show all did not bring every piece back"));
+
+      QString setId;
+      for (const QVariant& set : app_.masterMold().value("sets").toList()) if (set.toMap().value("canIsolate").toBool() && setId.isEmpty()) setId = set.toMap().value("id").toString();
+      QQuickItem* isolate = setId.isEmpty() ? nullptr : findItem(flyout, QStringLiteral("masterIsolate:") + setId);
+      if (!isolate) return fail(QStringLiteral("the list has no Isolate for a set that can be isolated"));
+      if (const QString p = clickItem(isolate, QStringLiteral("Isolate")); !p.isEmpty()) return fail(p);
+      settle(150);
+      if (visibleKeys().first.isEmpty()) return fail(QStringLiteral("Isolate hid every piece of the isolated set"));
+
+      if (const QString p = clickItem(piecesButton, QStringLiteral("the pieces button (to close)")); !p.isEmpty()) return fail(p);
+      if (!waitFor([&] { return !flyout->isVisible(); }, 3000)) return fail(QStringLiteral("a second click on the pieces button did not close the list"));
+    }
     renderNow();
 #endif
   }
