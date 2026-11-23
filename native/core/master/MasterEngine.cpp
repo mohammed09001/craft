@@ -537,8 +537,22 @@ MasterMoldEngineResult runMasterMoldEngine(IMeshGeometryEngine& engine, const Ma
     else if (has("parting_thresholds")) reason = "planning_threshold_budget_exhausted";
     else reason = "no_release_plan";
     const std::string lastFailure = constructionError ? " (last exact failure: " + *constructionError + ")" : "";
+    // Planning itself found nothing to build (no exact construction was ever attempted): say what is actually wrong with the part -- the share
+    // of its surface that the best plan leaves trapped -- instead of the budget counters, which read like an engine failure.
+    const WorkingMoldPieceCountDiagnostics* bestPlan = nullptr;
+    for (const auto& d : planningDiagnostics) {
+      if (d.bestUnassignableAreaFraction && (!bestPlan || *d.bestUnassignableAreaFraction < *bestPlan->bestUnassignableAreaFraction)) bestPlan = &d;
+    }
     std::string message;
-    if (budgetReached) {
+    if (!constructionError && budget.workingMoldConstructionAttempts == 0 && bestPlan) {
+      char share[32];
+      std::snprintf(share, sizeof share, "%.0f%%", std::max(1.0, std::round(*bestPlan->bestUnassignableAreaFraction * 100)));
+      message = "no way was found to split the part into at most " + std::to_string(maxPieces) +
+                " pieces that can all be pulled out: the best plan (" + std::to_string(bestPlan->pieceCount) + " piece(s)) still leaves about " + share +
+                " of the part's surface (" + std::to_string(bestPlan->bestUnresolvedRegionCount.value_or(0)) +
+                " region(s)) trapped behind other geometry, so no tooling was built. This is a limit of the automatic rigid-tooling search, not proof that rigid tooling is impossible: review the part, " +
+                recovery + ".";
+    } else if (budgetReached) {
       message = "the bounded search reached its configured limits (piece-count cap " + std::to_string(maxPieces) + ", " +
                 std::to_string(budget.workingMoldConstructionAttempts) + " exact construction attempt(s), " + std::to_string(rejectedPieceCounts.size()) +
                 " piece count(s) rejected) without finding a releasable decomposition" + lastFailure + "." + exhaustedClause +

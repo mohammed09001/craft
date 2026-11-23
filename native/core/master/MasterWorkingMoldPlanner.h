@@ -77,6 +77,8 @@ struct WorkingMoldPieceCountDiagnostics {
   int planningCandidatesFeasible = 0;
   std::optional<int> bestUnassignablePatchCount;
   std::optional<int> bestUnresolvedRegionCount;
+  /// Share (0..1) of the part's surface that the best plan of this piece count leaves where no piece can release it; set only when no plan was feasible.
+  std::optional<double> bestUnassignableAreaFraction;
   std::optional<std::string> rejectionReason;
   int candidateDirectionCountUsed = 0;
   int combinationDirectionCountUsed = 0;
@@ -129,6 +131,7 @@ struct FinalizedEvaluation {
   DecompositionCandidate candidate;
   std::vector<int> assignment;
   std::set<int> unassignableRegionIndexes;
+  double unassignableAreaMm2 = 0;
 };
 FinalizedEvaluation evaluateFinalized(const PlanningMesh& mesh, const AccessibilityAnalysis& analysis, const SurfaceRegionGraph& graph,
                                       const std::vector<Prism>& prisms, int catchAllDirectionIndex);

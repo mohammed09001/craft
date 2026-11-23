@@ -252,6 +252,7 @@ FinalizedEvaluation evaluateFinalized(const PlanningMesh& mesh, const Accessibil
     const std::size_t pi = static_cast<std::size_t>(patch.patchIndex);
     if (per.visible[pi] != 1) {
       ++unassignable;
+      out.unassignableAreaMm2 += patch.areaMm2;
       const PatchAccessibilityClass cls = per.classification[pi];
       if (cls != PatchAccessibilityClass::Grazing && cls != PatchAccessibilityClass::Uncertain) ++hardBlocked;
       const int r = pi < graph.regionOfPatch.size() ? graph.regionOfPatch[pi] : -1;
@@ -594,6 +595,7 @@ std::optional<WorkingMoldPieceCountStep> WorkingMoldPieceCountSearch::next() {
     });
     const Finalized* best = finalized.empty() ? nullptr : &finalized.front();
     if (best) diag.bestUnresolvedRegionCount = static_cast<int>(best->evaluation.unassignableRegionIndexes.size());
+    if (best && mesh.totalAreaMm2 > 0) diag.bestUnassignableAreaFraction = best->evaluation.unassignableAreaMm2 / mesh.totalAreaMm2;
     const bool coverProves = regionSetCoverMinimumPieceEstimate_ && *regionSetCoverMinimumPieceEstimate_ <= currentCount;
     std::string baseReason;
     if (!best) baseReason = "no_decomposition_candidate_generated";

@@ -1104,6 +1104,43 @@ class MasterEquivalenceTest : public QObject {
     QVERIFY_EXCEPTION_THROWN(buildMasterMoldSeedSnapshot(input), std::invalid_argument);
   }
 
+  // A part with a fully enclosed cavity cannot be released by any direction. When planning never gets as far as building anything, the failure
+  // says what is wrong with the part (how much of its surface stays trapped) rather than quoting the search counters.
+  void aPartThatPlanningCannotSplitSaysHowMuchOfItsSurfaceIsTrapped() {
+    MasterSeedInput seedInput;
+    MasterSeedGeometryInput& g = seedInput.sourcePartGeometry;
+    g.modelId = "model-hollow-cube";
+    cubeGrid(1, 20, g.positions, g.indices);
+    std::vector<double> innerPositions;
+    std::vector<std::uint32_t> innerIndices;
+    cubeGrid(1, 8, innerPositions, innerIndices);
+    const std::uint32_t innerBase = static_cast<std::uint32_t>(g.positions.size() / 3);
+    for (std::size_t i = 0; i < innerPositions.size(); ++i) g.positions.push_back(innerPositions[i] + 6);   // the cavity sits in the middle
+    for (std::size_t i = 0; i < innerIndices.size(); i += 3) g.indices.insert(g.indices.end(), {innerBase + innerIndices[i], innerBase + innerIndices[i + 2], innerBase + innerIndices[i + 1]});   // inside out
+    g.transform = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    Bounds3 local = emptyBounds();
+    for (std::size_t i = 0; i < g.positions.size(); i += 3)
+      for (int a = 0; a < 3; ++a) {
+        local.min[a] = std::min(local.min[a], g.positions[i + static_cast<std::size_t>(a)]);
+        local.max[a] = std::max(local.max[a], g.positions[i + static_cast<std::size_t>(a)]);
+      }
+    g.localBounds = local;
+    g.geometryVersion = "geom-hollow-cube";
+    seedInput.projectRevision = "rev-1";
+    const MasterSeedSnapshot seed = worldMeshFromSnapshot(buildMasterMoldSeedSnapshot(seedInput));
+
+    auto engine = createManifoldMeshEngine();
+    const MasterMoldEngineResult result = runMasterMoldEngine(*engine, seed);
+    QVERIFY(result.toolingSets.empty());
+    QCOMPARE(result.failures.size(), static_cast<std::size_t>(1));
+    const QString message = q(result.failures[0].message);
+    QVERIFY2(message.contains("no way was found to split the part"), qPrintable(message));
+    QVERIFY2(QRegularExpression("about \\d+% of the part's surface").match(message).hasMatch(), qPrintable(message));
+    QVERIFY2(message.contains("not proof that rigid tooling is impossible"), qPrintable(message));
+    // the search counters that read like an engine failure are not shown for this outcome
+    QVERIFY2(!message.contains("exact construction attempt"), qPrintable(message));
+  }
+
   void identityTransformSkipsTheWorldPass() {
     MasterSeedInput input;
     input.projectRevision = "r";
