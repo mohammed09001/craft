@@ -175,6 +175,9 @@ add_library(craft_project STATIC
 )
 target_include_directories(craft_project PUBLIC core io)
 target_link_libraries(craft_project PUBLIC Qt6::Core craft_core)
+if(WIN32)
+  target_link_libraries(craft_project PRIVATE bcrypt)   # SHA-256 through the system CNG provider
+endif()
 craft_target_defaults(craft_project)
 
 # --- craft_export: Master tooling piece export (STL files + manifest; Qt Core for JSON and SHA-256) --

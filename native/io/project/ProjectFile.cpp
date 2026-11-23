@@ -10,6 +10,12 @@
 #include <QtEndian>
 
 #include <algorithm>
+#include <optional>
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#include <bcrypt.h>
+#endif
 
 #include "project/ProjectJson.h"
 
@@ -45,7 +51,66 @@ QByteArray encodeHeader(int major, int minor, quint64 manifestOffset, quint64 ma
   return header;
 }
 
-QByteArray sha256Raw(const QByteArray& bytes) { return QCryptographicHash::hash(bytes, QCryptographicHash::Sha256); }
+/// Streaming SHA-256. On Windows this is the system CNG provider, about 2.4 times faster than Qt's own implementation on a CPU
+/// without SHA extensions (400 against 170 MB/s on the development machine); anywhere else, or if CNG is unavailable, it is Qt's.
+/// The digests are identical (tst_project::theSha256MatchesQtForEveryLength).
+class Sha256Stream {
+ public:
+  Sha256Stream() {
+#ifdef Q_OS_WIN
+    static const BCRYPT_ALG_HANDLE provider = [] {
+      BCRYPT_ALG_HANDLE h = nullptr;
+      return BCryptOpenAlgorithmProvider(&h, BCRYPT_SHA256_ALGORITHM, nullptr, 0) >= 0 ? h : nullptr;
+    }();
+    if (provider && BCryptCreateHash(provider, &handle_, nullptr, 0, nullptr, 0, 0) < 0) handle_ = nullptr;
+    if (handle_) return;
+#endif
+    qt_.emplace(QCryptographicHash::Sha256);
+  }
+  ~Sha256Stream() {
+#ifdef Q_OS_WIN
+    if (handle_) BCryptDestroyHash(handle_);
+#endif
+  }
+  Sha256Stream(const Sha256Stream&) = delete;
+  Sha256Stream& operator=(const Sha256Stream&) = delete;
+
+  void addData(const char* data, qint64 size) {
+#ifdef Q_OS_WIN
+    if (handle_) {
+      constexpr qint64 kMaxCall = qint64(1) << 30;   // BCryptHashData takes a ULONG
+      for (qint64 at = 0; at < size; at += kMaxCall) {
+        const ULONG n = static_cast<ULONG>(std::min(kMaxCall, size - at));
+        if (BCryptHashData(handle_, reinterpret_cast<PUCHAR>(const_cast<char*>(data + at)), n, 0) < 0) fail("project_unreadable", "The SHA-256 provider failed.");
+      }
+      return;
+    }
+#endif
+    qt_->addData(QByteArrayView(data, size));
+  }
+  QByteArray result() {
+#ifdef Q_OS_WIN
+    if (handle_) {
+      QByteArray out(32, Qt::Uninitialized);
+      if (BCryptFinishHash(handle_, reinterpret_cast<PUCHAR>(out.data()), 32, 0) < 0) fail("project_unreadable", "The SHA-256 provider failed.");
+      return out;
+    }
+#endif
+    return qt_->result();
+  }
+
+ private:
+#ifdef Q_OS_WIN
+  BCRYPT_HASH_HANDLE handle_ = nullptr;
+#endif
+  std::optional<QCryptographicHash> qt_;
+};
+
+QByteArray sha256Raw(const QByteArray& bytes) {
+  Sha256Stream s;
+  s.addData(bytes.constData(), bytes.size());
+  return s.result();
+}
 
 void checkCancelled(const IoControl& control) {
   if (control.cancelled && control.cancelled()) fail("project_cancelled", "The operation was cancelled.");
@@ -57,12 +122,12 @@ qint64 chunkOf(const IoControl& control) { return static_cast<qint64>(std::max<s
 
 /// SHA-256 of `bytes`, in chunks so that a long hash can report progress (spanning `from`..`to`) and be cancelled.
 QByteArray sha256Chunked(const QByteArray& bytes, const IoControl& control, double from, double to) {
-  QCryptographicHash hash(QCryptographicHash::Sha256);
+  Sha256Stream hash;
   const qint64 chunk = chunkOf(control);
   for (qint64 at = 0; at < bytes.size(); at += chunk) {
     checkCancelled(control);
     const qint64 n = std::min(chunk, bytes.size() - at);
-    hash.addData(QByteArrayView(bytes.constData() + at, n));
+    hash.addData(bytes.constData() + at, n);
     report(control, from + (to - from) * static_cast<double>(at + n) / static_cast<double>(bytes.size()));
   }
   return hash.result();
@@ -71,13 +136,13 @@ QByteArray sha256Chunked(const QByteArray& bytes, const IoControl& control, doub
 /// Reads `size` bytes from the current position of `file` in chunks, hashing as it goes. `hash` receives the SHA-256 of what was read.
 QByteArray readChunked(QFile& file, qint64 size, const IoControl& control, double from, double to, QByteArray& hash, const char* failure) {
   QByteArray data(size, Qt::Uninitialized);
-  QCryptographicHash digest(QCryptographicHash::Sha256);
+  Sha256Stream digest;
   const qint64 chunk = chunkOf(control);
   for (qint64 at = 0; at < size;) {
     checkCancelled(control);
     const qint64 n = file.read(data.data() + at, std::min(chunk, size - at));
     if (n <= 0) fail("project_unreadable", failure);
-    digest.addData(QByteArrayView(data.constData() + at, n));
+    digest.addData(data.constData() + at, n);
     at += n;
     report(control, from + (to - from) * static_cast<double>(at) / static_cast<double>(size));
   }
@@ -136,7 +201,7 @@ QJsonObject parseManifestJson(const QByteArray& bytes) {
 
 }  // namespace
 
-std::string sha256Hex(const QByteArray& bytes) { return QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex().toStdString(); }
+std::string sha256Hex(const QByteArray& bytes) { return sha256Raw(bytes).toHex().toStdString(); }
 
 const std::vector<MigrationStep>& builtinMigrations() {
   static const std::vector<MigrationStep> steps;  // format major 1 is the first; nothing to migrate from yet

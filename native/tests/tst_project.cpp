@@ -1,5 +1,6 @@
 // Craft project format: round trips, atomic save, integrity, version policy, migrations, linked models.
 
+#include <QCryptographicHash>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QJsonDocument>
@@ -510,6 +511,20 @@ class ProjectTest : public QObject {
   }
 
   // --- the frozen format 1.0 file (P1-9) -------------------------------------------------------------------------------------
+  // The SHA-256 is computed by the system provider on Windows; it must give exactly the digest Qt gives, for the lengths where a block
+  // implementation goes wrong (empty, one byte, around the 55/56/63/64/65-byte padding edges, and a multi-megabyte buffer).
+  void theSha256MatchesQtForEveryLength() {
+    QRandomGenerator rng(12345);
+    for (const int length : {0, 1, 3, 55, 56, 57, 63, 64, 65, 119, 120, 128, 1000, 65536, 65537, 3 * 1024 * 1024 + 7}) {
+      QByteArray data(length, Qt::Uninitialized);
+      for (int i = 0; i < length; ++i) data[i] = static_cast<char>(rng.generate() & 0xff);
+      const QByteArray expected = QCryptographicHash::hash(data, QCryptographicHash::Sha256).toHex();
+      QCOMPARE(QByteArray::fromStdString(sha256Hex(data)), expected);
+    }
+    // A known vector, so a provider and Qt that were both wrong in the same way would still fail.
+    QCOMPARE(sha256Hex(QByteArray("abc")), std::string("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"));
+  }
+
   // fixtures/projects/format-1.0-full.craft was written once by the format-1.0 writer from fullDocument(fakeStl()) and is committed as it
   // was. Every later build must still open it and read exactly these values: the first change to the format has to keep reading it or
   // register a migration for it, and this test is what notices if it does not. Never regenerate the file to make this test pass; if the
