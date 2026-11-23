@@ -28,3 +28,8 @@ Rough size: several days of focused work, mostly the serializers and their tests
 
 ## Decision needed
 Go ahead with Option B (phase 1 first), or accept Option C for v1 and record P0-5 as "bounded, not preemptive" in the release notes.
+
+## Progress
+
+- **Phase 1 done (2026-11-23):** Craft.exe --geometry-worker <job> <result> (handled in main before any GUI exists), WorkerProcess (start, progress, cancel by killing the process, outcome Succeeded / Failed / Cancelled / Crashed, never leaves a worker behind when destroyed), self-test job kinds echo and spin. 	st_geometry_worker (5 tests, 3.6 s): a job runs in another process; progress arrives; **cancel stops a process holding 400 MiB and burning CPU within 5 s and the process is gone**; a failing job reports its message; a worker killed from outside is neither Cancelled nor Succeeded; destroying the launcher leaves nothing behind. Mutation: not killing in cancel() fails the cancel test. Full Release CTest 47/47, 252.3 s. **No real job uses the worker yet**, so the application's behaviour is unchanged and P0-5 is not closed.
+- Phases 2 to 4 not started.

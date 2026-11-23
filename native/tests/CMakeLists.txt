@@ -131,6 +131,9 @@ if(CRAFT_BUILD_APP)
     LIBS craft_mold craft_viewport Qt6::Core)
   target_compile_definitions(tst_sprue_preview_equivalence PRIVATE
     CRAFT_REFERENCE_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/reference")
+  craft_add_test(tst_geometry_worker SOURCES tst_geometry_worker.cpp LIBS craft_app_lib)
+  target_compile_definitions(tst_geometry_worker PRIVATE CRAFT_WORKER_EXE="$<TARGET_FILE:craft>")
+  add_dependencies(tst_geometry_worker craft)
   craft_add_test(tst_app_workflow SOURCES tst_app_workflow.cpp LIBS craft_app_lib)
   target_compile_definitions(tst_app_workflow PRIVATE
     CRAFT_DEV_PYTHON="${CRAFT_PYTHON_EXECUTABLE_NORMALIZED}"

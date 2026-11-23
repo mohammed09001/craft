@@ -31,6 +31,7 @@
 
 #include "AppController.h"
 #include "AppPaths.h"
+#include "GeometryWorker.h"
 #include "Logging.h"
 #include "ManifoldMeshEngine.h"
 #ifdef CRAFT_SMOKE_REAL_EVENTS
@@ -1281,6 +1282,12 @@ class Smoke : public QObject {
 }  // namespace
 
 int main(int argc, char* argv[]) {
+  // Geometry worker mode (P0-5): a child process that runs one job and exits, so that a cancelled job can be killed for real. It needs no
+  // window, no QML and no GPU, so it is handled before any of that exists.
+  if (argc == 4 && QByteArrayView(argv[1]) == "--geometry-worker") {
+    QCoreApplication worker(argc, argv);
+    return craft::app::runGeometryWorker(QString::fromLocal8Bit(argv[2]), QString::fromLocal8Bit(argv[3]));
+  }
   QGuiApplication application(argc, argv);
   QCoreApplication::setOrganizationName(QStringLiteral("Craft"));
   QCoreApplication::setApplicationName(QStringLiteral("Craft"));
