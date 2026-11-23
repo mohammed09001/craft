@@ -1,6 +1,7 @@
 #include "GeometryWorker.h"
 
 #include <QCoreApplication>
+#include <QLoggingCategory>
 #include <QDir>
 #include <QFileInfo>
 #include <QFile>
@@ -20,6 +21,8 @@
 #include "master/MasterMoldStore.h"
 #include "master/MasterWire.h"
 #include "mold/MoldWire.h"
+
+Q_DECLARE_LOGGING_CATEGORY(lcApp)
 
 namespace craft::app {
 
@@ -202,6 +205,8 @@ bool WorkerProcess::start(const QByteArray& jobJson, const QByteArray& payload) 
   }
   cancelled_ = false;
   reported_ = false;
+  payloadBytes_ = payload.size();
+  lifetime_.start();
   pending_.clear();
   pendingError_.clear();
   errorText_.clear();
@@ -279,6 +284,12 @@ void WorkerProcess::onFinished(int exitCode, QProcess::ExitStatus status) {
       outcome.message = QStringLiteral("The geometry process finished without a result.");
     }
   }
+  // One line per job: what it carried each way and how long the process lived (the cost of running a job in another process; the data goes through files).
+  qCInfo(lcApp).noquote() << QStringLiteral("geometry worker: %1 MiB sent, %2 MiB back, process lifetime %3 ms, %4")
+                                .arg(static_cast<double>(payloadBytes_) / 1048576.0, 0, 'f', 1)
+                                .arg(static_cast<double>(outcome.result.size()) / 1048576.0, 0, 'f', 1)
+                                .arg(lifetime_.elapsed())
+                                .arg(outcome.state == WorkerOutcome::State::Succeeded ? QStringLiteral("succeeded") : outcome.state == WorkerOutcome::State::Cancelled ? QStringLiteral("cancelled") : QStringLiteral("failed"));
   dir_.reset();
   emit finished(outcome);
 }

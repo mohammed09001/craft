@@ -10,6 +10,7 @@
 // with a message on stderr. Phase 1 has two self-test kinds ("echo" and "spin") that prove the mechanism; the real jobs arrive in later phases.
 
 #include <QByteArray>
+#include <QElapsedTimer>
 #include <QObject>
 #include <QProcess>
 #include <QString>
@@ -61,6 +62,8 @@ class WorkerProcess : public QObject {
   QByteArray pending_, pendingError_, errorText_;
   bool cancelled_ = false;
   bool reported_ = false;
+  QElapsedTimer lifetime_;   // for the one log line a job leaves: what it moved and how long the process lived
+  qint64 payloadBytes_ = 0;
 };
 
 }  // namespace craft::app
