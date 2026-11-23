@@ -64,8 +64,8 @@ elease-full-ctest.log. Re-run 2026-11-23 on 28be334 plus the STL path move: 46/4
 | ID | Item | Status | Notes |
 |---|---|---|---|
 | RC-1 | Inventory of every consumer of the web frontend | **pass (2026-11-23)**: WEB_FRONTEND_CONSUMERS.md lists 9 consumers and the removal order | fixture generators (`native/tests/reference/*.test.ts`), `ci.yml` jobs, docs, scripts |
-| RC-2 | Preserve golden fixtures and test specs | **partly done (2026-11-23)**: the two STLs the native tests read from `mold/frontend/e2e/fixtures` now live in `native/tests/fixtures/stl`; `tst_app_workflow` passes on the new paths (Release). Fate of the 14 generators still open | the 14 recorded fixtures already live under `native/tests/fixtures/reference` |
-| RC-3 | Remove the web app in controlled, reversible commits | **gated** | only after native parity rows above pass and the fixture generators are replaced or archived; fixture regeneration needs the TypeScript runtime |
+| RC-2 | Preserve golden fixtures and test specs | **pass (2026-11-23)** | The 16 recorded fixtures live in `native/tests/fixtures/reference`; the two STLs in `native/tests/fixtures/stl`. The 14 TypeScript generators are archived at tag `web-reference-final` (B5 default, approved with B4) |
+| RC-3 | Remove the web app in controlled, reversible commits | **done (2026-11-23), owner-approved (B4)** | Four commits: CI gates and npm dependabot, generators and reference scripts, a fix keeping compare-viewport.ps1 for native timing, then `mold/frontend` (635 files). Release CTest 46/46 (230.9 s) after the removal. Last tree with the web app: tag `web-reference-final`. Python tests not re-run (nothing in `mold/src` or `mold/tests` references the removed tree). The untracked `mold/frontend/node_modules` folder is left on disk |
 
 ## Deferred / Future / Not Started - requires explicit user authorization after Windows reaches 100%
 
