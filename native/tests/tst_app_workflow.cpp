@@ -1624,6 +1624,154 @@ class WorkflowTest : public QObject {
   // --- a mold generation that cannot be interrupted -----------------------------------------------------------------------------------------------
   // The same as for Master Mold: cancelling, changing an input or undoing while the mold generates releases the application at once (it used to stay busy
   // until the Boolean the engine was in returned) and lets the thread end on its own with its result ignored; a new generation waits for it.
+  // --- the mold generation in a separate process (P0-5 phase 3): a stop is real, nothing is left winding down --------------------------------------
+
+  void aMoldGeneratedInAWorkerProcessEqualsTheOneGeneratedHere() {
+    auto here = makeApp();
+    here->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return here->modelPhase() == "ready"; }));
+    here->setCutFaceEnabled("left", true);
+    here->generateMold();
+    QVERIFY(waitFor([&] { return here->moldPhase() != "generating"; }, 120000));
+    QCOMPARE(here->moldPhase(), QStringLiteral("complete"));
+
+    auto there = makeApp();
+    there->setGeometryWorkerExecutable(QStringLiteral(CRAFT_WORKER_EXE));
+    there->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return there->modelPhase() == "ready"; }));
+    there->setCutFaceEnabled("left", true);
+    there->generateMold();
+    QCOMPARE(there->moldPhase(), QStringLiteral("generating"));
+    QVERIFY(there->busy());
+    QVERIFY(waitFor([&] { return there->moldPhase() != "generating"; }, 120000));
+    QVERIFY(!there->busy());
+    QCOMPARE(there->moldPhase(), QStringLiteral("complete"));
+
+    QVERIFY(here->moldResult().has_value() && there->moldResult().has_value());
+    const auto& a = here->moldResult()->cavity;
+    const auto& b = there->moldResult()->cavity;
+    QCOMPARE(b.bodies.size(), a.bodies.size());
+    for (std::size_t i = 0; i < a.bodies.size(); ++i) {
+      QCOMPARE(b.bodies[i].body.id, a.bodies[i].body.id);
+      QCOMPARE(b.bodies[i].body.volumeMm3, a.bodies[i].body.volumeMm3);
+      QCOMPARE(b.bodies[i].body.mesh.positions, a.bodies[i].body.mesh.positions);
+      QCOMPARE(b.bodies[i].body.mesh.indices, a.bodies[i].body.mesh.indices);
+    }
+    QCOMPARE(b.cavityTool.solid.volumeMm3, a.cavityTool.solid.volumeMm3);
+    QCOMPARE(there->scene()->count(), here->scene()->count());
+    QCOMPARE(there->finalBodies().size(), here->finalBodies().size());
+  }
+
+  void cancellingAWorkerMoldStopsItForRealAndAllowsANewRunAtOnce() {
+    auto app = makeApp();
+    app->setGeometryWorkerExecutable(QStringLiteral(CRAFT_WORKER_EXE));
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->generateMold();
+    QCOMPARE(app->moldPhase(), QStringLiteral("generating"));
+    app->cancelCurrentJob();
+    QCOMPARE(app->moldPhase(), QStringLiteral("ready"));
+    QVERIFY(!app->busy());
+    QVERIFY(app->statusText().contains("cancelled"));
+    QVERIFY2(!app->moldWindingDown(), "a killed process leaves nothing winding down");
+    QTest::qWait(300);   // the killed process's end arrives: it must change nothing
+    QCOMPARE(app->moldPhase(), QStringLiteral("ready"));
+    QVERIFY(!app->moldResult().has_value());
+    QCOMPARE(app->scene()->count(), 1);
+
+    app->generateMold();   // allowed at once, unlike the in-process run, which has to wait for its thread
+    QCOMPARE(app->moldPhase(), QStringLiteral("generating"));
+    QVERIFY(waitFor([&] { return app->moldPhase() != "generating"; }, 120000));
+    QCOMPARE(app->moldPhase(), QStringLiteral("complete"));
+  }
+
+  void changingAnInputOrUndoingWhileAWorkerMoldGeneratesKillsItAndNothingWindsDown() {
+    auto app = makeApp();
+    app->setGeometryWorkerExecutable(QStringLiteral(CRAFT_WORKER_EXE));
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->generateMold();
+    QVERIFY(app->busy());
+    app->setMoldClearanceMm(20);
+    QVERIFY(!app->busy());
+    QCOMPARE(app->moldPhase(), QStringLiteral("ready"));
+    QVERIFY(!app->moldWindingDown());
+    QTest::qWait(300);
+    QCOMPARE(app->moldPhase(), QStringLiteral("ready"));
+    QVERIFY(!app->moldResult().has_value());
+
+    app->setCutFaceEnabled("left", true);
+    app->generateMold();
+    QCOMPARE(app->moldPhase(), QStringLiteral("generating"));
+    app->undo();
+    QCOMPARE(app->moldPhase(), QStringLiteral("ready"));
+    QVERIFY(!app->busy());
+    QVERIFY(!app->moldWindingDown());
+    QTest::qWait(300);
+    QVERIFY(!app->moldResult().has_value());
+  }
+
+  // The sprue cache goes to the process with the request and comes back with the result: after a worker run, editing a sprue must reuse the earlier
+  // ones from the cache exactly as in-process does.
+  void theSprueCacheSurvivesAWorkerRun() {
+    auto app = makeApp();
+    app->setGeometryWorkerExecutable(QStringLiteral(CRAFT_WORKER_EXE));
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->generateMold();
+    QVERIFY(waitFor([&] { return app->moldPhase() == "complete" || app->moldPhase() == "error"; }, 120000));
+    QCOMPARE(app->moldPhase(), QStringLiteral("complete"));
+    app->camera()->setViewportSize(800, 600);
+    app->camera()->lookFrom("top");
+    app->setTool("sprue");
+    const auto place = [&](int fromX) {
+      for (int x = fromX; x <= 700; x += 10) {
+        app->previewSprueAt(x, 300, 800, 600);
+        if (app->sprueCandidate().value("valid").toBool() && app->placeSprueAt(x, 300, 800, 600)) {
+          if (!waitFor([&] { return app->spruePhase() == "idle" && !app->busy(); })) return -1;
+          return x;
+        }
+      }
+      return -1;
+    };
+    const auto counts = [&] {
+      const QVariantMap s = app->moldSummary();
+      return QPair<qulonglong, qulonglong>(s.value("sprueCacheHits").toULongLong(), s.value("sprueCacheMisses").toULongLong());
+    };
+    const int firstX = place(100);
+    QVERIFY2(firstX > 0, "no pixel over the cavity found");
+    QVERIFY2(place(firstX + 40) > 0, "no second pixel over the cavity found");
+    QCOMPARE(app->sprueIntents().size(), std::size_t{2});
+    QCOMPARE(counts(), (QPair<qulonglong, qulonglong>(1, 1)));   // placing runs in this process and fills the shared cache
+
+    // Generating the mold again in the worker: the cache goes over with the request, so both sprues are served from it; and the answer is the same.
+    app->generateMold();
+    QVERIFY(waitFor([&] { return app->moldPhase() == "complete" || app->moldPhase() == "error"; }, 120000));
+    QCOMPARE(app->moldPhase(), QStringLiteral("complete"));
+    QCOMPARE(counts(), (QPair<qulonglong, qulonglong>(2, 0)));
+    for (const auto& intent : app->sprueIntents()) QCOMPARE(intent.validation.status, std::string("resolved"));
+
+    // And what the worker learned came back: editing the last sprue now finds the first one in the application's own cache.
+    app->resizeSprue(QString::fromStdString(app->sprueIntents()[1].operationId), 6.0);
+    QVERIFY(waitFor([&] { return app->spruePhase() == "idle" && !app->busy(); }));
+    QCOMPARE(counts(), (QPair<qulonglong, qulonglong>(1, 1)));
+  }
+
+  void aWorkerThatCannotBeStartedFailsTheMoldCleanly() {
+    auto app = makeApp();
+    app->setGeometryWorkerExecutable(QStringLiteral("Z:/there/is/no/such/craft.exe"));
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    QSignalSpy errors(app.get(), &AppController::errorOccurred);
+    app->generateMold();
+    QVERIFY(waitFor([&] { return app->moldPhase() != "generating"; }, 20000));
+    QVERIFY(!app->busy());
+    QCOMPARE(app->moldPhase(), QStringLiteral("error"));
+    QCOMPARE(errors.count(), 1);
+    QCOMPARE(errors.first().at(2).toString(), QStringLiteral("worker_start_failed"));
+    QCOMPARE(app->scene()->count(), 1);
+  }
+
   void cancellingAMoldGenerationReleasesTheApplicationAtOnce() {
     auto app = makeApp();
     app->importStlFile(bracket());

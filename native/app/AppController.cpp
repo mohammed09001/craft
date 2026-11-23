@@ -19,6 +19,7 @@
 #include "AppPaths.h"
 #include "AnalysisProtocol.h"
 #include "geometry/MeshAnalysis.h"
+#include "mold/MoldWire.h"
 #include "mold/Segmentation.h"
 #include "stl/Stl.h"
 #include "path/ExtendedPath.h"
@@ -147,7 +148,12 @@ void AppController::abandonMoldRun() {
   if (moldPhase_ != QStringLiteral("generating") || !moldAbandon_) return;
   *moldAbandon_ = true;
   moldAbandon_.reset();
-  ++moldOrphans_;
+  if (moldWorker_) {   // a separate process: stop it for real, so nothing keeps running and nothing is left to wait for
+    moldWorker_->cancel();
+    moldWorker_.release()->deleteLater();
+  } else {
+    ++moldOrphans_;
+  }
   if (activeCancel_) {
     activeCancel_->cancel();
     activeCancel_.reset();
@@ -593,17 +599,11 @@ void AppController::generateMold() {
     MoldGenerationResult mold;
     DerivedMoldEvaluation derived;
   };
-  runJob<MoldJobResult>(
-      this, cancel,
-      [engine, request, intents = sprueIntents_, cache = sprueCache_](const CancellationToken& token, const ProgressCallback& progress) {
-        MoldJobResult job;
-        job.mold = craft::generateMold(*engine, request, token, progress);
-        job.derived = evaluateDerivedMold(*engine, job.mold, intents, progress, cache.get());
-        return job;
-      },
-      [this, generation, inputs, recordHistory, abandoned, before = captureHistory()](JobOutcome<MoldJobResult> outcome) {
+  const bool inWorker = !workerExecutable_.isEmpty();   // P0-5: the run is a separate process that a cancel can really kill
+  const auto done =
+      [this, generation, inputs, recordHistory, abandoned, inWorker, before = captureHistory()](JobOutcome<MoldJobResult> outcome) {
         if (*abandoned) {  // given up (cancel, a change of inputs, undo): the UI has moved on, nothing here may touch it
-          --moldOrphans_;
+          if (!inWorker) --moldOrphans_;   // a worker process is killed, not left to end: nothing is still running
           emit moldChanged();
           return;
         }
@@ -629,15 +629,76 @@ void AppController::generateMold() {
           emit errorOccurred(QStringLiteral("Mold generation failed"), outcome.errorMessage, outcome.errorCode);
         }
         emit moldChanged();
-      },
+      };
+  const auto onProgress =
       [this, abandoned](QString stage, double fraction) {
         if (*abandoned) return;  // an abandoned run's last reports must not touch the footer while other work runs
         busyStage_ = stage;
         busyProgress_ = fraction;
         emit busyChanged();
-      });
+      };
+  if (inWorker) {
+    moldWorker_ = std::make_unique<WorkerProcess>(workerExecutable_, this);
+    WorkerProcess* worker = moldWorker_.get();
+    connect(worker, &WorkerProcess::progress, this, [onProgress](QString stage, double fraction) { onProgress(stage, fraction); });
+    connect(worker, &WorkerProcess::finished, this, [this, worker, done, abandoned](WorkerOutcome outcome) {
+      JobOutcome<MoldJobResult> job;
+      switch (outcome.state) {
+        case WorkerOutcome::State::Succeeded:
+          try {
+            MoldWorkerResult decoded = decodeMoldWorkerResult({reinterpret_cast<const std::uint8_t*>(outcome.result.constData()), static_cast<std::size_t>(outcome.result.size())});
+            // What the run learned about the sprues is kept only if its result is used, as a result that was given up never changes the application.
+            if (!*abandoned) sprueCache_->replaceAll(std::move(decoded.sprueCache));
+            job.result = MoldJobResult{std::move(decoded.mold), std::move(decoded.derived)};
+            job.state = JobState::Succeeded;
+          } catch (const WireError& error) {
+            job.state = JobState::Failed;
+            job.errorCode = QStringLiteral("worker_wire_error");
+            job.errorMessage = QString::fromUtf8(error.what());
+          }
+          break;
+        case WorkerOutcome::State::Cancelled:
+          job.state = JobState::Cancelled;
+          break;
+        case WorkerOutcome::State::Crashed:
+          job.state = JobState::Failed;
+          job.errorCode = QStringLiteral("worker_crashed");
+          job.errorMessage = QStringLiteral("The mold process stopped unexpectedly (it may have run out of memory). ") + outcome.message;
+          break;
+        case WorkerOutcome::State::Failed:
+          job.state = JobState::Failed;
+          job.errorCode = outcome.errorCode.isEmpty() ? QStringLiteral("worker_failed") : outcome.errorCode;
+          job.errorMessage = outcome.message;
+          break;
+      }
+      if (moldWorker_.get() == worker) moldWorker_.release()->deleteLater();   // finished: nothing left to kill
+      done(std::move(job));
+    });
+    MoldWorkerRequest wire;
+    wire.request = request;
+    wire.sprueIntents = sprueIntents_;
+    wire.sprueCache = sprueCache_->snapshot();
+    const std::vector<std::uint8_t> payload = encodeMoldWorkerRequest(wire);
+    if (!worker->start(QByteArray(R"({"kind":"mold"})"), QByteArray(reinterpret_cast<const char*>(payload.data()), static_cast<qsizetype>(payload.size())))) {
+      moldWorker_.release()->deleteLater();
+      JobOutcome<MoldJobResult> failed;
+      failed.state = JobState::Failed;
+      failed.errorCode = QStringLiteral("worker_start_failed");
+      failed.errorMessage = QStringLiteral("The mold process could not be started.");
+      done(std::move(failed));
+    }
+    return;
+  }
+  runJob<MoldJobResult>(
+      this, cancel,
+      [engine, request, intents = sprueIntents_, cache = sprueCache_](const CancellationToken& token, const ProgressCallback& progress) {
+        MoldJobResult job;
+        job.mold = craft::generateMold(*engine, request, token, progress);
+        job.derived = evaluateDerivedMold(*engine, job.mold, intents, progress, cache.get());
+        return job;
+      },
+      done, onProgress);
 }
-
 std::vector<MoldBody> AppController::finalBodies() const {
   if (registration_ && !registration_->bodies.empty()) return registration_->bodies;
   if (sprueEvaluation_) return sprueEvaluation_->bodies;

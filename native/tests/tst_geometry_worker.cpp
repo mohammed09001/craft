@@ -14,6 +14,8 @@
 #include "MasterTestRequests.h"
 #include "master/MasterMoldStore.h"
 #include "master/MasterWire.h"
+#include "MoldTestRequests.h"
+#include "mold/MoldWire.h"
 
 using craft::app::WorkerOutcome;
 using craft::app::WorkerProcess;
@@ -130,6 +132,83 @@ class TstGeometryWorker : public QObject {
     QCOMPARE(there.workingMoldPieceCount, here.workingMoldPieceCount);
     QCOMPARE(there.warningCount, here.warningCount);
     QCOMPARE(there.budget.releaseVerificationAttempts, here.budget.releaseVerificationAttempts);
+  }
+
+  // --- the mold job ---------------------------------------------------------------------------------------------------------------------------
+
+  void aMoldJobGivesTheSameResultAsRunningItHere_data() {
+    QTest::addColumn<bool>("split");
+    QTest::addColumn<int>("sprues");
+    QTest::newRow("whole block") << false << 0;
+    QTest::newRow("split, three sprues, registration") << true << 3;
+  }
+  void aMoldJobGivesTheSameResultAsRunningItHere() {
+    QFETCH(bool, split);
+    QFETCH(int, sprues);
+    const craft::MoldWorkerRequest job = craft::testing::cubeMoldWorkerRequest(split, sprues);
+    auto engine = craft::createManifoldMeshEngine();
+    craft::SprueResultCache cache;
+    const craft::MoldGenerationResult mold = craft::generateMold(*engine, job.request);
+    const craft::DerivedMoldEvaluation derived = craft::evaluateDerivedMold(*engine, mold, job.sprueIntents, {}, &cache);
+
+    const std::vector<std::uint8_t> payload = craft::encodeMoldWorkerRequest(job);
+    WorkerProcess worker(QStringLiteral(CRAFT_WORKER_EXE));
+    QSignalSpy progress(&worker, &WorkerProcess::progress);
+    QVERIFY(worker.start(R"({"kind":"mold"})", QByteArray(reinterpret_cast<const char*>(payload.data()), static_cast<qsizetype>(payload.size()))));
+    const WorkerOutcome outcome = runToEnd(worker, 120000);
+    QCOMPARE(outcome.state, WorkerOutcome::State::Succeeded);
+    QVERIFY(progress.count() >= 1);
+    const craft::MoldWorkerResult there = craft::decodeMoldWorkerResult({reinterpret_cast<const std::uint8_t*>(outcome.result.constData()), static_cast<std::size_t>(outcome.result.size())});
+
+    QCOMPARE(there.mold.cavity.bodies.size(), mold.cavity.bodies.size());
+    for (std::size_t i = 0; i < mold.cavity.bodies.size(); ++i) {
+      QCOMPARE(there.mold.cavity.bodies[i].body.id, mold.cavity.bodies[i].body.id);
+      QCOMPARE(there.mold.cavity.bodies[i].body.volumeMm3, mold.cavity.bodies[i].body.volumeMm3);
+      QCOMPARE(there.mold.cavity.bodies[i].body.mesh.positions, mold.cavity.bodies[i].body.mesh.positions);
+      QCOMPARE(there.mold.cavity.bodies[i].body.mesh.indices, mold.cavity.bodies[i].body.mesh.indices);
+    }
+    QCOMPARE(there.mold.cavity.cavityTool.solid.volumeMm3, mold.cavity.cavityTool.solid.volumeMm3);
+    QCOMPARE(there.mold.cavity.sourceSignature, mold.cavity.sourceSignature);
+    QCOMPARE(there.derived.sprues.resolvedSprues.size(), derived.sprues.resolvedSprues.size());
+    QCOMPARE(there.derived.registration.status, derived.registration.status);
+    QCOMPARE(there.derived.finalBodies().size(), derived.finalBodies().size());
+    for (std::size_t i = 0; i < derived.finalBodies().size(); ++i)
+      QCOMPARE(there.derived.finalBodies()[i].mesh.positions, derived.finalBodies()[i].mesh.positions);
+    QCOMPARE(there.sprueCache.size(), cache.snapshot().size());   // the cache that comes back holds the same sprues
+    if (split) QCOMPARE(there.derived.registration.status, std::string("generated"));
+  }
+
+  // A real mold on a 130k-triangle sphere (a long Boolean in Release): cancelling ends it at once, with its memory.
+  void cancellingARealMoldJobStopsItAtOnce() {
+    craft::MoldWorkerRequest job = craft::testing::cubeMoldWorkerRequest(true, 0);
+    job.request.groundedPart = std::make_shared<craft::TriangleSoup>(craft::test::soupFromMesh(craft::test::sphereMesh({0, 0, 20}, 20, 360, 180)));
+    job.request.cavityClearanceMm = 1;   // a clearance makes it build an offset tool, the long part
+    const std::vector<std::uint8_t> payload = craft::encodeMoldWorkerRequest(job);
+    WorkerProcess worker(QStringLiteral(CRAFT_WORKER_EXE));
+    QSignalSpy progress(&worker, &WorkerProcess::progress);
+    QVERIFY(worker.start(R"({"kind":"mold"})", QByteArray(reinterpret_cast<const char*>(payload.data()), static_cast<qsizetype>(payload.size()))));
+    const qint64 pid = worker.processId();
+    QVERIFY(progress.wait(60000));            // it has started working on the part
+    QVERIFY(processExists(pid));
+    QElapsedTimer timer;
+    timer.start();
+    worker.cancel();
+    const WorkerOutcome outcome = runToEnd(worker, 15000);
+    if (outcome.state == WorkerOutcome::State::Succeeded) QSKIP("the job finished before it could be cancelled");
+    QCOMPARE(outcome.state, WorkerOutcome::State::Cancelled);
+    QVERIFY2(timer.elapsed() < 5000, qPrintable(QString("took %1 ms").arg(timer.elapsed())));
+    QVERIFY(!processExists(pid));
+  }
+
+  void aMoldJobWithoutAPartFailsWithACode() {
+    craft::MoldWorkerRequest job;   // no grounded part at all
+    const std::vector<std::uint8_t> payload = craft::encodeMoldWorkerRequest(job);
+    WorkerProcess worker(QStringLiteral(CRAFT_WORKER_EXE));
+    QVERIFY(worker.start(R"({"kind":"mold"})", QByteArray(reinterpret_cast<const char*>(payload.data()), static_cast<qsizetype>(payload.size()))));
+    const WorkerOutcome outcome = runToEnd(worker);
+    QCOMPARE(outcome.state, WorkerOutcome::State::Failed);
+    QVERIFY(!outcome.errorCode.isEmpty());
+    QVERIFY(!outcome.message.isEmpty());
   }
 
   void aCorruptRequestIsReportedWithACode() {

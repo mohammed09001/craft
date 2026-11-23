@@ -271,7 +271,7 @@ class AppController : public QObject {
   void setMemoryProbe(std::function<std::uint64_t()> probe) { memoryProbe_ = std::move(probe); }
   /// How long a Master Mold run may take before the UI gives up on it (tests shorten it).
   void setMasterMoldTimeoutMs(int ms) { masterTimeoutMs_ = ms; }
-  /// P0-5: when set, Master Mold runs in a separate process (this executable in --geometry-worker mode) that a cancel or a timeout kills
+  /// P0-5: when set, Master Mold and the mold generation run in a separate process (this executable in --geometry-worker mode) that a cancel or a timeout kills
   /// for real. Empty (the default) keeps the in-process run, which cannot be interrupted inside a Boolean.
   void setGeometryWorkerExecutable(const QString& path) { workerExecutable_ = path; }
   bool isDirty() const { return projectDirty_; }
@@ -694,6 +694,7 @@ class AppController : public QObject {
   int masterOrphans_ = 0;
   QString workerExecutable_;
   std::unique_ptr<WorkerProcess> masterWorker_;
+  std::unique_ptr<WorkerProcess> moldWorker_;
   int masterRunGeneration_ = 0;
   int masterTimeoutMs_ = 180000;  // DEFAULT_MASTER_MOLD_WORKER_TIMEOUT_MS
   bool masterRunning_ = false;
