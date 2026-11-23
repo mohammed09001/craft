@@ -29,6 +29,9 @@ class Json {
 
   Type type() const { return type_; }
   bool isDefined() const { return type_ != Type::Undefined; }
+  /// The children of an array / the members of an object (the wire format reads them to send a value to another process).
+  const std::vector<Json>& items() const { return items_; }
+  const std::vector<std::pair<std::string, Json>>& entries() const { return entries_; }
   double numberValue() const { return number_; }
   bool boolValue() const { return bool_; }
   const std::string& stringValue() const { return string_; }

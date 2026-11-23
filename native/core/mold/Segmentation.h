@@ -345,4 +345,15 @@ DerivedRegistrationState generateSegmentationRegistration(IMeshGeometryEngine& e
                                                           const std::vector<MoldBody>& bodies,
                                                           const std::string& revisionPrefix);
 
+
+/// The whole segmentation execution as one job: the preflight, the plane cuts and, when they succeed, the registration of the cut sections. The
+/// application runs it on a thread or, as the geometry worker, in another process; both call this one function.
+struct SegmentationJobResult {
+  SegmentationExecutionResult result;
+  std::optional<DerivedRegistrationState> registration;
+};
+SegmentationJobResult runSegmentationExecutionJob(IMeshGeometryEngine& engine, const SegmentationPlan& plan,
+                                                  const SegmentationSourceSnapshot& snapshot,
+                                                  const ReferenceMoldDefinition& definition, const Point3& printerVolume,
+                                                  const CancellationToken& cancel, const ProgressCallback& progress);
 }  // namespace craft

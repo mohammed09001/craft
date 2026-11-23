@@ -83,6 +83,28 @@ int runMasterMoldJob(const QString& jobFile, const QString& resultFile) {
   });
 }
 
+/// The segmentation execution: the cuts and, when they succeed, the registration of the sections.
+int runSegmentationExecutionWorkerJob(const QString& jobFile, const QString& resultFile) {
+  return runWireJob(jobFile, resultFile, [](std::span<const std::uint8_t> bytes) {
+    const SegmentationWorkerRequest request = decodeSegmentationWorkerRequest(bytes);
+    auto engine = createManifoldMeshEngine();
+    const ProgressCallback progress = [](const std::string& stage, double fraction) { progressLine(QString::fromStdString(stage), fraction); };
+    const CancellationToken noToken;   // cancelling means killing this process
+    return encodeSegmentationJobResult(
+        runSegmentationExecutionJob(*engine, request.plan, request.snapshot, request.definition, request.printerVolume, noToken, progress));
+  });
+}
+
+/// The keyed preview of a segmentation plan: the registration run over the unkeyed section bodies.
+int runSegmentationPreviewWorkerJob(const QString& jobFile, const QString& resultFile) {
+  return runWireJob(jobFile, resultFile, [](std::span<const std::uint8_t> bytes) {
+    const SegmentationWorkerRequest request = decodeSegmentationWorkerRequest(bytes);
+    auto engine = createManifoldMeshEngine();
+    return encodeRegistrationState(
+        generateSegmentationRegistration(*engine, request.plan, request.snapshot, request.definition, request.bodies, request.revisionPrefix));
+  });
+}
+
 /// Mold generation and the derived evaluation (sprues, registration), as one job like the in-process one. The sprue cache comes in with the request and
 /// goes back out with the result.
 int runMoldJob(const QString& jobFile, const QString& resultFile) {
@@ -142,6 +164,8 @@ int runGeometryWorker(const QString& jobFile, const QString& resultFile) {
   }
   if (kind == QLatin1String("master-mold")) return runMasterMoldJob(jobFile, resultFile);
   if (kind == QLatin1String("mold")) return runMoldJob(jobFile, resultFile);
+  if (kind == QLatin1String("segmentation-execution")) return runSegmentationExecutionWorkerJob(jobFile, resultFile);
+  if (kind == QLatin1String("segmentation-preview")) return runSegmentationPreviewWorkerJob(jobFile, resultFile);
   std::fprintf(stderr, "Unknown job kind: %s\n", kind.toUtf8().constData());
   return 2;
 }

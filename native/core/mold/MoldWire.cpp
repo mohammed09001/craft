@@ -3,7 +3,7 @@
 namespace craft::wire {
 
 namespace {
-constexpr std::uint8_t kKindRequest = 3, kKindResult = 4;
+constexpr std::uint8_t kKindRequest = 3, kKindResult = 4, kKindSegmentationRequest = 5, kKindSegmentationResult = 6, kKindRegistration = 7;
 }  // namespace
 
 // --- bodies, planes, definition ---------------------------------------------------------------------------------------------------------
@@ -107,6 +107,104 @@ template <class A> void visit(A& a, RegistrationReport& v) {
 template <class A> void visit(A& a, DerivedRegistrationState& v) { io(a, v.status); io(a, v.revision); io(a, v.bodies); io(a, v.report); }
 template <class A> void visit(A& a, DerivedMoldEvaluation& v) { io(a, v.sprues); io(a, v.registration); }
 
+// --- segmentation ----------------------------------------------------------------------------------------------------------------------
+
+/// A JSON-like value (the details of an issue): its type, then its content.
+template <class A> void visit(A& a, Json& j) {
+  auto type = j.type();
+  io(a, type);
+  if constexpr (A::kReading) {
+    switch (type) {
+      case Json::Type::Undefined: j = Json(); break;
+      case Json::Type::Null: j = Json::null(); break;
+      case Json::Type::Bool: { bool b = false; io(a, b); j = Json::boolean(b); break; }
+      case Json::Type::Number: { double d = 0; io(a, d); j = Json::number(d); break; }
+      case Json::Type::String: { std::string s; io(a, s); j = Json::string(std::move(s)); break; }
+      case Json::Type::Array: { std::vector<Json> items; io(a, items); j = Json::array(std::move(items)); break; }
+      case Json::Type::Object: { std::vector<std::pair<std::string, Json>> entries; io(a, entries); j = Json::object(std::move(entries)); break; }
+      default: throw WireError("A JSON value has an unknown type.");
+    }
+  } else {
+    switch (type) {
+      case Json::Type::Bool: { bool b = j.boolValue(); io(a, b); break; }
+      case Json::Type::Number: { double d = j.numberValue(); io(a, d); break; }
+      case Json::Type::String: { std::string s = j.stringValue(); io(a, s); break; }
+      case Json::Type::Array: { std::vector<Json> items = j.items(); io(a, items); break; }
+      case Json::Type::Object: { std::vector<std::pair<std::string, Json>> entries = j.entries(); io(a, entries); break; }
+      default: break;   // undefined and null carry no content
+    }
+  }
+}
+template <class A> void visit(A& a, FitStageResult& v) { io(a, v.status); io(a, v.axisFit); io(a, v.failingAxes); }
+template <class A> void visit(A& a, SegmentationIssue& v) { io(a, v.blocker); io(a, v.reasonCode); io(a, v.message); io(a, v.details); }
+template <class A> void visit(A& a, SegmentationSourceIdentity& v) {
+  io(a, v.documentRevision); io(a, v.documentFingerprint); io(a, v.resultRequestId); io(a, v.definitionId); io(a, v.modelId); io(a, v.frameId);
+  io(a, v.bodySignature); io(a, v.protectedRegionSignature);
+}
+template <class A> void visit(A& a, SegmentationProtectedRegion& v) {
+  io(a, v.id); io(a, v.kind); io(a, v.source); io(a, v.provenanceId); io(a, v.bodyIds); io(a, v.bounds); io(a, v.hardness); io(a, v.clearanceMm);
+}
+template <class A> void visit(A& a, ProtectedRegionEvidence& v) { io(a, v.status); io(a, v.reason); }
+template <class A> void visit(A& a, SegmentationSourceSnapshot& v) {
+  io(a, v.identity); io(a, v.bodies); io(a, v.aggregateBounds); io(a, v.protectedRegions); io(a, v.protectedRegionEvidence); io(a, v.warnings);
+}
+template <class A> void visit(A& a, SegmentationRequest& v) {
+  io(a, v.requestId); io(a, v.source); io(a, v.printerVolume); io(a, v.printerVolumeSignature); io(a, v.settingsSignature); io(a, v.policyId);
+  io(a, v.policyVersion);
+}
+template <class A> void visit(A& a, BoundaryIntent& v) {
+  io(a, v.id); io(a, v.axis); io(a, v.coordinateMm); io(a, v.ordinal); io(a, v.sequenceIndex); io(a, v.broadcastToAllStraddlingBodies); io(a, v.allStraddling);
+}
+template <class A> void visit(A& a, SegmentDefinition& v) {
+  io(a, v.id); io(a, v.ordinal); io(a, v.gridIndex); io(a, v.sourceBodyIds); io(a, v.predictedBounds); io(a, v.predictedFit); io(a, v.boundaryIntentIds);
+}
+template <class A> void visit(A& a, CandidateScore& v) {
+  io(a, v.hardFailureCount); io(a, v.segmentCount); io(a, v.minimumPrintableMarginMm); io(a, v.declaredRisk); io(a, v.weightedObjectiveScore);
+}
+template <class A> void visit(A& a, SegmentationValidation& v) {
+  io(a, v.status); io(a, v.stage); io(a, v.sourceRevision); io(a, v.sourceFingerprint); io(a, v.printableByBounds); io(a, v.geometryExecution);
+  io(a, v.manufacturingSafety); io(a, v.warnings); io(a, v.blockers);
+}
+template <class A> void visit(A& a, SegmentationPlan& v) {
+  io(a, v.id); io(a, v.request); io(a, v.algorithmId); io(a, v.algorithmVersion); io(a, v.planningBasis); io(a, v.requiredAxes);
+  io(a, v.perAxisSegmentCount); io(a, v.estimatedMinimumSegmentCount); io(a, v.candidateIds); io(a, v.rejectedCandidateIds); io(a, v.selectedCandidateId);
+  io(a, v.boundaries); io(a, v.segments); io(a, v.score); io(a, v.validation); io(a, v.extensionObligations);
+}
+template <class A> void visit(A& a, SegmentationExecutionPolicy& v) {
+  io(a, v.id); io(a, v.version); io(a, v.toleranceVersion); io(a, v.linearToleranceMm); io(a, v.boundsToleranceMm); io(a, v.sideToleranceMm);
+  io(a, v.volumeToleranceMm3); io(a, v.overlapToleranceMm3);
+}
+template <class A> void visit(A& a, SupportedPlaneCutIntent& v) {
+  io(a, v.boundary); io(a, v.boundaryId); io(a, v.axis); io(a, v.coordinateMm); io(a, v.normal); io(a, v.originOffset);
+}
+template <class A> void visit(A& a, SegmentationExecutionRequest& v) {
+  io(a, v.id); io(a, v.segmentationRequestId); io(a, v.acceptedPlanId); io(a, v.acceptedPlan); io(a, v.documentRevision); io(a, v.documentFingerprint);
+  io(a, v.committedResultRequestId); io(a, v.sourceBody); io(a, v.bodySignature); io(a, v.printerVolume); io(a, v.printerVolumeSignature);
+  io(a, v.executionAxis); io(a, v.planes); io(a, v.planeSequenceSignature); io(a, v.policy);
+}
+template <class A> void visit(A& a, SegmentationExecutionDiagnostic& v) {
+  io(a, v.stage); io(a, v.reasonCode); io(a, v.message); io(a, v.axis); io(a, v.boundaryId); io(a, v.cutIndex); io(a, v.cutCount);
+}
+template <class A> void visit(A& a, SegmentationOutputProvenance& v) {
+  io(a, v.sourceBodyId); io(a, v.sourceGeometryVersion); io(a, v.segmentationRequestId); io(a, v.acceptedPlanId); io(a, v.axis); io(a, v.boundaryId);
+  io(a, v.side); io(a, v.parentBodyId); io(a, v.parentGeometryVersion); io(a, v.cutIndex); io(a, v.boundaryLineage); io(a, v.executionRequestId);
+  io(a, v.executionPolicyId); io(a, v.executionPolicyVersion);
+}
+template <class A> void visit(A& a, SegmentationExecutedBody& v) { io(a, v.body); io(a, v.provenance); }
+template <class A> void visit(A& a, SegmentationCutValidation& v) {
+  io(a, v.cutIndex); io(a, v.axis); io(a, v.boundaryId); io(a, v.inputBodyId); io(a, v.inputVolumeMm3); io(a, v.outputVolumeMm3); io(a, v.volumeDeltaMm3);
+  io(a, v.overlapVolumeMm3);
+}
+template <class A> void visit(A& a, SegmentationExecutionValidation& v) {
+  io(a, v.sourceVolumeMm3); io(a, v.outputVolumeMm3); io(a, v.volumeDeltaMm3); io(a, v.overlapVolumeMm3); io(a, v.cuts); io(a, v.policy);
+}
+template <class A> void visit(A& a, SegmentationExecutionResult& v) {
+  io(a, v.status); io(a, v.stage); io(a, v.reasonCode); io(a, v.issues); io(a, v.diagnostics); io(a, v.executionRequest); io(a, v.bodies); io(a, v.validation);
+}
+template <class A> void visit(A& a, SegmentationJobResult& v) { io(a, v.result); io(a, v.registration); }
+template <class A> void visit(A& a, SegmentationWorkerRequest& v) {
+  io(a, v.plan); io(a, v.snapshot); io(a, v.definition); io(a, v.printerVolume); io(a, v.bodies); io(a, v.revisionPrefix);
+}
 // --- request and result ------------------------------------------------------------------------------------------------------------------
 
 template <class A> void visit(A& a, MoldWorkerRequest& v) { io(a, v.request); io(a, v.sprueIntents); io(a, v.sprueCache); }
@@ -115,6 +213,13 @@ template <class A> void visit(A& a, MoldWorkerResult& v) { io(a, v.mold); io(a, 
 }  // namespace craft::wire
 
 namespace craft {
+
+std::vector<std::uint8_t> encodeSegmentationWorkerRequest(const SegmentationWorkerRequest& request) { return wire::encode(wire::kKindSegmentationRequest, request); }
+SegmentationWorkerRequest decodeSegmentationWorkerRequest(std::span<const std::uint8_t> bytes) { return wire::decode<SegmentationWorkerRequest>(wire::kKindSegmentationRequest, bytes); }
+std::vector<std::uint8_t> encodeSegmentationJobResult(const SegmentationJobResult& result) { return wire::encode(wire::kKindSegmentationResult, result); }
+SegmentationJobResult decodeSegmentationJobResult(std::span<const std::uint8_t> bytes) { return wire::decode<SegmentationJobResult>(wire::kKindSegmentationResult, bytes); }
+std::vector<std::uint8_t> encodeRegistrationState(const DerivedRegistrationState& state) { return wire::encode(wire::kKindRegistration, state); }
+DerivedRegistrationState decodeRegistrationState(std::span<const std::uint8_t> bytes) { return wire::decode<DerivedRegistrationState>(wire::kKindRegistration, bytes); }
 
 std::vector<std::uint8_t> encodeMoldWorkerRequest(const MoldWorkerRequest& request) { return wire::encode(wire::kKindRequest, request); }
 MoldWorkerRequest decodeMoldWorkerRequest(std::span<const std::uint8_t> bytes) { return wire::decode<MoldWorkerRequest>(wire::kKindRequest, bytes); }

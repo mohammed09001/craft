@@ -177,6 +177,7 @@ void AppController::cancelCurrentJob() {
     emit moldChanged();
     return;
   }
+  if (segmentationWorker_) segmentationWorker_->cancel();   // a segmentation run in a worker process: killed, not asked to stop
   if (activeCancel_) activeCancel_->cancel();
 }
 
@@ -1364,6 +1365,9 @@ void AppController::setPrinterVolume(double x, double y, double z) {
 }
 
 void AppController::invalidateSegmentation(const QString& message) {
+  // A running segmentation or plan preview in a worker process belongs to the state that is being discarded: stop it, so it does not go on using the CPU.
+  if (segmentationWorker_) segmentationWorker_->cancel();
+  if (segmentationPreviewWorker_) segmentationPreviewWorker_->cancel();
   const bool wasAdopted = segmentation_.adopted;
   const quint64 generation = segmentation_.generation + 1;
   segmentation_ = SegmentationUi{};
@@ -1419,10 +1423,63 @@ void AppController::rebuildSegmentationPlan() {
   setStatus(segmentation_.message);
 }
 
+// Runs one wire-format job in a geometry worker process and reports it as a JobOutcome, like runJob does for a thread. `slot` holds the process so that it
+// can be killed: a newer job of the same kind replaces (kills) the one in it. Cancelled means killed, never "finished"; a crash or a failure carries the
+// worker's code and message.
+template <class Result>
+void AppController::startWorkerJob(QPointer<WorkerProcess>& slot, const QByteArray& kind, const std::vector<std::uint8_t>& payload, const QString& what,
+                                   std::function<Result(std::span<const std::uint8_t>)> decode, std::function<void(QString, double)> onProgress,
+                                   std::function<void(JobOutcome<Result>)> done) {
+  if (slot) slot->cancel();
+  auto* worker = new WorkerProcess(workerExecutable_, this);
+  slot = worker;
+  connect(worker, &WorkerProcess::progress, this, [onProgress](QString stage, double fraction) {
+    if (onProgress) onProgress(stage, fraction);
+  });
+  connect(worker, &WorkerProcess::finished, this, [worker, what, decode, done](WorkerOutcome outcome) {
+    JobOutcome<Result> job;
+    switch (outcome.state) {
+      case WorkerOutcome::State::Succeeded:
+        try {
+          job.result = decode({reinterpret_cast<const std::uint8_t*>(outcome.result.constData()), static_cast<std::size_t>(outcome.result.size())});
+          job.state = JobState::Succeeded;
+        } catch (const WireError& error) {
+          job.state = JobState::Failed;
+          job.errorCode = QStringLiteral("worker_wire_error");
+          job.errorMessage = QString::fromUtf8(error.what());
+        }
+        break;
+      case WorkerOutcome::State::Cancelled:
+        job.state = JobState::Cancelled;
+        break;
+      case WorkerOutcome::State::Crashed:
+        job.state = JobState::Failed;
+        job.errorCode = QStringLiteral("worker_crashed");
+        job.errorMessage = what + QStringLiteral(" stopped unexpectedly (it may have run out of memory). ") + outcome.message;
+        break;
+      case WorkerOutcome::State::Failed:
+        job.state = JobState::Failed;
+        job.errorCode = outcome.errorCode.isEmpty() ? QStringLiteral("worker_failed") : outcome.errorCode;
+        job.errorMessage = outcome.message;
+        break;
+    }
+    worker->deleteLater();
+    done(std::move(job));
+  });
+  if (!worker->start(QByteArray("{\"kind\":\"") + kind + "\"}", QByteArray(reinterpret_cast<const char*>(payload.data()), static_cast<qsizetype>(payload.size())))) {
+    worker->deleteLater();
+    JobOutcome<Result> failed;
+    failed.state = JobState::Failed;
+    failed.errorCode = QStringLiteral("worker_start_failed");
+    failed.errorMessage = what + QStringLiteral(" could not be started.");
+    done(std::move(failed));
+  }
+}
 // The viewport's plan preview shows the sections with their registration keys (segmentationPreview.ts, generateSegmentationPlanPreview): the canonical
 // registration run over the unkeyed preview bodies, asynchronously because it is slow for many sections. It is display geometry only, never an execution
 // result. A newer plan, a reset or an execution supersedes it; if the registration yields no keys the sections stay as planned.
 void AppController::startSegmentationPreviewRegistration() {
+  if (segmentationPreviewWorker_) segmentationPreviewWorker_->cancel();   // a newer plan supersedes the preview in progress
   segmentation_.previewState = QStringLiteral("none");
   segmentation_.previewReason.clear();
   segmentation_.previewKeyCount = 0;
@@ -1436,11 +1493,7 @@ void AppController::startSegmentationPreviewRegistration() {
   const SegmentationSourceSnapshot snapshot = segmentation_.source->snapshot;
   const ReferenceMoldDefinition definition = segmentation_.source->definition;
   const std::vector<MoldBody> unkeyed = segmentation_.shownBodies;
-  runJob<DerivedRegistrationState>(
-      this, CancellationToken(),
-      [engine, plan, snapshot, definition, unkeyed](const CancellationToken&, const ProgressCallback&) {
-        return generateSegmentationRegistration(*engine, plan, snapshot, definition, unkeyed, "segmentation-preview-registration");
-      },
+  const auto done =
       [this, generation, revision](JobOutcome<DerivedRegistrationState> outcome) {
         // Superseded (a newer plan, a reset, an execution) or no longer showing the plan: drop it.
         if (generation != segmentation_.generation || revision != segmentation_.previewRevision || segmentation_.phase != QLatin1String("planned")) return;
@@ -1465,9 +1518,26 @@ void AppController::startSegmentationPreviewRegistration() {
           segmentation_.previewReason = state.report ? QString::fromStdString(state.report->reasonCode) : QString::fromStdString(state.status);
         }
         emit segmentationChanged();
-      });
+      };
+  if (!workerExecutable_.isEmpty()) {   // P0-5: a separate process; a newer plan, a reset or an execution kills it instead of leaving it to finish unseen
+    SegmentationWorkerRequest wire;
+    wire.plan = plan;
+    wire.snapshot = snapshot;
+    wire.definition = definition;
+    wire.bodies = unkeyed;
+    wire.revisionPrefix = "segmentation-preview-registration";
+    startWorkerJob<DerivedRegistrationState>(
+        segmentationPreviewWorker_, QByteArray("segmentation-preview"), encodeSegmentationWorkerRequest(wire), QStringLiteral("The preview process"),
+        [](std::span<const std::uint8_t> bytes) { return decodeRegistrationState(bytes); }, nullptr, done);
+    return;
+  }
+  runJob<DerivedRegistrationState>(
+      this, CancellationToken(),
+      [engine, plan, snapshot, definition, unkeyed](const CancellationToken&, const ProgressCallback&) {
+        return generateSegmentationRegistration(*engine, plan, snapshot, definition, unkeyed, "segmentation-preview-registration");
+      },
+      done);
 }
-
 std::optional<CommittedMoldSource> AppController::committedMoldSource() const {
   if (!moldResult_) return std::nullopt;
   CommittedMoldSource source;
@@ -1607,16 +1677,14 @@ void AppController::executeSegmentation() {
     return;
   }
   const quint64 generation = ++segmentation_.generation;  // also supersedes a preview still running
+  if (segmentationPreviewWorker_) segmentationPreviewWorker_->cancel();
   segmentation_.previewState = QStringLiteral("none");
   segmentation_.phase = QStringLiteral("executing");
   emit segmentationChanged();
   setBusy(true, QStringLiteral("segmenting"), 0);
   setStatus(QStringLiteral("Cutting the mold block…"));
 
-  struct SegmentationJob {
-    SegmentationExecutionResult result;
-    std::optional<DerivedRegistrationState> registration;
-  };
+  using SegmentationJob = SegmentationJobResult;
   CancellationToken cancel;
   activeCancel_ = cancel;
   auto engine = engine_;
@@ -1624,25 +1692,7 @@ void AppController::executeSegmentation() {
   const SegmentationSourceSnapshot snapshot = segmentation_.source->snapshot;
   const ReferenceMoldDefinition definition = segmentation_.source->definition;
   const Point3 printer = *printerVolume_;
-  runJob<SegmentationJob>(
-      this, cancel,
-      [engine, plan, snapshot, definition, printer](const CancellationToken& token, const ProgressCallback& progress) {
-        SegmentationJob job;
-        const SegmentationPreflight preflight = createSegmentationExecutionRequest(plan, snapshot, printer);
-        if (!preflight.ok) {
-          job.result = preflight.failure;
-          return job;
-        }
-        if (progress) progress("segmenting", 0.2);
-        job.result = executePlaneSegmentation(*engine, preflight.request, token);
-        if (job.result.status == "executed") {
-          if (progress) progress("registration", 0.8);
-          std::vector<MoldBody> bodies;
-          for (const SegmentationExecutedBody& b : job.result.bodies) bodies.push_back(b.body);
-          job.registration = generateSegmentationRegistration(*engine, plan, snapshot, definition, bodies, "segmentation-registration");
-        }
-        return job;
-      },
+  const auto done =
       [this, generation](JobOutcome<SegmentationJob> outcome) {
         activeCancel_.reset();
         setBusy(false);
@@ -1685,14 +1735,31 @@ void AppController::executeSegmentation() {
         emit segmentationChanged();
         emit moldInputsChanged();
         setStatus(segmentation_.message);
-      },
+      };
+  const auto onProgress =
       [this](QString stage, double fraction) {
         busyStage_ = stage;
         busyProgress_ = fraction;
         emit busyChanged();
-      });
+      };
+  if (!workerExecutable_.isEmpty()) {   // P0-5: a separate process, so that Cancel and a reset really stop the cuts
+    SegmentationWorkerRequest wire;
+    wire.plan = plan;
+    wire.snapshot = snapshot;
+    wire.definition = definition;
+    wire.printerVolume = printer;
+    startWorkerJob<SegmentationJob>(
+        segmentationWorker_, QByteArray("segmentation-execution"), encodeSegmentationWorkerRequest(wire), QStringLiteral("The segmentation process"),
+        [](std::span<const std::uint8_t> bytes) { return decodeSegmentationJobResult(bytes); }, onProgress, done);
+    return;
+  }
+  runJob<SegmentationJob>(
+      this, cancel,
+      [engine, plan, snapshot, definition, printer](const CancellationToken& token, const ProgressCallback& progress) {
+        return runSegmentationExecutionJob(*engine, plan, snapshot, definition, printer, token, progress);
+      },
+      done, onProgress);
 }
-
 QVariantMap AppController::segmentation() const {
   QVariantMap m{{"phase", segmentation_.phase}, {"message", segmentation_.message}, {"adopted", segmentation_.adopted},
                 {"previewState", segmentation_.previewState}, {"previewReason", segmentation_.previewReason},

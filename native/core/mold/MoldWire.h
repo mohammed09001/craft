@@ -11,6 +11,7 @@
 
 #include "mold/CavityGeneration.h"
 #include "mold/DerivedMold.h"
+#include "mold/Segmentation.h"
 #include "mold/SprueGeneration.h"
 #include "wire/Wire.h"
 
@@ -29,6 +30,26 @@ struct MoldWorkerResult {
   DerivedMoldEvaluation derived;
   std::map<std::string, SprueResultCache::Entry> sprueCache;
 };
+
+/// What the worker needs for a segmentation job: the plan, the source it was planned from, the definition and the printer volume. The preview
+/// registration also carries the unkeyed section bodies it is run over and the revision prefix of its result.
+struct SegmentationWorkerRequest {
+  SegmentationPlan plan;
+  SegmentationSourceSnapshot snapshot;
+  ReferenceMoldDefinition definition;
+  Point3 printerVolume;
+  std::vector<MoldBody> bodies;
+  std::string revisionPrefix;
+};
+
+std::vector<std::uint8_t> encodeSegmentationWorkerRequest(const SegmentationWorkerRequest& request);
+SegmentationWorkerRequest decodeSegmentationWorkerRequest(std::span<const std::uint8_t> bytes);
+
+std::vector<std::uint8_t> encodeSegmentationJobResult(const SegmentationJobResult& result);
+SegmentationJobResult decodeSegmentationJobResult(std::span<const std::uint8_t> bytes);
+
+std::vector<std::uint8_t> encodeRegistrationState(const DerivedRegistrationState& state);
+DerivedRegistrationState decodeRegistrationState(std::span<const std::uint8_t> bytes);
 
 std::vector<std::uint8_t> encodeMoldWorkerRequest(const MoldWorkerRequest& request);
 MoldWorkerRequest decodeMoldWorkerRequest(std::span<const std::uint8_t> bytes);

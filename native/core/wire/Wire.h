@@ -126,6 +126,18 @@ void io(A& a, std::array<T, N>& v) {
   for (T& e : v) io(a, e);
 }
 
+/// A C array member (a few segmentation structs have them).
+template <class A, class T, std::size_t N>
+void io(A& a, T (&v)[N]) {
+  for (std::size_t i = 0; i < N; ++i) io(a, v[i]);
+}
+
+template <class A, class X, class Y>
+void io(A& a, std::pair<X, Y>& v) {
+  io(a, v.first);
+  io(a, v.second);
+}
+
 /// A map with string keys (the sprue cache). Entries are written in key order.
 template <class A, class V>
 void io(A& a, std::map<std::string, V>& m) {

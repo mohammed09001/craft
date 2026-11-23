@@ -185,6 +185,51 @@ void compareDerived(const DerivedMoldEvaluation& a, const DerivedMoldEvaluation&
 
 std::span<const std::uint8_t> span(const std::vector<std::uint8_t>& v) { return {v.data(), v.size()}; }
 
+void comparePlan(const SegmentationPlan& a, const SegmentationPlan& b) {
+  QCOMPARE(a.id, b.id);
+  QCOMPARE(a.request.requestId, b.request.requestId);
+  QVERIFY(a.request.printerVolume == b.request.printerVolume);
+  QCOMPARE(a.request.policyVersion, b.request.policyVersion);
+  QCOMPARE(a.algorithmId, b.algorithmId);
+  QCOMPARE(a.requiredAxes.size(), b.requiredAxes.size());
+  for (int i = 0; i < 3; ++i) QCOMPARE(a.perAxisSegmentCount[i], b.perAxisSegmentCount[i]);
+  QCOMPARE(a.selectedCandidateId, b.selectedCandidateId);
+  QCOMPARE(a.boundaries.size(), b.boundaries.size());
+  for (std::size_t i = 0; i < a.boundaries.size(); ++i) {
+    QCOMPARE(a.boundaries[i].id, b.boundaries[i].id);
+    QCOMPARE(static_cast<int>(a.boundaries[i].axis), static_cast<int>(b.boundaries[i].axis));
+    QCOMPARE(a.boundaries[i].coordinateMm, b.boundaries[i].coordinateMm);
+    QCOMPARE(a.boundaries[i].sequenceIndex, b.boundaries[i].sequenceIndex);
+  }
+  QCOMPARE(a.segments.size(), b.segments.size());
+  for (std::size_t i = 0; i < a.segments.size(); ++i) {
+    QCOMPARE(a.segments[i].id, b.segments[i].id);
+    for (int g = 0; g < 3; ++g) QCOMPARE(a.segments[i].gridIndex[g], b.segments[i].gridIndex[g]);
+    QVERIFY(a.segments[i].predictedBounds == b.segments[i].predictedBounds);
+    QCOMPARE(static_cast<int>(a.segments[i].predictedFit.status), static_cast<int>(b.segments[i].predictedFit.status));
+    for (int g = 0; g < 3; ++g) QCOMPARE(a.segments[i].predictedFit.axisFit[g], b.segments[i].predictedFit.axisFit[g]);
+    QCOMPARE(a.segments[i].sourceBodyIds, b.segments[i].sourceBodyIds);
+  }
+  QCOMPARE(a.score.segmentCount, b.score.segmentCount);
+  QCOMPARE(a.score.minimumPrintableMarginMm, b.score.minimumPrintableMarginMm);
+  QCOMPARE(a.validation.status, b.validation.status);
+  QCOMPARE(a.validation.blockers.size(), b.validation.blockers.size());
+  QCOMPARE(a.extensionObligations, b.extensionObligations);
+}
+
+void compareRegistrationState(const DerivedRegistrationState& a, const DerivedRegistrationState& b) {
+  QCOMPARE(a.status, b.status);
+  QCOMPARE(a.revision, b.revision);
+  compareBodies(a.bodies, b.bodies);
+  QCOMPARE(a.report.has_value(), b.report.has_value());
+  if (a.report) {
+    QCOMPARE(a.report->status, b.report->status);
+    QCOMPARE(a.report->reasonCode, b.report->reasonCode);
+    QCOMPARE(a.report->features.size(), b.report->features.size());
+    QCOMPARE(a.report->interfaces.size(), b.report->interfaces.size());
+  }
+}
+
 }  // namespace
 
 class TstMoldWire : public QObject {
@@ -262,6 +307,117 @@ class TstMoldWire : public QObject {
     compareDerived(result.derived, back.derived);
     compareCache(result.sprueCache, back.sprueCache);
     QCOMPARE(encodeMoldWorkerResult(back), bytes);   // nothing is lost or invented on the second pass either
+  }
+
+  // --- segmentation ---------------------------------------------------------------------------------------------------------------------------
+
+  // The JSON-like details of an issue are the one recursive value in the formats: every kind, nested, must come back with the same canonical text.
+  void theDetailsOfAnIssueSurviveARoundTripWhateverTheirShape() {
+    SegmentationWorkerRequest job;
+    SegmentationIssue issue;
+    issue.blocker = true;
+    issue.reasonCode = "code";
+    issue.message = "message";
+    issue.details = {{"number", Json::number(1.5)},
+                     {"flag", Json::boolean(true)},
+                     {"text", Json::string("a \"quoted\" \xc3\xa9 string")},
+                     {"nothing", Json::null()},
+                     {"list", Json::array({Json::number(1), Json::string("two"), Json::array({Json::boolean(false), Json::null()}), Json::object({{"deep", Json::number(-3)}})})},
+                     {"object", Json::object({{"a", Json::number(0)}, {"b", Json::object({{"c", Json::string("d")}})}})}};
+    job.snapshot.warnings.push_back(issue);
+    const MoldWorkerRequest unused;
+    const std::vector<std::uint8_t> bytes = encodeSegmentationWorkerRequest(job);
+    const SegmentationWorkerRequest back = decodeSegmentationWorkerRequest(span(bytes));
+    QCOMPARE(back.snapshot.warnings.size(), std::size_t{1});
+    const SegmentationIssue& got = back.snapshot.warnings.front();
+    QCOMPARE(got.blocker, true);
+    QCOMPARE(got.reasonCode, issue.reasonCode);
+    QCOMPARE(got.details.size(), issue.details.size());
+    for (std::size_t i = 0; i < issue.details.size(); ++i) {
+      QCOMPARE(got.details[i].first, issue.details[i].first);
+      QCOMPARE(canonicalize(got.details[i].second), canonicalize(issue.details[i].second));
+      QCOMPARE(static_cast<int>(got.details[i].second.type()), static_cast<int>(issue.details[i].second.type()));
+    }
+    QCOMPARE(encodeSegmentationWorkerRequest(back), bytes);
+  }
+
+  void aRealSegmentationRequestAndItsResultsRoundTrip() {
+    const SegmentationWorkerRequest job = craft::testing::cubeSegmentationRequest();
+    QVERIFY2(job.plan.segments.size() >= 2, "the plan must really cut the block");
+    QVERIFY(!job.bodies.empty());
+
+    const std::vector<std::uint8_t> bytes = encodeSegmentationWorkerRequest(job);
+    const SegmentationWorkerRequest back = decodeSegmentationWorkerRequest(span(bytes));
+    comparePlan(job.plan, back.plan);
+    QCOMPARE(back.snapshot.identity.definitionId, job.snapshot.identity.definitionId);
+    QCOMPARE(back.snapshot.identity.documentFingerprint, job.snapshot.identity.documentFingerprint);
+    QVERIFY(back.snapshot.aggregateBounds == job.snapshot.aggregateBounds);
+    compareBodies(back.snapshot.bodies, job.snapshot.bodies);
+    QCOMPARE(back.snapshot.protectedRegions.size(), job.snapshot.protectedRegions.size());
+    QCOMPARE(back.definition.definitionId, job.definition.definitionId);
+    QVERIFY(back.printerVolume == job.printerVolume);
+    compareBodies(back.bodies, job.bodies);
+    QCOMPARE(back.revisionPrefix, job.revisionPrefix);
+    QCOMPARE(encodeSegmentationWorkerRequest(back), bytes);
+
+    // The execution result of really running it, and the keyed preview.
+    auto engine = createManifoldMeshEngine();
+    const SegmentationJobResult executed = runSegmentationExecutionJob(*engine, job.plan, job.snapshot, job.definition, job.printerVolume, {}, {});
+    QCOMPARE(executed.result.status, std::string("executed"));
+    QVERIFY(executed.result.bodies.size() >= 2);
+    QVERIFY(executed.registration.has_value());
+    const std::vector<std::uint8_t> resultBytes = encodeSegmentationJobResult(executed);
+    const SegmentationJobResult got = decodeSegmentationJobResult(span(resultBytes));
+    QCOMPARE(got.result.status, executed.result.status);
+    QCOMPARE(got.result.stage, executed.result.stage);
+    QCOMPARE(got.result.reasonCode, executed.result.reasonCode);
+    QCOMPARE(got.result.issues.size(), executed.result.issues.size());
+    QCOMPARE(got.result.diagnostics.size(), executed.result.diagnostics.size());
+    QCOMPARE(got.result.bodies.size(), executed.result.bodies.size());
+    for (std::size_t i = 0; i < executed.result.bodies.size(); ++i) {
+      compareBody(got.result.bodies[i].body, executed.result.bodies[i].body);
+      const auto& p = got.result.bodies[i].provenance;
+      const auto& q = executed.result.bodies[i].provenance;
+      QCOMPARE(p.sourceBodyId, q.sourceBodyId);
+      QCOMPARE(p.boundaryId, q.boundaryId);
+      QCOMPARE(p.side, q.side);
+      QCOMPARE(p.cutIndex, q.cutIndex);
+      QCOMPARE(p.boundaryLineage, q.boundaryLineage);
+      QCOMPARE(p.executionRequestId, q.executionRequestId);
+    }
+    QCOMPARE(got.result.executionRequest.has_value(), executed.result.executionRequest.has_value());
+    if (executed.result.executionRequest) {
+      QCOMPARE(got.result.executionRequest->id, executed.result.executionRequest->id);
+      QCOMPARE(got.result.executionRequest->planes.size(), executed.result.executionRequest->planes.size());
+      comparePlan(got.result.executionRequest->acceptedPlan, executed.result.executionRequest->acceptedPlan);
+      compareBody(got.result.executionRequest->sourceBody, executed.result.executionRequest->sourceBody);
+    }
+    QCOMPARE(got.result.validation.has_value(), executed.result.validation.has_value());
+    if (executed.result.validation) {
+      QCOMPARE(got.result.validation->sourceVolumeMm3, executed.result.validation->sourceVolumeMm3);
+      QCOMPARE(got.result.validation->outputVolumeMm3, executed.result.validation->outputVolumeMm3);
+      QCOMPARE(got.result.validation->cuts.size(), executed.result.validation->cuts.size());
+    }
+    compareRegistrationState(*got.registration, *executed.registration);
+    QCOMPARE(encodeSegmentationJobResult(got), resultBytes);
+
+    const DerivedRegistrationState preview = generateSegmentationRegistration(*engine, job.plan, job.snapshot, job.definition, job.bodies, job.revisionPrefix);
+    const std::vector<std::uint8_t> previewBytes = encodeRegistrationState(preview);
+    compareRegistrationState(decodeRegistrationState(span(previewBytes)), preview);
+  }
+
+  void truncatedSegmentationDataIsRefusedAtEveryLength() {
+    const std::vector<std::uint8_t> bytes = encodeSegmentationWorkerRequest(craft::testing::cubeSegmentationRequest());
+    QVERIFY(bytes.size() > 100);
+    for (std::size_t length = 0; length < bytes.size(); length += (length < 600 ? 1 : 53)) {
+      bool refused = false;
+      try {
+        (void)decodeSegmentationWorkerRequest({bytes.data(), length});
+      } catch (const WireError&) {
+        refused = true;
+      }
+      QVERIFY2(refused, qPrintable(QString("a %1-byte prefix of %2 bytes was accepted").arg(length).arg(bytes.size())));
+    }
   }
 
   void truncatedDataIsRefusedAtEveryLength() {

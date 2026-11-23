@@ -200,6 +200,54 @@ class TstGeometryWorker : public QObject {
     QVERIFY(!processExists(pid));
   }
 
+  // --- the segmentation jobs ------------------------------------------------------------------------------------------------------------------
+
+  void aSegmentationExecutionGivesTheSameSectionsAsRunningItHere() {
+    const craft::SegmentationWorkerRequest job = craft::testing::cubeSegmentationRequest();
+    QVERIFY(job.plan.segments.size() >= 2);
+    auto engine = craft::createManifoldMeshEngine();
+    const craft::SegmentationJobResult here = craft::runSegmentationExecutionJob(*engine, job.plan, job.snapshot, job.definition, job.printerVolume, {}, {});
+    QCOMPARE(here.result.status, std::string("executed"));
+
+    const std::vector<std::uint8_t> payload = craft::encodeSegmentationWorkerRequest(job);
+    WorkerProcess worker(QStringLiteral(CRAFT_WORKER_EXE));
+    QSignalSpy progress(&worker, &WorkerProcess::progress);
+    QVERIFY(worker.start(R"({"kind":"segmentation-execution"})", QByteArray(reinterpret_cast<const char*>(payload.data()), static_cast<qsizetype>(payload.size()))));
+    const WorkerOutcome outcome = runToEnd(worker, 120000);
+    QCOMPARE(outcome.state, WorkerOutcome::State::Succeeded);
+    QVERIFY(progress.count() >= 2);   // "segmenting" and "registration"
+    const craft::SegmentationJobResult there = craft::decodeSegmentationJobResult({reinterpret_cast<const std::uint8_t*>(outcome.result.constData()), static_cast<std::size_t>(outcome.result.size())});
+    QCOMPARE(there.result.status, here.result.status);
+    QCOMPARE(there.result.bodies.size(), here.result.bodies.size());
+    for (std::size_t i = 0; i < here.result.bodies.size(); ++i) {
+      QCOMPARE(there.result.bodies[i].body.id, here.result.bodies[i].body.id);
+      QCOMPARE(there.result.bodies[i].body.volumeMm3, here.result.bodies[i].body.volumeMm3);
+      QCOMPARE(there.result.bodies[i].body.mesh.positions, here.result.bodies[i].body.mesh.positions);
+      QCOMPARE(there.result.bodies[i].body.mesh.indices, here.result.bodies[i].body.mesh.indices);
+    }
+    QVERIFY(there.registration.has_value() && here.registration.has_value());
+    QCOMPARE(there.registration->status, here.registration->status);
+    QCOMPARE(there.registration->bodies.size(), here.registration->bodies.size());
+  }
+
+  void aSegmentationPreviewGivesTheSameKeysAsRunningItHere() {
+    const craft::SegmentationWorkerRequest job = craft::testing::cubeSegmentationRequest();
+    auto engine = craft::createManifoldMeshEngine();
+    const craft::DerivedRegistrationState here =
+        craft::generateSegmentationRegistration(*engine, job.plan, job.snapshot, job.definition, job.bodies, job.revisionPrefix);
+
+    const std::vector<std::uint8_t> payload = craft::encodeSegmentationWorkerRequest(job);
+    WorkerProcess worker(QStringLiteral(CRAFT_WORKER_EXE));
+    QVERIFY(worker.start(R"({"kind":"segmentation-preview"})", QByteArray(reinterpret_cast<const char*>(payload.data()), static_cast<qsizetype>(payload.size()))));
+    const WorkerOutcome outcome = runToEnd(worker, 120000);
+    QCOMPARE(outcome.state, WorkerOutcome::State::Succeeded);
+    const craft::DerivedRegistrationState there = craft::decodeRegistrationState({reinterpret_cast<const std::uint8_t*>(outcome.result.constData()), static_cast<std::size_t>(outcome.result.size())});
+    QCOMPARE(there.status, here.status);
+    QCOMPARE(there.revision, here.revision);
+    QCOMPARE(there.bodies.size(), here.bodies.size());
+    for (std::size_t i = 0; i < here.bodies.size(); ++i) QCOMPARE(there.bodies[i].mesh.positions, here.bodies[i].mesh.positions);
+  }
+
   void aMoldJobWithoutAPartFailsWithACode() {
     craft::MoldWorkerRequest job;   // no grounded part at all
     const std::vector<std::uint8_t> payload = craft::encodeMoldWorkerRequest(job);

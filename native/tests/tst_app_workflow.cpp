@@ -119,6 +119,35 @@ QByteArray fileBytes(const QString& path) {
 
 }  // namespace
 
+// What a segmentation flow (plan, wait for the preview keys, execute) leaves the user with.
+struct SegmentationOutcome {
+  QString previewState, phase;
+  std::vector<MoldBody> bodies;
+  int sceneCount = 0;
+  std::size_t keyTriangles = 0;
+};
+
+SegmentationOutcome runSegmentationFlow(bool inWorker) {
+  auto app = makeApp();
+  if (inWorker) app->setGeometryWorkerExecutable(QStringLiteral(CRAFT_WORKER_EXE));
+  app->importStlFile(bracket());
+  waitFor([&] { return app->modelPhase() == "ready"; });
+  app->setPrinterVolume(150, 300, 300);
+  app->planSegmentation();
+  waitFor([&] { return app->segmentation().value("previewState").toString() != "running"; }, 120000);
+  SegmentationOutcome out;
+  out.previewState = app->segmentation().value("previewState").toString();
+  app->executeSegmentation();
+  waitFor([&] { return app->segmentation().value("phase").toString() != "executing" && !app->busy(); }, 120000);
+  out.phase = app->segmentation().value("phase").toString();
+  out.bodies = app->segmentationBodies();
+  out.sceneCount = app->scene()->count();
+  for (const MoldBody& body : out.bodies)
+    for (const MeshFaceRun& run : body.mesh.faceRuns)
+      if (run.role == FaceRole::RegistrationKey) out.keyTriangles += run.triangleCount;
+  return out;
+}
+
 class WorkflowTest : public QObject {
   Q_OBJECT
  private slots:
@@ -2042,6 +2071,78 @@ class WorkflowTest : public QObject {
     const QVariantList issues = app->moldIssues();
     QCOMPARE(issues.size(), 1);
     QCOMPARE(issues.front().toMap().value("code").toString(), QStringLiteral("registration_interface_not_found"));
+  }
+
+  // --- segmentation in a separate process (P0-5 phase 3b) ---------------------------------------------------------------------------------------
+
+  void aSegmentationRunInAWorkerGivesTheSameSectionsAndKeys() {
+    const SegmentationOutcome here = runSegmentationFlow(false);
+    const SegmentationOutcome there = runSegmentationFlow(true);
+    QCOMPARE(here.phase, QStringLiteral("executed"));
+    QCOMPARE(there.phase, QStringLiteral("executed"));
+    QCOMPARE(here.previewState, QStringLiteral("keyed"));
+    QCOMPARE(there.previewState, QStringLiteral("keyed"));
+    QCOMPARE(there.sceneCount, here.sceneCount);
+    QCOMPARE(there.bodies.size(), here.bodies.size());
+    for (std::size_t i = 0; i < here.bodies.size(); ++i) {
+      QCOMPARE(there.bodies[i].id, here.bodies[i].id);
+      QCOMPARE(there.bodies[i].volumeMm3, here.bodies[i].volumeMm3);
+      QCOMPARE(there.bodies[i].mesh.positions, here.bodies[i].mesh.positions);
+      QCOMPARE(there.bodies[i].mesh.indices, here.bodies[i].mesh.indices);
+    }
+    QVERIFY(here.keyTriangles > 0);   // the sections really are keyed
+    QCOMPARE(there.keyTriangles, here.keyTriangles);
+  }
+
+  void cancellingASegmentationInAWorkerStopsItForRealAndItCanBeRunAgain() {
+    auto app = makeApp();
+    app->setGeometryWorkerExecutable(QStringLiteral(CRAFT_WORKER_EXE));
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->setPrinterVolume(150, 300, 300);
+    app->planSegmentation();
+    QVERIFY(waitFor([&] { return app->segmentation().value("previewState").toString() != "running"; }, 120000));
+    app->executeSegmentation();
+    QCOMPARE(app->segmentation().value("phase").toString(), QStringLiteral("executing"));
+    QVERIFY(app->busy());
+    app->cancelCurrentJob();
+    QVERIFY(waitFor([&] { return !app->busy(); }, 20000));   // the killed process's end releases it: nothing waits for a Boolean
+    QCOMPARE(app->segmentation().value("phase").toString(), QStringLiteral("failed"));
+    QVERIFY(app->segmentation().value("message").toString().contains("cancelled"));
+    QVERIFY(!app->segmentationAdopted());
+
+    app->planSegmentation();   // and the same part can be planned and cut again
+    QVERIFY(waitFor([&] { return app->segmentation().value("previewState").toString() != "running"; }, 120000));
+    app->executeSegmentation();
+    QVERIFY(waitFor([&] { return app->segmentation().value("phase").toString() != "executing" && !app->busy(); }, 120000));
+    QCOMPARE(app->segmentation().value("phase").toString(), QStringLiteral("executed"));
+  }
+
+  void aSupersededPreviewInAWorkerIsKilledAndTheNewOneWins() {
+    auto app = makeApp();
+    app->setGeometryWorkerExecutable(QStringLiteral(CRAFT_WORKER_EXE));
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    app->setPrinterVolume(150, 300, 300);
+    app->planSegmentation();
+    QCOMPARE(app->segmentation().value("previewState").toString(), QStringLiteral("running"));
+    app->addSegmentationExtension("y");   // a newer plan: the preview under way is superseded
+    QCOMPARE(app->segmentation().value("sectionCount").toULongLong(), qulonglong{4});
+    QVERIFY(waitFor([&] { return app->segmentation().value("previewState").toString() != "running"; }, 120000));
+    QCOMPARE(app->segmentation().value("previewState").toString(), QStringLiteral("keyed"));
+    std::size_t keys = 0;
+    for (const MoldBody& body : app->segmentationBodies())
+      for (const MeshFaceRun& run : body.mesh.faceRuns)
+        if (run.role == FaceRole::RegistrationKey) keys += run.triangleCount;
+    QVERIFY(keys > 0);
+    QCOMPARE(app->segmentationBodies().size(), std::size_t{4});
+
+    app->resetSegmentation();   // a reset while a preview runs: nothing comes back afterwards
+    app->planSegmentation();
+    app->resetSegmentation();
+    QTest::qWait(500);
+    QCOMPARE(app->segmentation().value("phase").toString(), QStringLiteral("idle"));
+    QCOMPARE(app->scene()->count(), 1);
   }
 
   // The plan preview shows the sections with their registration keys (segmentationPreview.ts), computed in the background: the sections appear at

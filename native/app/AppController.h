@@ -11,6 +11,7 @@
 // number; a completion whose generation is no longer current is dropped.
 
 #include <QObject>
+#include <QPointer>
 #include <QTimer>
 #include <QQuick3DGeometry>
 #include <QUrl>
@@ -22,6 +23,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <span>
 
 #include "AnalysisWorkerClient.h"
 #include "GeometryWorker.h"
@@ -693,6 +695,11 @@ class AppController : public QObject {
   int moldOrphans_ = 0;
   int masterOrphans_ = 0;
   QString workerExecutable_;
+  QPointer<WorkerProcess> segmentationWorker_, segmentationPreviewWorker_;   // the segmentation execution and the plan preview, when run in a worker
+  template <class Result>
+  void startWorkerJob(QPointer<WorkerProcess>& slot, const QByteArray& kind, const std::vector<std::uint8_t>& payload, const QString& what,
+                      std::function<Result(std::span<const std::uint8_t>)> decode, std::function<void(QString, double)> onProgress,
+                      std::function<void(JobOutcome<Result>)> done);
   std::unique_ptr<WorkerProcess> masterWorker_;
   std::unique_ptr<WorkerProcess> moldWorker_;
   int masterRunGeneration_ = 0;

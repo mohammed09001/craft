@@ -8,6 +8,7 @@
 #include "TestMeshes.h"
 #include "mold/CavityGeneration.h"
 #include "mold/MoldWire.h"
+#include "mold/Segmentation.h"
 #include "mold/SprueProfile.h"
 
 namespace craft::testing {
@@ -32,6 +33,25 @@ inline MoldWorkerRequest cubeMoldWorkerRequest(bool split, int sprueCount) {
     d.creationOrder = i;
     job.sprueIntents.push_back(d);
   }
+  return job;
+}
+
+
+/// A real segmentation request: a 20 x 20 x 20 mm part in a 10 mm clearance block, planned for a 25 mm printer, so the plan has cuts.
+inline SegmentationWorkerRequest cubeSegmentationRequest() {
+  SegmentationWorkerRequest job;
+  auto preliminary = capturePreliminaryWholeBlockSnapshot(test::box(-10, -10, 0, 10, 10, 20), 10, "wire-test");
+  if (!preliminary) return job;
+  const SegmentationSourceResult source = readSegmentationSource(preliminary, std::nullopt);
+  if (!source.source) return job;
+  job.snapshot = source.source->snapshot;
+  job.definition = source.source->definition;
+  job.printerVolume = {25, 25, 25};
+  const SegmentationRequest request = createSegmentationRequest(job.snapshot, job.printerVolume);
+  const SegmentationPlanningResult planning = planSegmentation(request, job.snapshot);
+  if (planning.plan) job.plan = *planning.plan;
+  job.bodies = buildSegmentationPlanPreviewBodies(job.plan, job.definition);
+  job.revisionPrefix = "wire-test";
   return job;
 }
 

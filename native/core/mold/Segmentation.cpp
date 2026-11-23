@@ -1345,4 +1345,25 @@ DerivedRegistrationState generateSegmentationRegistration(IMeshGeometryEngine& e
   return generateDerivedRegistration(engine, snapshot);
 }
 
+
+SegmentationJobResult runSegmentationExecutionJob(IMeshGeometryEngine& engine, const SegmentationPlan& plan,
+                                                  const SegmentationSourceSnapshot& snapshot,
+                                                  const ReferenceMoldDefinition& definition, const Point3& printerVolume,
+                                                  const CancellationToken& cancel, const ProgressCallback& progress) {
+  SegmentationJobResult job;
+  const SegmentationPreflight preflight = createSegmentationExecutionRequest(plan, snapshot, printerVolume);
+  if (!preflight.ok) {
+    job.result = preflight.failure;
+    return job;
+  }
+  if (progress) progress("segmenting", 0.2);
+  job.result = executePlaneSegmentation(engine, preflight.request, cancel);
+  if (job.result.status == "executed") {
+    if (progress) progress("registration", 0.8);
+    std::vector<MoldBody> bodies;
+    for (const SegmentationExecutedBody& b : job.result.bodies) bodies.push_back(b.body);
+    job.registration = generateSegmentationRegistration(engine, plan, snapshot, definition, bodies, "segmentation-registration");
+  }
+  return job;
+}
 }  // namespace craft
