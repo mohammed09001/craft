@@ -1686,9 +1686,9 @@ int main(int argc, char* argv[]) {
     }
   }
   if (parser.isSet("mold-opacity")) controller.setMoldOpacity(parser.value("mold-opacity").toDouble());
-  // P0-5: Master Mold and the mold generation run in a separate process (this executable, --geometry-worker) so that Cancel and the time limit really stop it. CRAFT_GEOMETRY_IN_PROCESS=1 keeps
-  // the old in-process run (for comparison and as a fallback).
-  if (!qEnvironmentVariableIsSet("CRAFT_GEOMETRY_IN_PROCESS")) controller.setGeometryWorkerExecutable(QCoreApplication::applicationFilePath());
+  // P0-5: Master Mold, the mold generation and the segmentation run in a separate process (this executable, --geometry-worker) so that Cancel and the time limit really stop it.
+  // There is no in-process path: a controller without this setting fails those jobs with `worker_unavailable`.
+  controller.setGeometryWorkerExecutable(QCoreApplication::applicationFilePath());
 
 #ifdef CRAFT_SMOKE_REAL_EVENTS
   if (parser.isSet("bench-no-vsync")) {

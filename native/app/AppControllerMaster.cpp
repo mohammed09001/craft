@@ -71,11 +71,7 @@ void AppController::generateMasterMold() {
     return;
   }
   if (busy_) return;
-  if (masterOrphans_ > 0) {
-    setStatus(QStringLiteral("The previous Master Mold run is still ending its last step (it cannot be interrupted). Try again in a moment."));
-    emit masterMoldChanged();
-    return;
-  }
+
   // Like the mold: refused before any work when the part's tooling cannot fit in the memory that is free (estimateMasterMoldPeakBytes).
   {
     const std::uint64_t available = memoryProbe_ ? memoryProbe_() : 0;
@@ -146,11 +142,9 @@ void AppController::generateMasterMold() {
 
   auto engine = engine_;
   const MasterMoldRequest request = *start.request;
-  const bool inWorker = !workerExecutable_.isEmpty();   // P0-5: the run is a separate process that a cancel can really kill
   const auto done =
-      [this, generation, abandoned, timeoutMs, inWorker](JobOutcome<MasterMoldResult> outcome) {
+      [this, generation, abandoned, timeoutMs](JobOutcome<MasterMoldResult> outcome) {
         if (*abandoned) {  // the run was given up (timeout, cancel, reset): the UI has moved on, nothing here may touch it
-          if (!inWorker) --masterOrphans_;   // a worker process is killed, not left to end: nothing is still running
           emit masterMoldChanged();
           return;
         }
@@ -198,7 +192,15 @@ void AppController::generateMasterMold() {
         emit busyChanged();
         emit masterMoldChanged();
       };
-  if (inWorker) {
+  if (workerExecutable_.isEmpty()) {   // the geometry always runs in its own process (P0-5); only a host that never set one (a bug) gets here
+    JobOutcome<MasterMoldResult> failed;
+    failed.state = JobState::Failed;
+    failed.errorCode = QStringLiteral("worker_unavailable");
+    failed.errorMessage = QStringLiteral("The Master Mold process is not configured.");
+    done(std::move(failed));
+    return;
+  }
+  {
     masterWorker_ = std::make_unique<WorkerProcess>(workerExecutable_, this);
     WorkerProcess* worker = masterWorker_.get();
     connect(worker, &WorkerProcess::progress, this, [onProgress](QString stage, double fraction) { onProgress(stage, fraction); });
@@ -243,33 +245,16 @@ void AppController::generateMasterMold() {
       done(std::move(failed));
     }
     return;
-  }
-  runJob<MasterMoldResult>(
-      this, cancel,
-      [engine, request](const CancellationToken& token, const ProgressCallback& progress) {
-        MasterMoldEngineHooks hooks;
-        hooks.cancel = token;
-        hooks.onStage = [progress](const MasterMoldProgressStage& stage) {
-          // One line per stage change with the time since the run started: where a slow Master Mold spends its time (P2-5).
-          qCInfo(lcApp).noquote() << "Master Mold stage" << QString::fromStdString(stage.stage) << QString::fromStdString(stage.detail.value_or(std::string()))
-                                  << "at" << qRound64(stage.elapsedMs) << "ms";
-          if (progress) progress(stage.stage, (stage.stageIndex + 1.0) / stage.stageCount);
-        };
-        return evaluateMasterMoldGeneration(*engine, request, hooks);
-      },
-      done, onProgress);
-}
+  }}
 // Gives up the Master Mold run in progress: the UI is released now, the worker thread is left to end on its own (cancelled, so it stops at its next check
 // and otherwise at the end of the Boolean it is in) and its result will be ignored.
 void AppController::abandonMasterRun(const QString& message, bool failTheStore) {
   if (!masterRunning_ || !masterAbandon_) return;
   *masterAbandon_ = true;
   masterAbandon_.reset();
-  if (masterWorker_) {   // a separate process: stop it for real, so nothing keeps running and nothing is left to wait for
+  if (masterWorker_) {   // the run is a separate process: stop it for real, so nothing keeps running and nothing is left to wait for
     masterWorker_->cancel();
     masterWorker_.release()->deleteLater();
-  } else {
-    ++masterOrphans_;
   }
   if (activeCancel_) {
     activeCancel_->cancel();
@@ -467,8 +452,7 @@ QVariantMap AppController::masterMold() const {
   QVariantMap m{{"status", QString::fromStdString(store.status())},
                 {"uiKind", QString::fromStdString(ui.kind)},
                 {"generating", store.status() == "generating"},
-                {"canGenerate", model_.has_value() && !busy_ && masterOrphans_ == 0},
-                {"windingDown", masterOrphans_ > 0}};
+                {"canGenerate", model_.has_value() && !busy_}};
 
   QString progress;
   if (store.progressStage()) progress = progressLabel(store.progressStage()->stage);

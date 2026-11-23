@@ -148,11 +148,9 @@ void AppController::abandonMoldRun() {
   if (moldPhase_ != QStringLiteral("generating") || !moldAbandon_) return;
   *moldAbandon_ = true;
   moldAbandon_.reset();
-  if (moldWorker_) {   // a separate process: stop it for real, so nothing keeps running and nothing is left to wait for
+  if (moldWorker_) {   // the run is a separate process: stop it for real, so nothing keeps running and nothing is left to wait for
     moldWorker_->cancel();
     moldWorker_.release()->deleteLater();
-  } else {
-    ++moldOrphans_;
   }
   if (activeCancel_) {
     activeCancel_->cancel();
@@ -551,11 +549,7 @@ void AppController::generateMold() {
     return;
   }
   if (busy_) return;
-  if (moldOrphans_ > 0) {
-    setStatus(QStringLiteral("The previous mold generation is still ending its last step (it cannot be interrupted). Try again in a moment."));
-    emit moldChanged();
-    return;
-  }
+
   // A part so large that the mold cannot fit in the memory that is free is refused before any work starts, with the numbers: the alternative is a
   // process that grows until the machine stalls or the process dies (a 10.7M-triangle part, the file limit, passed 9 GiB; estimateMoldPeakBytes).
   const std::uint64_t available = memoryProbe_ ? memoryProbe_() : 0;
@@ -605,11 +599,9 @@ void AppController::generateMold() {
     MoldGenerationResult mold;
     DerivedMoldEvaluation derived;
   };
-  const bool inWorker = !workerExecutable_.isEmpty();   // P0-5: the run is a separate process that a cancel can really kill
   const auto done =
-      [this, generation, inputs, recordHistory, abandoned, inWorker, before = captureHistory()](JobOutcome<MoldJobResult> outcome) {
+      [this, generation, inputs, recordHistory, abandoned, before = captureHistory()](JobOutcome<MoldJobResult> outcome) {
         if (*abandoned) {  // given up (cancel, a change of inputs, undo): the UI has moved on, nothing here may touch it
-          if (!inWorker) --moldOrphans_;   // a worker process is killed, not left to end: nothing is still running
           emit moldChanged();
           return;
         }
@@ -643,7 +635,15 @@ void AppController::generateMold() {
         busyProgress_ = fraction;
         emit busyChanged();
       };
-  if (inWorker) {
+  if (workerExecutable_.isEmpty()) {   // the geometry always runs in its own process (P0-5); only a host that never set one (a bug) gets here
+    JobOutcome<MoldJobResult> failed;
+    failed.state = JobState::Failed;
+    failed.errorCode = QStringLiteral("worker_unavailable");
+    failed.errorMessage = QStringLiteral("The mold process is not configured.");
+    done(std::move(failed));
+    return;
+  }
+  {
     moldWorker_ = std::make_unique<WorkerProcess>(workerExecutable_, this);
     WorkerProcess* worker = moldWorker_.get();
     connect(worker, &WorkerProcess::progress, this, [onProgress](QString stage, double fraction) { onProgress(stage, fraction); });
@@ -694,17 +694,7 @@ void AppController::generateMold() {
       done(std::move(failed));
     }
     return;
-  }
-  runJob<MoldJobResult>(
-      this, cancel,
-      [engine, request, intents = sprueIntents_, cache = sprueCache_](const CancellationToken& token, const ProgressCallback& progress) {
-        MoldJobResult job;
-        job.mold = craft::generateMold(*engine, request, token, progress);
-        job.derived = evaluateDerivedMold(*engine, job.mold, intents, progress, cache.get());
-        return job;
-      },
-      done, onProgress);
-}
+  }}
 std::vector<MoldBody> AppController::finalBodies() const {
   if (registration_ && !registration_->bodies.empty()) return registration_->bodies;
   if (sprueEvaluation_) return sprueEvaluation_->bodies;
@@ -1538,7 +1528,13 @@ void AppController::startSegmentationPreviewRegistration() {
         }
         emit segmentationChanged();
       };
-  if (!workerExecutable_.isEmpty()) {   // P0-5: a separate process; a newer plan, a reset or an execution kills it instead of leaving it to finish unseen
+  if (workerExecutable_.isEmpty()) {   // the geometry always runs in its own process (P0-5)
+    segmentation_.previewState = QStringLiteral("unkeyed");
+    segmentation_.previewReason = QStringLiteral("worker_unavailable");
+    emit segmentationChanged();
+    return;
+  }
+  {   // a separate process: a newer plan, a reset or an execution kills it instead of leaving it to finish unseen
     SegmentationWorkerRequest wire;
     wire.plan = plan;
     wire.snapshot = snapshot;
@@ -1549,14 +1545,7 @@ void AppController::startSegmentationPreviewRegistration() {
         segmentationPreviewWorker_, QByteArray("segmentation-preview"), encodeSegmentationWorkerRequest(wire), QStringLiteral("The preview process"),
         [](std::span<const std::uint8_t> bytes) { return decodeRegistrationState(bytes); }, nullptr, done);
     return;
-  }
-  runJob<DerivedRegistrationState>(
-      this, CancellationToken(),
-      [engine, plan, snapshot, definition, unkeyed](const CancellationToken&, const ProgressCallback&) {
-        return generateSegmentationRegistration(*engine, plan, snapshot, definition, unkeyed, "segmentation-preview-registration");
-      },
-      done);
-}
+  }}
 std::optional<CommittedMoldSource> AppController::committedMoldSource() const {
   if (!moldResult_) return std::nullopt;
   CommittedMoldSource source;
@@ -1763,7 +1752,15 @@ void AppController::executeSegmentation() {
         busyProgress_ = fraction;
         emit busyChanged();
       };
-  if (!workerExecutable_.isEmpty()) {   // P0-5: a separate process, so that Cancel and a reset really stop the cuts
+  if (workerExecutable_.isEmpty()) {   // the geometry always runs in its own process (P0-5)
+    JobOutcome<SegmentationJob> failed;
+    failed.state = JobState::Failed;
+    failed.errorCode = QStringLiteral("worker_unavailable");
+    failed.errorMessage = QStringLiteral("The segmentation process is not configured.");
+    done(std::move(failed));
+    return;
+  }
+  {   // a separate process, so that Cancel and a reset really stop the cuts
     SegmentationWorkerRequest wire;
     wire.plan = plan;
     wire.snapshot = snapshot;
@@ -1773,14 +1770,7 @@ void AppController::executeSegmentation() {
         segmentationWorker_, QByteArray("segmentation-execution"), encodeSegmentationWorkerRequest(wire), QStringLiteral("The segmentation process"),
         [](std::span<const std::uint8_t> bytes) { return decodeSegmentationJobResult(bytes); }, onProgress, done);
     return;
-  }
-  runJob<SegmentationJob>(
-      this, cancel,
-      [engine, plan, snapshot, definition, printer](const CancellationToken& token, const ProgressCallback& progress) {
-        return runSegmentationExecutionJob(*engine, plan, snapshot, definition, printer, token, progress);
-      },
-      done, onProgress);
-}
+  }}
 QVariantMap AppController::segmentation() const {
   QVariantMap m{{"phase", segmentation_.phase}, {"message", segmentation_.message}, {"adopted", segmentation_.adopted},
                 {"previewState", segmentation_.previewState}, {"previewReason", segmentation_.previewReason},

@@ -183,7 +183,10 @@ WorkerProcess::WorkerProcess(QString executable, QObject* parent) : QObject(pare
 }
 
 WorkerProcess::~WorkerProcess() {
-  // Never leave a worker behind: a destroyed launcher means nobody will read its result.
+  // Never leave a worker behind: a destroyed launcher means nobody will read its result. The signals are cut first: waitForFinished delivers the process's
+  // `finished` while it waits, and the slot behind it belongs to an owner that is itself being destroyed (closing the window during a mold crashed here).
+  process_.disconnect(this);
+  disconnect(this, nullptr, nullptr, nullptr);
   if (process_.state() != QProcess::NotRunning) {
     process_.kill();
     process_.waitForFinished(5000);

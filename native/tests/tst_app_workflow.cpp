@@ -48,9 +48,11 @@ QString fixtureStl(const char* n) {
 
 analysis::WorkerConfig devConfig() { return AppPaths::analysisWorkerConfig(); }
 
+// The application's controller, set up as the application sets it up: the geometry jobs run in a separate process (this build's Craft.exe).
 std::unique_ptr<AppController> makeApp() {
-  return std::make_unique<AppController>(std::shared_ptr<IMeshGeometryEngine>(createManifoldMeshEngine()),
-                                         devConfig());
+  auto app = std::make_unique<AppController>(std::shared_ptr<IMeshGeometryEngine>(createManifoldMeshEngine()), devConfig());
+  app->setGeometryWorkerExecutable(QStringLiteral(CRAFT_WORKER_EXE));
+  return app;
 }
 
 bool waitFor(const std::function<bool()>& done, int ms = 60000) {
@@ -127,9 +129,8 @@ struct SegmentationOutcome {
   std::size_t keyTriangles = 0;
 };
 
-SegmentationOutcome runSegmentationFlow(bool inWorker) {
+SegmentationOutcome runSegmentationFlow() {
   auto app = makeApp();
-  if (inWorker) app->setGeometryWorkerExecutable(QStringLiteral(CRAFT_WORKER_EXE));
   app->importStlFile(bracket());
   waitFor([&] { return app->modelPhase() == "ready"; });
   app->setPrinterVolume(150, 300, 300);
@@ -1919,7 +1920,6 @@ class WorkflowTest : public QObject {
     app->undo();
     QCOMPARE(app->moldPhase(), QStringLiteral("ready"));
     QVERIFY(!app->busy());
-    QVERIFY(app->moldWindingDown());   // the generation's thread is still ending (and the next one waits for it)
     for (const QVariant& f : app->cutFaces()) QVERIFY(!f.toMap().value("enabled").toBool());
     // The cancelled generation's late result must not appear.
     QTest::qWait(800);
@@ -1933,17 +1933,8 @@ class WorkflowTest : public QObject {
   // until the Boolean the engine was in returned) and lets the thread end on its own with its result ignored; a new generation waits for it.
   // --- the mold generation in a separate process (P0-5 phase 3): a stop is real, nothing is left winding down --------------------------------------
 
-  void aMoldGeneratedInAWorkerProcessEqualsTheOneGeneratedHere() {
-    auto here = makeApp();
-    here->importStlFile(bracket());
-    QVERIFY(waitFor([&] { return here->modelPhase() == "ready"; }));
-    here->setCutFaceEnabled("left", true);
-    here->generateMold();
-    QVERIFY(waitFor([&] { return here->moldPhase() != "generating"; }, 120000));
-    QCOMPARE(here->moldPhase(), QStringLiteral("complete"));
-
+  void aMoldGeneratedInAWorkerProcessIsCompleteAndShown() {
     auto there = makeApp();
-    there->setGeometryWorkerExecutable(QStringLiteral(CRAFT_WORKER_EXE));
     there->importStlFile(bracket());
     QVERIFY(waitFor([&] { return there->modelPhase() == "ready"; }));
     there->setCutFaceEnabled("left", true);
@@ -1954,24 +1945,21 @@ class WorkflowTest : public QObject {
     QVERIFY(!there->busy());
     QCOMPARE(there->moldPhase(), QStringLiteral("complete"));
 
-    QVERIFY(here->moldResult().has_value() && there->moldResult().has_value());
-    const auto& a = here->moldResult()->cavity;
-    const auto& b = there->moldResult()->cavity;
-    QCOMPARE(b.bodies.size(), a.bodies.size());
-    for (std::size_t i = 0; i < a.bodies.size(); ++i) {
-      QCOMPARE(b.bodies[i].body.id, a.bodies[i].body.id);
-      QCOMPARE(b.bodies[i].body.volumeMm3, a.bodies[i].body.volumeMm3);
-      QCOMPARE(b.bodies[i].body.mesh.positions, a.bodies[i].body.mesh.positions);
-      QCOMPARE(b.bodies[i].body.mesh.indices, a.bodies[i].body.mesh.indices);
+    // The result is the engine's own (the wire round trip of the request and of the result is tested byte for byte in tst_mold_wire): real bodies, a cavity,
+    // and the scene shows them.
+    QVERIFY(there->moldResult().has_value());
+    const auto& cavity = there->moldResult()->cavity;
+    QVERIFY(!cavity.bodies.empty());
+    for (const auto& body : cavity.bodies) {
+      QVERIFY(body.body.volumeMm3 > 0);
+      QVERIFY(!body.body.mesh.indices.empty());
     }
-    QCOMPARE(b.cavityTool.solid.volumeMm3, a.cavityTool.solid.volumeMm3);
-    QCOMPARE(there->scene()->count(), here->scene()->count());
-    QCOMPARE(there->finalBodies().size(), here->finalBodies().size());
+    QVERIFY(cavity.cavityTool.solid.volumeMm3 > 0);
+    QCOMPARE(static_cast<std::size_t>(there->scene()->count()), there->finalBodies().size() + 1);   // the bodies and the original part
   }
 
   void cancellingAWorkerMoldStopsItForRealAndAllowsANewRunAtOnce() {
     auto app = makeApp();
-    app->setGeometryWorkerExecutable(QStringLiteral(CRAFT_WORKER_EXE));
     app->importStlFile(bracket());
     QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
     app->generateMold();
@@ -1980,7 +1968,6 @@ class WorkflowTest : public QObject {
     QCOMPARE(app->moldPhase(), QStringLiteral("ready"));
     QVERIFY(!app->busy());
     QVERIFY(app->statusText().contains("cancelled"));
-    QVERIFY2(!app->moldWindingDown(), "a killed process leaves nothing winding down");
     QTest::qWait(300);   // the killed process's end arrives: it must change nothing
     QCOMPARE(app->moldPhase(), QStringLiteral("ready"));
     QVERIFY(!app->moldResult().has_value());
@@ -1992,9 +1979,8 @@ class WorkflowTest : public QObject {
     QCOMPARE(app->moldPhase(), QStringLiteral("complete"));
   }
 
-  void changingAnInputOrUndoingWhileAWorkerMoldGeneratesKillsItAndNothingWindsDown() {
+  void changingAnInputOrUndoingWhileAWorkerMoldGeneratesKillsIt() {
     auto app = makeApp();
-    app->setGeometryWorkerExecutable(QStringLiteral(CRAFT_WORKER_EXE));
     app->importStlFile(bracket());
     QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
     app->generateMold();
@@ -2002,7 +1988,6 @@ class WorkflowTest : public QObject {
     app->setMoldClearanceMm(20);
     QVERIFY(!app->busy());
     QCOMPARE(app->moldPhase(), QStringLiteral("ready"));
-    QVERIFY(!app->moldWindingDown());
     QTest::qWait(300);
     QCOMPARE(app->moldPhase(), QStringLiteral("ready"));
     QVERIFY(!app->moldResult().has_value());
@@ -2013,7 +1998,6 @@ class WorkflowTest : public QObject {
     app->undo();
     QCOMPARE(app->moldPhase(), QStringLiteral("ready"));
     QVERIFY(!app->busy());
-    QVERIFY(!app->moldWindingDown());
     QTest::qWait(300);
     QVERIFY(!app->moldResult().has_value());
   }
@@ -2022,7 +2006,6 @@ class WorkflowTest : public QObject {
   // ones from the cache exactly as in-process does.
   void theSprueCacheSurvivesAWorkerRun() {
     auto app = makeApp();
-    app->setGeometryWorkerExecutable(QStringLiteral(CRAFT_WORKER_EXE));
     app->importStlFile(bracket());
     QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
     app->generateMold();
@@ -2077,83 +2060,6 @@ class WorkflowTest : public QObject {
     QCOMPARE(errors.count(), 1);
     QCOMPARE(errors.first().at(2).toString(), QStringLiteral("worker_start_failed"));
     QCOMPARE(app->scene()->count(), 1);
-  }
-
-  void cancellingAMoldGenerationReleasesTheApplicationAtOnce() {
-    auto app = makeApp();
-    app->importStlFile(bracket());
-    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
-    app->generateMold();
-    QCOMPARE(app->moldPhase(), QStringLiteral("generating"));
-    QVERIFY(app->busy());
-
-    app->cancelCurrentJob();   // synchronous: nothing waits for the thread
-    QCOMPARE(app->moldPhase(), QStringLiteral("ready"));
-    QVERIFY(!app->busy());
-    QVERIFY(app->statusText().contains("cancelled"));
-    QVERIFY(app->moldWindingDown());
-
-    app->generateMold();       // refused while the thread ends, with a reason; nothing starts
-    QVERIFY(app->statusText().contains("still ending"));
-    QCOMPARE(app->moldPhase(), QStringLiteral("ready"));
-    QVERIFY(!app->busy());
-
-    QVERIFY(waitFor([&] { return !app->moldWindingDown(); }, 120000));
-    QCOMPARE(app->moldPhase(), QStringLiteral("ready"));   // the late result was discarded
-    QVERIFY(!app->moldResult().has_value());
-    QCOMPARE(app->scene()->count(), 1);
-    QVERIFY(!app->busy());
-
-    app->generateMold();       // and then it works as usual
-    QVERIFY(waitFor([&] { return app->moldPhase() != "generating"; }, 120000));
-    QCOMPARE(app->moldPhase(), QStringLiteral("complete"));
-  }
-
-  void changingAnInputWhileTheMoldGeneratesReleasesTheApplicationAtOnce() {
-    auto app = makeApp();
-    app->importStlFile(bracket());
-    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
-    app->generateMold();
-    QVERIFY(app->busy());
-    app->setMoldClearanceMm(20);   // an input: the generation under way no longer matches it
-    QVERIFY2(!app->busy(), "changing an input used to leave the application busy until the engine's Boolean returned");
-    QCOMPARE(app->moldPhase(), QStringLiteral("ready"));
-    QVERIFY(app->moldWindingDown());
-    QVERIFY(waitFor([&] { return !app->moldWindingDown(); }, 120000));
-    QCOMPARE(app->moldPhase(), QStringLiteral("ready"));
-    QVERIFY(!app->moldResult().has_value());
-    QCOMPARE(app->moldClearanceMm(), 20.0);
-  }
-
-  void anAbandonedMoldRunNeverDisturbsWorkStartedBehindIt() {
-    auto app = makeApp();
-    app->importStlFile(bracket());
-    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
-    QStringList whenItEnded;   // what the application looked like at the moment the discarded run ended
-    bool wasWindingDown = false;
-    QObject::connect(app.get(), &AppController::moldChanged, app.get(), [&] {
-      const bool now = app->moldWindingDown();
-      if (wasWindingDown && !now) whenItEnded << QStringLiteral("%1|%2").arg(app->busy()).arg(app->masterMold().value("generating").toBool());
-      wasWindingDown = now;
-    });
-    {
-      HeldWorker held;               // the only worker thread is taken, so the order is fixed: the mold's job first, Master Mold's behind it
-      app->generateMold();
-      app->cancelCurrentJob();       // given up before its thread has started
-      QVERIFY(!app->busy());
-      app->generateMasterMold();     // other work starts at once
-      QVERIFY(app->busy());
-      QVERIFY(app->masterMold().value("generating").toBool());
-      held.let();
-      QVERIFY(waitFor([&] { return !app->moldWindingDown() && !app->masterMold().value("generating").toBool(); }, 120000));
-    }
-    QVERIFY2(!whenItEnded.isEmpty(), "the end of the discarded run was never seen");
-    for (const QString& moment : whenItEnded)
-      QVERIFY2(moment == "1|1", qPrintable("the ended mold thread disturbed the Master Mold run that was in progress: " + moment));
-    QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("current"));   // that run finished normally
-    QCOMPARE(app->moldPhase(), QStringLiteral("ready"));                                  // and the discarded mold did not appear
-    QVERIFY(!app->moldResult().has_value());
-    QVERIFY(!app->busy());
   }
 
   void aSliderDragIsOneStepAndAFreshModelStartsAFreshHistory() {
@@ -2353,28 +2259,21 @@ class WorkflowTest : public QObject {
 
   // --- segmentation in a separate process (P0-5 phase 3b) ---------------------------------------------------------------------------------------
 
-  void aSegmentationRunInAWorkerGivesTheSameSectionsAndKeys() {
-    const SegmentationOutcome here = runSegmentationFlow(false);
-    const SegmentationOutcome there = runSegmentationFlow(true);
-    QCOMPARE(here.phase, QStringLiteral("executed"));
+  void aSegmentationRunInAWorkerGivesKeyedSections() {
+    const SegmentationOutcome there = runSegmentationFlow();
     QCOMPARE(there.phase, QStringLiteral("executed"));
-    QCOMPARE(here.previewState, QStringLiteral("keyed"));
     QCOMPARE(there.previewState, QStringLiteral("keyed"));
-    QCOMPARE(there.sceneCount, here.sceneCount);
-    QCOMPARE(there.bodies.size(), here.bodies.size());
-    for (std::size_t i = 0; i < here.bodies.size(); ++i) {
-      QCOMPARE(there.bodies[i].id, here.bodies[i].id);
-      QCOMPARE(there.bodies[i].volumeMm3, here.bodies[i].volumeMm3);
-      QCOMPARE(there.bodies[i].mesh.positions, here.bodies[i].mesh.positions);
-      QCOMPARE(there.bodies[i].mesh.indices, here.bodies[i].mesh.indices);
+    QVERIFY(there.bodies.size() >= 2);
+    QCOMPARE(static_cast<std::size_t>(there.sceneCount), there.bodies.size() + 1);   // the sections and the original part
+    for (const MoldBody& body : there.bodies) {
+      QVERIFY(body.volumeMm3 > 0);
+      QVERIFY(!body.mesh.indices.empty());
     }
-    QVERIFY(here.keyTriangles > 0);   // the sections really are keyed
-    QCOMPARE(there.keyTriangles, here.keyTriangles);
+    QVERIFY(there.keyTriangles > 0);   // the sections really are keyed
   }
 
   void cancellingASegmentationInAWorkerStopsItForRealAndItCanBeRunAgain() {
     auto app = makeApp();
-    app->setGeometryWorkerExecutable(QStringLiteral(CRAFT_WORKER_EXE));
     app->importStlFile(bracket());
     QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
     app->setPrinterVolume(150, 300, 300);
@@ -2398,7 +2297,6 @@ class WorkflowTest : public QObject {
 
   void aSupersededPreviewInAWorkerIsKilledAndTheNewOneWins() {
     auto app = makeApp();
-    app->setGeometryWorkerExecutable(QStringLiteral(CRAFT_WORKER_EXE));
     app->importStlFile(bracket());
     QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
     app->setPrinterVolume(150, 300, 300);
@@ -3245,113 +3143,68 @@ class WorkflowTest : public QObject {
     QCOMPARE(app->scene()->count(), 3);
   }
 
+  // --- the geometry always runs in its own process (P0-5 phase 4): there is no in-process path left ------------------------------------------------
+
+  // Closing the window while a mold or a Master Mold is running destroys the controller with the process alive. The process must be killed, and its
+  // "finished" must not run the controller's completion code in the middle of its destruction (it did: the launcher's destructor waits for the process,
+  // which delivers the signal; the completion code then touched members that were already gone). Measured by what the controller emits while it is being
+  // destroyed: the same as when it is idle.
+  static int signalsDuringDestruction(int mode) {   // 0 idle, 1 a mold running, 2 a Master Mold running
+    auto app = makeApp();
+    app->importStlFile(bracket());
+    if (!waitFor([&] { return app->modelPhase() == "ready"; })) return -1;
+    int emitted = 0;
+    QObject counter;
+    const auto count = [&emitted] { ++emitted; };
+    if (mode == 1) { app->setCutFaceEnabled("left", true); app->generateMold(); }
+    if (mode == 2) app->generateMasterMold();
+    // No wait: a bracket's mold takes about 60 ms, so the process has to be caught while it is starting or just started.
+    QObject::connect(app.get(), &AppController::busyChanged, &counter, count);
+    QObject::connect(app.get(), &AppController::moldChanged, &counter, count);
+    QObject::connect(app.get(), &AppController::masterMoldChanged, &counter, count);
+    QObject::connect(app.get(), &AppController::statusTextChanged, &counter, count);
+    QObject::connect(app.get(), &AppController::errorOccurred, &counter, [&emitted](QString, QString, QString) { ++emitted; });
+    app.reset();         // destroyed here
+    QTest::qWait(200);   // and nothing arrives afterwards
+    return emitted;
+  }
+
+  void destroyingTheControllerWhileAMoldRunsKillsItsProcessAndRunsNoCompletionCode() {
+    const int idle = signalsDuringDestruction(0);
+    QVERIFY(idle >= 0);
+    QCOMPARE(signalsDuringDestruction(1), idle);
+  }
+
+  void destroyingTheControllerWhileAMasterMoldRunsKillsItsProcessAndRunsNoCompletionCode() {
+    const int idle = signalsDuringDestruction(0);
+    QVERIFY(idle >= 0);
+    QCOMPARE(signalsDuringDestruction(2), idle);
+  }
+  // A host that forgot to say where the worker is gets a clear failure, never a job that silently runs inside the interface process.
+  void withoutAWorkerTheMoldAndMasterMoldFailAndTheApplicationIsFree() {
+    auto app = std::make_unique<AppController>(std::shared_ptr<IMeshGeometryEngine>(createManifoldMeshEngine()), devConfig());
+    app->importStlFile(bracket());
+    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
+    QSignalSpy errors(app.get(), &AppController::errorOccurred);
+    app->generateMold();
+    QVERIFY(waitFor([&] { return app->moldPhase() != "generating"; }));
+    QCOMPARE(app->moldPhase(), QStringLiteral("error"));
+    QVERIFY(!app->busy());
+    app->generateMasterMold();
+    QVERIFY(waitFor([&] { return !app->masterMold().value("generating").toBool(); }));
+    QVERIFY(!app->busy());
+    QVERIFY(errors.count() >= 2);
+    QCOMPARE(errors.last().at(2).toString(), QStringLiteral("worker_unavailable"));
+  }
   // --- a Master Mold run that cannot be interrupted ---------------------------------------------------------------------------------------------
   // The engine cannot be stopped inside a Boolean, which for a large part runs for minutes. A timeout, a cancel or a reset therefore releases the UI at once
   // and lets the worker thread end on its own, its result discarded; until it has, a new run is refused (it would double the load).
-  static bool masterWindingDown(AppController& app) { return app.masterMold().value("windingDown").toBool(); }
-
-  void cancellingAMasterMoldReleasesTheApplicationAtOnce() {
-    auto app = makeApp();
-    app->importStlFile(bracket());
-    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
-    app->generateMasterMold();
-    QVERIFY(app->masterMold().value("generating").toBool());
-    QVERIFY(app->busy());
-
-    app->cancelCurrentJob();   // no waiting for the thread: this is synchronous
-    QVERIFY2(!app->masterMold().value("generating").toBool(), "the panel must not stay in 'generating'");
-    QVERIFY2(!app->busy(), "the whole application must not stay busy");
-    QVERIFY(app->statusText().contains("cancelled"));
-    QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("error"));
-    QVERIFY(masterWindingDown(*app));
-    QVERIFY(!app->masterMold().value("canGenerate").toBool());   // not yet: the thread is still ending
-
-    // A new run is refused while it ends, with a reason; nothing starts.
-    app->generateMasterMold();
-    QVERIFY(app->statusText().contains("still ending"));
-    QVERIFY(!app->masterMold().value("generating").toBool());
-    QVERIFY(!app->busy());
-
-    // The late result is discarded: no tooling appears, and the application's busy state is not touched.
-    QVERIFY(waitFor([&] { return !masterWindingDown(*app); }, 120000));
-    QVERIFY(!app->busy());
-    QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("error"));
-    QCOMPARE(app->scene()->count(), 1);
-
-    // And then a new run works as usual.
-    app->generateMasterMold();
-    QVERIFY(waitFor([&] { return !app->masterMold().value("generating").toBool(); }, 120000));
-    QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("current"));
-    QVERIFY(app->scene()->count() > 1);
-  }
 
   // The queued progress reports of a run that was given up arrive after the UI has moved on: they must not change the footer's stage and progress.
-  void anAbandonedMasterMoldRunReportsNoMoreProgress() {
-    auto app = makeApp();
-    app->importStlFile(bracket());
-    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
-    QSignalSpy busyChanges(app.get(), &AppController::busyChanged);
-    {
-      HeldWorker held;
-      app->generateMasterMold();
-      app->cancelCurrentJob();   // given up before the thread has started
-      busyChanges.clear();
-      held.let();                // now it starts, reports its first stage, and finds the cancellation
-      QVERIFY(waitFor([&] { return !masterWindingDown(*app); }, 120000));
-    }
-    QTest::qWait(100);           // reports are queued: let any that are left arrive
-    QCOMPARE(busyChanges.count(), 0);
-    QVERIFY(!app->busy());
-  }
-
-  void aMasterMoldThatTimesOutReleasesTheApplicationAndItsLateResultNeverTouchesNewWork() {
-    auto app = makeApp();
-    app->importStlFile(bracket());
-    QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
-    app->setMasterMoldTimeoutMs(1);
-    QStringList whenItEnded;   // what the application's busy state and mold phase were at the moment the discarded run ended
-    bool wasWindingDown = false;
-    QObject::connect(app.get(), &AppController::masterMoldChanged, app.get(), [&] {
-      const bool now = masterWindingDown(*app);
-      if (wasWindingDown && !now) whenItEnded << QStringLiteral("%1|%2").arg(app->busy()).arg(app->moldPhase());
-      wasWindingDown = now;
-    });
-    {
-      HeldWorker held;   // the only worker thread is taken: the Master job queues, the timeout fires while it waits, and the work started next queues behind it
-      app->generateMasterMold();
-      QVERIFY(app->masterMold().value("generating").toBool());
-      QVERIFY(waitFor([&] { return !app->masterMold().value("generating").toBool(); }, 20000));   // the timeout, not the engine, ended it
-      QVERIFY(app->statusText().contains("exceeded 1 ms"));
-      QVERIFY(!app->busy());
-      QVERIFY(masterWindingDown(*app));
-      app->generateMold();   // other work can start while the abandoned thread has not even begun
-      QVERIFY(app->busy());
-      held.let();
-      QVERIFY(waitFor([&] { return !masterWindingDown(*app) && app->moldPhase() != "generating"; }, 120000));
-    }
-    QCOMPARE(app->moldPhase(), QStringLiteral("complete"));
-    QVERIFY2(!whenItEnded.isEmpty(), "the end of the discarded run was never seen");
-    for (const QString& moment : whenItEnded) {
-      const QStringList parts = moment.split('|');
-      // The Master job ran first and the mold job behind it, so the mold was still generating when the discarded run ended: its busy state must have survived.
-      QVERIFY2(parts[1] == "generating" && parts[0] == "1", qPrintable("the ended Master thread disturbed the mold that was running: " + moment));
-    }
-    QVERIFY(!app->busy());
-    QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("error"));   // the discarded result did not turn it into "current"
-    QCOMPARE(app->scene()->count(), 2);   // the part and the one mold body, no Master pieces
-  }
-
   // --- the same, with the run in a separate process (P0-5): a stop is real, nothing is left winding down ------------------------------------------
 
-  void aMasterMoldRunInAWorkerProcessGivesTheSameTooling() {
-    auto here = makeApp();
-    here->importStlFile(bracket());
-    QVERIFY(waitFor([&] { return here->modelPhase() == "ready"; }));
-    here->generateMasterMold();
-    QVERIFY(waitFor([&] { return !here->masterMold().value("generating").toBool(); }, 120000));
-
+  void aMasterMoldRunInAWorkerProcessGivesTooling() {
     auto there = makeApp();
-    there->setGeometryWorkerExecutable(QStringLiteral(CRAFT_WORKER_EXE));
     there->importStlFile(bracket());
     QVERIFY(waitFor([&] { return there->modelPhase() == "ready"; }));
     there->generateMasterMold();
@@ -3359,15 +3212,12 @@ class WorkflowTest : public QObject {
     QVERIFY(there->busy());
     QVERIFY(waitFor([&] { return !there->masterMold().value("generating").toBool(); }, 120000));
     QVERIFY(!there->busy());
-    QCOMPARE(there->masterMold().value("status").toString(), here->masterMold().value("status").toString());
     QCOMPARE(there->masterMold().value("status").toString(), QStringLiteral("current"));
-    QCOMPARE(there->scene()->count(), here->scene()->count());
     QVERIFY(there->scene()->count() > 1);
   }
 
   void cancellingAWorkerMasterMoldStopsItForRealAndAllowsANewRunAtOnce() {
     auto app = makeApp();
-    app->setGeometryWorkerExecutable(QStringLiteral(CRAFT_WORKER_EXE));
     app->importStlFile(bracket());
     QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
     app->generateMasterMold();
@@ -3377,7 +3227,6 @@ class WorkflowTest : public QObject {
     QVERIFY(!app->busy());
     QVERIFY(app->statusText().contains("cancelled"));
     QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("error"));
-    QVERIFY2(!masterWindingDown(*app), "a killed process leaves nothing winding down");
     QVERIFY(app->masterMold().value("canGenerate").toBool());   // a new run is allowed at once, unlike the in-process run
 
     app->generateMasterMold();
@@ -3387,9 +3236,8 @@ class WorkflowTest : public QObject {
     QVERIFY(app->scene()->count() > 1);
   }
 
-  void aWorkerMasterMoldThatTimesOutIsKilledAndNothingIsLeftWindingDown() {
+  void aWorkerMasterMoldThatTimesOutIsKilled() {
     auto app = makeApp();
-    app->setGeometryWorkerExecutable(QStringLiteral(CRAFT_WORKER_EXE));
     app->importStlFile(bracket());
     QVERIFY(waitFor([&] { return app->modelPhase() == "ready"; }));
     app->setMasterMoldTimeoutMs(1);
@@ -3397,7 +3245,6 @@ class WorkflowTest : public QObject {
     QVERIFY(waitFor([&] { return !app->masterMold().value("generating").toBool(); }, 20000));
     QVERIFY(app->statusText().contains("exceeded 1 ms"));
     QVERIFY(!app->busy());
-    QVERIFY(!masterWindingDown(*app));
     QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("error"));
     QTest::qWait(300);   // the killed process's end arrives: it must change nothing
     QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("error"));
@@ -3433,7 +3280,7 @@ class WorkflowTest : public QObject {
     QVERIFY(!app->busy());
     QVERIFY(!app->masterMold().value("generating").toBool());
     QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("unavailable"));
-    QVERIFY(waitFor([&] { return !masterWindingDown(*app); }, 120000));
+    QTest::qWait(300);   // a killed process reports nothing more
     QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("unavailable"));   // the late result did not come back
     QCOMPARE(app->scene()->count(), 1);
   }
