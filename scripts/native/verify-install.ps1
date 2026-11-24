@@ -108,7 +108,7 @@ $startInfo.WorkingDirectory = $scratch                      # not the install di
 $startInfo.UseShellExecute = $false
 $startInfo.RedirectStandardOutput = $true
 $startInfo.RedirectStandardError = $true
-$startInfo.Arguments = "--smoke-test --import `"$Stl`" --generate-mold --analyze --moldability --summary `"$summaryPath`""
+$startInfo.Arguments = "--smoke-test --import `"$Stl`" --generate-mold --master-mold --analyze --moldability --summary `"$summaryPath`""
 $startInfo.EnvironmentVariables.Clear()
 $sys = $env:SystemRoot
 $startInfo.EnvironmentVariables['SystemRoot'] = $sys
@@ -149,6 +149,9 @@ if (Test-Path $summaryPath) {
   Check 'mold generated (Manifold kernel)' ($s.moldPhase -eq 'complete')
   # P0-5: the mold runs in a separate process (this same Craft.exe in --geometry-worker mode), which a cancel can kill. Its log line proves the installed executable can start itself as that worker.
   Check 'the mold ran in a geometry worker process from the install folder' ($err -match 'geometry worker: .* succeeded') ($err.Trim().Substring(0, [Math]::Min(300, $err.Trim().Length)))
+  # The Master Mold is a second geometry job of the same kind: it must work from the install folder too, in its own worker process.
+  Check 'Master Mold generated (planned and tooled)' ($s.masterMoldSummary.uiKind -eq 'success' -and $s.masterMoldSummary.setCount -ge 1) "kind=$($s.masterMoldSummary.uiKind) sets=$($s.masterMoldSummary.setCount) $($s.masterMoldSummary.banner)"
+  Check 'the Master Mold ran in a geometry worker process too (two worker runs)' (([regex]::Matches($err, 'geometry worker: .* succeeded')).Count -ge 2) ($err.Trim().Substring(0, [Math]::Min(300, $err.Trim().Length)))
   Check 'import analysis completed (Python)' ($s.analysisPhase -eq 'complete')
   $reports = $s.engineeringReportsSummary
   Check 'moldability analysis completed (Python: pull direction, cavity, readiness)' ($reports.phase -eq 'complete' -and $reports.report.success -eq $true) "phase=$($reports.phase) $($reports.error)"

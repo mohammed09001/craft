@@ -1525,7 +1525,26 @@ class Smoke : public QObject {
     });
 #endif
   }
+  // --master-mold: after the other steps, generate the Master Mold the way the button does and keep its outcome in the summary, so that an
+  // installed package can prove the Master Mold works too (it runs in the geometry worker process like the mold).
+  void masterMoldStep() {
+    auto done = std::make_shared<bool>(false);
+    const auto check = [this, done] {
+      if (*done) return;
+      if (app_.masterMold().value("generating").toBool() || app_.masterMold().value("status").toString() == QLatin1String("unavailable")) return;
+      *done = true;
+      masterDone_ = true;
+      if (app_.masterMold().value("uiKind").toString() != QLatin1String("success"))
+        return fail(QStringLiteral("the Master Mold did not succeed: ") + app_.masterMold().value("uiKind").toString() + QLatin1Char(' ') +
+                    app_.masterMold().value("banner").toString());
+      QTimer::singleShot(0, this, [this] { render(); });
+    };
+    QObject::connect(&app_, &AppController::masterMoldChanged, this, check);
+    app_.generateMasterMold();
+    if (!app_.masterMold().value("generating").toBool()) check();   // it refused to start: the summary shows why
+  }
   void render() {
+    if (masterMold_ && !masterDone_) return masterMoldStep();
     if (flipEvents_) return flipEventsSequence();
     if (hintEvents_) return hintEventsSequence();
     if (undoEvents_) return undoEventsSequence();
@@ -1586,6 +1605,13 @@ class Smoke : public QObject {
       s.insert("cutPlanes", app_.cutPlanes());
       s.insert("selection", app_.selection());
       s.insert("engineeringReportsSummary", app_.engineeringReports());
+      if (masterMold_) {
+        const QVariantMap master = app_.masterMold();
+        QVariantMap brief;
+        for (const char* key : {"status", "uiKind", "banner", "generating"}) brief.insert(QLatin1String(key), master.value(QLatin1String(key)));
+        brief.insert(QStringLiteral("setCount"), master.value(QStringLiteral("sets")).toList().size());
+        s.insert("masterMoldSummary", brief);
+      }
       finish(s, !frame.isNull() && distinct > 50);
     });
   }
@@ -1610,6 +1636,7 @@ class Smoke : public QObject {
 
  public:
   void setSelectPart(bool value) { selectPart_ = value; }
+  void setMasterMold(bool value) { masterMold_ = value; }
   void setCutFaces(const QStringList& faces) { cutFaces_ = faces; }
   void setSpruePreview(bool value, bool invalid = false) { spruePreview_ = value; spruePreviewInvalid_ = invalid; }
   void setSprueGizmo(bool value, bool events = false) { sprueGizmo_ = value; sprueGizmoEvents_ = events; }
@@ -1636,6 +1663,7 @@ class Smoke : public QObject {
   bool selectPart_ = false, spruePreview_ = false, spruePreviewInvalid_ = false, sprueGizmo_ = false, sprueGizmoEvents_ = false, eraser_ = false, eraserEvents_ = false, planeDragEvents_ = false, sectionsEvents_ = false, moldsEvents_ = false, masterEvents_ = false, toolbarEvents_ = false, toolbarEventsStarted_ = false, dropEvents_ = false, undoEvents_ = false, flipEvents_ = false, focusEvents_ = false, extensionDragEvents_ = false, hintEvents_ = false, hintWheel_ = false;
   bool mold_, analyse_, moldability_;
   bool imported_ = false, moldDone_ = false, analysisDone_ = false, reportsDone_ = false, done_ = false;
+  bool masterMold_ = false, masterDone_ = false;
 };
 
 }  // namespace
@@ -1659,6 +1687,7 @@ int main(int argc, char* argv[]) {
   parser.addOption({"smoke-test", "Run the end-to-end smoke test and exit."});
   parser.addOption({"import", "STL file to import.", "path"});
   parser.addOption({"generate-mold", "Generate a mold after import (smoke test)."});
+  parser.addOption({"master-mold", "Generate the Master Mold after the other steps and record its outcome in the summary (smoke test)."});
   parser.addOption({"analyze", "Run the Python import analysis (smoke test)."});
   parser.addOption({"moldability", "Run the Python moldability/cavity/readiness analysis (smoke test)."});
   parser.addOption({"summary", "Write a JSON state summary here (smoke test).", "path"});
@@ -1786,6 +1815,7 @@ int main(int argc, char* argv[]) {
                                     parser.isSet("generate-mold"), parser.isSet("analyze"), parser.isSet("moldability"),
                                     parser.value("summary"));
     smoke->setSelectPart(parser.isSet("select-part"));
+    smoke->setMasterMold(parser.isSet("master-mold"));
     smoke->setCutFaces(parser.values("cut-face"));
     smoke->setSpruePreview(parser.isSet("sprue-preview"), parser.isSet("sprue-invalid"));
     smoke->setSprueGizmo(parser.isSet("sprue-gizmo"), parser.isSet("sprue-gizmo-events"));

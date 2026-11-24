@@ -236,6 +236,16 @@ if(CRAFT_BUILD_APP)
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${CRAFT_QT_BIN_DIR}"
     TIMEOUT 240
     PASS_REGULAR_EXPRESSION "CRAFT_SMOKE_OK")
+  # The command-line path verify-install.ps1 uses on an installed package: the mold, then the Master Mold, which must succeed (the flag asserts it).
+  add_test(NAME app_smoke_master_flag
+    COMMAND craft --smoke-test
+            --import "${CRAFT_REPO_ROOT}/native/tests/fixtures/models/bracket.stl"
+            --generate-mold --master-mold
+            --summary "${CMAKE_CURRENT_BINARY_DIR}/app_smoke_master_flag_summary.json")
+  set_tests_properties(app_smoke_master_flag PROPERTIES
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${CRAFT_QT_BIN_DIR}"
+    TIMEOUT 240
+    PASS_REGULAR_EXPRESSION "CRAFT_SMOKE_OK")
   # The viewport's floating toolbar through REAL clicks, on an imported model with no mold.
   add_test(NAME app_smoke_toolbar
     COMMAND craft --smoke-test
@@ -289,7 +299,7 @@ if(CRAFT_BUILD_APP)
   # Each smoke test works in an autosave and cache folder of its own in the build tree. They used to share the user's real ones: a run that
   # ended without a clean shutdown (the UI tour did, and so would a killed test) left an autosave behind, the next launch opened with the
   # "Recover unsaved work?" dialog over the window, and every test that sends real mouse events failed because the dialog swallowed them.
-  foreach(_smoke app_smoke app_smoke_sprue_gizmo app_smoke_hint_events app_smoke_hint_wheel app_smoke_undo app_smoke_flip app_smoke_extension_drag app_smoke_focus app_smoke_eraser app_smoke_drop app_smoke_sections app_smoke_molds app_smoke_master app_smoke_toolbar app_smoke_plane_drag)
+  foreach(_smoke app_smoke app_smoke_sprue_gizmo app_smoke_hint_events app_smoke_hint_wheel app_smoke_undo app_smoke_flip app_smoke_extension_drag app_smoke_focus app_smoke_eraser app_smoke_drop app_smoke_sections app_smoke_molds app_smoke_master app_smoke_master_flag app_smoke_toolbar app_smoke_plane_drag)
     if(TEST ${_smoke})
       # A QML error (a missing property, a failed binding, a type error) is a defect even when the test's own checks pass: verify-install.ps1 caught
       # "Cannot assign to non-existent property" in the toolbar that every smoke test had let through.
