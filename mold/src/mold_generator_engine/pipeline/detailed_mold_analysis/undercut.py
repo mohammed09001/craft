@@ -8,7 +8,7 @@ from mold_generator_engine.config.geometry import DEFAULT_LINEAR_TOLERANCE_MM
 from mold_generator_engine.config.undercut import UndercutAnalysisSettings
 from mold_generator_engine.exceptions import InvalidVectorError
 from mold_generator_engine.geometry.mesh_adjacency import build_face_adjacency_graph
-from mold_generator_engine.geometry.ray_mesh_query import BruteForceRayMeshQuery
+from mold_generator_engine.geometry.ray_mesh_bvh import BvhRayMeshQuery
 from mold_generator_engine.geometry.vector import Vector3D
 from mold_generator_engine.models.detailed_mold_analysis import (
     DetailedMoldAnalysisContext,
@@ -61,7 +61,7 @@ class PreliminaryUndercutDetector:
 
     settings: UndercutAnalysisSettings = UndercutAnalysisSettings()
     ray_query_backend_factory: RayQueryBackendFactory = (
-        lambda context, intersection_epsilon_mm: BruteForceRayMeshQuery.from_model(
+        lambda context, intersection_epsilon_mm: BvhRayMeshQuery.from_model(
             context.model,
             intersection_epsilon_mm=intersection_epsilon_mm,
         )

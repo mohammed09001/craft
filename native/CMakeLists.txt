@@ -1,0 +1,237 @@
+cmake_minimum_required(VERSION 3.25)
+
+project(CraftNative
+  VERSION 0.1.0
+  DESCRIPTION "Craft native desktop application (Qt 6 / QML / Qt Quick 3D + native Manifold)"
+  LANGUAGES CXX
+)
+
+if(WIN32)
+  enable_language(RC)   # the executable's version resource (app/craft.rc.in)
+endif()
+
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
+  message(FATAL_ERROR "In-source builds are not supported. Use a preset: cmake --preset windows-debug")
+endif()
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+option(CRAFT_BUILD_APP "Build the Qt Quick desktop application" ON)
+option(CRAFT_BUILD_TESTS "Build the native test suite" ON)
+option(CRAFT_EMBED_DEV_RUNTIME_PATHS "Compile the source-tree worker and the developer Python into the app as fallbacks (development builds only)" ON)
+
+# Repository root: the native tree reuses the existing model fixtures and
+# launches the existing Python engine from mold/src during development.
+get_filename_component(CRAFT_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
+
+# Development-only Python 3.13 for the analysis worker (tests and dev runs).
+# Taken from the CRAFT_PYTHON environment variable at configure time; a
+# packaged application ignores it and uses its bundled runtime.
+set(CRAFT_PYTHON_EXECUTABLE "$ENV{CRAFT_PYTHON}" CACHE FILEPATH
+    "Python 3.13 interpreter used by development builds and tests for the analysis worker")
+file(TO_CMAKE_PATH "${CRAFT_PYTHON_EXECUTABLE}" CRAFT_PYTHON_EXECUTABLE_NORMALIZED)
+set(CRAFT_WORKER_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/engines/analysis-bridge/worker/craft_analysis_worker.py")
+set(CRAFT_ENGINE_SRC "${CRAFT_REPO_ROOT}/mold/src")
+
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+
+# Pinned toolchain baseline (see docs/native-migration/DECISIONS.md, D-002).
+find_package(Qt6 6.8 REQUIRED COMPONENTS Core Concurrent Test)
+if(CRAFT_BUILD_APP)
+  find_package(Qt6 6.8 REQUIRED COMPONENTS Gui Qml Quick QuickControls2 Quick3D)
+endif()
+qt_standard_project_setup(REQUIRES 6.8)
+
+include(CraftManifold)
+
+function(craft_target_defaults target)
+  if(MSVC)
+    target_compile_options(${target} PRIVATE /W4 /permissive- /utf-8 /wd4251)
+    target_compile_definitions(${target} PRIVATE NOMINMAX _USE_MATH_DEFINES)
+  else()
+    target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
+  endif()
+endfunction()
+
+# --- craft_core: contracts + renderer/kernel-independent math (no Qt) -------
+add_library(craft_core STATIC
+  core/contracts/Geometry.cpp
+  core/contracts/Geometry.h
+  core/contracts/Operation.h
+  core/geometry/GeometryTolerance.cpp
+  core/geometry/GeometryTolerance.h
+  core/geometry/MeshAnalysis.cpp
+  core/geometry/MeshAnalysis.h
+  core/geometry/RayPicking.cpp
+  core/geometry/ThreeRayTriangle.cpp
+  core/geometry/ThreeRayTriangle.h
+  core/geometry/RayPicking.h
+  core/geometry/SignedDistance.cpp
+  core/geometry/SignedDistance.h
+  core/model/ModelGrounding.cpp
+  core/model/ModelGrounding.h
+  core/model/PartOrientation.cpp
+  core/model/PartOrientation.h
+  core/view/SelectionBox.cpp
+  core/view/SelectionBox.h
+  core/view/Rotation.cpp
+  core/view/Rotation.h
+  core/view/ViewPose.cpp
+  core/view/GroundPlaneRuler.cpp
+  core/view/GroundPlaneRuler.h
+  core/view/ViewportLook.cpp
+  core/view/ViewportLook.h
+  core/view/ViewPose.h
+)
+target_include_directories(craft_core PUBLIC core)
+craft_target_defaults(craft_core)
+
+# --- craft_io: file formats (no Qt) -----------------------------------------
+add_library(craft_io STATIC
+  io/path/ExtendedPath.cpp
+  io/path/ExtendedPath.h
+  io/stl/Stl.cpp
+  io/stl/Stl.h
+  io/threemf/ThreeMf.cpp
+  io/threemf/ThreeMf.h
+)
+target_include_directories(craft_io PUBLIC io)
+target_link_libraries(craft_io PUBLIC craft_core)
+craft_target_defaults(craft_io)
+
+# --- craft_mesh_api: the kernel seam (header only) ---------------------------
+add_library(craft_mesh_api INTERFACE)
+target_include_directories(craft_mesh_api INTERFACE engines/mesh)
+target_link_libraries(craft_mesh_api INTERFACE craft_core)
+
+# --- craft_mold: mold-domain algorithms, kernel-agnostic (no Qt) -------------
+add_library(craft_mold STATIC
+  core/master/JsFormat.cpp
+  core/master/JsFormat.h
+  core/master/MasterContract.cpp
+  core/master/MasterContract.h
+  core/master/MasterCoverage.cpp
+  core/master/MasterCoverage.h
+  core/master/MasterEngine.cpp
+  core/master/MasterEngine.h
+  core/master/MasterMoldStore.cpp
+  core/master/MasterMoldStore.h
+  core/master/MasterPlanning.cpp
+  core/master/MasterPlanning.h
+  core/master/MasterProfile.h
+  core/master/MasterTwoPart.cpp
+  core/master/MasterTwoPart.h
+  core/master/MasterWire.cpp
+  core/master/MasterWire.h
+  core/master/TriangleIntersection.cpp
+  core/master/TriangleIntersection.h
+  core/mold/CavityGeneration.cpp
+  core/mold/CavityGeneration.h
+  core/mold/DerivedMold.cpp
+  core/mold/DerivedMold.h
+  core/mold/CavityOffset.cpp
+  core/mold/CavityOffset.h
+  core/mold/PartSolid.cpp
+  core/mold/PartSolid.h
+  core/mold/Registration.cpp
+  core/mold/Registration.h
+  core/mold/ReferenceMold.cpp
+  core/mold/ReferenceMold.h
+  core/mold/Segmentation.cpp
+  core/mold/Segmentation.h
+  core/mold/SegmentationIdentity.cpp
+  core/mold/SegmentationIdentity.h
+  core/mold/SprueGeneration.cpp
+  core/mold/MoldWire.cpp
+  core/mold/MoldWire.h
+  core/wire/Wire.h
+  core/mold/CuttingPlaneDrag.cpp
+  core/mold/CuttingPlaneDrag.h
+  core/mold/CuttingPlaneSlabs.cpp
+  core/mold/CuttingPlaneSlabs.h
+  core/mold/SprueGizmo.cpp
+  core/mold/SprueGizmo.h
+  core/mold/SpruePreview.cpp
+  core/mold/SpruePreview.h
+  core/mold/SprueGeneration.h
+  core/mold/SprueProfile.cpp
+  core/mold/SprueProfile.h
+)
+target_link_libraries(craft_mold PUBLIC craft_core craft_mesh_api)
+craft_target_defaults(craft_mold)
+
+# --- craft_project: the Craft project document and its .craft container (documents are Qt-free; the file format uses Qt Core) --
+add_library(craft_project STATIC
+  core/project/ProjectDocument.cpp
+  core/project/ProjectDocument.h
+  io/project/ProjectJson.cpp
+  io/project/ProjectJson.h
+  io/project/ProjectFile.cpp
+  io/project/ProjectFile.h
+)
+target_include_directories(craft_project PUBLIC core io)
+target_link_libraries(craft_project PUBLIC Qt6::Core craft_core)
+if(WIN32)
+  target_link_libraries(craft_project PRIVATE bcrypt)   # SHA-256 through the system CNG provider
+endif()
+craft_target_defaults(craft_project)
+
+# --- craft_export: Master tooling piece export (STL files + manifest; Qt Core for JSON and SHA-256) --
+add_library(craft_export STATIC
+  io/tooling/MasterToolingExport.cpp
+  io/tooling/MasterToolingExport.h
+)
+target_include_directories(craft_export PUBLIC io)
+target_link_libraries(craft_export PUBLIC craft_mold craft_io Qt6::Core)
+craft_target_defaults(craft_export)
+# --- craft_reports: engineering report contracts, registry, pull-direction foundation and evaluation (no Qt) --
+add_library(craft_reports STATIC
+  core/reports/ReportJson.cpp
+  core/reports/ReportJson.h
+  core/reports/LocaleCompare.cpp
+  core/reports/LocaleCompare.h
+  core/reports/GenerationReadiness.cpp
+  core/reports/GenerationReadiness.h
+  core/reports/EngineeringReports.cpp
+  core/reports/EngineeringReports.h
+  core/reports/PullDirection.cpp
+  core/reports/PullDirection.h
+  core/reports/PullDirectionEvaluation.cpp
+  core/reports/PullDirectionEvaluation.h
+)
+target_link_libraries(craft_reports PUBLIC craft_mold)
+craft_target_defaults(craft_reports)
+
+# --- craft_mesh_manifold: native Manifold behind IMeshGeometryEngine ---------
+add_library(craft_mesh_manifold STATIC
+  engines/mesh/ManifoldMeshEngine.cpp
+  engines/mesh/ManifoldMeshEngine.h
+)
+target_link_libraries(craft_mesh_manifold PUBLIC craft_mesh_api PRIVATE manifold::manifold)
+craft_target_defaults(craft_mesh_manifold)
+
+# --- craft_analysis_kernels: native numerical kernels the Python worker loads through ctypes ---
+add_subdirectory(engines/analysis-kernels)
+
+# --- craft_analysis_bridge: local Python worker over QProcess ----------------
+add_library(craft_analysis_bridge STATIC
+  engines/analysis-bridge/AnalysisProtocol.h
+  engines/analysis-bridge/AnalysisWorkerClient.cpp
+  engines/analysis-bridge/AnalysisWorkerClient.h
+)
+target_include_directories(craft_analysis_bridge PUBLIC engines/analysis-bridge)
+target_link_libraries(craft_analysis_bridge PUBLIC Qt6::Core craft_core)
+craft_target_defaults(craft_analysis_bridge)
+
+if(CRAFT_BUILD_APP)
+  add_subdirectory(app)
+  add_subdirectory(tools)
+  include(CraftPackaging)  # install rules and the portable package (Windows)
+endif()
+
+if(CRAFT_BUILD_TESTS)
+  enable_testing()
+  add_subdirectory(tests)
+endif()

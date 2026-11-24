@@ -1,3 +1,5 @@
+> **Note:** the web application (`mold/frontend`) described below was removed from this tree. The last tree containing it is the tag `web-reference-final`. The maintained product is the native Windows app in `native/`; see `docs/native-migration/`. The sections on the frontend are kept only as history.
+
 # Project Map
 
 Architectural navigation guide for coding agents working in this repository.

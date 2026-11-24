@@ -1,2 +1,5 @@
 
 mold-generator-engine/mcp.json
+
+__pycache__/
+*.pyc

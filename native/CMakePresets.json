@@ -1,0 +1,100 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "windows-base",
+      "hidden": true,
+      "inherits": "base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "cacheVariables": {
+        "CMAKE_PREFIX_PATH": "$env{CRAFT_QT_DIR}",
+        "FETCHCONTENT_BASE_DIR": "$env{CRAFT_DEPS_ROOT}/fetchcontent",
+        "CMAKE_CXX_COMPILER": "cl"
+      }
+    },
+    {
+      "name": "windows-debug",
+      "displayName": "Windows x64 Debug (MSVC, Ninja)",
+      "inherits": "windows-base",
+      "binaryDir": "$env{CRAFT_BUILD_ROOT}/windows-debug",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "windows-release",
+      "displayName": "Windows x64 Release (MSVC, Ninja)",
+      "inherits": "windows-base",
+      "binaryDir": "$env{CRAFT_BUILD_ROOT}/windows-release",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
+    },
+    {
+      "name": "windows-package",
+      "displayName": "Windows x64 Release for packaging (MSVC, Ninja)",
+      "inherits": "windows-base",
+      "binaryDir": "$env{CRAFT_BUILD_ROOT}/windows-package",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release", "CRAFT_BUILD_TESTS": "OFF", "CRAFT_EMBED_DEV_RUNTIME_PATHS": "OFF" }
+    },
+    {
+      "name": "macos-base",
+      "hidden": true,
+      "inherits": "base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" },
+      "cacheVariables": {
+        "CMAKE_PREFIX_PATH": "$env{CRAFT_QT_DIR}",
+        "FETCHCONTENT_BASE_DIR": "$env{HOME}/Library/Caches/CraftBuild/deps/fetchcontent",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "12.0"
+      }
+    },
+    {
+      "name": "macos-debug",
+      "displayName": "macOS Debug (UNVERIFIED until run on a Mac)",
+      "inherits": "macos-base",
+      "binaryDir": "$env{HOME}/Library/Caches/CraftBuild/build/macos-debug",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "macos-release",
+      "displayName": "macOS Release (UNVERIFIED until run on a Mac)",
+      "inherits": "macos-base",
+      "binaryDir": "$env{HOME}/Library/Caches/CraftBuild/build/macos-release",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "windows-debug", "configurePreset": "windows-debug" },
+    { "name": "windows-release", "configurePreset": "windows-release" },
+    { "name": "windows-package", "configurePreset": "windows-package" },
+    { "name": "macos-debug", "configurePreset": "macos-debug" },
+    { "name": "macos-release", "configurePreset": "macos-release" }
+  ],
+  "testPresets": [
+    {
+      "name": "windows-debug",
+      "configurePreset": "windows-debug",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "windows-release",
+      "configurePreset": "windows-release",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "macos-debug",
+      "configurePreset": "macos-debug",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "macos-release",
+      "configurePreset": "macos-release",
+      "output": { "outputOnFailure": true }
+    }
+  ]
+}

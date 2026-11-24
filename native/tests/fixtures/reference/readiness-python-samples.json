@@ -1,0 +1,831 @@
+[
+ {
+  "name": "closed_tetrahedron",
+  "report": {
+   "status": "ready_with_warnings",
+   "source": {
+    "source_name": "closed_tetrahedron_ascii.stl",
+    "source_path": "D:\\CraftNative\\worktrees\\native-desktop-migration\\mold\\tests\\fixtures\\models\\stl\\closed_tetrahedron_ascii.stl",
+    "file_format": "stl"
+   },
+   "summary": "Chapter 9 generation readiness completed with generation warnings.",
+   "chapter_2_status": "ready",
+   "chapter_3_status": "partial",
+   "chapter_4_status": "completed",
+   "contract": {
+    "pull_direction": {
+     "status": "ambiguous",
+     "candidate_id": "face-normal:3",
+     "direction": {
+      "x": -0.5773502691896258,
+      "y": -0.5773502691896258,
+      "z": -0.5773502691896258
+     },
+     "decisiveness": "ambiguous",
+     "score": 100.0,
+     "confidence": 0.45,
+     "warning_codes": [
+      "Opposite signed directions remain separate candidates even when they share the same unsigned axis and current evidence is symmetric.",
+      "A deterministic representative is still returned, but the current result does not prove unique engineering superiority."
+     ]
+    },
+    "draft_orientation": {
+     "status": "partial",
+     "evaluated_surface_area_ratio": 1.0,
+     "insufficient_draft_area_ratio": 0.0,
+     "near_zero_draft_area_ratio": 0.0,
+     "face_count_by_surface_type": {
+      "pull_facing": 1,
+      "drafted": 3,
+      "near_zero_draft": 0,
+      "ambiguous": 0,
+      "unevaluable": 0
+     },
+     "face_count_by_adequacy": {
+      "sufficient": 3,
+      "insufficient": 0,
+      "zero_or_near_zero": 0,
+      "not_applicable": 1,
+      "ambiguous": 0,
+      "unevaluable": 0
+     },
+     "warning_codes": [
+      "ambiguous_pull_direction_selection"
+     ]
+    },
+    "undercut_indicators": [],
+    "parting_strategies": [
+     {
+      "candidate_id": "parting-strategy-0001-simple-two-part",
+      "rank": 1,
+      "strategy_type": "simple_two_part_planar",
+      "status": "manual_review_required",
+      "score": 28.0,
+      "confidence": 0.45,
+      "pull_direction": {
+       "x": -0.5773502691896258,
+       "y": -0.5773502691896258,
+       "z": -0.5773502691896258
+      },
+      "generation_mode": "unsupported_candidate",
+      "core_target_ids": [],
+      "warning_codes": [
+       "parting_strategy_requires_manual_review",
+       "parting_pull_direction_ambiguous"
+      ],
+      "blocker_codes": [],
+      "requires_manual_review": true
+     }
+    ],
+    "core_cavity_readiness": {
+     "handling_required": false,
+     "decision_outcome": "no_cavity_requiring_core_strategy",
+     "target_ids": [],
+     "confidence": 0.35,
+     "blocker_codes": [
+      "no_candidate_detected_by_current_shell_topology_method"
+     ],
+     "warning_codes": [],
+     "source_references": [
+      "cavity_analysis_decision",
+      "preliminary_core_strategy"
+     ]
+    },
+    "selected_parting_strategy_id": null,
+    "confidence": 0.45
+   },
+   "blockers": [],
+   "warnings": [
+    {
+     "code": "chapter_3_manual_review_required",
+     "source": "detailed_mold_analysis",
+     "severity": "warning",
+     "message": "Chapter 3 evidence requires manual review before generation.",
+     "is_blocking": false,
+     "metadata": {
+      "moldability_status": "manual_review_required"
+     }
+    },
+    {
+     "code": "parting_strategy_requires_manual_review",
+     "source": "mold_generation_planner",
+     "severity": "warning",
+     "message": "Parting strategy requires manual engineering review.",
+     "is_blocking": false,
+     "metadata": {}
+    },
+    {
+     "code": "parting_strategy_requires_manual_review",
+     "source": "mold_generation_planner",
+     "severity": "warning",
+     "message": "Best parting strategy evidence is not decisive enough.",
+     "is_blocking": false,
+     "metadata": {}
+    },
+    {
+     "code": "parting_strategy_requires_manual_review",
+     "source": "mold_generation_planner",
+     "severity": "warning",
+     "message": "Preliminary plan requires manual review.",
+     "is_blocking": false,
+     "metadata": {}
+    },
+    {
+     "code": "parting_pull_direction_ambiguous",
+     "source": "mold_generation_planner",
+     "severity": "warning",
+     "message": "Chapter 3 pull-direction selection is not decisive.",
+     "is_blocking": false,
+     "metadata": {
+      "pull_direction_status": "ambiguous"
+     }
+    }
+   ],
+   "schema_version": "1.0"
+  }
+ },
+ {
+  "name": "bracket",
+  "report": {
+   "status": "ready_with_warnings",
+   "source": {
+    "source_name": "bracket.stl",
+    "source_path": "D:\\CraftNative\\worktrees\\native-desktop-migration\\native\\tests\\fixtures\\models\\bracket.stl",
+    "file_format": "stl"
+   },
+   "summary": "Chapter 9 generation readiness completed with generation warnings.",
+   "chapter_2_status": "ready",
+   "chapter_3_status": "partial",
+   "chapter_4_status": "completed",
+   "contract": {
+    "pull_direction": {
+     "status": "ambiguous",
+     "candidate_id": "axis:-z",
+     "direction": {
+      "x": 0.0,
+      "y": 0.0,
+      "z": -1.0
+     },
+     "decisiveness": "ambiguous",
+     "score": 41.66666666666667,
+     "confidence": 0.416667,
+     "warning_codes": [
+      "Opposite signed directions remain separate candidates even when they share the same unsigned axis and current evidence is symmetric.",
+      "A deterministic representative is still returned, but the current result does not prove unique engineering superiority."
+     ]
+    },
+    "draft_orientation": {
+     "status": "partial",
+     "evaluated_surface_area_ratio": 1.0,
+     "insufficient_draft_area_ratio": 0.0,
+     "near_zero_draft_area_ratio": 1.0,
+     "face_count_by_surface_type": {
+      "pull_facing": 8,
+      "drafted": 0,
+      "near_zero_draft": 12,
+      "ambiguous": 0,
+      "unevaluable": 0
+     },
+     "face_count_by_adequacy": {
+      "sufficient": 0,
+      "insufficient": 0,
+      "zero_or_near_zero": 12,
+      "not_applicable": 8,
+      "ambiguous": 0,
+      "unevaluable": 0
+     },
+     "warning_codes": [
+      "ambiguous_pull_direction_selection"
+     ]
+    },
+    "undercut_indicators": [],
+    "parting_strategies": [
+     {
+      "candidate_id": "parting-strategy-0001-simple-two-part",
+      "rank": 1,
+      "strategy_type": "simple_two_part_planar",
+      "status": "manual_review_required",
+      "score": 20.0,
+      "confidence": 0.45,
+      "pull_direction": {
+       "x": 0.0,
+       "y": 0.0,
+       "z": -1.0
+      },
+      "generation_mode": "unsupported_candidate",
+      "core_target_ids": [],
+      "warning_codes": [
+       "parting_strategy_requires_manual_review",
+       "parting_pull_direction_ambiguous"
+      ],
+      "blocker_codes": [],
+      "requires_manual_review": true
+     }
+    ],
+    "core_cavity_readiness": {
+     "handling_required": false,
+     "decision_outcome": "no_cavity_requiring_core_strategy",
+     "target_ids": [],
+     "confidence": 0.35,
+     "blocker_codes": [
+      "no_candidate_detected_by_current_shell_topology_method"
+     ],
+     "warning_codes": [],
+     "source_references": [
+      "cavity_analysis_decision",
+      "preliminary_core_strategy"
+     ]
+    },
+    "selected_parting_strategy_id": null,
+    "confidence": 0.416667
+   },
+   "blockers": [],
+   "warnings": [
+    {
+     "code": "chapter_3_manual_review_required",
+     "source": "detailed_mold_analysis",
+     "severity": "warning",
+     "message": "Chapter 3 evidence requires manual review before generation.",
+     "is_blocking": false,
+     "metadata": {
+      "moldability_status": "manual_review_required"
+     }
+    },
+    {
+     "code": "parting_strategy_requires_manual_review",
+     "source": "mold_generation_planner",
+     "severity": "warning",
+     "message": "Parting strategy requires manual engineering review.",
+     "is_blocking": false,
+     "metadata": {}
+    },
+    {
+     "code": "parting_strategy_requires_manual_review",
+     "source": "mold_generation_planner",
+     "severity": "warning",
+     "message": "Best parting strategy evidence is not decisive enough.",
+     "is_blocking": false,
+     "metadata": {}
+    },
+    {
+     "code": "parting_strategy_requires_manual_review",
+     "source": "mold_generation_planner",
+     "severity": "warning",
+     "message": "Preliminary plan requires manual review.",
+     "is_blocking": false,
+     "metadata": {}
+    },
+    {
+     "code": "parting_pull_direction_ambiguous",
+     "source": "mold_generation_planner",
+     "severity": "warning",
+     "message": "Chapter 3 pull-direction selection is not decisive.",
+     "is_blocking": false,
+     "metadata": {
+      "pull_direction_status": "ambiguous"
+     }
+    }
+   ],
+   "schema_version": "1.0"
+  }
+ },
+ {
+  "name": "single_triangle_blocked",
+  "report": {
+   "status": "blocked",
+   "source": {
+    "source_name": "single_triangle_ascii.stl",
+    "source_path": "D:\\CraftNative\\worktrees\\native-desktop-migration\\mold\\tests\\fixtures\\models\\stl\\single_triangle_ascii.stl",
+    "file_format": "stl"
+   },
+   "summary": "Chapter 9 generation readiness is blocked by upstream evidence.",
+   "chapter_2_status": "unsuitable",
+   "chapter_3_status": "blocked",
+   "chapter_4_status": "blocked",
+   "contract": {
+    "pull_direction": {
+     "status": "unavailable",
+     "candidate_id": null,
+     "direction": null,
+     "decisiveness": null,
+     "score": null,
+     "confidence": 0.0,
+     "warning_codes": []
+    },
+    "draft_orientation": {
+     "status": "unavailable",
+     "evaluated_surface_area_ratio": 0.0,
+     "insufficient_draft_area_ratio": 0.0,
+     "near_zero_draft_area_ratio": 0.0,
+     "face_count_by_surface_type": {},
+     "face_count_by_adequacy": {},
+     "warning_codes": []
+    },
+    "undercut_indicators": [],
+    "parting_strategies": [],
+    "core_cavity_readiness": {
+     "handling_required": false,
+     "decision_outcome": "not_assessable",
+     "target_ids": [],
+     "confidence": 0.35,
+     "blocker_codes": [
+      "upstream_result_missing"
+     ],
+     "warning_codes": [],
+     "source_references": [
+      "cavity_analysis_decision",
+      "preliminary_core_strategy"
+     ]
+    },
+    "selected_parting_strategy_id": null,
+    "confidence": 0.0
+   },
+   "blockers": [
+    {
+     "code": "chapter_2_blocks_processing",
+     "source": "import_analysis",
+     "severity": "error",
+     "message": "Chapter 2 processing suitability blocks mold generation.",
+     "is_blocking": true,
+     "metadata": {
+      "processing_status": "requires_repair"
+     }
+    },
+    {
+     "code": "parting_pull_direction_missing",
+     "source": "mold_generation_planner",
+     "severity": "error",
+     "message": "No parting strategy candidate could be generated.",
+     "is_blocking": true,
+     "metadata": {}
+    },
+    {
+     "code": "parting_strategy_unavailable",
+     "source": "generation_readiness",
+     "severity": "error",
+     "message": "No parting strategy candidate is available for generation.",
+     "is_blocking": true,
+     "metadata": {}
+    }
+   ],
+   "warnings": [],
+   "schema_version": "1.0"
+  }
+ },
+ {
+  "name": "two_triangles_blocked",
+  "report": {
+   "status": "blocked",
+   "source": {
+    "source_name": "two_triangles_ascii.stl",
+    "source_path": "D:\\CraftNative\\worktrees\\native-desktop-migration\\mold\\tests\\fixtures\\models\\stl\\two_triangles_ascii.stl",
+    "file_format": "stl"
+   },
+   "summary": "Chapter 9 generation readiness is blocked by upstream evidence.",
+   "chapter_2_status": "unsuitable",
+   "chapter_3_status": "blocked",
+   "chapter_4_status": "blocked",
+   "contract": {
+    "pull_direction": {
+     "status": "unavailable",
+     "candidate_id": null,
+     "direction": null,
+     "decisiveness": null,
+     "score": null,
+     "confidence": 0.0,
+     "warning_codes": []
+    },
+    "draft_orientation": {
+     "status": "unavailable",
+     "evaluated_surface_area_ratio": 0.0,
+     "insufficient_draft_area_ratio": 0.0,
+     "near_zero_draft_area_ratio": 0.0,
+     "face_count_by_surface_type": {},
+     "face_count_by_adequacy": {},
+     "warning_codes": []
+    },
+    "undercut_indicators": [],
+    "parting_strategies": [],
+    "core_cavity_readiness": {
+     "handling_required": false,
+     "decision_outcome": "not_assessable",
+     "target_ids": [],
+     "confidence": 0.35,
+     "blocker_codes": [
+      "upstream_result_missing"
+     ],
+     "warning_codes": [],
+     "source_references": [
+      "cavity_analysis_decision",
+      "preliminary_core_strategy"
+     ]
+    },
+    "selected_parting_strategy_id": null,
+    "confidence": 0.0
+   },
+   "blockers": [
+    {
+     "code": "chapter_2_blocks_processing",
+     "source": "import_analysis",
+     "severity": "error",
+     "message": "Chapter 2 processing suitability blocks mold generation.",
+     "is_blocking": true,
+     "metadata": {
+      "processing_status": "requires_repair"
+     }
+    },
+    {
+     "code": "parting_pull_direction_missing",
+     "source": "mold_generation_planner",
+     "severity": "error",
+     "message": "No parting strategy candidate could be generated.",
+     "is_blocking": true,
+     "metadata": {}
+    },
+    {
+     "code": "parting_strategy_unavailable",
+     "source": "generation_readiness",
+     "severity": "error",
+     "message": "No parting strategy candidate is available for generation.",
+     "is_blocking": true,
+     "metadata": {}
+    }
+   ],
+   "warnings": [],
+   "schema_version": "1.0"
+  }
+ },
+ {
+  "name": "degenerate_face",
+  "report": {
+   "status": "blocked",
+   "source": {
+    "source_name": "degenerate_face_ascii.stl",
+    "source_path": "D:\\CraftNative\\worktrees\\native-desktop-migration\\mold\\tests\\fixtures\\models\\stl\\degenerate_face_ascii.stl",
+    "file_format": "stl"
+   },
+   "summary": "Chapter 9 generation readiness is blocked by upstream evidence.",
+   "chapter_2_status": "unsuitable",
+   "chapter_3_status": "blocked",
+   "chapter_4_status": "blocked",
+   "contract": {
+    "pull_direction": {
+     "status": "unavailable",
+     "candidate_id": null,
+     "direction": null,
+     "decisiveness": null,
+     "score": null,
+     "confidence": 0.0,
+     "warning_codes": []
+    },
+    "draft_orientation": {
+     "status": "unavailable",
+     "evaluated_surface_area_ratio": 0.0,
+     "insufficient_draft_area_ratio": 0.0,
+     "near_zero_draft_area_ratio": 0.0,
+     "face_count_by_surface_type": {},
+     "face_count_by_adequacy": {},
+     "warning_codes": []
+    },
+    "undercut_indicators": [],
+    "parting_strategies": [],
+    "core_cavity_readiness": {
+     "handling_required": false,
+     "decision_outcome": "not_assessable",
+     "target_ids": [],
+     "confidence": 0.35,
+     "blocker_codes": [
+      "upstream_result_missing"
+     ],
+     "warning_codes": [],
+     "source_references": [
+      "cavity_analysis_decision",
+      "preliminary_core_strategy"
+     ]
+    },
+    "selected_parting_strategy_id": null,
+    "confidence": 0.0
+   },
+   "blockers": [
+    {
+     "code": "chapter_2_blocks_processing",
+     "source": "import_analysis",
+     "severity": "error",
+     "message": "Chapter 2 processing suitability blocks mold generation.",
+     "is_blocking": true,
+     "metadata": {
+      "processing_status": "requires_repair"
+     }
+    },
+    {
+     "code": "parting_pull_direction_missing",
+     "source": "mold_generation_planner",
+     "severity": "error",
+     "message": "No parting strategy candidate could be generated.",
+     "is_blocking": true,
+     "metadata": {}
+    },
+    {
+     "code": "parting_strategy_unavailable",
+     "source": "generation_readiness",
+     "severity": "error",
+     "message": "No parting strategy candidate is available for generation.",
+     "is_blocking": true,
+     "metadata": {}
+    }
+   ],
+   "warnings": [],
+   "schema_version": "1.0"
+  }
+ },
+ {
+  "name": "closed_box_4",
+  "report": {
+   "status": "ready_with_warnings",
+   "source": {
+    "source_name": "box4.stl",
+    "source_path": "D:\\CraftNative\\temp\\tmpb378yrys\\box4.stl",
+    "file_format": "stl"
+   },
+   "summary": "Chapter 9 generation readiness completed with generation warnings.",
+   "chapter_2_status": "ready",
+   "chapter_3_status": "partial",
+   "chapter_4_status": "completed",
+   "contract": {
+    "pull_direction": {
+     "status": "ambiguous",
+     "candidate_id": "axis:-x",
+     "direction": {
+      "x": -1.0,
+      "y": 0.0,
+      "z": 0.0
+     },
+     "decisiveness": "ambiguous",
+     "score": 33.33333333333333,
+     "confidence": 0.333333,
+     "warning_codes": [
+      "Opposite signed directions remain separate candidates even when they share the same unsigned axis and current evidence is symmetric.",
+      "A deterministic representative is still returned, but the current result does not prove unique engineering superiority."
+     ]
+    },
+    "draft_orientation": {
+     "status": "partial",
+     "evaluated_surface_area_ratio": 1.0,
+     "insufficient_draft_area_ratio": 0.0,
+     "near_zero_draft_area_ratio": 1.0,
+     "face_count_by_surface_type": {
+      "pull_facing": 64,
+      "drafted": 0,
+      "near_zero_draft": 128,
+      "ambiguous": 0,
+      "unevaluable": 0
+     },
+     "face_count_by_adequacy": {
+      "sufficient": 0,
+      "insufficient": 0,
+      "zero_or_near_zero": 128,
+      "not_applicable": 64,
+      "ambiguous": 0,
+      "unevaluable": 0
+     },
+     "warning_codes": [
+      "ambiguous_pull_direction_selection"
+     ]
+    },
+    "undercut_indicators": [],
+    "parting_strategies": [
+     {
+      "candidate_id": "parting-strategy-0001-simple-two-part",
+      "rank": 1,
+      "strategy_type": "simple_two_part_planar",
+      "status": "manual_review_required",
+      "score": 20.0,
+      "confidence": 0.45,
+      "pull_direction": {
+       "x": -1.0,
+       "y": 0.0,
+       "z": 0.0
+      },
+      "generation_mode": "unsupported_candidate",
+      "core_target_ids": [],
+      "warning_codes": [
+       "parting_strategy_requires_manual_review",
+       "parting_pull_direction_ambiguous"
+      ],
+      "blocker_codes": [],
+      "requires_manual_review": true
+     }
+    ],
+    "core_cavity_readiness": {
+     "handling_required": false,
+     "decision_outcome": "no_cavity_requiring_core_strategy",
+     "target_ids": [],
+     "confidence": 0.35,
+     "blocker_codes": [
+      "no_candidate_detected_by_current_shell_topology_method"
+     ],
+     "warning_codes": [],
+     "source_references": [
+      "cavity_analysis_decision",
+      "preliminary_core_strategy"
+     ]
+    },
+    "selected_parting_strategy_id": null,
+    "confidence": 0.333333
+   },
+   "blockers": [],
+   "warnings": [
+    {
+     "code": "chapter_3_manual_review_required",
+     "source": "detailed_mold_analysis",
+     "severity": "warning",
+     "message": "Chapter 3 evidence requires manual review before generation.",
+     "is_blocking": false,
+     "metadata": {
+      "moldability_status": "manual_review_required"
+     }
+    },
+    {
+     "code": "parting_strategy_requires_manual_review",
+     "source": "mold_generation_planner",
+     "severity": "warning",
+     "message": "Parting strategy requires manual engineering review.",
+     "is_blocking": false,
+     "metadata": {}
+    },
+    {
+     "code": "parting_strategy_requires_manual_review",
+     "source": "mold_generation_planner",
+     "severity": "warning",
+     "message": "Best parting strategy evidence is not decisive enough.",
+     "is_blocking": false,
+     "metadata": {}
+    },
+    {
+     "code": "parting_strategy_requires_manual_review",
+     "source": "mold_generation_planner",
+     "severity": "warning",
+     "message": "Preliminary plan requires manual review.",
+     "is_blocking": false,
+     "metadata": {}
+    },
+    {
+     "code": "parting_pull_direction_ambiguous",
+     "source": "mold_generation_planner",
+     "severity": "warning",
+     "message": "Chapter 3 pull-direction selection is not decisive.",
+     "is_blocking": false,
+     "metadata": {
+      "pull_direction_status": "ambiguous"
+     }
+    }
+   ],
+   "schema_version": "1.0"
+  }
+ },
+ {
+  "name": "closed_box_8",
+  "report": {
+   "status": "ready_with_warnings",
+   "source": {
+    "source_name": "box8.stl",
+    "source_path": "D:\\CraftNative\\temp\\tmpb378yrys\\box8.stl",
+    "file_format": "stl"
+   },
+   "summary": "Chapter 9 generation readiness completed with generation warnings.",
+   "chapter_2_status": "ready",
+   "chapter_3_status": "partial",
+   "chapter_4_status": "completed",
+   "contract": {
+    "pull_direction": {
+     "status": "ambiguous",
+     "candidate_id": "axis:-x",
+     "direction": {
+      "x": -1.0,
+      "y": 0.0,
+      "z": 0.0
+     },
+     "decisiveness": "ambiguous",
+     "score": 33.33333333333333,
+     "confidence": 0.333333,
+     "warning_codes": [
+      "Opposite signed directions remain separate candidates even when they share the same unsigned axis and current evidence is symmetric.",
+      "A deterministic representative is still returned, but the current result does not prove unique engineering superiority."
+     ]
+    },
+    "draft_orientation": {
+     "status": "partial",
+     "evaluated_surface_area_ratio": 1.0,
+     "insufficient_draft_area_ratio": 0.0,
+     "near_zero_draft_area_ratio": 1.0,
+     "face_count_by_surface_type": {
+      "pull_facing": 256,
+      "drafted": 0,
+      "near_zero_draft": 512,
+      "ambiguous": 0,
+      "unevaluable": 0
+     },
+     "face_count_by_adequacy": {
+      "sufficient": 0,
+      "insufficient": 0,
+      "zero_or_near_zero": 512,
+      "not_applicable": 256,
+      "ambiguous": 0,
+      "unevaluable": 0
+     },
+     "warning_codes": [
+      "ambiguous_pull_direction_selection"
+     ]
+    },
+    "undercut_indicators": [],
+    "parting_strategies": [
+     {
+      "candidate_id": "parting-strategy-0001-simple-two-part",
+      "rank": 1,
+      "strategy_type": "simple_two_part_planar",
+      "status": "manual_review_required",
+      "score": 20.0,
+      "confidence": 0.45,
+      "pull_direction": {
+       "x": -1.0,
+       "y": 0.0,
+       "z": 0.0
+      },
+      "generation_mode": "unsupported_candidate",
+      "core_target_ids": [],
+      "warning_codes": [
+       "parting_strategy_requires_manual_review",
+       "parting_pull_direction_ambiguous"
+      ],
+      "blocker_codes": [],
+      "requires_manual_review": true
+     }
+    ],
+    "core_cavity_readiness": {
+     "handling_required": false,
+     "decision_outcome": "no_cavity_requiring_core_strategy",
+     "target_ids": [],
+     "confidence": 0.35,
+     "blocker_codes": [
+      "no_candidate_detected_by_current_shell_topology_method"
+     ],
+     "warning_codes": [],
+     "source_references": [
+      "cavity_analysis_decision",
+      "preliminary_core_strategy"
+     ]
+    },
+    "selected_parting_strategy_id": null,
+    "confidence": 0.333333
+   },
+   "blockers": [],
+   "warnings": [
+    {
+     "code": "chapter_3_manual_review_required",
+     "source": "detailed_mold_analysis",
+     "severity": "warning",
+     "message": "Chapter 3 evidence requires manual review before generation.",
+     "is_blocking": false,
+     "metadata": {
+      "moldability_status": "manual_review_required"
+     }
+    },
+    {
+     "code": "parting_strategy_requires_manual_review",
+     "source": "mold_generation_planner",
+     "severity": "warning",
+     "message": "Parting strategy requires manual engineering review.",
+     "is_blocking": false,
+     "metadata": {}
+    },
+    {
+     "code": "parting_strategy_requires_manual_review",
+     "source": "mold_generation_planner",
+     "severity": "warning",
+     "message": "Best parting strategy evidence is not decisive enough.",
+     "is_blocking": false,
+     "metadata": {}
+    },
+    {
+     "code": "parting_strategy_requires_manual_review",
+     "source": "mold_generation_planner",
+     "severity": "warning",
+     "message": "Preliminary plan requires manual review.",
+     "is_blocking": false,
+     "metadata": {}
+    },
+    {
+     "code": "parting_pull_direction_ambiguous",
+     "source": "mold_generation_planner",
+     "severity": "warning",
+     "message": "Chapter 3 pull-direction selection is not decisive.",
+     "is_blocking": false,
+     "metadata": {
+      "pull_direction_status": "ambiguous"
+     }
+    }
+   ],
+   "schema_version": "1.0"
+  }
+ }
+]

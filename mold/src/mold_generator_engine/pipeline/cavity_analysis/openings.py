@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 from mold_generator_engine.config.geometry import DEFAULT_LINEAR_TOLERANCE_MM
 from mold_generator_engine.geometry.mesh_adjacency import build_face_adjacency_graph
-from mold_generator_engine.geometry.ray_mesh_query import BruteForceRayMeshQuery
+from mold_generator_engine.geometry.ray_mesh_bvh import BvhRayMeshQuery
 from mold_generator_engine.geometry.vector import Vector3D
 from mold_generator_engine.models.cavity_analysis import (
     CavityAnalysisContext,
@@ -233,7 +233,7 @@ def _detect_sampled_regions(
     occluded_direction_threshold: int,
     maximum_visible_direction_threshold: int,
 ) -> tuple[tuple[InternalSurfaceRegion, ...], tuple[_OpeningWitness, ...]]:
-    ray_query = BruteForceRayMeshQuery.from_model(
+    ray_query = BvhRayMeshQuery.from_model(
         model,
         intersection_epsilon_mm=tolerance_mm,
     )
@@ -470,7 +470,7 @@ def _face_unit_normal(
 
 
 def _probe_face_side(
-    ray_query: BruteForceRayMeshQuery,
+    ray_query: BvhRayMeshQuery,
     *,
     face_index: int,
     origin: Vector3D,

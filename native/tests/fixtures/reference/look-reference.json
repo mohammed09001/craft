@@ -1,0 +1,259 @@
+{
+  "lightingRig": {
+    "dark": {
+      "key": {
+        "name": "key",
+        "position": [
+          90,
+          -110,
+          150
+        ],
+        "colorHex": 16777215,
+        "intensity": 1.45
+      },
+      "fill": {
+        "name": "fill",
+        "position": [
+          -100,
+          75,
+          65
+        ],
+        "colorHex": 12443902,
+        "intensity": 0.35
+      },
+      "rim": {
+        "name": "rim",
+        "position": [
+          -55,
+          -80,
+          105
+        ],
+        "colorHex": 16777215,
+        "intensity": 0.5
+      },
+      "ambient": {
+        "colorHex": 16777215,
+        "intensity": 0.15
+      },
+      "hemisphere": {
+        "skyHex": 14213885,
+        "groundHex": 2040619,
+        "intensity": 0.4
+      },
+      "keyCastsShadow": true
+    },
+    "light": {
+      "key": {
+        "name": "key",
+        "position": [
+          90,
+          -110,
+          150
+        ],
+        "colorHex": 16777215,
+        "intensity": 1.3
+      },
+      "fill": {
+        "name": "fill",
+        "position": [
+          -100,
+          75,
+          65
+        ],
+        "colorHex": 12443902,
+        "intensity": 0.45
+      },
+      "rim": {
+        "name": "rim",
+        "position": [
+          -55,
+          -80,
+          105
+        ],
+        "colorHex": 16777215,
+        "intensity": 0.4
+      },
+      "ambient": {
+        "colorHex": 16777215,
+        "intensity": 0.22
+      },
+      "hemisphere": {
+        "skyHex": 16777215,
+        "groundHex": 13621480,
+        "intensity": 0.45
+      },
+      "keyCastsShadow": true
+    }
+  },
+  "themes": {
+    "dark": {
+      "outerMoldColor": 12208708,
+      "cavitySurfaceColor": 10172724,
+      "registrationKeyColor": 13935416,
+      "sprueFunnelColor": 14658876,
+      "importedPartColor": 12116972,
+      "featureEdgeColor": 3673870,
+      "segmentationEnvelopeColor": 12107976,
+      "outerRoughness": 0.38,
+      "outerMetalness": 0.06,
+      "cavityRoughness": 0.32,
+      "cavityMetalness": 0.08,
+      "registrationRoughness": 0.35,
+      "registrationMetalness": 0.06,
+      "sprueRoughness": 0.32,
+      "sprueMetalness": 0.08,
+      "importedRoughness": 0.38,
+      "importedMetalness": 0.06,
+      "segmentationEnvelopeRoughness": 0.92,
+      "segmentationEnvelopeMetalness": 0,
+      "segmentationRegistrationRoughness": 0.84,
+      "segmentationRegistrationMetalness": 0,
+      "segmentationRegistrationOpacity": 0.72,
+      "backgroundTop": "#161c24",
+      "backgroundBottom": "#0a0e13"
+    },
+    "light": {
+      "outerMoldColor": 12866124,
+      "cavitySurfaceColor": 10698040,
+      "registrationKeyColor": 13145645,
+      "sprueFunnelColor": 13803314,
+      "importedPartColor": 4886440,
+      "featureEdgeColor": 4330001,
+      "segmentationEnvelopeColor": 7832204,
+      "outerRoughness": 0.36,
+      "outerMetalness": 0.05,
+      "cavityRoughness": 0.3,
+      "cavityMetalness": 0.08,
+      "registrationRoughness": 0.34,
+      "registrationMetalness": 0.06,
+      "sprueRoughness": 0.3,
+      "sprueMetalness": 0.08,
+      "importedRoughness": 0.36,
+      "importedMetalness": 0.05,
+      "segmentationEnvelopeRoughness": 0.92,
+      "segmentationEnvelopeMetalness": 0,
+      "segmentationRegistrationRoughness": 0.84,
+      "segmentationRegistrationMetalness": 0,
+      "segmentationRegistrationOpacity": 0.72,
+      "backgroundTop": "#f5f7fa",
+      "backgroundBottom": "#e2e7ec"
+    }
+  },
+  "themeResolution": {
+    "darkPaletteIsLight": false,
+    "lightPaletteIsLight": true,
+    "lightPaletteResolvesToLightTheme": true,
+    "hexBackgroundF7F9FBIsLight": false
+  },
+  "materials": {
+    "importedPartDark": {
+      "colorHex": 12116972,
+      "roughness": 0.38,
+      "metalness": 0.06,
+      "doubleSided": true
+    },
+    "outerMoldDark": {
+      "colorHex": 12208708,
+      "roughness": 0.38,
+      "metalness": 0.06,
+      "doubleSided": true
+    },
+    "roles": {
+      "outer-mold": {
+        "colorHex": 12208708,
+        "roughness": 0.38,
+        "metalness": 0.06,
+        "doubleSided": true,
+        "opacity": 1,
+        "transparent": false,
+        "depthWrite": true,
+        "transmission": null,
+        "thickness": null,
+        "ior": null
+      },
+      "cavity-surface": {
+        "colorHex": 10172724,
+        "roughness": 0.32,
+        "metalness": 0.08,
+        "doubleSided": true,
+        "opacity": 1,
+        "transparent": false,
+        "depthWrite": true,
+        "transmission": null,
+        "thickness": null,
+        "ior": null
+      },
+      "registration-key": {
+        "colorHex": 13935416,
+        "roughness": 0.35,
+        "metalness": 0.06,
+        "doubleSided": true,
+        "opacity": 1,
+        "transparent": false,
+        "depthWrite": true,
+        "transmission": null,
+        "thickness": null,
+        "ior": null
+      },
+      "sprue-funnel": {
+        "colorHex": 14658876,
+        "roughness": 0.32,
+        "metalness": 0.08,
+        "doubleSided": true,
+        "opacity": 1,
+        "transparent": false,
+        "depthWrite": true,
+        "transmission": null,
+        "thickness": null,
+        "ior": null
+      },
+      "imported-part": {
+        "colorHex": 12116972,
+        "roughness": 0.38,
+        "metalness": 0.06,
+        "doubleSided": true,
+        "opacity": 1,
+        "transparent": false,
+        "depthWrite": true,
+        "transmission": null,
+        "thickness": null,
+        "ior": null
+      }
+    },
+    "glass": {
+      "colorHex": 12208708,
+      "roughness": 0.18,
+      "metalness": 0.02,
+      "doubleSided": true,
+      "opacity": 0.3,
+      "transparent": true,
+      "depthWrite": false,
+      "transmission": 0.68,
+      "thickness": 0.8,
+      "ior": 1.45
+    },
+    "glassIsTheSameForEveryRole": true
+  },
+  "grid": {
+    "minorOpacity": 0.32,
+    "majorOpacity": 0.5,
+    "transparent": true
+  },
+  "featureEdges": {
+    "colorHex": {
+      "color": 3673870,
+      "opacity": 0.65,
+      "depthWrite": false
+    },
+    "appearsAtBend": {
+      "5": false,
+      "15": false,
+      "20": false,
+      "24": false,
+      "26": true,
+      "30": true,
+      "45": true,
+      "90": true
+    }
+  }
+}

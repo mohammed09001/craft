@@ -1,0 +1,19 @@
+{
+  "_comment": "Third-party binaries that go into the installed application. The SHA-256 was recorded at first download and verified against python.org on 2026-11-22 (scripts/native/verify-python-pin.ps1: a fresh download matches, and python.org's detached OpenPGP signature is good and made by signingKeyFingerprint, the Windows-binaries key on https://www.python.org/downloads/metadata/pgp/). Rerun the script before every release and whenever the version changes.",
+  "python-embed-win-amd64": {
+    "version": "3.13.17",
+    "url": "https://www.python.org/ftp/python/3.13.17/python-3.13.17-embed-amd64.zip",
+    "sha256": "9e35319bffedab8b36ad44d8f377cb4f1733bcec257a0b6d04d94f01486ddb38",
+    "signingKeyFingerprint": "7ED10B6531D7C8E1BC296021FC624643487034E5",
+    "signingKeyUrl": "https://keybase.io/stevedower/pgp_keys.asc?fingerprint=7ed10b6531d7c8e1bc296021fc624643487034e5",
+    "license": "Python Software Foundation License (shipped as python/LICENSE.txt)"
+  },
+  "wix-toolset-binaries": {
+    "_comment": "BUILD TOOL ONLY: it makes the MSI and is not part of the package. Downloaded with the owner's approval on 2026-11-22 (PK-2). The zip is unsigned and GitHub publishes no digest for it, so the SHA-256 is trust on first use plus an exact size match with the release API (41,297,555 bytes); a compromised toolchain could alter an MSI, which is one more reason the owner signs the final MSI and the release checklist rebuilds it from a fresh download.",
+    "version": "3.14.1",
+    "url": "https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip",
+    "sha256": "6ac824e1642d6f7277d0ed7ea09411a508f6116ba6fae0aa5f2c7daa2ff43d31",
+    "sizeBytes": 41297555,
+    "license": "Microsoft Reciprocal License (MS-RL); a build tool, nothing of it is distributed"
+  }
+}

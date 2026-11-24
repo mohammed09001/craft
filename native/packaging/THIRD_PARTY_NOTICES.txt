@@ -1,0 +1,55 @@
+CRAFT -- THIRD-PARTY SOFTWARE IN THIS PACKAGE
+=============================================
+
+This file lists the third-party components that are part of the installed
+application, where each one lives, and the license it is available under.
+It is an engineering inventory, not legal advice: it must be reviewed by the
+owner of the product before the application is distributed (see "Open
+decision" below).
+
+OPEN DECISION: Qt licensing
+---------------------------
+Craft uses Qt 6.8.3 (Qt Base, Qt Declarative/QML, Qt Quick Controls, Qt Quick
+Dialogs, Qt Shader Tools, Qt Quick 3D). The Qt SBOM that ships with the
+installed Qt records these licenses:
+
+  Qt Base, Qt Declarative, Qt Shader Tools   Commercial OR LGPL-3.0 OR GPL-2.0 OR GPL-3.0
+  Qt Quick 3D                                Commercial OR GPL-3.0   (NOT LGPL)
+
+Craft's 3D viewport is built on Qt Quick 3D. Distributing the application with
+the open-source Qt therefore requires either a commercial Qt license from The
+Qt Company, or complying with the GPL-3.0 for the combined work (offering the
+complete corresponding source of Craft under the GPL-3.0). Neither has been
+decided or arranged. Until it is, this package is for internal testing only.
+
+Qt is loaded as dynamic libraries (Qt6*.dll) and plugins next to Craft.exe.
+Qt source code: https://download.qt.io/official_releases/qt/6.8/6.8.3/
+
+Components
+----------
+Qt 6.8.3 (see above)
+  Files:   Qt6*.dll, platforms/, styles/, imageformats/, qml/, ...
+  License: see "OPEN DECISION" above.
+
+Python 3.13.17 (embeddable distribution from python.org)
+  Files:   python/ (python.exe, python313.dll, python313.zip, extension modules)
+  License: Python Software Foundation License; the full text is in python/LICENSE.txt.
+           The distribution also contains OpenSSL (libcrypto-3.dll, libssl-3.dll,
+           Apache-2.0), SQLite (public domain), libffi (MIT) and others; their
+           notices are in python/LICENSE.txt.
+
+Manifold 3.5.1 (mesh Boolean kernel, statically linked into Craft.exe)
+  License: Apache-2.0                      licenses/Manifold-LICENSE-Apache-2.0.txt
+
+Clipper2 (polygon clipping, used by Manifold, statically linked)
+  License: Boost Software License 1.0      licenses/Clipper2-LICENSE-BSL-1.0.txt
+
+Microsoft Visual C++ runtime (msvcp140*.dll, vcruntime140*.dll)
+  Redistributed app-local under the Microsoft Visual Studio redistribution terms.
+
+Craft's own components
+----------------------
+Craft.exe, analysis/craft_analysis_worker.py and the analysis engine packages
+(analysis/site/mold_generator_engine, engineering_reports, engineering_analysis)
+are the product's own code. The product's own license has not been chosen yet;
+that is part of the same open decision.
