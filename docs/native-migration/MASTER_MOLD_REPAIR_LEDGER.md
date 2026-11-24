@@ -59,3 +59,11 @@ Two numerical rules were added with it, both stated in the code: faces thinner t
 Before: the medium gear needed about 450 s and the small gear and ring were refused. `estimateMasterMoldPeakBytes` is now 256 MiB + 3.5 KB per triangle (it was 64 MiB + 9 KB, which would have refused the 1.5M-triangle gear on this 16 GiB machine although it needs 4 GiB). Not run: flower_l (1.44M triangles).
 
 **Install checks.** `verify-install.ps1` now asserts exactly two exportable masters and runs the Master Mold alone (no `--generate-mold`) from a hostile environment, and checks that the worker reports its own peak. Results on this machine, 2026-11-24: installed folder (1,590 files) all checks pass; portable ZIP extracted to a fresh folder all checks pass; MSI install, upgrade, uninstall, and the upgrade/uninstall while Craft is running all pass (`verify-installer.ps1`). The installed Master Mold peaks at about 26 MiB on the bracket. The MSI is unsigned.
+
+## Duck stage (added)
+
+New: `MasterCoverage.*`, the two-direction release census (a necessary condition for any two-part split by translation, in any two directions), used to rank the release axes tried for a curved seam and to state in a failure whether the part has a witnessed obstruction (every pair traps mold) or the search was too narrow (some pair traps nothing). `TriangleIntersection` classifies intersecting triangle pairs (crossing, coplanar overlap, touch); the preflight refuses only crossings and overlaps. The preflight now also covers meshes above 20,000 triangles with a grid search.
+
+Tried and removed: halves that leave in two different directions (shadow of the product by prism union, ledge slab, generalised masters and sweeps). It never reached a success (half B in several bodies on a two-slot block, half A pinched on the duck), so it is not in the tree; the patch is in `D:\CraftNative\logs`.
+
+Result on the duck: `no_feasible_plan` in 22.6 s, with the census in the message: the best opposite pair traps 6.1 mm^3, the best pair of any two directions traps 0.0 mm^3.

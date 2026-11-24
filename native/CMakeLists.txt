@@ -112,6 +112,8 @@ add_library(craft_mold STATIC
   core/master/JsFormat.h
   core/master/MasterContract.cpp
   core/master/MasterContract.h
+  core/master/MasterCoverage.cpp
+  core/master/MasterCoverage.h
   core/master/MasterEngine.cpp
   core/master/MasterEngine.h
   core/master/MasterMoldStore.cpp

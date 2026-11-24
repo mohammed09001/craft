@@ -13,6 +13,7 @@
 #include "ManifoldMeshEngine.h"
 #include "master/MasterContract.h"
 #include "master/MasterPlanning.h"
+#include "master/MasterCoverage.h"
 #include "master/MasterTwoPart.h"
 #include "master/TriangleIntersection.h"
 
@@ -480,6 +481,18 @@ class TstMasterTwoPart : public QObject {
     const IntersectTriangle c{{0, 0, -1}, {10, 0, -1}, {0, 0, 1}};
     QVERIFY(trianglesIntersect(a, c, 8e-6));
   }
+  void preflight_aWallEdgeRestingOnAFlatBaseSliverIsContactNotACrossing() {
+    // From the duck: a wall triangle whose bottom edge lies in the plane of a flat base sliver and runs across its tip. Nothing passes through anything.
+    const auto f = [](double v) { return static_cast<double>(static_cast<float>(v)); };
+    const IntersectTriangle wall{{f(90.0325), f(85.8740), f(0.0002)}, {f(90.2017), f(86.2038), f(0.0002)}, {f(90.1727), f(85.9637), f(0.1206)}};
+    const IntersectTriangle sliver{{f(89.6265), f(85.5141), f(0.0002)}, {f(90.1910), f(86.1825), f(0.0002)}, {f(89.9879), f(85.9267), f(0.0002)}};
+    QVERIFY(trianglesIntersect(wall, sliver, 8e-6));
+    QCOMPARE(static_cast<int>(classifyTriangleContact(wall, sliver, 8e-6)), static_cast<int>(TriangleContact::Touch));
+    const IntersectTriangle a{{0, 0, -1}, {10, 0, -1}, {0, 0, 1}}, b{{2, -3, 0}, {8, -3, 0}, {5, 3, 0}};
+    QCOMPARE(static_cast<int>(classifyTriangleContact(a, b, 8e-6)), static_cast<int>(TriangleContact::Cross));
+    const IntersectTriangle c{{0, 0, 0}, {10, 0, 0}, {0, 10, 0}}, d{{2, 2, 0}, {12, 2, 0}, {2, 12, 0}};
+    QCOMPARE(static_cast<int>(classifyTriangleContact(c, d, 8e-6)), static_cast<int>(TriangleContact::Coplanar));
+  }
   void preflight_aRealSelfIntersectionIsStillRefused() {
     // Two closed boxes crossing each other as one mesh: genuinely intersecting, at a large angle.
     MeshPayload a = box(20, 20, 20), b = box(20, 20, 20);
@@ -540,6 +553,60 @@ class TstMasterTwoPart : public QObject {
     std::string issues;
     for (const auto& i : r.issues) issues += " [" + i.code + ": " + i.message + "]";
     qInfo("PREFLIGHT %s: %u triangles, %.1f s, status %s, checked %d,%s", path.constData(), count, s, r.status.c_str(), r.selfIntersectionChecked ? 1 : 0, issues.c_str());
+  }
+  void coverage_aConvexPartLeavesNothingTrapped() {
+    const MeshPayload m = sphere(25, 24, 48);
+    const std::vector<float> pos(m.positions.begin(), m.positions.end());
+    const CoverageAnalysis c = analyzeTwoDirectionCoverage(pos, m.indices, 10, 96, 32, {});
+    QVERIFY(c.ran);
+    QVERIFY(c.best.trappedMm3 < 1e-6 * c.moldVolumeMm3 + 1.0);
+    QVERIFY(c.bestOpposing.trappedMm3 < 1.0);
+  }
+  void coverage_anEnclosedCavityIsTrappedForEveryPairOfDirections() {
+    MeshPayload outer = sphere(25, 24, 48), inner = sphere(10, 24, 48);
+    const std::uint32_t base = static_cast<std::uint32_t>(outer.vertexCount());
+    outer.positions.insert(outer.positions.end(), inner.positions.begin(), inner.positions.end());
+    for (std::size_t i = 0; i < inner.indices.size(); i += 3) outer.indices.insert(outer.indices.end(), {inner.indices[i] + base, inner.indices[i + 2] + base, inner.indices[i + 1] + base});
+    const std::vector<float> pos(outer.positions.begin(), outer.positions.end());
+    const CoverageAnalysis c = analyzeTwoDirectionCoverage(pos, outer.indices, 10, 128, 64, {});
+    const double cavity = 4.0 / 3.0 * kPi * 10 * 10 * 10;
+    QVERIFY2(c.best.trappedMm3 > 0.8 * cavity && c.best.trappedMm3 < 1.2 * cavity, qPrintable(QString("best pair traps %1 mm^3, the cavity is %2").arg(c.best.trappedMm3).arg(cavity)));
+    QVERIFY(c.trappedComponents >= 1);
+  }
+  void coverage_aTwoDirectionPartHasAPairThatTrapsNothing() {
+    // An L: an arm that goes sideways under an overhang. Opposite directions trap the pocket under the arm's roof; two directions at right angles free it.
+    const MeshPayload plate = wavyPlate(20, 40, 4, 5, 6);
+    const std::vector<float> pos(plate.positions.begin(), plate.positions.end());
+    const CoverageAnalysis c = analyzeTwoDirectionCoverage(pos, plate.indices, 12, 128, 64, {});
+    QVERIFY(c.ran);
+    QVERIFY2(c.bestOpposing.trappedMm3 < 0.002 * c.moldVolumeMm3, qPrintable(QString("the wavy plate has a column-simple curved seam, but the best opposing pair traps %1 mm^3").arg(c.bestOpposing.trappedMm3)));
+  }
+  void coverage_realFixtureFromEnvironment() {
+    const QByteArray path = qgetenv("CRAFT_COVERAGE_STL");
+    if (path.isEmpty()) QSKIP("CRAFT_COVERAGE_STL is not set");
+    QFile f(QString::fromLocal8Bit(path));
+    QVERIFY(f.open(QIODevice::ReadOnly));
+    const QByteArray bytes = f.readAll();
+    quint32 count = 0;
+    memcpy(&count, bytes.constData() + 80, 4);
+    std::vector<float> pos;
+    std::vector<std::uint32_t> idx;
+    for (quint32 i = 0; i < count; ++i) {
+      const char* rec = bytes.constData() + 84 + static_cast<qsizetype>(i) * 50;
+      for (int v = 0; v < 3; ++v) {
+        float p[3];
+        memcpy(p, rec + 12 + v * 12, 12);
+        pos.insert(pos.end(), {p[0], p[1], p[2]});
+        idx.push_back(i * 3 + static_cast<std::uint32_t>(v));
+      }
+    }
+    const auto started = std::chrono::steady_clock::now();
+    const CoverageAnalysis c = analyzeTwoDirectionCoverage(pos, idx, 10, qEnvironmentVariableIntValue("CRAFT_COVERAGE_RES") > 0 ? qEnvironmentVariableIntValue("CRAFT_COVERAGE_RES") : 128, 96, {});
+    const double s = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+    qInfo("COVERAGE %s: %u tris, %.1f s, voxel %.3f mm, mold %.0f mm^3, %d directions, %d pairs", path.constData(), count, s, c.voxelMm, c.moldVolumeMm3, c.directions, c.pairs);
+    qInfo("  best pair (%.2f %.2f %.2f) then (%.2f %.2f %.2f): traps %.1f mm^3 (%.4f %%), %d pocket(s), largest %.1f mm^3, centroid (%.1f %.1f %.1f)", c.best.first.x, c.best.first.y, c.best.first.z,
+          c.best.second.x, c.best.second.y, c.best.second.z, c.best.trappedMm3, 100 * c.best.trappedFraction, c.trappedComponents, c.largestPocketMm3, c.trappedCentroid.x, c.trappedCentroid.y, c.trappedCentroid.z);
+    qInfo("  best opposing pair (%.2f %.2f %.2f): traps %.1f mm^3 (%.4f %%)", c.bestOpposing.first.x, c.bestOpposing.first.y, c.bestOpposing.first.z, c.bestOpposing.trappedMm3, 100 * c.bestOpposing.trappedFraction);
   }
   void denseSphere_isBounded() {
     const MeshPayload m = sphere(30, 120, 240);  // ~57k triangles

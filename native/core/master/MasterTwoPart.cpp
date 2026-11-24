@@ -15,6 +15,7 @@
 
 #include "geometry/GeometryTolerance.h"
 #include "geometry/MeshAnalysis.h"
+#include "master/MasterCoverage.h"
 #include "master/MasterPlanning.h"
 
 namespace craft {
@@ -825,6 +826,64 @@ double workingWallFor(const MasterProcessProfile& profile, const Bounds3& b) {
   return profile.workingWallMm.value_or(std::clamp(0.15 * extent, 10.0, 25.0));
 }
 
+/// A point near the top of the product and a radius such that the final-cast inlet channel's base disc lies wholly inside the product (see the comment where it is used).
+struct Inlet { double x = 0, y = 0, baseZ = 0, radius = 0; };
+
+std::optional<Inlet> findInlet(IMeshGeometryEngine& engine, const SolidPtr& part, const MeshPayload& partMesh, double apexZ, double extent, double sprueR, const MasterMoldEngineHooks& hooks) {
+  std::optional<Inlet> inlet;
+    {
+      std::vector<std::pair<double, double>> spots;
+      const double topBand = apexZ - 1e-6 * extent;
+      double cx = 0, cy = 0;
+      int n = 0;
+      for (std::size_t i = 0; i < partMesh.vertexCount(); ++i)
+        if (partMesh.positions[3 * i + 2] >= topBand) {
+          cx += partMesh.positions[3 * i];
+          cy += partMesh.positions[3 * i + 1];
+          ++n;
+        }
+      spots.push_back({cx / n, cy / n});
+      for (std::size_t i = 0; i < partMesh.vertexCount() && spots.size() < 12; ++i)
+        if (partMesh.positions[3 * i + 2] >= topBand) spots.push_back({partMesh.positions[3 * i], partMesh.positions[3 * i + 1]});
+      // The faces near the top, spread over the whole top: a flat top with a bore or teeth has room only in some places, and the first faces of a mesh are
+      // all in one corner of it.
+      {
+        std::vector<std::pair<double, double>> nearTop;
+        for (std::size_t t = 0; t < partMesh.triangleCount(); ++t) {
+          double x = 0, y = 0, zMin = kInf;
+          for (int k = 0; k < 3; ++k) {
+            const std::size_t vi = partMesh.indices[3 * t + static_cast<std::size_t>(k)];
+            x += partMesh.positions[3 * vi] / 3;
+            y += partMesh.positions[3 * vi + 1] / 3;
+            zMin = std::min(zMin, partMesh.positions[3 * vi + 2]);
+          }
+          if (zMin >= apexZ - 0.05 * extent) nearTop.push_back({x, y});
+        }
+        const std::size_t want = 48;
+        const std::size_t stride = std::max<std::size_t>(1, nearTop.size() / want);
+        for (std::size_t i = 0; i < nearTop.size() && spots.size() < 12 + want; i += stride) spots.push_back(nearTop[i]);
+      }
+      for (const double scaleR : {1.0, 0.6, 0.35}) {
+        const double r = std::max(1.2, sprueR * scaleR);
+        for (const double depthR : {0.5, 1.0, 2.0}) {
+          for (const auto& [x, y] : spots) {
+            throwIfCancelled(hooks);
+            const double baseZ = apexZ - depthR * r;
+            const SolidPtr slab = engine.cylinder(r, 0.2, 32, {0, 0, 1}, {x, y, baseZ - 0.2});
+            const SolidPtr inside = engine.intersect(slab, part);
+            if (!inside->isEmpty() && inside->volume() >= 0.999 * slab->volume()) {
+              inlet = Inlet{x, y, baseZ - 0.2, r};
+              break;
+            }
+          }
+          if (inlet) break;
+        }
+        if (inlet) break;
+      }
+    }
+  return inlet;
+}
+
 /// Builds, inverts and verifies one candidate. Never throws except for cancellation.
 BuildResult buildCandidate(IMeshGeometryEngine& engine, const MasterSeedSnapshot& seed, const MasterProcessProfile& profile, const Candidate& cand, double toleranceMm, double reachMm,
                            const MasterMoldEngineHooks& hooks, const std::function<void(const char*, const std::string&)>& emit) {
@@ -881,58 +940,7 @@ BuildResult buildCandidate(IMeshGeometryEngine& engine, const MasterSeedSnapshot
     for (std::size_t i = 0; i < partMesh.vertexCount(); ++i) apexZ = std::max(apexZ, partMesh.positions[3 * i + 2]);
     // The channel's base disc must lie wholly inside the product. Then everything directly below any point of the channel is product or channel, so the
     // channel can never form a blind pocket that catches half A as it lifts (the master's inlet post would otherwise have an underside).
-    struct Inlet { double x = 0, y = 0, baseZ = 0, radius = 0; };
-    std::optional<Inlet> inlet;
-    {
-      std::vector<std::pair<double, double>> spots;
-      const double topBand = apexZ - 1e-6 * extent;
-      double cx = 0, cy = 0;
-      int n = 0;
-      for (std::size_t i = 0; i < partMesh.vertexCount(); ++i)
-        if (partMesh.positions[3 * i + 2] >= topBand) {
-          cx += partMesh.positions[3 * i];
-          cy += partMesh.positions[3 * i + 1];
-          ++n;
-        }
-      spots.push_back({cx / n, cy / n});
-      for (std::size_t i = 0; i < partMesh.vertexCount() && spots.size() < 12; ++i)
-        if (partMesh.positions[3 * i + 2] >= topBand) spots.push_back({partMesh.positions[3 * i], partMesh.positions[3 * i + 1]});
-      // The faces near the top, spread over the whole top: a flat top with a bore or teeth has room only in some places, and the first faces of a mesh are
-      // all in one corner of it.
-      {
-        std::vector<std::pair<double, double>> nearTop;
-        for (std::size_t t = 0; t < partMesh.triangleCount(); ++t) {
-          double x = 0, y = 0, zMin = kInf;
-          for (int k = 0; k < 3; ++k) {
-            const std::size_t vi = partMesh.indices[3 * t + static_cast<std::size_t>(k)];
-            x += partMesh.positions[3 * vi] / 3;
-            y += partMesh.positions[3 * vi + 1] / 3;
-            zMin = std::min(zMin, partMesh.positions[3 * vi + 2]);
-          }
-          if (zMin >= apexZ - 0.05 * extent) nearTop.push_back({x, y});
-        }
-        const std::size_t want = 48;
-        const std::size_t stride = std::max<std::size_t>(1, nearTop.size() / want);
-        for (std::size_t i = 0; i < nearTop.size() && spots.size() < 12 + want; i += stride) spots.push_back(nearTop[i]);
-      }
-      for (const double scaleR : {1.0, 0.6, 0.35}) {
-        const double r = std::max(1.2, sprueR * scaleR);
-        for (const double depthR : {0.5, 1.0, 2.0}) {
-          for (const auto& [x, y] : spots) {
-            throwIfCancelled(hooks);
-            const double baseZ = apexZ - depthR * r;
-            const SolidPtr slab = engine.cylinder(r, 0.2, 32, {0, 0, 1}, {x, y, baseZ - 0.2});
-            const SolidPtr inside = engine.intersect(slab, part);
-            if (!inside->isEmpty() && inside->volume() >= 0.999 * slab->volume()) {
-              inlet = Inlet{x, y, baseZ - 0.2, r};
-              break;
-            }
-          }
-          if (inlet) break;
-        }
-        if (inlet) break;
-      }
-    }
+    std::optional<Inlet> inlet = findInlet(engine, part, partMesh, apexZ, extent, sprueR, hooks);
     if (!inlet) return {std::nullopt, failureOf(MasterOutcomeCode::NoFeasiblePlan, MasterReleaseStage::None, "no point near the top of the product can hold a final-cast inlet channel whose base lies wholly inside the product.")};
     const double ax = inlet->x, ay = inlet->y, sprueRActual = inlet->radius;
     const SolidPtr sprue = engine.cylinder(sprueRActual, env.max.z - inlet->baseZ + 1.0, 32, {0, 0, 1}, {ax, ay, inlet->baseZ});
@@ -1254,11 +1262,36 @@ MasterMoldOutcome planTwoPartMasters(IMeshGeometryEngine& engine, const MasterSe
   std::vector<std::string> curvedDiagnostics;
   int curvedConstructed = 0;
   int curvedAxes = 0;
-  const std::size_t axisLimit = std::min<std::size_t>(profile.maxCurvedAxes, candidates.size());
-  for (std::size_t ci = 0; ci < axisLimit; ++ci) {
+  // The axes to try: first those where a coarse voxel census says the least mold is trapped between the product and itself (best evidence a seam exists),
+  // then the ones whose flat seam came closest.
+  CoverageAnalysis coverage;
+  std::vector<V3> axesToTry;
+  {
+    emit("choosing_seam", "counting the mold each release axis would trap");
+    double margin = 0;
+    {
+      const PullTriangles all = pullTriangles(seed.sourceMesh.positions, seed.sourceMesh.indices, frameForAxis({0, 0, 1}));
+      margin = workingWallFor(profile, all.bounds);
+    }
+    coverage = analyzeTwoDirectionCoverage(seed.sourceMesh.positions, seed.sourceMesh.indices, margin, profile.coverageResolution, profile.coverageDirections, hooks);
+    const auto add = [&](const V3& u) {
+      for (const V3& a : axesToTry) if (std::fabs(dot(a, u)) > 0.99966) return;
+      axesToTry.push_back(u);
+    };
+    for (const DirectionPairCoverage& p : coverage.opposing) {
+      if (static_cast<int>(axesToTry.size()) >= profile.maxCurvedAxes) break;
+      add(unit({p.first.x, p.first.y, p.first.z}));
+    }
+    for (std::size_t i = 0; i < candidates.size() && static_cast<int>(axesToTry.size()) < profile.maxCurvedAxes + 2; ++i) add(candidates[i].u);
+  }
+  for (std::size_t ci = 0; ci < axesToTry.size(); ++ci) {
     throwIfCancelled(hooks);
-    V3 axis = candidates[ci].u;
-    if (dot(centroid, axis) - candidates[ci].e.minProjectionMm < candidates[ci].e.maxProjectionMm - dot(centroid, axis)) axis = scaled(axis, -1);  // the taller half on the inlet side
+    V3 axis = axesToTry[ci];
+    {
+      const AxisScan scan = scanAxis(tris, axis, profile.slidingSine);
+      const double c = dot(centroid, axis);
+      if (c - scan.minProj < scan.maxProj - c) axis = scaled(axis, -1);  // the taller half on the inlet side
+    }
     emit("choosing_seam", "searching a curved seam along " + axisText(axis));
     ++curvedAxes;
     const PullTriangles tris = pullTriangles(seed.sourceMesh.positions, seed.sourceMesh.indices, frameForAxis(axis));
@@ -1287,9 +1320,25 @@ MasterMoldOutcome planTwoPartMasters(IMeshGeometryEngine& engine, const MasterSe
     }
   }
 
+  // What the census says about the part as a whole, whatever the seam search found: it separates a witnessed obstruction from a search that was too narrow.
+  if (coverage.ran) {
+    char buf[1100];
+    std::snprintf(buf, sizeof buf,
+                  "census (%d directions, %.2f mm voxels, mold %.0f mm^3, leaning toward 'free'): the best pair of OPPOSITE directions (%.2f, %.2f, %.2f) still traps %.1f mm^3 (%.4f %% of the mold); the best "
+                  "pair of ANY two directions (%.2f, %.2f, %.2f then %.2f, %.2f, %.2f) traps %.1f mm^3 in %d pocket(s)%s.",
+                  coverage.directions, coverage.voxelMm, coverage.moldVolumeMm3, coverage.bestOpposing.first.x, coverage.bestOpposing.first.y, coverage.bestOpposing.first.z,
+                  coverage.bestOpposing.trappedMm3, 100 * coverage.bestOpposing.trappedFraction, coverage.best.first.x, coverage.best.first.y, coverage.best.first.z, coverage.best.second.x,
+                  coverage.best.second.y, coverage.best.second.z, coverage.best.trappedMm3, coverage.trappedComponents,
+                  coverage.best.trappedMm3 <= 0.0001 * coverage.moldVolumeMm3
+                      ? ": nothing is trapped for two halves released in those two directions, so a two-part split probably exists"
+                      : ": mold is trapped for every pair of directions sampled, which is evidence that no two-part split by translation exists");
+    curvedDiagnostics.insert(curvedDiagnostics.begin(), buf);  // first: it is what the panel shows
+    if (coverage.best.trappedMm3 <= 0.0001 * coverage.moldVolumeMm3) curvedDiagnostics.insert(curvedDiagnostics.begin() + 1, "This planner releases both halves along one axis (opposite directions); halves that leave in two different directions, the first and then the second, are not built. The failure is therefore a limit of the search, not a witnessed obstruction of this part.");
+  }
+
   if (!lastFailure) {  // nothing was ever constructed: no flat seam and no curved seam in the resolutions tried
-    std::vector<std::string> diagnostics = flatDiagnostics;
-    diagnostics.insert(diagnostics.end(), curvedDiagnostics.begin(), curvedDiagnostics.end());
+    std::vector<std::string> diagnostics = curvedDiagnostics;
+    diagnostics.insert(diagnostics.end(), flatDiagnostics.begin(), flatDiagnostics.end());
     return makeMasterFailure(failureOf(MasterOutcomeCode::NoFeasiblePlan, MasterReleaseStage::None,
                                        "neither a flat parting plane along any of " + std::to_string(axesEvaluated) + " candidate release axes nor a curved parting surface along the " + std::to_string(curvedAxes) +
                                            " most promising lets both halves be pulled apart along one axis. This is a limit of the bounded search (opposing translation, a seam that is a height field), not proof that no rigid two-part solution exists.",

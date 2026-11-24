@@ -1,7 +1,9 @@
 #include "master/TriangleIntersection.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <vector>
 
 namespace craft {
 
@@ -248,4 +250,75 @@ bool trianglesIntersect(const IntersectTriangle& first, const IntersectTriangle&
   return true;
 }
 
+
+/// Area of the overlap of two triangles that lie in one plane (Sutherland-Hodgman in the plane's two dominant axes).
+double coplanarOverlapArea(const IntersectTriangle& first, const IntersectTriangle& second) {
+  const V n = cross(sub(first.b, first.a), sub(first.c, first.a));
+  const double ax = std::fabs(n.x), ay = std::fabs(n.y), az = std::fabs(n.z);
+  const int drop = ax >= ay && ax >= az ? 0 : ay >= az ? 1 : 2;
+  const auto project = [&](const V& p) -> std::array<double, 2> { return drop == 0 ? std::array<double, 2>{p.y, p.z} : drop == 1 ? std::array<double, 2>{p.x, p.z} : std::array<double, 2>{p.x, p.y}; };
+  std::vector<std::array<double, 2>> subject = {project(first.a), project(first.b), project(first.c)};
+  const std::array<std::array<double, 2>, 3> clip = {project(second.a), project(second.b), project(second.c)};
+  const auto orient = [](const std::array<double, 2>& a, const std::array<double, 2>& b, const std::array<double, 2>& c) { return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]); };
+  const double sign = orient(clip[0], clip[1], clip[2]) >= 0 ? 1.0 : -1.0;
+  for (int e = 0; e < 3 && !subject.empty(); ++e) {
+    const auto& p = clip[static_cast<std::size_t>(e)];
+    const auto& q = clip[static_cast<std::size_t>((e + 1) % 3)];
+    std::vector<std::array<double, 2>> out;
+    for (std::size_t i = 0; i < subject.size(); ++i) {
+      const auto& s = subject[i];
+      const auto& t = subject[(i + 1) % subject.size()];
+      const double ds = sign * orient(p, q, s), dt = sign * orient(p, q, t);
+      if (ds >= 0) out.push_back(s);
+      if ((ds >= 0) != (dt >= 0)) {
+        const double k = ds / (ds - dt);
+        out.push_back({s[0] + k * (t[0] - s[0]), s[1] + k * (t[1] - s[1])});
+      }
+    }
+    subject = std::move(out);
+  }
+  double area = 0;
+  for (std::size_t i = 0; i < subject.size(); ++i) area += subject[i][0] * subject[(i + 1) % subject.size()][1] - subject[(i + 1) % subject.size()][0] * subject[i][1];
+  return std::fabs(area) / 2;
+}
+
+TriangleContact classifyTriangleContact(const IntersectTriangle& first, const IntersectTriangle& second, double planeToleranceMm) {
+  if (!trianglesIntersect(first, second, planeToleranceMm)) return TriangleContact::None;
+  // How far a point is from a triangle's plane is only known to the coordinates' resolution times the triangle's lever: a long sliver's plane tilts a lot for
+  // a small move of one corner, so the distance of a point beside its far end is uncertain by about (longest edge / smallest altitude) resolutions.
+  const auto lever = [](const IntersectTriangle& t) {
+    const V n = cross(sub(t.b, t.a), sub(t.c, t.a));
+    const double area2 = length(n);
+    const double longest = std::max({length(sub(t.b, t.a)), length(sub(t.c, t.b)), length(sub(t.a, t.c))});
+    if (!(area2 > 0) || !(longest > 0)) return 1e6;
+    return std::clamp(longest * longest / area2, 1.0, 1e6);  // longest / altitude, up to a constant of 2
+  };
+  const auto sideRange = [](const IntersectTriangle& t, const IntersectTriangle& plane, double& lo, double& hi) {
+    const V n = cross(sub(plane.b, plane.a), sub(plane.c, plane.a));
+    const double len = length(n);
+    lo = INFINITY;
+    hi = -INFINITY;
+    if (!(len > 0)) { lo = hi = 0; return; }
+    for (const V* p : {&t.a, &t.b, &t.c}) {
+      const double d = dot(n, sub(*p, plane.a)) / len;
+      lo = std::min(lo, d);
+      hi = std::max(hi, d);
+    }
+  };
+  double aLo, aHi, bLo, bHi;
+  sideRange(first, second, aLo, aHi);
+  sideRange(second, first, bLo, bHi);
+  const double base = std::max(planeToleranceMm, 0.0);
+  const double epsA = base * lever(second), epsB = base * lever(first);  // for `first`'s distances to `second`'s plane, and the reverse
+  const bool aCoplanar = aLo >= -epsA && aHi <= epsA, bCoplanar = bLo >= -epsB && bHi <= epsB;
+  if (aCoplanar && bCoplanar) {
+    // Two sheets lying on each other only count when they share area: a corner or an edge of one on the other (the test above is closed) is a touch.
+    const double smaller = 0.5 * std::min(length(cross(sub(first.b, first.a), sub(first.c, first.a))), length(cross(sub(second.b, second.a), sub(second.c, second.a))));
+    // ... and an overlap smaller than a square of a thousand coordinate resolutions (about 8 micrometres here) is double cover of nothing a mold or a print can see.
+    const double floorArea = (1000 * base) * (1000 * base);
+    return coplanarOverlapArea(first, second) > std::max(1e-3 * smaller, floorArea) ? TriangleContact::Coplanar : TriangleContact::Touch;
+  }
+  if (aLo < -epsA && aHi > epsA && bLo < -epsB && bHi > epsB) return TriangleContact::Cross;
+  return TriangleContact::Touch;
+}
 }  // namespace craft

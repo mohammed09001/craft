@@ -30,7 +30,9 @@ struct MasterProcessProfile {
   int maxConstructedCandidates = 4;
   int maxSweepPrisms = 4000;                // beyond this the sweep is reported unverified instead of being cut short
   int maxCurvedAxes = 4;                    // release axes tried for a curved seam when no flat seam works
-  std::vector<int> curvedSeamResolutions{64, 160};  // seam grid cells along the longer side, coarse to fine; the finer one only when the coarse is not enough
+  std::vector<int> curvedSeamResolutions{64, 160};
+  int coverageResolution = 128;             // voxels along the longest side for the trapped-mold census that ranks release axes
+  int coverageDirections = 96;
 };
 
 }  // namespace craft

@@ -16,7 +16,7 @@ template <class A> void visit(A& a, MasterSeedSourceMesh& v) { io(a, v.modelId);
 template <class A> void visit(A& a, MasterProcessProfile& v) {
   io(a, v.profileId); io(a, v.workingWallMm); io(a, v.sprueRadiusMm); io(a, v.masterWallMm); io(a, v.masterBaseMm); io(a, v.freeboardMm); io(a, v.keyRadiusMm);
   io(a, v.keyHeightMm); io(a, v.keyClearanceMm); io(a, v.slidingSine); io(a, v.blockedVolumeMm3); io(a, v.clearVolumeMm3); io(a, v.wasteMargin);
-  io(a, v.workingMoldDensityGPerCm3); io(a, v.fidelityToleranceMm); io(a, v.maxConstructedCandidates); io(a, v.maxSweepPrisms); io(a, v.maxCurvedAxes); io(a, v.curvedSeamResolutions);
+  io(a, v.workingMoldDensityGPerCm3); io(a, v.fidelityToleranceMm); io(a, v.maxConstructedCandidates); io(a, v.maxSweepPrisms); io(a, v.maxCurvedAxes); io(a, v.curvedSeamResolutions); io(a, v.coverageResolution); io(a, v.coverageDirections);
 }
 template <class A> void visit(A& a, MasterSeedSnapshot& v) {
   io(a, v.schemaVersion); io(a, v.seedId); io(a, v.sourceModelId); io(a, v.sourceGeometryVersion); io(a, v.sourceMesh);

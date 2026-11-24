@@ -65,7 +65,7 @@ std::string profileJson(const MasterProcessProfile& p) {
          ",\"keyClearanceMm\":" + num(p.keyClearanceMm) + ",\"slidingSine\":" + num(p.slidingSine) + ",\"blockedVolumeMm3\":" + num(p.blockedVolumeMm3) +
          ",\"clearVolumeMm3\":" + num(p.clearVolumeMm3) + ",\"wasteMargin\":" + num(p.wasteMargin) + ",\"density\":" + optNum(p.workingMoldDensityGPerCm3) +
          ",\"fidelityToleranceMm\":" + num(p.fidelityToleranceMm) + ",\"maxConstructedCandidates\":" + num(p.maxConstructedCandidates) +
-         ",\"maxSweepPrisms\":" + num(p.maxSweepPrisms) + ",\"maxCurvedAxes\":" + num(p.maxCurvedAxes) + ",\"curvedSeamResolutions\":" + curvedResolutionsJson(p) + "}";
+         ",\"maxSweepPrisms\":" + num(p.maxSweepPrisms) + ",\"maxCurvedAxes\":" + num(p.maxCurvedAxes) + ",\"curvedSeamResolutions\":" + curvedResolutionsJson(p) + ",\"coverageResolution\":" + num(p.coverageResolution) + ",\"coverageDirections\":" + num(p.coverageDirections) + "}";
 }
 
 bool transformIsIdentity(const std::array<double, 16>& t) {
@@ -443,7 +443,7 @@ MeshPreflightResult runMeshPreflight(const std::vector<float>& positions, const 
         for (std::int64_t y = cellOf(b.lo[1], oy); y <= cellOf(b.hi[1], oy); ++y)
           for (std::int64_t z = cellOf(b.lo[2], oz); z <= cellOf(b.hi[2], oz); ++z) grid[keyOf(x, y, z)].push_back(static_cast<std::uint32_t>(t));
     }
-    std::vector<bool> offending(triangleCount, false);
+    std::vector<bool> offending(triangleCount, false), touching(triangleCount, false);
     const auto sharesVertex = [&](std::size_t a, std::size_t b) {
       for (int i = 0; i < 3; ++i)
         for (int j = 0; j < 3; ++j)
@@ -463,7 +463,9 @@ MeshPreflightResult runMeshPreflight(const std::vector<float>& positions, const 
           if (keyOf(cellOf(std::max(ba.lo[0], bb.lo[0]), ox), cellOf(std::max(ba.lo[1], bb.lo[1]), oy), cellOf(std::max(ba.lo[2], bb.lo[2]), oz)) != key) continue;
           if (sharesVertex(members[i], members[j])) continue;
           if (++tests > kMaxPairTests) { limited = true; break; }
-          if (trianglesIntersect(tris[members[i]], tris[members[j]], planeTolerance)) { offending[members[i]] = true; offending[members[j]] = true; }
+          const TriangleContact contact = classifyTriangleContact(tris[members[i]], tris[members[j]], planeTolerance);
+          if (contact == TriangleContact::Cross || contact == TriangleContact::Coplanar) { offending[members[i]] = true; offending[members[j]] = true; }
+          else if (contact == TriangleContact::Touch) { touching[members[i]] = true; touching[members[j]] = true; }
         }
       }
     }
@@ -477,14 +479,41 @@ MeshPreflightResult runMeshPreflight(const std::vector<float>& positions, const 
         if (bb.lo[0] > ba.hi[0] || ba.lo[0] > bb.hi[0] || bb.lo[1] > ba.hi[1] || ba.lo[1] > bb.hi[1] || bb.lo[2] > ba.hi[2] || ba.lo[2] > bb.hi[2]) continue;
         if (sharesVertex(big, other)) continue;
         if (++tests > kMaxPairTests) { limited = true; break; }
-        if (trianglesIntersect(tris[big], tris[other], planeTolerance)) { offending[big] = true; offending[other] = true; }
+        const TriangleContact contact = classifyTriangleContact(tris[big], tris[other], planeTolerance);
+        if (contact == TriangleContact::Cross || contact == TriangleContact::Coplanar) { offending[big] = true; offending[other] = true; }
+        else if (contact == TriangleContact::Touch) { touching[big] = true; touching[other] = true; }
       }
     }
     r.selfIntersectionChecked = !limited;
     const int count = static_cast<int>(std::count(offending.begin(), offending.end(), true));
     if (count > 0) {
+      // Say where: the box around every offending triangle and the centre of the first few, so the part can be inspected there.
+      double lo[3] = {INFINITY, INFINITY, INFINITY}, hi[3] = {-INFINITY, -INFINITY, -INFINITY};
+      std::string first;
+      int listed = 0;
+      for (std::size_t t = 0; t < triangleCount; ++t) {
+        if (!offending[t]) continue;
+        for (int a = 0; a < 3; ++a) {
+          lo[a] = std::min(lo[a], boxes[t].lo[a]);
+          hi[a] = std::max(hi[a], boxes[t].hi[a]);
+        }
+        if (listed < 3) {
+          char buf[96];
+          std::snprintf(buf, sizeof buf, "%s(%.2f, %.2f, %.2f)", listed ? ", " : "", 0.5 * (boxes[t].lo[0] + boxes[t].hi[0]), 0.5 * (boxes[t].lo[1] + boxes[t].hi[1]), 0.5 * (boxes[t].lo[2] + boxes[t].hi[2]));
+          first += buf;
+          ++listed;
+        }
+      }
+      char box[160];
+      std::snprintf(box, sizeof box, " They lie within x %.2f..%.2f, y %.2f..%.2f, z %.2f..%.2f mm; the first are near %s.", lo[0], hi[0], lo[1], hi[1], lo[2], hi[2], first.c_str());
       r.issues.push_back({"self_intersection", "error",
-                          std::to_string(count) + " triangle(s) intersect non-adjacent geometry elsewhere on the same surface.", count});
+                          std::to_string(count) + " triangle(s) intersect non-adjacent geometry elsewhere on the same surface (the model is probably several bodies overlapping, such as a part built from separate pieces)." + box, count});
+    }
+    {
+      const int touches = static_cast<int>(std::count(touching.begin(), touching.end(), true));
+      if (touches > 0 && count == 0)
+        r.issues.push_back({"surface_contact", "warning",
+                            std::to_string(touches) + " triangle(s) rest on other triangles of the same surface without passing through them (an edge or corner touching a face, usually where separately built parts meet). No volume is enclosed twice, so the part is used as it is.", touches});
     }
     if (limited) {
       r.issues.push_back({"self_intersection_check_limited", "warning",
