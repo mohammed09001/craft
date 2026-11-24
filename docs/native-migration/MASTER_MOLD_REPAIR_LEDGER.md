@@ -67,3 +67,5 @@ New: `MasterCoverage.*`, the two-direction release census (a necessary condition
 Tried and removed: halves that leave in two different directions (shadow of the product by prism union, ledge slab, generalised masters and sweeps). It never reached a success (half B in several bodies on a two-slot block, half A pinched on the duck), so it is not in the tree; the patch is in `D:\CraftNative\logs`.
 
 Result on the duck: `no_feasible_plan` in 22.6 s, with the census in the message: the best opposite pair traps 6.1 mm^3, the best pair of any two directions traps 0.0 mm^3.
+
+Second attempt (2026-11-24): the two-direction builder was restored in a scratch edit with per-body diagnostics and exact dust removal, run on the duck, and removed again. Findings in the report, section 8. Patch: `D:\CraftNative\logs\duck-second-attempt-two-direction-with-dust-removal.patch`. The tree is unchanged by it.
