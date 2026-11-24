@@ -1,50 +1,61 @@
 #pragma once
 
-// Builds a MasterMoldRequest from a case of fixtures/reference/master-reference.json (shared by the wire-format and worker tests).
-
-#include <QFile>
-#include <QJsonArray>
-#include <QJsonDocument>
-#include <QJsonObject>
+// Builds Master Mold requests from small generated solids (shared by the worker and workflow tests).
 
 #include <algorithm>
+#include <cmath>
+#include <numbers>
 
 #include "master/MasterMoldStore.h"
 
 namespace craft::testing {
 
-inline QJsonObject masterFixtureCase(const QString& name) {
-  QFile f(QStringLiteral(CRAFT_REFERENCE_FIXTURE_DIR "/master-reference.json"));
-  if (!f.open(QIODevice::ReadOnly)) return {};
-  for (const QJsonValue& v : QJsonDocument::fromJson(f.readAll()).object()["cases"].toArray())
-    if (v.toObject()["name"].toString() == name) return v.toObject();
-  return {};
+/// A closed UV sphere with a vertex ring on the equator (`rings` even), outward winding.
+inline MeshPayload masterTestSphere(double radius, int rings, int segments) {
+  MeshPayload m;
+  const auto addRing = [&](double r, double z) {
+    for (int j = 0; j < segments; ++j) {
+      const double a = 2 * std::numbers::pi * j / segments;
+      m.positions.insert(m.positions.end(), {r * std::cos(a), r * std::sin(a), z});
+    }
+  };
+  m.positions.insert(m.positions.end(), {0, 0, -radius});
+  for (int k = 1; k < rings; ++k) addRing(radius * std::sin(std::numbers::pi * k / rings), -radius * std::cos(std::numbers::pi * k / rings));
+  const auto top = static_cast<std::uint32_t>(m.vertexCount());
+  m.positions.insert(m.positions.end(), {0, 0, radius});
+  const auto ring = [&](int k, int j) { return static_cast<std::uint32_t>(1 + (k - 1) * segments + (j % segments)); };
+  for (int j = 0; j < segments; ++j) {
+    m.indices.insert(m.indices.end(), {0u, ring(1, j + 1), ring(1, j)});
+    for (int k = 1; k + 1 < rings; ++k) {
+      m.indices.insert(m.indices.end(), {ring(k, j), ring(k, j + 1), ring(k + 1, j + 1)});
+      m.indices.insert(m.indices.end(), {ring(k, j), ring(k + 1, j + 1), ring(k + 1, j)});
+    }
+    m.indices.insert(m.indices.end(), {top, ring(rings - 1, j), ring(rings - 1, j + 1)});
+  }
+  return m;
 }
 
-inline MasterMoldRequest masterRequestFor(const QJsonObject& c) {
-  const auto pointOf = [](const QJsonObject& o) { return Point3{o["x"].toDouble(), o["y"].toDouble(), o["z"].toDouble()}; };
-  const QJsonObject input = c["input"].toObject();
-  MasterSeedInput seedInput;
-  MasterSeedGeometryInput& g = seedInput.sourcePartGeometry;
-  g.modelId = "model-" + c["name"].toString().toStdString();
-  for (const QJsonValue& v : input["positions"].toArray()) g.positions.push_back(v.toDouble());
-  for (const QJsonValue& v : input["indices"].toArray()) g.indices.push_back(static_cast<std::uint32_t>(v.toInt()));
-  const QJsonArray transform = input["transform"].toArray();
-  for (int i = 0; i < 16; ++i) g.transform[static_cast<std::size_t>(i)] = transform[i].toDouble();
+inline MasterMoldRequest masterRequestForMesh(const MeshPayload& mesh, const std::string& name, const std::optional<Point3>& printer = std::nullopt) {
+  MasterSeedInput input;
+  MasterSeedGeometryInput& g = input.sourcePartGeometry;
+  g.modelId = "model-" + name;
+  g.positions = mesh.positions;
+  g.indices = mesh.indices;
+  g.transform = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
   Bounds3 local = emptyBounds();
-  for (std::size_t i = 0; i < g.positions.size(); i += 3)
+  for (std::size_t i = 0; i < mesh.vertexCount(); ++i)
     for (int a = 0; a < 3; ++a) {
-      local.min[a] = std::min(local.min[a], g.positions[i + static_cast<std::size_t>(a)]);
-      local.max[a] = std::max(local.max[a], g.positions[i + static_cast<std::size_t>(a)]);
+      local.min[a] = std::min(local.min[a], mesh.positions[3 * i + static_cast<std::size_t>(a)]);
+      local.max[a] = std::max(local.max[a], mesh.positions[3 * i + static_cast<std::size_t>(a)]);
     }
   g.localBounds = local;
-  g.geometryVersion = "geom-" + c["name"].toString().toStdString();
-  if (input["printer"].isObject()) seedInput.printerBuildVolume = pointOf(input["printer"].toObject());
-  seedInput.projectRevision = "rev-1";
+  g.geometryVersion = "geom-" + name;
+  input.printerBuildVolume = printer;
+  input.projectRevision = "rev-1";
   MasterMoldRequest request;
   request.operationId = "master-mold:1";
   request.generationVersion = 1;
-  request.seed = buildMasterMoldSeedSnapshot(seedInput);
+  request.seed = buildMasterMoldSeedSnapshot(input);
   return request;
 }
 

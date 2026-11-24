@@ -288,7 +288,7 @@ class AppController : public QObject {
   Q_INVOKABLE void generateMasterMold();
   Q_INVOKABLE void resetMasterMold();
   Q_INVOKABLE void toggleMasterPiece(const QString& pieceKey);
-  Q_INVOKABLE void isolateMasterSet(const QString& moldPartId);
+  Q_INVOKABLE void isolateMasterSet(const QString& setId);
   Q_INVOKABLE void showAllMasterPieces();
   /// Exports every piece of every current tooling set as a binary STL, plus manifest.json, into a NEW sub-folder of
   /// the chosen folder (nothing is overwritten). Runs on a worker thread; the outcome is in masterMold.lastExport and
@@ -725,7 +725,6 @@ class AppController : public QObject {
   int masterRunGeneration_ = 0;
   int masterTimeoutMs_ = 180000;  // DEFAULT_MASTER_MOLD_WORKER_TIMEOUT_MS
   bool masterRunning_ = false;
-  std::vector<std::string> masterUnportedPaths_;
   QString masterTimeoutMessage_;
   bool masterExporting_ = false;
   QVariantMap lastMasterExport_;

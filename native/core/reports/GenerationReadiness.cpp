@@ -6,7 +6,7 @@
 #include <optional>
 #include <vector>
 
-#include "master/MasterAccessibility.h"  // jsToFixed
+#include "master/JsFormat.h"  // jsToFixed
 
 namespace craft {
 

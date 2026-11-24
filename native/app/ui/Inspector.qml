@@ -230,7 +230,7 @@ ScrollView {
             ColumnLayout {
                 Layout.fillWidth: true
                 Label {
-                    text: qsTr("Plans printable master tooling straight from the part. No mold, cut or cavity is needed.")
+                    text: qsTr("Automatically plans two independent, reusable, rigid printable masters (Master A and Master B) straight from the part. You cast mold-making material into each master to get the two working-mold halves. No mold, cut or Split by Face is needed.")
                     wrapMode: Text.Wrap; Layout.fillWidth: true
                 }
                 Button {
@@ -259,22 +259,24 @@ ScrollView {
                     wrapMode: Text.Wrap; Layout.fillWidth: true
                     color: app.masterMold.bannerIsError ? "#e5484d" : palette.text
                 }
-                Label {
-                    visible: !!app.masterMold.incompleteNote
-                    text: app.masterMold.incompleteNote
-                    wrapMode: Text.Wrap; Layout.fillWidth: true
-                    font.italic: true
-                }
                 Repeater {
                     model: app.masterMold.summaryLines || []
                     delegate: Label { required property var modelData; text: modelData; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                }
+                Repeater {
+                    model: app.masterMold.showPieces === true ? (app.masterMold.warnings || []) : []
+                    delegate: Label { required property var modelData; text: "⚠ " + modelData; wrapMode: Text.Wrap; Layout.fillWidth: true; color: "#c98a4f" }
+                }
+                Repeater {
+                    model: app.masterMold.showPieces === true ? (app.masterMold.residualUncertainty || []) : []
+                    delegate: Label { required property var modelData; text: "• " + modelData; wrapMode: Text.Wrap; Layout.fillWidth: true; color: "#8a8f98"; font.pixelSize: 11 }
                 }
                 ColumnLayout {
                     visible: app.masterMold.showPieces === true
                     Layout.fillWidth: true
                     RowLayout {
                         Label {
-                            text: qsTr("Working mold: ") + app.masterMold.workingMoldPieceCount
+                            text: qsTr("Two masters: A and B")
                             font.bold: true
                         }
                         Item { Layout.fillWidth: true }
@@ -328,8 +330,7 @@ ScrollView {
                 }
                 Label {
                     visible: app.masterMold.showPieces === true && app.masterMold.canExport === true && !app.masterMold.lastExport.folder
-                    text: qsTr("Exports %1 STL file(s), one 3MF with every piece, and a manifest into a new folder; nothing is overwritten. Stale or blocked parts are skipped.")
-                              .arg(app.masterMold.exportablePieceCount)
+                    text: qsTr("Exports Master A and Master B as two STL files, one 3MF and a manifest into a new folder; nothing is overwritten. The virtual working halves are never exported.")
                     wrapMode: Text.Wrap; Layout.fillWidth: true
                     color: "#8a8f98"
                 }
@@ -337,7 +338,7 @@ ScrollView {
                     visible: !!app.masterMold.lastExport.folder
                     Layout.fillWidth: true
                     Label {
-                        text: app.masterMold.lastExport.threeMf ? qsTr("Exported %1 STL file(s) and one 3MF to:").arg(app.masterMold.lastExport.fileCount || 0) : qsTr("Exported %1 file(s) to:").arg(app.masterMold.lastExport.fileCount || 0)
+                        text: app.masterMold.lastExport.threeMf ? qsTr("Exported %1 STL files and one 3MF to:").arg(app.masterMold.lastExport.fileCount || 0) : qsTr("Exported %1 file(s) to:").arg(app.masterMold.lastExport.fileCount || 0)
                         font.bold: true
                         wrapMode: Text.Wrap; Layout.fillWidth: true
                     }

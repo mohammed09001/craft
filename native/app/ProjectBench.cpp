@@ -19,6 +19,7 @@
 #endif
 
 #include "AppController.h"
+#include "GeometryWorker.h"
 
 namespace craft::app {
 
@@ -76,6 +77,7 @@ struct ProjectBench::Impl {
   void timeJob(const QString& name, const std::function<void()>& start, const std::function<bool()>& running, const std::function<QString()>& outcome) {
     QElapsedTimer t;
     t.start();
+    resetLargestWorkerPeak();
     start();
     waitFor([&] { return !running(); }, 30 * 60 * 1000);
     QJsonObject r;
@@ -83,6 +85,7 @@ struct ProjectBench::Impl {
     r["finished"] = !running();
     r["outcome"] = outcome();
     r["memory"] = processMemory();
+    { const WorkerPeak peak = largestWorkerPeak(); r["workerPeakWorkingSetMiB"] = peak.workingSetMiB; r["workerPeakPrivateMiB"] = peak.privateMiB; }
     result[name] = r;
   }
 

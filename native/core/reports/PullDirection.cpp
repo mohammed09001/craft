@@ -4,7 +4,7 @@
 #include <cmath>
 #include <set>
 
-#include "master/MasterAccessibility.h"  // jsToFixed
+#include "master/JsFormat.h"  // jsToFixed
 #include "mold/Registration.h"           // jsNumberToString
 
 namespace craft {

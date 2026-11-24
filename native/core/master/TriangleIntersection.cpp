@@ -206,12 +206,17 @@ double component(const V& v, int i) { return i == 0 ? v.x : i == 1 ? v.y : v.z; 
 
 }  // namespace
 
-bool trianglesIntersect(const IntersectTriangle& first, const IntersectTriangle& second) {
+bool trianglesIntersect(const IntersectTriangle& first, const IntersectTriangle& second, double planeToleranceMm) {
   const Tri self(first), other(second);
   const int degenerate = degenerateCases(self, other);
   if (degenerate != -1) return degenerate == 1;
 
   double a1 = other.planeDistance(self.p[0]), b1 = other.planeDistance(self.p[1]), c1 = other.planeDistance(self.p[2]);
+  if (planeToleranceMm > 0) {
+    const double a2t = self.planeDistance(other.p[0]), b2t = self.planeDistance(other.p[1]), c2t = self.planeDistance(other.p[2]);
+    const double worst = std::max({std::fabs(a1), std::fabs(b1), std::fabs(c1), std::fabs(a2t), std::fabs(b2t), std::fabs(c2t)});
+    if (worst <= planeToleranceMm) return coplanar(self, other);
+  }
   if (nearZero(a1)) a1 = 0;
   if (nearZero(b1)) b1 = 0;
   if (nearZero(c1)) c1 = 0;

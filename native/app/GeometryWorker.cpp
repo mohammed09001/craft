@@ -8,6 +8,12 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 
+#ifdef Q_OS_WIN
+#include <windows.h>
+#include <psapi.h>
+#endif
+
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <exception>
@@ -46,6 +52,21 @@ bool writeResult(const QString& resultFile, const QByteArray& bytes) {
 
 namespace {
 
+
+#ifdef Q_OS_WIN
+/// "PEAK <working set bytes> <private bytes>" on stderr when the job's process ends: what that job really needed.
+struct PeakReport {
+  ~PeakReport() {
+    PROCESS_MEMORY_COUNTERS_EX counters{};
+    if (GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&counters), sizeof(counters))) {
+      std::fprintf(stderr, "PEAK %llu %llu\n", static_cast<unsigned long long>(counters.PeakWorkingSetSize), static_cast<unsigned long long>(counters.PeakPagefileUsage));
+      std::fflush(stderr);
+    }
+  }
+};
+#else
+struct PeakReport {};
+#endif
 /// A failure the launcher can show: "ERROR <code>\t<message>" on stderr, exit code 4.
 int reportFailure(const std::string& code, const std::string& message) {
   std::fprintf(stderr, "ERROR %s\t%s\n", code.c_str(), message.c_str());
@@ -55,6 +76,7 @@ int reportFailure(const std::string& code, const std::string& message) {
 /// Runs one wire-format job: reads "payload.bin" beside the job file, hands its bytes to `body`, writes what it returns as the result. Every
 /// failure becomes an "ERROR" line and a non-zero exit code (the launcher shows the code and the message).
 int runWireJob(const QString& jobFile, const QString& resultFile, const std::function<std::vector<std::uint8_t>(std::span<const std::uint8_t>)>& body) {
+  const PeakReport peakReport;
   try {
     QFile payload(QFileInfo(jobFile).dir().filePath(QStringLiteral("payload.bin")));
     if (!payload.open(QIODevice::ReadOnly)) return reportFailure("worker_payload_missing", "The job's request file could not be read.");
@@ -236,6 +258,22 @@ void WorkerProcess::onReadyRead() {
   }
 }
 
+
+namespace {
+std::atomic<double> g_largestWorkingSetMiB{0}, g_largestPrivateMiB{0};
+void noteWorkerPeak(double workingSetMiB, double privateMiB) {
+  double seen = g_largestWorkingSetMiB.load();
+  while (workingSetMiB > seen && !g_largestWorkingSetMiB.compare_exchange_weak(seen, workingSetMiB)) {}
+  seen = g_largestPrivateMiB.load();
+  while (privateMiB > seen && !g_largestPrivateMiB.compare_exchange_weak(seen, privateMiB)) {}
+}
+}  // namespace
+
+WorkerPeak largestWorkerPeak() { return {g_largestWorkingSetMiB.load(), g_largestPrivateMiB.load()}; }
+void resetLargestWorkerPeak() {
+  g_largestWorkingSetMiB = 0;
+  g_largestPrivateMiB = 0;
+}
 // stderr carries "STAGE name<TAB>detail<TAB>ms" lines (passed on for the log), one "ERROR code<TAB>message" line on failure, and anything else
 // the process wrote (kept as the message when there is no ERROR line).
 void WorkerProcess::onReadyReadError() {
@@ -245,6 +283,13 @@ void WorkerProcess::onReadyReadError() {
     const QByteArray line = pendingError_.left(newline).trimmed();
     pendingError_.remove(0, newline + 1);
     if (line.startsWith("STAGE ")) emit stageLine(QString::fromUtf8(line.mid(6)));
+    else if (line.startsWith("PEAK ")) {
+      const QList<QByteArray> parts = line.mid(5).split(' ');
+      if (parts.size() == 2) {
+        peakWorkingSetMiB_ = parts[0].toDouble() / 1048576.0;
+        peakPrivateMiB_ = parts[1].toDouble() / 1048576.0;
+      }
+    }
     else if (!line.isEmpty()) errorText_ += line + '\n';
   }
 }
@@ -258,6 +303,9 @@ void WorkerProcess::onFinished(int exitCode, QProcess::ExitStatus status) {
   WorkerOutcome outcome;
   outcome.exitCode = exitCode;
   outcome.message = QString::fromUtf8(errorText_).trimmed();
+  outcome.peakWorkingSetMiB = peakWorkingSetMiB_;
+  outcome.peakPrivateMiB = peakPrivateMiB_;
+  if (peakWorkingSetMiB_ > 0) noteWorkerPeak(peakWorkingSetMiB_, peakPrivateMiB_);
   for (const QByteArray& line : errorText_.split('\n')) {
     if (!line.startsWith("ERROR ")) continue;
     const QByteArray body = line.mid(6);
@@ -288,11 +336,13 @@ void WorkerProcess::onFinished(int exitCode, QProcess::ExitStatus status) {
     }
   }
   // One line per job: what it carried each way and how long the process lived (the cost of running a job in another process; the data goes through files).
-  qCInfo(lcApp).noquote() << QStringLiteral("geometry worker: %1 MiB sent, %2 MiB back, process lifetime %3 ms, %4")
+  qCInfo(lcApp).noquote() << QStringLiteral("geometry worker: %1 MiB sent, %2 MiB back, process lifetime %3 ms, peak working set %5 MiB (private %6 MiB), %4")
                                 .arg(static_cast<double>(payloadBytes_) / 1048576.0, 0, 'f', 1)
                                 .arg(static_cast<double>(outcome.result.size()) / 1048576.0, 0, 'f', 1)
                                 .arg(lifetime_.elapsed())
-                                .arg(outcome.state == WorkerOutcome::State::Succeeded ? QStringLiteral("succeeded") : outcome.state == WorkerOutcome::State::Cancelled ? QStringLiteral("cancelled") : QStringLiteral("failed"));
+                                .arg(outcome.state == WorkerOutcome::State::Succeeded ? QStringLiteral("succeeded") : outcome.state == WorkerOutcome::State::Cancelled ? QStringLiteral("cancelled") : QStringLiteral("failed"))
+                                .arg(peakWorkingSetMiB_, 0, 'f', 1)
+                                .arg(peakPrivateMiB_, 0, 'f', 1);
   dir_.reset();
   emit finished(outcome);
 }

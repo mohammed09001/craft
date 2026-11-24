@@ -131,17 +131,18 @@ class MoldTest : public QObject {
     QCOMPARE(estimateMoldPeakBytes(0), kMoldFixedPeakBytes);
   }
 
-  // Master Mold's memory estimate (D-105): never below the observed peaks, not wildly above them, and above where the 1.3M-triangle run was stopped.
+  // Master Mold's memory estimate: never below a measured peak of the worker process, and not wildly above it for the large parts that decide whether a
+  // run is refused (the measurements are in MasterMoldStore.h).
   void theMasterMoldMemoryEstimateCoversEveryObservedPeak() {
-    constexpr double kGiB = 1024.0 * 1024.0 * 1024.0;
-    struct Observed { std::uint64_t triangles; double peakGiB; };
-    const Observed observed[] = {{81'920, 0.629}, {160'000, 1.140}, {405'000, 2.829}};   // 644, 1167 and 2897 MiB of the test process
+    constexpr double kMiB = 1024.0 * 1024.0;
+    struct Observed { const char* name; std::uint64_t triangles; double peakMiB; };
+    const Observed observed[] = {{"cup_s", 2'640, 190}, {"flower_s", 6'400, 49}, {"gear_s", 7'680, 54}, {"cup_m", 85'200, 341},
+                                 {"flower_m", 160'000, 467}, {"gear_m", 184'320, 534}, {"cup_l", 956'000, 3049}, {"gear_l", 1'536'000, 4065}};
     for (const Observed& o : observed) {
-      const double estimate = static_cast<double>(estimateMasterMoldPeakBytes(o.triangles)) / kGiB;
-      QVERIFY2(estimate >= o.peakGiB, qPrintable(QStringLiteral("%1 triangles: estimate %2 GiB is below the observed %3 GiB").arg(o.triangles).arg(estimate).arg(o.peakGiB)));
-      QVERIFY2(estimate <= o.peakGiB * 1.4, qPrintable(QStringLiteral("%1 triangles: estimate %2 GiB is far above the observed %3 GiB").arg(o.triangles).arg(estimate).arg(o.peakGiB)));
+      const double estimate = static_cast<double>(estimateMasterMoldPeakBytes(o.triangles)) / kMiB;
+      QVERIFY2(estimate >= o.peakMiB, qPrintable(QStringLiteral("%1: estimate %2 MiB is below the measured %3 MiB").arg(o.name).arg(estimate).arg(o.peakMiB)));
+      if (o.triangles >= 80'000) QVERIFY2(estimate <= o.peakMiB * 1.8, qPrintable(QStringLiteral("%1: estimate %2 MiB is far above the measured %3 MiB").arg(o.name).arg(estimate).arg(o.peakMiB)));
     }
-    QVERIFY(static_cast<double>(estimateMasterMoldPeakBytes(1'310'720)) / kGiB > 9.2);   // the run that was stopped at 9.2 GiB without finishing
     QCOMPARE(estimateMasterMoldPeakBytes(0), kMasterFixedPeakBytes);
   }
 

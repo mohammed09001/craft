@@ -13,6 +13,7 @@
 #include <stdexcept>
 #include <vector>
 
+#include "master/MasterContract.h"
 #include "master/MasterMoldStore.h"
 #include "wire/Wire.h"
 
@@ -23,5 +24,9 @@ MasterMoldRequest decodeMasterMoldRequest(std::span<const std::uint8_t> bytes);
 
 std::vector<std::uint8_t> encodeMasterMoldResult(const MasterMoldResult& result);
 MasterMoldResult decodeMasterMoldResult(std::span<const std::uint8_t> bytes);
+
+/// The version-2 outcome: exactly two masters and two virtual working halves, or a structured failure. A decoded success is re-validated.
+std::vector<std::uint8_t> encodeMasterMoldOutcome(const MasterMoldOutcome& outcome);
+MasterMoldOutcome decodeMasterMoldOutcome(std::span<const std::uint8_t> bytes);
 
 }  // namespace craft

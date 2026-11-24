@@ -101,31 +101,36 @@ $scratch = Join-Path $env:CRAFT_HEAVY_ROOT ('temp\verify-' + [guid]::NewGuid().T
 New-Item -ItemType Directory -Force -Path $scratch | Out-Null
 $summaryPath = Join-Path $scratch 'summary.json'
 
+function Invoke-HostileRun([string]$arguments) {
+  $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+  $startInfo.FileName = $exe
+  $startInfo.WorkingDirectory = $scratch                      # not the install directory
+  $startInfo.UseShellExecute = $false
+  $startInfo.RedirectStandardOutput = $true
+  $startInfo.RedirectStandardError = $true
+  $startInfo.Arguments = $arguments
+  $startInfo.EnvironmentVariables.Clear()
+  $sys = $env:SystemRoot
+  $startInfo.EnvironmentVariables['SystemRoot'] = $sys
+  $startInfo.EnvironmentVariables['PATH'] = "$sys\System32;$sys"          # no Qt, no MSVC, no Python
+  $startInfo.EnvironmentVariables['TEMP'] = $scratch
+  $startInfo.EnvironmentVariables['TMP'] = $scratch
+  $startInfo.EnvironmentVariables['LOCALAPPDATA'] = Join-Path $scratch 'localappdata'
+  $startInfo.EnvironmentVariables['APPDATA'] = Join-Path $scratch 'appdata'
+  $startInfo.EnvironmentVariables['CRAFT_AUTOSAVE_DIR'] = Join-Path $scratch 'autosave'
+  $startInfo.EnvironmentVariables['CRAFT_CACHE_DIR'] = Join-Path $scratch 'cache'
+  Write-Host "  PATH = $($startInfo.EnvironmentVariables['PATH'])   (CRAFT_PYTHON, PYTHONPATH, PYTHONHOME unset)"
+  $process = [System.Diagnostics.Process]::Start($startInfo)
+  $stdout = $process.StandardOutput.ReadToEndAsync()
+  $stderr = $process.StandardError.ReadToEndAsync()
+  if (-not $process.WaitForExit(240000)) { $process.Kill(); Check 'app finished within 240 s' $false }
+  [pscustomobject]@{ ExitCode = $process.ExitCode; Out = $stdout.Result; Err = $stderr.Result }
+}
+
 $before = Get-ChildItem $InstallDir -Recurse -File | Measure-Object Length -Sum
-$startInfo = New-Object System.Diagnostics.ProcessStartInfo
-$startInfo.FileName = $exe
-$startInfo.WorkingDirectory = $scratch                      # not the install directory
-$startInfo.UseShellExecute = $false
-$startInfo.RedirectStandardOutput = $true
-$startInfo.RedirectStandardError = $true
-$startInfo.Arguments = "--smoke-test --import `"$Stl`" --generate-mold --master-mold --analyze --moldability --summary `"$summaryPath`""
-$startInfo.EnvironmentVariables.Clear()
-$sys = $env:SystemRoot
-$startInfo.EnvironmentVariables['SystemRoot'] = $sys
-$startInfo.EnvironmentVariables['PATH'] = "$sys\System32;$sys"          # no Qt, no MSVC, no Python
-$startInfo.EnvironmentVariables['TEMP'] = $scratch
-$startInfo.EnvironmentVariables['TMP'] = $scratch
-$startInfo.EnvironmentVariables['LOCALAPPDATA'] = Join-Path $scratch 'localappdata'
-$startInfo.EnvironmentVariables['APPDATA'] = Join-Path $scratch 'appdata'
-$startInfo.EnvironmentVariables['CRAFT_AUTOSAVE_DIR'] = Join-Path $scratch 'autosave'
-$startInfo.EnvironmentVariables['CRAFT_CACHE_DIR'] = Join-Path $scratch 'cache'
-Write-Host "  PATH = $($startInfo.EnvironmentVariables['PATH'])   (CRAFT_PYTHON, PYTHONPATH, PYTHONHOME unset)"
-$process = [System.Diagnostics.Process]::Start($startInfo)
-$stdout = $process.StandardOutput.ReadToEndAsync()
-$stderr = $process.StandardError.ReadToEndAsync()
-if (-not $process.WaitForExit(240000)) { $process.Kill(); Check 'app finished within 240 s' $false }
-$out = $stdout.Result; $err = $stderr.Result
-Check 'smoke test passed (CRAFT_SMOKE_OK, exit 0)' ($process.ExitCode -eq 0 -and $out -match 'CRAFT_SMOKE_OK') "exit=$($process.ExitCode) $err"
+$run = Invoke-HostileRun "--smoke-test --import `"$Stl`" --generate-mold --master-mold --analyze --moldability --summary `"$summaryPath`""
+$out = $run.Out; $err = $run.Err
+Check 'smoke test passed (CRAFT_SMOKE_OK, exit 0)' ($run.ExitCode -eq 0 -and $out -match 'CRAFT_SMOKE_OK') "exit=$($run.ExitCode) $err"
 
 if (Test-Path $summaryPath) {
   $s = Get-Content $summaryPath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -150,7 +155,7 @@ if (Test-Path $summaryPath) {
   # P0-5: the mold runs in a separate process (this same Craft.exe in --geometry-worker mode), which a cancel can kill. Its log line proves the installed executable can start itself as that worker.
   Check 'the mold ran in a geometry worker process from the install folder' ($err -match 'geometry worker: .* succeeded') ($err.Trim().Substring(0, [Math]::Min(300, $err.Trim().Length)))
   # The Master Mold is a second geometry job of the same kind: it must work from the install folder too, in its own worker process.
-  Check 'Master Mold generated (planned and tooled)' ($s.masterMoldSummary.uiKind -eq 'success' -and $s.masterMoldSummary.setCount -ge 1) "kind=$($s.masterMoldSummary.uiKind) sets=$($s.masterMoldSummary.setCount) $($s.masterMoldSummary.banner)"
+  Check 'Master Mold generated: exactly two masters, exportable' ($s.masterMoldSummary.uiKind -eq 'success' -and $s.masterMoldSummary.masterCount -eq 2 -and $s.masterMoldSummary.canExport -eq $true) "kind=$($s.masterMoldSummary.uiKind) masters=$($s.masterMoldSummary.masterCount) export=$($s.masterMoldSummary.canExport) $($s.masterMoldSummary.banner)"
   Check 'the Master Mold ran in a geometry worker process too (two worker runs)' (([regex]::Matches($err, 'geometry worker: .* succeeded')).Count -ge 2) ($err.Trim().Substring(0, [Math]::Min(300, $err.Trim().Length)))
   Check 'import analysis completed (Python)' ($s.analysisPhase -eq 'complete')
   $reports = $s.engineeringReportsSummary
@@ -160,6 +165,22 @@ if (Test-Path $summaryPath) {
   Check 'no QML/Qt warnings on stderr' ($err -notmatch 'TypeError|ReferenceError|Unable to assign|QML.*(error|warning)') $err
 }
 else { Check 'summary written' $false 'no summary.json' }
+
+# The Master Mold on its own: an imported model and nothing else (no mold, no Split by Face, no analysis), in the same hostile environment. It is a
+# command of its own, so the installed package must prove it works without anything generated first.
+Write-Host "`n== 3b. Master Mold alone, from the install folder"
+$masterSummary = Join-Path $scratch 'summary-master.json'
+$runMaster = Invoke-HostileRun "--smoke-test --import `"$Stl`" --master-mold --summary `"$masterSummary`""
+Check 'standalone Master Mold smoke test passed (CRAFT_SMOKE_OK, exit 0)' ($runMaster.ExitCode -eq 0 -and $runMaster.Out -match 'CRAFT_SMOKE_OK') "exit=$($runMaster.ExitCode) $($runMaster.Err)"
+if (Test-Path $masterSummary) {
+  $m = Get-Content $masterSummary -Raw -Encoding UTF8 | ConvertFrom-Json
+  Check 'no mold had been generated first' ($m.moldPhase -ne 'complete') "moldPhase=$($m.moldPhase)"
+  Check 'standalone Master Mold produced exactly two masters' ($m.masterMoldSummary.uiKind -eq 'success' -and $m.masterMoldSummary.masterCount -eq 2 -and $m.masterMoldSummary.canExport -eq $true) "kind=$($m.masterMoldSummary.uiKind) masters=$($m.masterMoldSummary.masterCount) $($m.masterMoldSummary.banner)"
+  Check 'standalone Master Mold ran in a geometry worker process from the install folder' ($runMaster.Err -match 'geometry worker: .* succeeded') ($runMaster.Err.Trim().Substring(0, [Math]::Min(300, $runMaster.Err.Trim().Length)))
+  $peak = [regex]::Match($runMaster.Err, 'peak working set ([\d\.]+) MiB')
+  Check 'the worker reported its own peak memory' ($peak.Success -and [double]$peak.Groups[1].Value -gt 0) ($runMaster.Err.Trim().Substring(0, [Math]::Min(300, $runMaster.Err.Trim().Length)))
+  if ($peak.Success) { Write-Host ("  Master Mold worker peak working set on the installed layout: {0} MiB" -f $peak.Groups[1].Value) }
+} else { Check 'standalone summary written' $false 'no summary-master.json' }
 
 Write-Host "`n== 4. The run left the install folder untouched"
 $after = Get-ChildItem $InstallDir -Recurse -File | Measure-Object Length -Sum

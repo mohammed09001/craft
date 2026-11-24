@@ -63,21 +63,13 @@ craft_add_test(tst_cutplane_drag_equivalence
 target_compile_definitions(tst_cutplane_drag_equivalence PRIVATE
   CRAFT_REFERENCE_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/reference")
 craft_add_test(tst_master_store SOURCES tst_master_store.cpp LIBS craft_mold craft_mesh_manifold)
+craft_add_test(tst_master_contract SOURCES tst_master_contract.cpp LIBS craft_mold craft_mesh_manifold Qt6::Core)
+craft_add_test(tst_master_twopart SOURCES tst_master_twopart.cpp LIBS craft_mold craft_mesh_manifold Qt6::Core)
 craft_add_test(tst_master_export SOURCES tst_master_export.cpp LIBS craft_export Qt6::Core)
 craft_add_test(tst_long_paths SOURCES tst_long_paths.cpp LIBS craft_export craft_project Qt6::Core)
 craft_add_test(tst_variant_list_model SOURCES tst_variant_list_model.cpp LIBS craft_app_lib Qt6::Core)
 craft_add_test(tst_mold_wire SOURCES tst_mold_wire.cpp LIBS craft_mold craft_mesh_manifold Qt6::Core)
 craft_add_test(tst_master_wire SOURCES tst_master_wire.cpp LIBS craft_mold craft_mesh_manifold Qt6::Core)
-target_compile_definitions(tst_master_wire PRIVATE
-  CRAFT_REFERENCE_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/reference")
-craft_add_test(tst_master_equivalence
-  SOURCES tst_master_equivalence.cpp
-  LIBS craft_mold craft_mesh_manifold Qt6::Core)
-target_compile_definitions(tst_master_equivalence PRIVATE
-  CRAFT_REFERENCE_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/reference")
-# In a Release build its fallback-construction rows run (one multi-label voxel stage per row, about ten minutes in all: Debug skips them), which the
-# default of 300 s can never cover; before this a plain `ctest --preset windows-release` always timed out here.
-set_tests_properties(tst_master_equivalence PROPERTIES TIMEOUT 1800)
 craft_add_test(tst_project SOURCES tst_project.cpp LIBS craft_project Qt6::Core)
 craft_add_test(tst_reports_equivalence
   SOURCES tst_reports_equivalence.cpp
@@ -246,6 +238,16 @@ if(CRAFT_BUILD_APP)
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${CRAFT_QT_BIN_DIR}"
     TIMEOUT 240
     PASS_REGULAR_EXPRESSION "CRAFT_SMOKE_OK")
+  # The Master Mold on its own: an imported model, no --generate-mold and no Split by Face. The flag asserts that two masters come out.
+  add_test(NAME app_smoke_master_standalone
+    COMMAND craft --smoke-test
+            --import "${CRAFT_REPO_ROOT}/native/tests/fixtures/models/bracket.stl"
+            --master-mold
+            --summary "${CMAKE_CURRENT_BINARY_DIR}/app_smoke_master_standalone_summary.json")
+  set_tests_properties(app_smoke_master_standalone PROPERTIES
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${CRAFT_QT_BIN_DIR}"
+    TIMEOUT 240
+    PASS_REGULAR_EXPRESSION "CRAFT_SMOKE_OK")
   # The viewport's floating toolbar through REAL clicks, on an imported model with no mold.
   add_test(NAME app_smoke_toolbar
     COMMAND craft --smoke-test
@@ -299,7 +301,7 @@ if(CRAFT_BUILD_APP)
   # Each smoke test works in an autosave and cache folder of its own in the build tree. They used to share the user's real ones: a run that
   # ended without a clean shutdown (the UI tour did, and so would a killed test) left an autosave behind, the next launch opened with the
   # "Recover unsaved work?" dialog over the window, and every test that sends real mouse events failed because the dialog swallowed them.
-  foreach(_smoke app_smoke app_smoke_sprue_gizmo app_smoke_hint_events app_smoke_hint_wheel app_smoke_undo app_smoke_flip app_smoke_extension_drag app_smoke_focus app_smoke_eraser app_smoke_drop app_smoke_sections app_smoke_molds app_smoke_master app_smoke_master_flag app_smoke_toolbar app_smoke_plane_drag)
+  foreach(_smoke app_smoke app_smoke_sprue_gizmo app_smoke_hint_events app_smoke_hint_wheel app_smoke_undo app_smoke_flip app_smoke_extension_drag app_smoke_focus app_smoke_eraser app_smoke_drop app_smoke_sections app_smoke_molds app_smoke_master app_smoke_master_flag app_smoke_master_standalone app_smoke_toolbar app_smoke_plane_drag)
     if(TEST ${_smoke})
       # A QML error (a missing property, a failed binding, a type error) is a defect even when the test's own checks pass: verify-install.ps1 caught
       # "Cannot assign to non-existent property" in the toolbar that every smoke test had let through.

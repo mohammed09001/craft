@@ -462,14 +462,16 @@ class Smoke : public QObject {
       if (!waitFor([&] { return flyout->isVisible(); }, 3000)) return fail(QStringLiteral("a click on the pieces button did not open the list"));
       if (!piecesButton->property("highlighted").toBool()) return fail(QStringLiteral("the pieces button is not shown as pressed while the list is open"));
       QQuickItem* title = findItem(flyout, QStringLiteral("masterPiecesTitle"));
-      if (!title || !title->property("text").toString().startsWith(QLatin1String("Working mold:"))) return fail(QStringLiteral("the pieces list has no 'Working mold' title"));
+      if (!title || !title->property("text").toString().startsWith(QLatin1String("Two masters"))) return fail(QStringLiteral("the pieces list has no 'Two masters' title"));
       const QRectF listRect(flyout->mapToScene(QPointF(0, 0)), QSizeF(flyout->width(), flyout->height()));
       QQuickItem* viewportItem = findItem(window_->contentItem(), QStringLiteral("viewport"));
       const QRectF viewRect(viewportItem->mapToScene(QPointF(0, 0)), QSizeF(viewportItem->width(), viewportItem->height()));
       if (!viewRect.contains(listRect)) return fail(QStringLiteral("the pieces list is not inside the viewport"));
 
       const auto [shownAtFirst, hiddenAtFirst] = visibleKeys();
-      if (shownAtFirst.isEmpty() || !hiddenAtFirst.isEmpty()) return fail(QStringLiteral("the pieces are not all shown when the list opens (%1 shown, %2 hidden)").arg(shownAtFirst.size()).arg(hiddenAtFirst.size()));
+      // The two masters are shown; the two virtual working halves are a preview and start hidden.
+      if (shownAtFirst.size() != 2 || hiddenAtFirst.size() != 2 || !shownAtFirst.contains(QStringLiteral("master-a")) || !shownAtFirst.contains(QStringLiteral("master-b")))
+        return fail(QStringLiteral("the list does not open with exactly the two masters shown (%1 shown, %2 hidden)").arg(shownAtFirst.size()).arg(hiddenAtFirst.size()));
       const QString firstKey = shownAtFirst.first();
       QQuickItem* check = findItem(flyout, QStringLiteral("masterPieceFlyout:") + firstKey);
       if (!check) return fail(QStringLiteral("the list has no check box for the piece %1").arg(firstKey));
@@ -1610,6 +1612,8 @@ class Smoke : public QObject {
         QVariantMap brief;
         for (const char* key : {"status", "uiKind", "banner", "generating"}) brief.insert(QLatin1String(key), master.value(QLatin1String(key)));
         brief.insert(QStringLiteral("setCount"), master.value(QStringLiteral("sets")).toList().size());
+        brief.insert(QStringLiteral("masterCount"), master.value(QStringLiteral("masterCount")));
+        brief.insert(QStringLiteral("canExport"), master.value(QStringLiteral("canExport")));
         s.insert("masterMoldSummary", brief);
       }
       finish(s, !frame.isNull() && distinct > 50);

@@ -2519,8 +2519,8 @@ class WorkflowTest : public QObject {
     QCOMPARE(sets.size(), 2);
     QVERIFY(app->masterMold().value("showPieces").toBool());
     QVERIFY(!app->masterMold().value("summaryLines").toStringList().isEmpty());
-    // Tooling pieces are drawn next to the part.
-    QCOMPARE(app->scene()->count(), partRows + 2);
+    // Two masters and the two virtual working halves are drawn (the halves hidden until shown).
+    QCOMPARE(app->scene()->count(), partRows + 4);
 
     // Piece visibility goes through the store and reaches the scene rows.
     const QString key = sets.at(0).toMap().value("pieces").toList().at(0).toMap().value("key").toString();
@@ -2550,7 +2550,7 @@ class WorkflowTest : public QObject {
       return rows;
     };
     const auto solid = bodyRows();
-    QCOMPARE(solid.size(), 2);
+    QCOMPARE(solid.size(), 4);
     for (const auto& row : solid) QVERIFY(!row.second);
 
     // A printer build-volume change is a Master input: the result stays visible but is flagged stale.
@@ -2558,10 +2558,10 @@ class WorkflowTest : public QObject {
     QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("stale"));
     QCOMPARE(app->masterMold().value("uiKind").toString(), QStringLiteral("stale"));
     QVERIFY(app->masterMold().value("banner").toString().contains("needs regeneration"));
-    QCOMPARE(app->scene()->count(), partRows + 2);
+    QCOMPARE(app->scene()->count(), partRows + 4);
     // Stale pieces are ghosted in their own colours (the reference never replaces the per-role colour), not painted grey.
     const auto ghosted = bodyRows();
-    QCOMPARE(ghosted.size(), 2);
+    QCOMPARE(ghosted.size(), 4);
     for (int i = 0; i < ghosted.size(); ++i) {
       QVERIFY(ghosted[i].second);
       QCOMPARE(ghosted[i].first, solid[i].first);
@@ -2765,10 +2765,9 @@ class WorkflowTest : public QObject {
     QVERIFY(waitFor([&] { return app->masterMold().value("status").toString() != "generating" && !app->busy(); }, 120000));
     QCOMPARE(app->masterMold().value("status").toString(), QStringLiteral("current"));
     QVERIFY(app->masterMold().value("canExport").toBool());
-    int expected = 0;
-    for (const QVariant& set : app->masterMold().value("sets").toList()) expected += set.toMap().value("pieces").toList().size();
-    QVERIFY(expected > 0);
-    QCOMPARE(app->masterMold().value("exportablePieceCount").toInt(), expected);
+    // Exactly the two masters are exported; the virtual working halves never are, however many bodies the panel lists.
+    const int expected = 2;
+    QCOMPARE(app->masterMold().value("sets").toList().at(0).toMap().value("pieces").toList().size(), expected);
 
     // Hiding a piece in the viewport does not remove it from the export.
     const QString firstKey = app->masterMold().value("sets").toList().at(0).toMap().value("pieces").toList().at(0).toMap().value("key").toString();
@@ -2795,14 +2794,11 @@ class WorkflowTest : public QObject {
     QCOMPARE(manifest.value("source").toObject().value("model").toString(), QStringLiteral("bracket.stl"));
     QCOMPARE(manifest.value("units").toString(), QStringLiteral("millimeters"));
     std::multiset<std::size_t> storeTriangles;
-    for (const MasterToolingSetState& entry : app->masterMoldStore().sets()) {
-      if (!entry.set) continue;
-      for (const MasterToolingPiece& piece : entry.set->assembly.pieces) storeTriangles.insert(piece.mesh.triangleCount());
-    }
+    for (const MasterTool& tool : app->masterMoldStore().plan()->masters) storeTriangles.insert(tool.mesh.triangleCount());
     std::multiset<std::size_t> fileTriangles;
     int manifestPieces = 0;
-    for (const QJsonValue& setValue : manifest.value("toolingSets").toArray()) {
-      for (const QJsonValue& pieceValue : setValue.toObject().value("pieces").toArray()) {
+    {
+      for (const QJsonValue& pieceValue : manifest.value("masters").toArray()) {
         const QJsonObject piece = pieceValue.toObject();
         ++manifestPieces;
         const QString path = QDir(folder).filePath(piece.value("file").toString());
@@ -3285,7 +3281,7 @@ class WorkflowTest : public QObject {
     QCOMPARE(app->scene()->count(), 1);
   }
 
-  // Master Mold needs about 7 to 8 KB of memory per triangle (observed), so it is refused before it starts when that cannot fit (estimateMasterMoldPeakBytes).
+  // Master Mold needs about 3.5 KB of memory per triangle (measured on the worker), so it is refused before it starts when that cannot fit (estimateMasterMoldPeakBytes).
   void aMasterMoldThatCannotFitInFreeMemoryIsRefusedBeforeItStarts() {
     auto app = makeApp();
     app->importStlFile(bracket());

@@ -46,7 +46,7 @@ Pane {
                 Layout.fillWidth: true
                 Label {
                     objectName: "masterPiecesTitle"
-                    text: qsTr("Working mold: %1 part(s)").arg(app.masterMold.workingMoldPieceCount)
+                    text: qsTr("Two masters: A and B")
                     font.bold: true
                 }
                 Item { Layout.fillWidth: true }
@@ -103,7 +103,7 @@ Pane {
                 }
             }
             Label {
-                text: qsTr("schema v%1").arg(app.masterMold.schemaVersion)
+                text: qsTr("contract v%1").arg(app.masterMold.contractVersion)
                 font.pixelSize: 10
                 color: "#8a8f98"
             }

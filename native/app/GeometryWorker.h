@@ -12,6 +12,7 @@
 #include <QByteArray>
 #include <QElapsedTimer>
 #include <QObject>
+#include <QByteArray>
 #include <QProcess>
 #include <QString>
 #include <QTemporaryDir>
@@ -23,6 +24,16 @@ namespace craft::app {
 /// The worker side. Runs in the child process; returns the process exit code.
 int runGeometryWorker(const QString& jobFile, const QString& resultFile);
 
+/// The largest memory any geometry worker process of this application run has used, as the worker itself reported when it finished (Windows: the peak
+/// working set and the peak private commit). Zero where the platform does not report it. The benchmarks record it: the application process's own peak
+/// says nothing about a job that runs in another process.
+struct WorkerPeak {
+  double workingSetMiB = 0;
+  double privateMiB = 0;
+};
+WorkerPeak largestWorkerPeak();
+void resetLargestWorkerPeak();
+
 struct WorkerOutcome {
   enum class State { Succeeded, Failed, Cancelled, Crashed };
   State state = State::Failed;
@@ -30,6 +41,8 @@ struct WorkerOutcome {
   QString errorCode;     // the worker's error code ("ERROR <code>" line), when it reported one
   int exitCode = -1;
   QByteArray result;     // the result file's contents when Succeeded
+  double peakWorkingSetMiB = 0;   // the worker's own report of the memory the job needed (0 when it did not report: killed, or not Windows)
+  double peakPrivateMiB = 0;
 };
 
 /// The launching side: one job per object. cancel() kills the process; the outcome is then Cancelled.
@@ -64,6 +77,7 @@ class WorkerProcess : public QObject {
   bool reported_ = false;
   QElapsedTimer lifetime_;   // for the one log line a job leaves: what it moved and how long the process lived
   qint64 payloadBytes_ = 0;
+  double peakWorkingSetMiB_ = 0, peakPrivateMiB_ = 0;
 };
 
 }  // namespace craft::app

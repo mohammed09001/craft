@@ -14,6 +14,7 @@
 #include <fstream>
 #include <optional>
 
+#include "MasterPlanFixtures.h"
 #include "TestMeshes.h"
 #include "path/ExtendedPath.h"
 #include "project/ProjectFile.h"
@@ -43,34 +44,6 @@ QString deepFolder(const QString& root, int target) {
 bool makeDeep(const QString& path) { return QDir().mkpath(QDir::fromNativeSeparators(path)); }
 
 fs::path asPath(const QString& s) { return fs::path(s.toStdWString()); }
-
-MasterToolingPiece makePiece(const std::string& id, const std::string& name, const Bounds3& box) {
-  MasterToolingPiece piece;
-  piece.pieceId = id;
-  piece.name = name;
-  piece.mesh = test::cubeMesh(box);
-  piece.bounds = box;
-  piece.volumeMm3 = 1000;
-  piece.triangleCount = static_cast<int>(piece.mesh.triangleCount());
-  piece.watertight = true;
-  piece.manifold = true;
-  piece.releaseDirection = "+z";
-  return piece;
-}
-
-MasterToolingSetState makeSet(const std::string& id, const std::string& name, std::vector<MasterToolingPiece> pieces) {
-  MasterToolingSetState state;
-  state.moldPartId = id;
-  state.moldPartName = name;
-  state.status = "current";
-  MasterToolingSet set;
-  set.moldPartId = id;
-  set.moldPartName = name;
-  set.releaseMode = "multi-piece";
-  set.assembly.pieces = std::move(pieces);
-  state.set = set;
-  return state;
-}
 
 }  // namespace
 
@@ -152,7 +125,7 @@ class LongPathsTest : public QObject {
     const QString deep = deepFolder(root.path(), 200);
     QVERIFY(makeDeep(deep));
     QVERIFY(deep.size() < 250);
-    std::vector<MasterToolingSetState> sets{makeSet("p1", "Upper mold with a long descriptive name", {makePiece("a", "Piece A with a long descriptive name", test::box(0, 0, 0, 10, 10, 10))})};
+    const MasterExportSource sets{"current", craft::testing::sharedValidMasterPlan(), {}};
     MasterExportOptions options;
     options.modelName = "a-customer-part-with-a-rather-long-file-name.stl";
     options.write3mf = true;
@@ -161,7 +134,7 @@ class LongPathsTest : public QObject {
     NO_CODED_ERROR(written = writeMasterToolingExport(plan, asPath(deep), options);)
     QVERIFY(written.has_value());
     const MasterExportResult& result = *written;
-    QVERIFY(result.files.size() == 1);
+    QVERIFY(result.files.size() == 2);
     QVERIFY(result.files[0].native().size() > 260);   // the exported file's own path is past MAX_PATH
     QVERIFY(QFileInfo::exists(QString::fromStdWString(result.files[0].wstring())));
     const threemf::Report report = threemf::validateFile(result.threeMf);
@@ -202,7 +175,7 @@ class LongPathsTest : public QObject {
       QVERIFY(threemf::validateFile(threeMf).ok);
     )
 
-    std::vector<MasterToolingSetState> sets{makeSet("p1", "Upper", {makePiece("a", "Case A", test::box(0, 0, 0, 10, 10, 10))})};
+    const MasterExportSource sets{"current", craft::testing::sharedValidMasterPlan(), {}};
     MasterExportOptions options;
     options.modelName = "part.stl";
     std::optional<MasterExportResult> written;
@@ -262,7 +235,7 @@ class LongPathsTest : public QObject {
     QProcess icacls;
     icacls.start(QStringLiteral("icacls"), {QDir::toNativeSeparators(locked), QStringLiteral("/deny"), user + QStringLiteral(":(WD,AD)")});
     if (!icacls.waitForFinished(15000) || icacls.exitCode() != 0) QSKIP("icacls could not deny write access on this machine");
-    std::vector<MasterToolingSetState> sets{makeSet("p1", "Upper", {makePiece("a", "Case A", test::box(0, 0, 0, 10, 10, 10))})};
+    const MasterExportSource sets{"current", craft::testing::sharedValidMasterPlan(), {}};
     MasterExportOptions options;
     options.modelName = "part.stl";
     bool threw = false;

@@ -108,32 +108,23 @@ target_link_libraries(craft_mesh_api INTERFACE craft_core)
 
 # --- craft_mold: mold-domain algorithms, kernel-agnostic (no Qt) -------------
 add_library(craft_mold STATIC
-  core/master/MasterAccessibility.cpp
-  core/master/MasterAccessibility.h
-  core/master/MasterWorkingMoldPlanner.cpp
-  core/master/MasterWorkingMoldPlanner.h
-  core/master/MasterWorkingMoldConstructor.cpp
-  core/master/MasterWorkingMoldConstructor.h
-  core/master/RayBvh.cpp
-  core/master/RayBvh.h
-  core/master/MasterTooling.cpp
-  core/master/MasterTooling.h
+  core/master/JsFormat.cpp
+  core/master/JsFormat.h
+  core/master/MasterContract.cpp
+  core/master/MasterContract.h
   core/master/MasterEngine.cpp
   core/master/MasterEngine.h
-  core/master/MasterMultiPiece.cpp
-  core/master/MasterMultiPiece.h
   core/master/MasterMoldStore.cpp
+  core/master/MasterMoldStore.h
+  core/master/MasterPlanning.cpp
+  core/master/MasterPlanning.h
+  core/master/MasterProfile.h
+  core/master/MasterTwoPart.cpp
+  core/master/MasterTwoPart.h
   core/master/MasterWire.cpp
   core/master/MasterWire.h
-  core/master/MasterMoldStore.h
-  core/master/MasterMultiLabel.cpp
-  core/master/MasterMultiLabel.h
-  core/master/MasterRegionDirect.cpp
-  core/master/MasterRegionDirect.h
-  core/master/MasterPlanning.cpp
-    core/master/TriangleIntersection.cpp
-    core/master/TriangleIntersection.h
-  core/master/MasterPlanning.h
+  core/master/TriangleIntersection.cpp
+  core/master/TriangleIntersection.h
   core/mold/CavityGeneration.cpp
   core/mold/CavityGeneration.h
   core/mold/DerivedMold.cpp

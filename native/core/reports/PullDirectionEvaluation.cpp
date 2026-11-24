@@ -4,7 +4,7 @@
 #include <cmath>
 #include <cstdlib>
 
-#include "master/MasterAccessibility.h"  // jsToFixed
+#include "master/JsFormat.h"  // jsToFixed
 #include "reports/LocaleCompare.h"
 #include "mold/Registration.h"           // jsNumberToString
 

@@ -9,6 +9,7 @@
 
 #include "geometry/GeometryTolerance.h"
 #include "geometry/MeshAnalysis.h"
+#include "master/MasterContract.h"
 #include "master/TriangleIntersection.h"
 #include "mold/Registration.h"  // jsNumberToString
 
@@ -48,9 +49,23 @@ std::string volumeJson(const std::optional<Point3>& v) {
   return "{\"x\":" + num(v->x) + ",\"y\":" + num(v->y) + ",\"z\":" + num(v->z) + "}";
 }
 
-std::string preferencesJson(const MasterPlanningPreferences& p) {
-  return std::string("{\"preferredMaximumWorkingMoldPieces\":") +
-         (p.preferredMaximumWorkingMoldPieces ? num(*p.preferredMaximumWorkingMoldPieces) : "null") + "}";
+std::string optNum(const std::optional<double>& v) { return v ? num(*v) : "null"; }
+
+std::string curvedResolutionsJson(const MasterProcessProfile& p) {
+  std::string out = "[";
+  for (std::size_t i = 0; i < p.curvedSeamResolutions.size(); ++i) out += (i ? "," : "") + num(p.curvedSeamResolutions[i]);
+  return out + "]";
+}
+
+/// Every field of the profile that changes the geometry, plus the contract version: a result of an older contract can never match a new identity.
+std::string profileJson(const MasterProcessProfile& p) {
+  return "{\"contractVersion\":" + num(kMasterContractVersion) + ",\"profileId\":" + quote(p.profileId) + ",\"workingWallMm\":" + optNum(p.workingWallMm) +
+         ",\"sprueRadiusMm\":" + optNum(p.sprueRadiusMm) + ",\"masterWallMm\":" + num(p.masterWallMm) + ",\"masterBaseMm\":" + num(p.masterBaseMm) +
+         ",\"freeboardMm\":" + num(p.freeboardMm) + ",\"keyRadiusMm\":" + num(p.keyRadiusMm) + ",\"keyHeightMm\":" + num(p.keyHeightMm) +
+         ",\"keyClearanceMm\":" + num(p.keyClearanceMm) + ",\"slidingSine\":" + num(p.slidingSine) + ",\"blockedVolumeMm3\":" + num(p.blockedVolumeMm3) +
+         ",\"clearVolumeMm3\":" + num(p.clearVolumeMm3) + ",\"wasteMargin\":" + num(p.wasteMargin) + ",\"density\":" + optNum(p.workingMoldDensityGPerCm3) +
+         ",\"fidelityToleranceMm\":" + num(p.fidelityToleranceMm) + ",\"maxConstructedCandidates\":" + num(p.maxConstructedCandidates) +
+         ",\"maxSweepPrisms\":" + num(p.maxSweepPrisms) + ",\"maxCurvedAxes\":" + num(p.maxCurvedAxes) + ",\"curvedSeamResolutions\":" + curvedResolutionsJson(p) + "}";
 }
 
 bool transformIsIdentity(const std::array<double, 16>& t) {
@@ -61,9 +76,6 @@ bool transformIsIdentity(const std::array<double, 16>& t) {
   return true;
 }
 
-constexpr double kRadToDeg = 180.0 / 3.14159265358979323846;
-
-double dotv(const Point3& a, const Point3& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
 
 }  // namespace
 
@@ -120,8 +132,7 @@ MasterSeedSnapshot buildMasterMoldSeedSnapshot(const MasterSeedInput& input) {
   s.seedId = hashStable("{\"schemaVersion\":1,\"sourceModelId\":" + quote(g.modelId) +
                         ",\"sourceGeometryVersion\":" + quote(version) +
                         ",\"printerBuildVolume\":" + volumeJson(input.printerBuildVolume) +
-                        ",\"processProfileId\":" + quote(input.processProfile.profileId) +
-                        ",\"userPreferences\":" + preferencesJson(input.userPreferences) +
+                        ",\"processProfile\":" + profileJson(input.processProfile) +
                         ",\"sourceProjectRevision\":" + quote(input.projectRevision) + "}");
   s.sourceModelId = g.modelId;
   s.sourceGeometryVersion = version;
@@ -132,7 +143,6 @@ MasterSeedSnapshot buildMasterMoldSeedSnapshot(const MasterSeedInput& input) {
   s.sourceBounds = bounds;
   s.printerBuildVolume = input.printerBuildVolume;
   s.processProfile = input.processProfile;
-  s.userPreferences = input.userPreferences;
   s.sourceProjectRevision = input.projectRevision;
   return s;
 }
@@ -152,14 +162,10 @@ MasterSeedSnapshot worldMeshFromSnapshot(const MasterSeedSnapshot& snapshot) {
   return world;
 }
 
-std::string masterSeedStalenessIdentity(const std::string& sourceGeometryVersion,
-                                        const std::optional<Point3>& printerBuildVolume,
-                                        const MasterCastingProcessProfile& profile,
-                                        const MasterPlanningPreferences& preferences) {
-  return hashStable("{\"sourceGeometryVersion\":" + quote(sourceGeometryVersion) +
-                    ",\"printerBuildVolume\":" + volumeJson(printerBuildVolume) +
-                    ",\"processProfileId\":" + quote(profile.profileId) +
-                    ",\"userPreferences\":" + preferencesJson(preferences) + "}");
+std::string masterSeedStalenessIdentity(const std::string& sourceGeometryVersion, const std::optional<Point3>& printerBuildVolume,
+                                        const MasterProcessProfile& profile) {
+  return hashStable("{\"sourceGeometryVersion\":" + quote(sourceGeometryVersion) + ",\"printerBuildVolume\":" + volumeJson(printerBuildVolume) +
+                    ",\"processProfile\":" + profileJson(profile) + "}");
 }
 
 // --- preflight ----------------------------------------------------------------------------------
@@ -392,12 +398,18 @@ MeshPreflightResult runMeshPreflight(const std::vector<float>& positions, const 
                         1});
   }
 
-  // Bounded exact self-intersection count (reference: BVH self-cast, skipping pairs that share a welded vertex).
-  if (triangleCount <= 20000) {
-    r.selfIntersectionChecked = true;
+  // Self-intersection: every pair of triangles whose boxes overlap and that share no welded vertex is tested exactly. Candidate pairs come from a uniform
+  // grid over the triangle boxes (a pair is tested once, in the cell holding the low corner of the overlap of its boxes), so a 250,000-triangle model costs
+  // about as many tests as it has triangles. Triangles that lie in each other's plane to within the float32 resolution of the coordinates are judged by their
+  // overlap in that plane (see trianglesIntersect). The work is bounded: past kMaxPairTests the pass stops and says so, instead of claiming a clean result.
+  {
+    constexpr std::uint64_t kMaxPairTests = 60'000'000;
+    double planeTolerance = 0;  // exact test when the bounds are too degenerate for a tolerance policy
+    try { planeTolerance = buildGeometryTolerancePolicy(bounds, 0).containmentToleranceMm; } catch (const std::invalid_argument&) {}
     struct Box { double lo[3], hi[3]; };
     std::vector<Box> boxes(triangleCount);
     std::vector<IntersectTriangle> tris(triangleCount);
+    double meanExtent = 0;
     for (std::size_t t = 0; t < triangleCount; ++t) {
       TriVec v[3];
       for (int c = 0; c < 3; ++c) {
@@ -410,11 +422,27 @@ MeshPreflightResult runMeshPreflight(const std::vector<float>& positions, const 
                                   a == 0 ? v[2].x : a == 1 ? v[2].y : v[2].z};
         boxes[t].lo[a] = std::min({values[0], values[1], values[2]}) - 1e-6;
         boxes[t].hi[a] = std::max({values[0], values[1], values[2]}) + 1e-6;
+        meanExtent += (boxes[t].hi[a] - boxes[t].lo[a]) / 3.0;
       }
     }
-    std::vector<std::size_t> order(triangleCount);
-    for (std::size_t t = 0; t < triangleCount; ++t) order[t] = t;
-    std::sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) { return boxes[a].lo[0] < boxes[b].lo[0]; });
+    meanExtent /= static_cast<double>(triangleCount);
+    const double cell = std::max(meanExtent * 2.0, 1e-6);
+    const double ox = bounds.min.x, oy = bounds.min.y, oz = bounds.min.z;
+    const auto cellOf = [&](double v, double origin) { return static_cast<std::int64_t>(std::floor((v - origin) / cell)); };
+    const auto keyOf = [](std::int64_t x, std::int64_t y, std::int64_t z) {
+      return (static_cast<std::uint64_t>(x & 0x1FFFFF) << 42) | (static_cast<std::uint64_t>(y & 0x1FFFFF) << 21) | static_cast<std::uint64_t>(z & 0x1FFFFF);
+    };
+    std::unordered_map<std::uint64_t, std::vector<std::uint32_t>> grid;
+    grid.reserve(triangleCount * 2);
+    std::vector<std::uint32_t> large;  // triangles spanning thousands of cells (a big flat face): tested against every box instead of being entered in the grid
+    for (std::size_t t = 0; t < triangleCount; ++t) {
+      const Box& b = boxes[t];
+      const std::int64_t span = (cellOf(b.hi[0], ox) - cellOf(b.lo[0], ox) + 1) * (cellOf(b.hi[1], oy) - cellOf(b.lo[1], oy) + 1) * (cellOf(b.hi[2], oz) - cellOf(b.lo[2], oz) + 1);
+      if (span > 2048) { large.push_back(static_cast<std::uint32_t>(t)); continue; }
+      for (std::int64_t x = cellOf(b.lo[0], ox); x <= cellOf(b.hi[0], ox); ++x)
+        for (std::int64_t y = cellOf(b.lo[1], oy); y <= cellOf(b.hi[1], oy); ++y)
+          for (std::int64_t z = cellOf(b.lo[2], oz); z <= cellOf(b.hi[2], oz); ++z) grid[keyOf(x, y, z)].push_back(static_cast<std::uint32_t>(t));
+    }
     std::vector<bool> offending(triangleCount, false);
     const auto sharesVertex = [&](std::size_t a, std::size_t b) {
       for (int i = 0; i < 3; ++i)
@@ -422,21 +450,45 @@ MeshPreflightResult runMeshPreflight(const std::vector<float>& positions, const 
           if (weldId[indices[a * 3 + static_cast<std::size_t>(i)]] == weldId[indices[b * 3 + static_cast<std::size_t>(j)]]) return true;
       return false;
     };
-    for (std::size_t i = 0; i < order.size(); ++i) {
-      const std::size_t a = order[i];
-      for (std::size_t j = i + 1; j < order.size() && boxes[order[j]].lo[0] <= boxes[a].hi[0]; ++j) {
-        const std::size_t b = order[j];
-        if (boxes[b].lo[1] > boxes[a].hi[1] || boxes[a].lo[1] > boxes[b].hi[1] || boxes[b].lo[2] > boxes[a].hi[2] ||
-            boxes[a].lo[2] > boxes[b].hi[2])
-          continue;
-        if (sharesVertex(a, b)) continue;
-        if (trianglesIntersect(tris[a], tris[b])) { offending[a] = true; offending[b] = true; }
+    std::uint64_t tests = 0;
+    bool limited = false;
+    for (const auto& [key, members] : grid) {
+      if (limited) break;
+      for (std::size_t i = 0; i < members.size() && !limited; ++i) {
+        const Box& ba = boxes[members[i]];
+        for (std::size_t j = i + 1; j < members.size(); ++j) {
+          const Box& bb = boxes[members[j]];
+          if (bb.lo[0] > ba.hi[0] || ba.lo[0] > bb.hi[0] || bb.lo[1] > ba.hi[1] || ba.lo[1] > bb.hi[1] || bb.lo[2] > ba.hi[2] || ba.lo[2] > bb.hi[2]) continue;
+          // Test the pair only in the cell that holds the low corner of the overlap of its boxes.
+          if (keyOf(cellOf(std::max(ba.lo[0], bb.lo[0]), ox), cellOf(std::max(ba.lo[1], bb.lo[1]), oy), cellOf(std::max(ba.lo[2], bb.lo[2]), oz)) != key) continue;
+          if (sharesVertex(members[i], members[j])) continue;
+          if (++tests > kMaxPairTests) { limited = true; break; }
+          if (trianglesIntersect(tris[members[i]], tris[members[j]], planeTolerance)) { offending[members[i]] = true; offending[members[j]] = true; }
+        }
       }
     }
+    for (const std::uint32_t big : large) {
+      if (limited) break;
+      const Box& ba = boxes[big];
+      for (std::size_t other = 0; other < triangleCount; ++other) {
+        if (other == big) continue;
+        if (std::binary_search(large.begin(), large.end(), static_cast<std::uint32_t>(other)) && other < big) continue;  // a pair of large triangles once
+        const Box& bb = boxes[other];
+        if (bb.lo[0] > ba.hi[0] || ba.lo[0] > bb.hi[0] || bb.lo[1] > ba.hi[1] || ba.lo[1] > bb.hi[1] || bb.lo[2] > ba.hi[2] || ba.lo[2] > bb.hi[2]) continue;
+        if (sharesVertex(big, other)) continue;
+        if (++tests > kMaxPairTests) { limited = true; break; }
+        if (trianglesIntersect(tris[big], tris[other], planeTolerance)) { offending[big] = true; offending[other] = true; }
+      }
+    }
+    r.selfIntersectionChecked = !limited;
     const int count = static_cast<int>(std::count(offending.begin(), offending.end(), true));
     if (count > 0) {
       r.issues.push_back({"self_intersection", "error",
                           std::to_string(count) + " triangle(s) intersect non-adjacent geometry elsewhere on the same surface.", count});
+    }
+    if (limited) {
+      r.issues.push_back({"self_intersection_check_limited", "warning",
+                          "the self-intersection check stopped after " + std::to_string(kMaxPairTests) + " triangle-pair tests; the part may still intersect itself where it was not reached.", 1});
     }
   }
 
@@ -466,174 +518,6 @@ double jsHypot3(double x, double y, double z) {
     sum = preliminary;
   }
   return std::sqrt(sum) * max;
-}
-
-namespace {
-struct TriangleGeometry {
-  int triangle;
-  Point3 centroid, normal;
-  double areaMm2;
-};
-
-std::vector<TriangleGeometry> triangleGeometryFor(const std::vector<float>& p, const std::vector<std::uint32_t>& idx) {
-  std::vector<TriangleGeometry> result;
-  const std::size_t count = idx.size() / 3;
-  for (std::size_t t = 0; t < count; ++t) {
-    const std::size_t i0 = idx[t * 3] * 3ull, i1 = idx[t * 3 + 1] * 3ull, i2 = idx[t * 3 + 2] * 3ull;
-    const double ax = p[i0], ay = p[i0 + 1], az = p[i0 + 2];
-    const double bx = p[i1], by = p[i1 + 1], bz = p[i1 + 2];
-    const double cx = p[i2], cy = p[i2 + 1], cz = p[i2 + 2];
-    const double abx = bx - ax, aby = by - ay, abz = bz - az;
-    const double acx = cx - ax, acy = cy - ay, acz = cz - az;
-    double nx = aby * acz - abz * acy, ny = abz * acx - abx * acz, nz = abx * acy - aby * acx;
-    const double length = jsHypot3(nx, ny, nz);
-    if (length == 0 || !std::isfinite(length)) continue;
-    nx /= length; ny /= length; nz /= length;
-    result.push_back({static_cast<int>(t), {(ax + bx + cx) / 3, (ay + by + cy) / 3, (az + bz + cz) / 3}, {nx, ny, nz}, length / 2});
-  }
-  return result;
-}
-
-std::vector<std::vector<int>> adjacencyFromTriangles(const std::vector<std::uint32_t>& idx, const std::vector<std::int32_t>& weldId,
-                                                     std::size_t patchCount,
-                                                     const std::vector<std::vector<int>>& trianglesOfPatch) {
-  std::vector<std::vector<int>> adjacency(patchCount);
-  if (patchCount == 0) return adjacency;
-  // vertex -> patches, in first-seen order like a JS Map of Sets.
-  std::unordered_map<std::int32_t, std::size_t> bucketOf;
-  std::vector<std::vector<int>> buckets;
-  std::vector<std::unordered_set<int>> bucketSets;
-  for (std::size_t patch = 0; patch < patchCount; ++patch) {
-    for (int triangle : trianglesOfPatch[patch]) {
-      for (int corner = 0; corner < 3; ++corner) {
-        const std::int32_t vertex = weldId[idx[static_cast<std::size_t>(triangle) * 3 + corner]];
-        auto [it, inserted] = bucketOf.try_emplace(vertex, buckets.size());
-        if (inserted) { buckets.emplace_back(); bucketSets.emplace_back(); }
-        if (bucketSets[it->second].insert(static_cast<int>(patch)).second) buckets[it->second].push_back(static_cast<int>(patch));
-      }
-    }
-  }
-  std::vector<std::unordered_set<int>> seen(patchCount);
-  for (const auto& members : buckets) {
-    if (members.size() < 2) continue;
-    for (std::size_t a = 0; a < members.size(); ++a)
-      for (std::size_t b = a + 1; b < members.size(); ++b) {
-        const int pa = members[a], pb = members[b];
-        if (pa == pb) continue;
-        if (seen[pa].insert(pb).second) adjacency[pa].push_back(pb);
-        if (seen[pb].insert(pa).second) adjacency[pb].push_back(pa);
-      }
-  }
-  return adjacency;
-}
-
-bool centroidLexLess(const Point3& a, const Point3& b) {
-  if (a.x != b.x) return a.x < b.x;
-  if (a.y != b.y) return a.y < b.y;
-  return a.z < b.z;
-}
-
-int normalFaceBucket(const Point3& n) {
-  const double ax = std::fabs(n.x), ay = std::fabs(n.y), az = std::fabs(n.z);
-  if (ax >= ay && ax >= az) return n.x >= 0 ? 0 : 1;
-  if (ay >= ax && ay >= az) return n.y >= 0 ? 2 : 3;
-  return n.z >= 0 ? 4 : 5;
-}
-
-/// ICU collation of "cx:cy:cz:face" cluster keys: ':' sorts before digits.
-bool clusterKeyLess(const std::string& a, const std::string& b) {
-  const auto rank = [](char c) { return c == ':' ? 0 : c - '0' + 1; };
-  const std::size_t n = std::min(a.size(), b.size());
-  for (std::size_t i = 0; i < n; ++i) {
-    if (a[i] != b[i]) return rank(a[i]) < rank(b[i]);
-  }
-  return a.size() < b.size();
-}
-
-struct Cluster {
-  std::string key;
-  double areaSum = 0;
-  int representativeTriangle = 0;
-  double representativeArea = -1;
-  Point3 representativeCentroid, representativeNormal;
-  std::vector<int> members;
-};
-}  // namespace
-
-PlanningMesh buildPlanningMesh(const std::vector<float>& positions, const std::vector<std::uint32_t>& indices,
-                               const Bounds3& bounds, const std::string& sourceGeometryVersion) {
-  const std::vector<TriangleGeometry> triangles = triangleGeometryFor(positions, indices);
-  const bool fullResolution = static_cast<int>(triangles.size()) <= kMasterPlannerLimits.fullResolutionPlanningTriangleBudget;
-  const std::size_t vertexCount = positions.size() / 3;
-  const std::vector<std::int32_t> weldId =
-      weldedVertexIds(positions, vertexCount, weldToleranceMmFor(boundsOfPositions(positions, vertexCount)));
-
-  PlanningMesh mesh;
-  std::vector<std::vector<int>> trianglesOfPatch;
-  if (fullResolution) {
-    for (std::size_t i = 0; i < triangles.size(); ++i) {
-      const TriangleGeometry& t = triangles[i];
-      mesh.patches.push_back({static_cast<int>(i), t.centroid, t.normal, t.areaMm2, t.triangle});
-      trianglesOfPatch.push_back({t.triangle});
-    }
-  } else {
-    const double sizeX = std::max(bounds.max.x - bounds.min.x, 1e-9);
-    const double sizeY = std::max(bounds.max.y - bounds.min.y, 1e-9);
-    const double sizeZ = std::max(bounds.max.z - bounds.min.z, 1e-9);
-    const int resolution = std::max(1, static_cast<int>(std::floor(std::cbrt(kMasterPlannerLimits.maxPlanningPatches / 6.0))));
-    const double cellX = sizeX / resolution, cellY = sizeY / resolution, cellZ = sizeZ / resolution;
-    std::unordered_map<std::string, std::size_t> index;
-    std::vector<Cluster> clusters;
-    const auto cellOf = [&](double c, double lo, double cell) {
-      return std::min(resolution - 1, std::max(0, static_cast<int>(std::floor((c - lo) / cell))));
-    };
-    for (const TriangleGeometry& t : triangles) {
-      const int cx = cellOf(t.centroid.x, bounds.min.x, cellX);
-      const int cy = cellOf(t.centroid.y, bounds.min.y, cellY);
-      const int cz = cellOf(t.centroid.z, bounds.min.z, cellZ);
-      const std::string key = std::to_string(cx) + ":" + std::to_string(cy) + ":" + std::to_string(cz) + ":" +
-                              std::to_string(normalFaceBucket(t.normal));
-      auto [it, inserted] = index.try_emplace(key, clusters.size());
-      if (inserted) {
-        Cluster c;
-        c.key = key;
-        c.representativeTriangle = t.triangle;
-        c.representativeCentroid = t.centroid;
-        c.representativeNormal = t.normal;
-        clusters.push_back(std::move(c));
-      }
-      Cluster& cluster = clusters[it->second];
-      cluster.areaSum += t.areaMm2;
-      cluster.members.push_back(t.triangle);
-      if (t.areaMm2 > cluster.representativeArea ||
-          (t.areaMm2 == cluster.representativeArea && centroidLexLess(t.centroid, cluster.representativeCentroid))) {
-        cluster.representativeArea = t.areaMm2;
-        cluster.representativeTriangle = t.triangle;
-        cluster.representativeCentroid = t.centroid;
-        cluster.representativeNormal = t.normal;
-      }
-    }
-    std::stable_sort(clusters.begin(), clusters.end(), [](const Cluster& a, const Cluster& b) { return clusterKeyLess(a.key, b.key); });
-    for (std::size_t i = 0; i < clusters.size(); ++i) {
-      const Cluster& c = clusters[i];
-      mesh.patches.push_back({static_cast<int>(i), c.representativeCentroid, c.representativeNormal, c.areaSum, c.representativeTriangle});
-      trianglesOfPatch.push_back(c.members);
-    }
-  }
-  mesh.adjacency = adjacencyFromTriangles(indices, weldId, mesh.patches.size(), trianglesOfPatch);
-  for (const PlanningPatch& p : mesh.patches) mesh.totalAreaMm2 += p.areaMm2;
-  mesh.bounds = bounds;
-  mesh.sourceGeometryVersion = sourceGeometryVersion;
-  mesh.vertexCount = static_cast<int>(vertexCount);
-  mesh.triangleCount = static_cast<int>(indices.size() / 3);
-  return mesh;
-}
-
-// --- candidate directions -----------------------------------------------------------------------
-
-double angleBetweenDeg(const Point3& a, const Point3& b) {
-  const double cosine = std::min(1.0, std::max(-1.0, dotv(a, b)));
-  return std::acos(cosine) * kRadToDeg;
 }
 
 std::optional<Point3> normalizeDirection(const Point3& v) {
@@ -697,95 +581,6 @@ std::vector<Point3> principalAxesOfCovariance(const std::array<double, 9>& cov) 
   std::vector<Point3> axes;
   for (const Eigen& e : eigen) axes.push_back(canonicalDirection(normalizeDirection(e.axis).value_or(Point3{1, 0, 0})));
   return axes;
-}
-
-namespace {
-std::array<double, 9> covarianceOfVertices(const std::vector<float>& p) {
-  const std::size_t vertices = p.size() / 3;
-  const std::size_t stride = std::max<std::size_t>(1, static_cast<std::size_t>(std::floor(static_cast<double>(vertices) / 8192)));
-  double count = 0, sx = 0, sy = 0, sz = 0;
-  for (std::size_t v = 0; v < vertices; v += stride) {
-    sx += p[v * 3]; sy += p[v * 3 + 1]; sz += p[v * 3 + 2];
-    count += 1;
-  }
-  const double mx = sx / count, my = sy / count, mz = sz / count;
-  double xx = 0, xy = 0, xz = 0, yy = 0, yz = 0, zz = 0;
-  for (std::size_t v = 0; v < vertices; v += stride) {
-    const double dx = p[v * 3] - mx, dy = p[v * 3 + 1] - my, dz = p[v * 3 + 2] - mz;
-    xx += dx * dx; xy += dx * dy; xz += dx * dz; yy += dy * dy; yz += dy * dz; zz += dz * dz;
-  }
-  return {xx, xy, xz, xy, yy, yz, xz, yz, zz};
-}
-
-struct ClusterSeed {
-  Point3 direction;
-  double areaMm2;
-};
-
-std::vector<ClusterSeed> dominantNormalClusters(const PlanningMesh& mesh) {
-  std::vector<const PlanningPatch*> order;
-  for (const PlanningPatch& p : mesh.patches) order.push_back(&p);
-  std::stable_sort(order.begin(), order.end(), [](const PlanningPatch* a, const PlanningPatch* b) {
-    const double d = b->areaMm2 - a->areaMm2;
-    return d != 0 ? d < 0 : a->patchIndex < b->patchIndex;
-  });
-  std::vector<ClusterSeed> seeds;
-  const double clusterAngle = kMasterPlannerLimits.directionDedupAngleDeg * 3;
-  for (const PlanningPatch* patch : order) {
-    ClusterSeed* existing = nullptr;
-    for (ClusterSeed& s : seeds) {
-      if (angleBetweenDeg(s.direction, patch->normal) <= clusterAngle) { existing = &s; break; }
-    }
-    if (existing) existing->areaMm2 += patch->areaMm2;
-    else if (static_cast<int>(seeds.size()) < kMasterPlannerLimits.maxNormalClusterSeeds) seeds.push_back({patch->normal, patch->areaMm2});
-  }
-  return seeds;
-}
-
-/// JavaScript Math.round for the area label.
-double jsRound(double v) { return std::floor(v + 0.5); }
-}  // namespace
-
-std::vector<PlanningCandidateDirection> generateCandidateDirections(const PlanningMesh& mesh, const std::vector<float>& worldPositions) {
-  std::vector<PlanningCandidateDirection> canonical;
-  canonical.push_back({"world:world+X", {1, 0, 0}, "world-axis", "world+X"});
-  canonical.push_back({"world:world+Y", {0, 1, 0}, "world-axis", "world+Y"});
-  canonical.push_back({"world:world+Z", {0, 0, 1}, "world-axis", "world+Z"});
-
-  if (worldPositions.size() >= 9) {
-    const std::vector<Point3> axes = principalAxesOfCovariance(covarianceOfVertices(worldPositions));
-    for (std::size_t i = 0; i < axes.size(); ++i) {
-      const auto n = normalizeDirection(axes[i]);
-      if (!n) continue;
-      canonical.push_back({"pca:" + std::to_string(i), *n, "principal-axis", "principal-" + std::to_string(i)});
-    }
-  }
-
-  std::vector<ClusterSeed> clusters = dominantNormalClusters(mesh);
-  std::stable_sort(clusters.begin(), clusters.end(), [](const ClusterSeed& a, const ClusterSeed& b) { return b.areaMm2 < a.areaMm2; });
-  for (std::size_t i = 0; i < clusters.size(); ++i) {
-    const auto n = normalizeDirection(clusters[i].direction);
-    if (!n) continue;
-    canonical.push_back({"cluster:" + std::to_string(i), canonicalDirection(*n), "normal-cluster",
-                         "cluster-" + std::to_string(i) + "-area-" + jsNumberToString(jsRound(clusters[i].areaMm2))});
-  }
-
-  std::vector<PlanningCandidateDirection> unique;
-  for (const PlanningCandidateDirection& c : canonical) {
-    bool duplicate = false;
-    for (const auto& u : unique) {
-      if (angleBetweenDeg(u.vector, c.vector) <= kMasterPlannerLimits.directionDedupAngleDeg) { duplicate = true; break; }
-    }
-    if (duplicate) continue;
-    unique.push_back(c);
-    if (static_cast<int>(unique.size()) >= kMasterPlannerLimits.maxCandidateDirections) break;
-  }
-  std::vector<PlanningCandidateDirection> polarized;
-  for (const auto& c : unique) {
-    polarized.push_back(c);
-    polarized.push_back({c.directionId + ":neg", {-c.vector.x, -c.vector.y, -c.vector.z}, c.source, c.origin + "-neg"});
-  }
-  return polarized;
 }
 
 }  // namespace craft

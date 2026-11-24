@@ -28,10 +28,10 @@ namespace {
 QString progressLabel(const std::string& stage) {
   static const std::map<std::string, QString> labels{
       {"analyzing_geometry", QStringLiteral("Analyzing part…")},
-      {"building_accessibility", QStringLiteral("Finding release regions…")},
-      {"optimizing_working_mold", QStringLiteral("Choosing mold-piece count…")},
-      {"constructing_working_mold", QStringLiteral("Building working mold…")},
-      {"planning_master_tooling", QStringLiteral("Planning Master cases…")},
+      {"searching_release_axes", QStringLiteral("Searching release directions…")},
+      {"choosing_seam", QStringLiteral("Choosing the parting seam…")},
+      {"building_working_halves", QStringLiteral("Building the two working halves…")},
+      {"inverting_masters", QStringLiteral("Inverting each half into its master…")},
       {"verifying_release", QStringLiteral("Verifying release…")},
       {"finalizing", QStringLiteral("Finalizing…")}};
   const auto it = labels.find(stage);
@@ -42,10 +42,13 @@ QString plural(int n, const char* singular, const char* pluralForm) {
   return QStringLiteral("%1 %2").arg(n).arg(QLatin1String(n == 1 ? singular : pluralForm));
 }
 
-const std::vector<QColor>& setPalette() {
-  static const std::vector<QColor> p{QColor("#4f8cc9"), QColor("#c98a4f"), QColor("#6fb06f"), QColor("#b06fb0"), QColor("#c9c04f"), QColor("#4fc9b8")};
-  return p;
+/// Master A and Master B keep one colour each; their virtual working halves are drawn in the same colour as the master they are cast in.
+QColor bodyColour(const std::string& key) {
+  return key == "master-a" || key == "half-a" ? QColor("#4f8cc9") : QColor("#c98a4f");
 }
+
+/// Gap between bodies laid out side by side in the viewport.
+constexpr double kDisplayGapMm = 15;
 
 }  // namespace
 
@@ -53,10 +56,9 @@ const std::vector<QColor>& setPalette() {
 
 std::optional<std::string> AppController::masterLiveIdentity() const {
   if (!model_) return std::nullopt;
-  const MasterCastingProcessProfile profile;
-  const MasterPlanningPreferences preferences;
+  const MasterProcessProfile profile;
   const std::array<double, 16> identity{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
-  return masterSeedStalenessIdentity(masterSourceGeometryVersion(model_->geometryVersion, model_->groundedBounds, identity), printerVolume_, profile, preferences);
+  return masterSeedStalenessIdentity(masterSourceGeometryVersion(model_->geometryVersion, model_->groundedBounds, identity), printerVolume_, profile);
 }
 
 // --- generate / reset -------------------------------------------------------------------------------------------------------
@@ -119,7 +121,6 @@ void AppController::generateMasterMold() {
   const int generation = start.generationVersion;
   masterRunning_ = true;
   masterTimedOut_ = false;
-  masterUnportedPaths_.clear();
   lastMasterExport_.clear();  // it described the previous generation
   emit masterMoldChanged();
   setBusy(true, QStringLiteral("master-mold"), 0);
@@ -154,14 +155,12 @@ void AppController::generateMasterMold() {
         const bool wasRunning = masterRunning_;
         masterRunning_ = false;
         if (outcome.state == JobState::Succeeded && outcome.result) {
-          const std::vector<std::string> unported = outcome.result->unportedPaths;
           if (!masterStore_.commitGeneration(generation, std::move(*outcome.result), masterLiveIdentity())) return;  // superseded or reset
-          masterUnportedPaths_ = unported;
           showMasterBodies();
-          const auto ui = deriveMasterMoldUiState(masterStore_.status(), masterStore_.sets(), masterStore_.lastError());
-          setStatus(ui.kind == "success" ? QStringLiteral("Master Mold tooling generated.")
+          const auto ui = deriveMasterMoldUiState(masterStore_.status(), masterStore_.failure(), masterStore_.lastError());
+          setStatus(ui.kind == "success" ? QStringLiteral("Master A and Master B generated.")
                     : ui.kind == "stale"  ? QStringLiteral("Master Mold finished, but the part or printer context changed meanwhile.")
-                                          : QStringLiteral("Master Mold finished with blocked parts."));
+                                          : QStringLiteral("No two-master plan was found: %1").arg(QString::fromStdString(ui.message.value_or(std::string()))));
           emit masterMoldChanged();
           return;
         }
@@ -273,7 +272,6 @@ void AppController::clearMasterRun(bool resetStore) {
   abandonMasterRun(QString(), false);
   masterRunning_ = false;
   if (resetStore) masterStore_.reset();
-  masterUnportedPaths_.clear();
   lastMasterExport_.clear();
   if (masterShown_) {
     scene_.clearMoldBodies();
@@ -309,8 +307,8 @@ void AppController::toggleMasterPiece(const QString& pieceKey) {
   emit masterMoldChanged();
 }
 
-void AppController::isolateMasterSet(const QString& moldPartId) {
-  masterStore_.isolateToolingSet(moldPartId.toStdString());
+void AppController::isolateMasterSet(const QString& setId) {
+  masterStore_.isolateSet(setId.toStdString());
   showMasterBodies();
   emit masterMoldChanged();
 }
@@ -322,7 +320,7 @@ void AppController::showAllMasterPieces() {
 }
 
 void AppController::showMasterBodies() {
-  const auto renderable = selectRenderableMasterMoldBodies(masterStore_.sets(), masterStore_.pieceVisibility());
+  const auto renderable = selectRenderableMasterMoldBodies(masterStore_.status(), masterStore_.plan().get(), masterStore_.visibility());
   if (renderable.empty()) {
     if (masterShown_) {
       scene_.clearMoldBodies();
@@ -331,14 +329,26 @@ void AppController::showMasterBodies() {
     }
     return;
   }
-  std::map<std::string, std::size_t> setIndex;
-  for (const auto& entry : masterStore_.sets()) setIndex.emplace(entry.moldPartId, setIndex.size());
+  // The masters are in their own print frames (bed on z = 0, all near the origin): lay them side by side beside the part so they never overlap it or each
+  // other. The virtual working halves are in the part's frame and stay where the part is.
+  const Bounds3 partBounds = model_ ? model_->groundedBounds : Bounds3{{0, 0, 0}, {0, 0, 0}};
+  double nextX = partBounds.max.x + kDisplayGapMm;
   std::vector<SceneModel::BodyInput> inputs;
   std::vector<QColor> palette;
   for (const MasterMoldRenderableBody& body : renderable) {
-    inputs.push_back({QString::fromStdString(body.id), QString::fromStdString(body.name), std::make_shared<MeshPayload>(*body.mesh), body.bounds, body.volumeMm3});
-    const std::string partId = body.id.substr(0, body.id.find(':'));
-    palette.push_back(setPalette()[setIndex[partId] % setPalette().size()]);  // a stale piece keeps its own colour and is ghosted instead
+    auto mesh = std::make_shared<MeshPayload>(*body.mesh);
+    Bounds3 bounds = body.bounds;
+    if (body.inPrintFrame) {
+      const double dx = nextX - body.bounds.min.x, dy = partBounds.min.y - body.bounds.min.y;
+      for (std::size_t i = 0; i < mesh->vertexCount(); ++i) {
+        mesh->positions[3 * i] += dx;
+        mesh->positions[3 * i + 1] += dy;
+      }
+      bounds.min.x += dx; bounds.max.x += dx; bounds.min.y += dy; bounds.max.y += dy;
+      nextX += (body.bounds.max.x - body.bounds.min.x) + kDisplayGapMm;
+    }
+    inputs.push_back({QString::fromStdString(body.id), QString::fromStdString(body.name), std::move(mesh), bounds, body.volumeMm3});
+    palette.push_back(bodyColour(body.id));  // a stale body keeps its own colour and is ghosted instead
   }
   scene_.setMoldBodies(inputs);
   scene_.setPartOffset({0, 0, 0});
@@ -378,16 +388,15 @@ void AppController::exportMasterToolingTo(const QString& folderPath) {
     return;
   }
 
-  // The job owns a copy of the sets (shared, not copied again), so regenerating or resetting while it runs is safe.
-  const auto sets = std::make_shared<const std::vector<MasterToolingSetState>>(masterStore_.sets());
+  // The job shares the result it was started with, so regenerating or resetting while it runs is safe.
+  const auto source = std::make_shared<const toolingexport::MasterExportSource>(
+      toolingexport::MasterExportSource{masterStore_.status(), masterStore_.plan(), masterStore_.failure() ? masterStore_.failure()->message : std::string()});
   toolingexport::MasterExportOptions options;
   options.modelName = model_ ? model_->fileName.toStdString() : std::string("part");
   options.appVersion = applicationVersion().toStdString();
   options.exportedAtUtc = QDateTime::currentDateTimeUtc().toString(Qt::ISODate).toStdString();
   options.generationVersion = masterStore_.generationVersion();
-  options.write3mf = true;   // one 3MF with every piece beside the per-piece STLs (D-109)
-  options.unportedPathsReached = !masterUnportedPaths_.empty();
-  options.unportedPaths = masterUnportedPaths_;
+  options.write3mf = true;   // one 3MF with both masters beside the two STL files (D-109)
 
   struct Exported {
     QString folder, threeMf;
@@ -401,20 +410,16 @@ void AppController::exportMasterToolingTo(const QString& folderPath) {
   setStatus(QStringLiteral("Exporting Master tooling…"));
   runJob<Exported>(
       this, CancellationToken(),
-      [sets, options, folderPath](const CancellationToken& cancel, const ProgressCallback&) {
-        const toolingexport::MasterExportPlan plan = toolingexport::planMasterToolingExport(*sets, options.modelName);
+      [source, options, folderPath](const CancellationToken& cancel, const ProgressCallback&) {
+        const toolingexport::MasterExportPlan plan = toolingexport::planMasterToolingExport(*source, options.modelName);
         const toolingexport::MasterExportResult written =
             toolingexport::writeMasterToolingExport(plan, std::filesystem::path(folderPath.toStdWString()), options, cancel);
         Exported out;
         out.folder = QString::fromStdWString(written.folder.wstring());
         for (const auto& file : written.files) out.files << QString::fromStdWString(file.wstring());
         for (const std::string& warning : written.warnings) out.warnings << QString::fromStdString(warning);
-        for (const toolingexport::ExcludedItem& item : written.excluded) {
-          out.excluded << QStringLiteral("%1%2: %3")
-                              .arg(QString::fromStdString(item.moldPartName),
-                                   item.pieceId.empty() ? QString() : QStringLiteral(" / ") + QString::fromStdString(item.pieceId),
-                                   QString::fromStdString(item.reason));
-        }
+        for (const toolingexport::ExcludedItem& item : written.excluded)
+          out.excluded << QStringLiteral("%1: %2").arg(QString::fromStdString(item.name), QString::fromStdString(item.reason));
         if (!written.threeMf.empty()) out.threeMf = QString::fromStdWString(written.threeMf.wstring());
         out.bytes = written.totalBytes;
         return out;
@@ -430,8 +435,8 @@ void AppController::exportMasterToolingTo(const QString& folderPath) {
                                           {"warnings", r.warnings},
                                           {"excluded", r.excluded}};
           emit masterMoldChanged();
-          const QString message = r.threeMf.isEmpty() ? QStringLiteral("Exported %1 Master tooling piece(s) to %2").arg(r.files.size()).arg(r.folder)
-                                                      : QStringLiteral("Exported %1 Master tooling piece(s) as STL files and one 3MF to %2").arg(r.files.size()).arg(r.folder);
+          const QString message = r.threeMf.isEmpty() ? QStringLiteral("Exported Master A and Master B to %1").arg(r.folder)
+                                                      : QStringLiteral("Exported Master A and Master B as two STL files and one 3MF to %1").arg(r.folder);
           setStatus(message);
           emit exportFinished(true, message, r.files);
           return;
@@ -448,7 +453,7 @@ void AppController::exportMasterToolingTo(const QString& folderPath) {
 
 QVariantMap AppController::masterMold() const {
   const MasterMoldStore& store = masterStore_;
-  const MasterMoldUiState ui = deriveMasterMoldUiState(store.status(), store.sets(), store.lastError());
+  const MasterMoldUiState ui = deriveMasterMoldUiState(store.status(), store.failure(), store.lastError());
   QVariantMap m{{"status", QString::fromStdString(store.status())},
                 {"uiKind", QString::fromStdString(ui.kind)},
                 {"generating", store.status() == "generating"},
@@ -458,86 +463,79 @@ QVariantMap AppController::masterMold() const {
   if (store.progressStage()) progress = progressLabel(store.progressStage()->stage);
   m.insert("progressLabel", progress);
 
-  const bool complete = ui.kind == "success";
-  QString firstBlocked;
-  if ((ui.kind == "partial-success" || ui.kind == "blocked") && !ui.blockedMessages.empty()) firstBlocked = QString::fromStdString(ui.blockedMessages.front());
-  QString lastError;
+  // The banner: why there is no result, or that it is out of date. The code and release stage of a failure are shown with it.
+  QString banner;
   bool hasError = false;
   if (ui.kind == "error") {
-    lastError = QString::fromStdString(ui.message.value_or("Master Mold generation failed."));
+    banner = QString::fromStdString(ui.message.value_or("Master Mold generation failed."));
     hasError = true;
-  } else if (!firstBlocked.isEmpty()) {
-    lastError = firstBlocked;
+  } else if (ui.kind == "blocked" && store.failure()) {
+    const MasterFailure& f = *store.failure();
+    banner = QString::fromStdString(f.message);
+    if (f.stage != MasterReleaseStage::None) banner += QStringLiteral(" (stage: %1)").arg(QString::fromLatin1(masterReleaseStageName(f.stage)));
+    if (!f.diagnostics.empty()) banner += QStringLiteral(" ") + QString::fromStdString(f.diagnostics.front());
     hasError = true;
+  } else if (ui.kind == "stale") {
+    banner = QStringLiteral("Master Mold needs regeneration: the part or printer context changed since it was generated.");
   }
-  QString partial;
-  if (ui.kind == "partial-success") {
-    partial = QStringLiteral("%1 of %2 working mold part(s) could not be tooled; the rest remain valid. %3")
-                  .arg(ui.blockedSetCount).arg(ui.validSetCount + ui.blockedSetCount).arg(firstBlocked);
-  }
-  QString banner;
-  if (hasError) banner = partial.isEmpty() ? lastError : partial;
-  else if (ui.kind == "stale") banner = QStringLiteral("Master Mold needs regeneration: the part or printer context changed since it was generated.");
   m.insert("banner", banner);
   m.insert("bannerIsError", hasError);
+  m.insert("failureCode", store.failure() ? QString::fromLatin1(masterOutcomeCodeName(store.failure()->code)) : QString());
 
   QStringList summaryLines;
-  if (store.summary() && complete && store.summary()->allReleasesVerified) {
+  const MasterMoldPlan* plan = store.plan().get();
+  if (plan && ui.kind == "success" && store.summary()) {
     const MasterMoldSummary& s = *store.summary();
-    summaryLines << QStringLiteral("Working mold: %1").arg(plural(s.workingMoldPieceCount, "part", "parts"))
-                 << QStringLiteral("Master tooling: %1").arg(plural(s.masterToolingPieceCount, "printable piece", "printable pieces"))
-                 << QStringLiteral("%1, %2 multi-panel").arg(plural(s.onePieceCases, "one-piece case", "one-piece cases")).arg(s.multiPieceCases)
-                 << (s.warningCount > 0 ? plural(s.warningCount, "recommendation", "recommendations") : QStringLiteral("All release sequences verified"));
+    summaryLines << QStringLiteral("Master A and Master B: two independent printable tools")
+                 << QStringLiteral("Mold-making material to fill: %1 and %2 cm³ (+%3% waste)")
+                        .arg(QString::number(plan->masters[0].fillVolumeMm3 / 1000.0, 'f', 1), QString::number(plan->masters[1].fillVolumeMm3 / 1000.0, 'f', 1),
+                             QString::number(plan->materials[0].wasteMargin * 100.0, 'f', 0))
+                 << (s.allReleasesVerified ? QStringLiteral("All release checks verified (digital model only)") : QStringLiteral("Some release checks are not verified"));
+    for (const MasterMaterialEstimate& e : plan->materials)
+      if (e.massG) summaryLines << QStringLiteral("%1 working half: about %2 g of mold-making material").arg(QString::fromLatin1(masterToolName(e.id)), QString::number(*e.massG, 'f', 0));
+    if (s.warningCount > 0) summaryLines << QStringLiteral("%1 recommendation(s)").arg(s.warningCount);
   }
   m.insert("summaryLines", summaryLines);
+  QStringList warnings;
+  QStringList uncertainty;
+  if (plan) {
+    for (const std::string& w : plan->warnings) warnings << QString::fromStdString(w);
+    for (const std::string& u : plan->residualUncertainty) uncertainty << QString::fromStdString(u);
+  }
+  m.insert("warnings", warnings);
+  m.insert("residualUncertainty", uncertainty);
 
-  const bool inspectable = ui.kind == "success" || ui.kind == "partial-success" || ui.kind == "stale";
+  // Two groups the panel lists: the printable masters, and the virtual working halves (a preview, never exported).
+  const bool inspectable = ui.kind == "success" || ui.kind == "stale";
   QVariantList sets;
-  for (const MasterToolingSetState& entry : store.sets()) {
-    QVariantList pieces;
-    if (entry.set) {
-      for (const MasterToolingPiece& piece : entry.set->assembly.pieces) {
-        const std::string key = masterMoldPieceKey(entry.moldPartId, piece.pieceId);
-        const auto it = store.pieceVisibility().find(key);
-        pieces << QVariantMap{{"key", QString::fromStdString(key)},
-                              {"name", QString::fromStdString(piece.name)},
-                              {"visible", it == store.pieceVisibility().end() || it->second},
-                              {"volumeMm3", piece.volumeMm3},
-                              {"triangleCount", piece.triangleCount}};
-      }
+  if (plan && inspectable) {
+    QVariantList masters, halves;
+    for (const MasterTool& t : plan->masters) {
+      const std::string key = masterBodyKey(t.id);
+      masters << QVariantMap{{"key", QString::fromStdString(key)}, {"name", QString::fromStdString(t.name)}, {"visible", store.visible(key)},
+                             {"volumeMm3", t.facts.volumeMm3}, {"triangleCount", t.facts.triangleCount}};
     }
-    sets << QVariantMap{{"id", QString::fromStdString(entry.moldPartId)},
-                        {"name", QString::fromStdString(entry.moldPartName)},
-                        {"status", QString::fromStdString(entry.status)},
-                        {"releaseMode", entry.set ? QString::fromStdString(entry.set->releaseMode) : QString()},
-                        {"failureMessage", entry.failureMessage ? QString::fromStdString(*entry.failureMessage) : QString()},
-                        {"pieces", pieces},
-                        {"canIsolate", entry.set && !entry.set->assembly.pieces.empty()}};
+    for (const VirtualWorkingHalf& h : plan->halves) {
+      const std::string key = halfBodyKey(h.id);
+      halves << QVariantMap{{"key", QString::fromStdString(key)}, {"name", QString::fromStdString(h.name) + QStringLiteral(" (virtual)")}, {"visible", store.visible(key)},
+                            {"volumeMm3", h.facts.volumeMm3}, {"triangleCount", h.facts.triangleCount}};
+    }
+    sets << QVariantMap{{"id", QString::fromLatin1(kMasterSetMasters)}, {"name", QStringLiteral("Printable masters")}, {"status", QString::fromStdString(store.status())},
+                        {"releaseMode", QStringLiteral("export")}, {"failureMessage", QString()}, {"pieces", masters}, {"canIsolate", true}};
+    sets << QVariantMap{{"id", QString::fromLatin1(kMasterSetHalves)}, {"name", QStringLiteral("Working-mold halves")}, {"status", QString::fromStdString(store.status())},
+                        {"releaseMode", QStringLiteral("preview only")}, {"failureMessage", QString()}, {"pieces", halves}, {"canIsolate", true}};
   }
   m.insert("sets", sets);
-  m.insert("showPieces", hasRenderableToolingGeometry(store.sets()) && ui.kind != "blocked" && ui.kind != "error" && inspectable);
-  m.insert("workingMoldPieceCount", store.plan() ? static_cast<int>(store.plan()->moldPieces.size()) : 0);
+  m.insert("showPieces", plan != nullptr && inspectable);
+  m.insert("masterCount", plan ? kMasterToolCount : 0);
   m.insert("generationVersion", store.generationVersion());
-  m.insert("schemaVersion", kMasterMoldSchemaVersion);
+  m.insert("contractVersion", kMasterContractVersion);
 
-  // Exportable = some tooling set is current and has pieces. Stale or blocked sets are never exported (they are listed
-  // in the export's manifest as excluded).
-  bool exportable = false;
-  int exportablePieces = 0;
-  for (const MasterToolingSetState& entry : store.sets()) {
-    if (entry.status == "current" && entry.set) exportablePieces += static_cast<int>(entry.set->assembly.pieces.size());
-  }
-  exportable = exportablePieces > 0 && store.status() != "generating" && !masterExporting_;
+  // Exportable = the current result. A stale or blocked result is never exported.
+  const bool exportable = plan != nullptr && store.status() == "current" && !masterExporting_;
   m.insert("canExport", exportable);
-  m.insert("exportablePieceCount", exportablePieces);
   m.insert("exporting", masterExporting_);
   m.insert("lastExport", lastMasterExport_);
-
-  // Honest scope notice: strategies of the reference that this build does not have.
-  m.insert("incomplete", !masterUnportedPaths_.empty());
-  QStringList unported;
-  for (const auto& p : masterUnportedPaths_) unported << QString::fromStdString(p);
-  m.insert("incompleteNote", unported.isEmpty() ? QString() : QStringLiteral("This result may be missing options the full planner would try: %1.").arg(unported.join(QStringLiteral("; "))));
   return m;
 }
 
